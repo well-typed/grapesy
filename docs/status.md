@@ -27,10 +27,14 @@ ever growing (and hopefully eventually shrinking) list of things to do.
       currently cause the client to block indefinitely (if they are waiting for
       a response). We should propagate these exceptions.
 
+      Status: I think this is fixed, but needs tests.
+
 - [ ] Related: if the function provided to `biDirStreaming` et al. throws
       an exception, we similarly block indefinitely (this can happen for example
       if we have a final unexpected delay, see 'execAll'). The exception is
       moreover swallowed.
+
+      Status: I think this is fixed, but needs tests.
 
 - [ ] When we run an RPC call against a server that does not implement it,
 
@@ -93,7 +97,7 @@ ever growing (and hopefully eventually shrinking) list of things to do.
 - [X] Update demo once we have specialized functions for the various
       Protobuf communication patterns.
 - [ ] Update demo when we have a server-side implementation, too.
-- [ ] Update demo for conduit
+- [X] Update demo for conduit
 
 ## Things to figure out/read
 
