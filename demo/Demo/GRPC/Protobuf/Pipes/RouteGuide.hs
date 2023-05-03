@@ -13,7 +13,6 @@ import Pipes.Safe
 
 import Network.GRPC.Client
 import Network.GRPC.Protobuf.Pipes
-import Network.GRPC.Spec
 
 import Proto.RouteGuide
 
@@ -27,29 +26,29 @@ import Demo.Driver.Logging
 
 listFeatures ::
      Connection
-  -> RequestMeta
+  -> CallParams
   -> Rectangle
   -> IO ()
-listFeatures conn meta r = runSafeT . runEffect $
-    let prod = serverStreaming conn meta (RPC @RouteGuide @"listFeatures") r
+listFeatures conn params r = runSafeT . runEffect $
+    let prod = serverStreaming conn params (RPC @RouteGuide @"listFeatures") r
     in (prod >>= log) >-> Pipes.mapM_ log
 
 recordRoute ::
      Connection
-  -> RequestMeta
+  -> CallParams
   -> Producer' (IsFinal, Point) (SafeT IO) ()
   -> IO ()
-recordRoute conn meta ps = runSafeT . runEffect $
-    let cons = clientStreaming conn meta (RPC @RouteGuide @"recordRoute")
+recordRoute conn params ps = runSafeT . runEffect $
+    let cons = clientStreaming conn params (RPC @RouteGuide @"recordRoute")
     in ps >-> (cons >>= log)
 
 routeChat ::
      Connection
-  -> RequestMeta
+  -> CallParams
   -> Producer' (IsFinal, RouteNote) IO ()
   -> IO ()
-routeChat conn meta ns =
-    biDiStreaming conn meta (RPC @RouteGuide @"routeChat") $ \cons prod ->
+routeChat conn params ns =
+    biDiStreaming conn params (RPC @RouteGuide @"routeChat") $ \cons prod ->
       concurrently_
         (runEffect $ ns >-> cons)
         (runEffect $ (prod >>= log) >-> Pipes.mapM_ log)

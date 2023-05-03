@@ -19,7 +19,6 @@ import Pipes.Safe
 import Network.GRPC.Client
 import Network.GRPC.Protobuf (expectedOutput, expectedTrailers)
 import Network.GRPC.Protobuf.RequireStreamingType
-import Network.GRPC.Spec
 import Network.GRPC.Spec.RPC
 import Network.GRPC.Spec.RPC.Protobuf
 
@@ -31,15 +30,15 @@ clientStreaming :: forall s m.
      IsRPC (RPC s m)
   => MethodStreamingType s m ~ ClientStreaming
   => Connection
-  -> RequestMeta
+  -> CallParams
   -> RPC s m
   -> Consumer'
        (IsFinal, Input (RPC s m))
        (SafeT IO)
        (Output (RPC s m), Trailers)
-clientStreaming conn meta rpc =
+clientStreaming conn params rpc =
     requireStreamingType rpc (Proxy @ClientStreaming) $
-      withRPC conn meta rpc $ \call -> do
+      withRPC conn params rpc $ \call -> do
         sendAll call
         liftIO $ do
           output   <- atomically $ recvOutput call
@@ -52,17 +51,15 @@ serverStreaming :: forall s m.
      IsRPC (RPC s m)
   => MethodStreamingType s m ~ ServerStreaming
   => Connection
-  -> RequestMeta
+  -> CallParams
   -> RPC s m
   -> Input (RPC s m)
   -> Producer' (Output (RPC s m)) (SafeT IO) Trailers
-serverStreaming conn meta rpc input =
+serverStreaming conn params rpc input =
     requireStreamingType rpc (Proxy @ServerStreaming) $
-      withRPC conn meta rpc $ \call -> aux call
+      withRPC conn params rpc $ \call -> aux call
   where
-    aux ::
-         OpenCall (RPC s m)
-      -> Producer' (Output (RPC s m)) (SafeT IO) Trailers
+    aux :: Call (RPC s m) -> Producer' (Output (RPC s m)) (SafeT IO) Trailers
     aux call = do
         liftIO $ atomically $ sendInput call Final $ Just input
         recvAll call
@@ -82,16 +79,16 @@ biDiStreaming :: forall s m a.
      IsRPC (RPC s m)
   => MethodStreamingType s m ~ BiDiStreaming
   => Connection
-  -> RequestMeta
+  -> CallParams
   -> RPC s m
   -> (    Consumer' (IsFinal, Input (RPC s m)) IO ()
        -> Producer' (Output (RPC s m)) IO Trailers
        -> IO a
      )
   -> IO a
-biDiStreaming conn meta rpc k =
+biDiStreaming conn params rpc k =
     requireStreamingType rpc (Proxy @BiDiStreaming) $
-      withRPC conn meta rpc $ \call ->
+      withRPC conn params rpc $ \call ->
         k (sendAll call) (recvAll call)
 
 {-------------------------------------------------------------------------------
@@ -100,7 +97,7 @@ biDiStreaming conn meta rpc k =
 
 sendAll :: forall f s m.
      MonadIO f
-  => OpenCall (RPC s m)
+  => Call (RPC s m)
   -> Consumer' (IsFinal, Input (RPC s m)) f ()
 sendAll call = loop
   where
@@ -112,7 +109,7 @@ sendAll call = loop
 
 recvAll :: forall f s m.
      MonadIO f
-  => OpenCall (RPC s m)
+  => Call (RPC s m)
   -> Producer' (Output (RPC s m)) f Trailers
 recvAll call = loop
   where

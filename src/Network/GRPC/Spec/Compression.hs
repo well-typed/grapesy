@@ -3,6 +3,9 @@
 -- | Compression
 --
 -- Intended for qualified import.
+--
+-- > import Network.GRPC.Spec.Compression (Compression)
+-- > import Network.GRPC.Spec.Compression qualified as Compression
 module Network.GRPC.Spec.Compression (
     -- * Definition
     Compression(..)
@@ -14,8 +17,10 @@ module Network.GRPC.Spec.Compression (
   , deserializeId
     -- * Specific coders
   , identity
+  , gzip
   ) where
 
+import Codec.Compression.GZip qualified as GZip
 import Data.ByteString qualified as Strict (ByteString)
 import Data.ByteString.Lazy qualified as Lazy
 import Data.ByteString.UTF8 qualified as BS.UTF8
@@ -27,9 +32,6 @@ import Data.String
 -------------------------------------------------------------------------------}
 
 -- | Compression scheme
---
--- The gRPC spec refers to this as \"encoding\", but \"encode\" and \"decode\"
--- are overloaded terms, whereas 'compress' and 'decompress' are unambiguous.
 data Compression = Compression {
       -- | Compression identifier
       compressionId :: CompressionId
@@ -44,8 +46,12 @@ data Compression = Compression {
 instance Show Compression where
   show Compression{compressionId} = "<Compression " ++ show compressionId ++ ">"
 
+-- | All compression algorithms supported by @grapesy@
+--
+-- The order of this list is important: algorithms listed earlier are preferred
+-- over algorithms listed later.
 allSupported :: NonEmpty Compression
-allSupported = identity :| []
+allSupported = gzip :| [identity]
 
 {-------------------------------------------------------------------------------
   Compression ID
@@ -88,7 +94,7 @@ isIdentity :: Compression -> Bool
 isIdentity = (== Identity) . compressionId
 
 {-------------------------------------------------------------------------------
-  Identity
+  Compression algorithms
 -------------------------------------------------------------------------------}
 
 identity :: Compression
@@ -96,4 +102,12 @@ identity = Compression {
       compressionId = Identity
     , compress      = id
     , decompress    = id
+    }
+
+-- TODO: We should deal with errors during decompression
+gzip :: Compression
+gzip = Compression {
+      compressionId = GZip
+    , compress      = GZip.compress
+    , decompress    = GZip.decompress
     }

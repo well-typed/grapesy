@@ -60,21 +60,24 @@ library
       -Wprepositive-qualified-module
   exposed-modules:
       Network.GRPC.Client
-
-      -- TODO: Should the .Spec modules be internal?
-      Network.GRPC.Spec
-      Network.GRPC.Spec.Compression
-      Network.GRPC.Spec.HTTP2
-      Network.GRPC.Spec.RPC
-      Network.GRPC.Spec.CustomMetadata
+      Network.GRPC.Compression
       Network.GRPC.Protobuf
       Network.GRPC.Protobuf.Pipes
-
-      -- TODO: Move to other-modules
-      Network.GRPC.Util.List
   other-modules:
-      Network.GRPC.Client.OpenCall
+      Network.GRPC.Client.Call
+      Network.GRPC.Client.Connection
+      Network.GRPC.Client.Connection.Meta
+      Network.GRPC.Client.Connection.Params
+      Network.GRPC.Client.Logging
       Network.GRPC.Protobuf.RequireStreamingType
+      Network.GRPC.Spec
+      Network.GRPC.Spec.Compression
+      Network.GRPC.Spec.CustomMetadata
+      Network.GRPC.Spec.HTTP2.Connection
+      Network.GRPC.Spec.HTTP2.LengthPrefixed
+      Network.GRPC.Spec.HTTP2.Request
+      Network.GRPC.Spec.HTTP2.Response
+      Network.GRPC.Spec.RPC
       Network.GRPC.Spec.RPC.Protobuf
       Network.GRPC.Util.ByteString
       Network.GRPC.Util.HKD
@@ -104,6 +107,7 @@ library
     , stm
     , text
     , utf8-string
+    , zlib
 
 test-suite test-grapesy
   import:

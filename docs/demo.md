@@ -30,7 +30,7 @@ The demo client supports a `--debug` command line argument. If enabled, you will
 get verbose debug logs of the communication between the client and the server.
 
 ```
-cabal run demo -- --debug Greeter SayHello 'John'
+cabal run demo -- --debug sayHello --name 'John'
 ```
 
 ## Quick start
@@ -56,10 +56,42 @@ Assumes running server:
 Run client with
 
 ```
-cabal run demo -- sayHello 'John'
+cabal run demo -- sayHello --name 'John'
 ```
 
 The output will be slightly different depending on which server you use.
+
+### Testing compression
+
+Unlike most demos, the `sayHello` example can also send _multiple_ messages:
+
+```
+cabal run demo -- sayHello --name 'John' --name 'Alice'
+```
+
+This can be interesting for example to verify that compression is working
+propertly (the first message will be sent without compression since it's not
+yet unknown what compression schemes the server supports, but subsequent
+messages should then be compressed). However, it takes a bit of effort to make
+the server actually compress anything:
+
+* You need to enable compression in the server; for the Python one, see
+  https://github.com/grpc/grpc/blob/master/examples/python/compression/README.md
+* You need to send a "name" that is long enough that the server actually
+  bothers with compression at all.
+* You can also use the `--gzip` command line flag to tell the server to /only/
+  use GZip compression.
+
+For example:
+
+```
+cabal run demo -- --gzip sayHello \
+  --name 'John' \
+  --name '0xxxxxxxxxx1xxxxxxxxxx2xxxxxxxxxx3xxxxxxxxxx4xxxxxxxxxx5xxxxxxxxxx'
+```
+
+Of course, the compression is transparent to the user, but you can observe in
+in Wireshark.
 
 ### `helloworld.Greeter.SayHelloStreamReply`
 
@@ -76,7 +108,7 @@ grpc-repo/examples/python/wait_for_ready$
 Run client with
 
 ```
-cabal run demo -- sayHelloStreamReply 'John'
+cabal run demo -- sayHelloStreamReply --name 'John'
 ```
 
 Note that the Python server has some intentional delays in there, so the
