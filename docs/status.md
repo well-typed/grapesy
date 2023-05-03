@@ -7,7 +7,9 @@ ever growing (and hopefully eventually shrinking) list of things to do.
 
 - [ ] Compression schemes
 
-- [ ] (As part of compression schemes:) When we send the first message to the
+      Status: GZip is now supported, but no other compression algorithms yet.
+
+- [X] (As part of compression schemes:) When we send the first message to the
       server, it will respond with the list of compression schemes it supports.
       We should store this as part of the connection state. (For the C++ example
       servers from the official repo this is `deflate` and `gzip`.)
@@ -17,9 +19,6 @@ ever growing (and hopefully eventually shrinking) list of things to do.
       and https://github.com/grpc/proposal/blob/master/A6-client-retries.md .
 
 - [ ] Authentication (ALTS)
-
-- [ ] `Network.GRPC.Client.Request` currently uses one-place buffers. We should
-      replace these with `n`-place buffers, for configurable `n`.
 
 ## Bugs
 
@@ -165,3 +164,7 @@ ever growing (and hopefully eventually shrinking) list of things to do.
       it's not that easy to fix, because the first thing their parser does is
       turn the strict bytestring into a C pointer to the raw bytes and then
       proceeds from there.
+
+- [ ] `Network.GRPC.Client.Request` currently uses one-place buffers. We should
+      replace these with `n`-place buffers, for configurable `n`.
+
