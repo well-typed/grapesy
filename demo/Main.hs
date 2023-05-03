@@ -3,19 +3,20 @@
 -- See @docs/demo.md@ for documentation.
 module Main (main) where
 
+import Control.Monad
 import Control.Tracer
 import Data.Default
 
 import Network.GRPC.Client
-import Network.GRPC.Spec
+import Network.GRPC.Compression qualified as Compresion
 
 import Demo.Driver.Cmdline
 import Demo.Driver.DelayOr
 import Demo.Driver.Logging
 
-import Demo.GRPC.Protobuf.Greeter          qualified as Greeter
-import Demo.GRPC.Protobuf.Pipes.RouteGuide qualified as Pipes.RouteGuide
-import Demo.GRPC.Protobuf.RouteGuide       qualified as RouteGuide
+import Demo.GRPC.Protobuf.Greeter          qualified as IO.Greeter
+import Demo.GRPC.Protobuf.Pipes.RouteGuide qualified as Pi.RouteGuide
+import Demo.GRPC.Protobuf.RouteGuide       qualified as IO.RouteGuide
 
 {-------------------------------------------------------------------------------
   Application entry point
@@ -25,42 +26,48 @@ main :: IO ()
 main = do
     cmd <- getCmdline
 
-    connect cmd $ \conn ->
+    withConnection (connParams cmd) $ \conn ->
       case cmdMethod cmd of
-        SomeMethod SGreeter (SSayHello name) ->
-          Greeter.sayHello conn (meta cmd) name
+        SomeMethod SGreeter (SSayHello names) ->
+          forM_ names $ IO.Greeter.sayHello conn (callParams cmd)
         SomeMethod SGreeter (SSayHelloStreamReply name) ->
-          Greeter.sayHelloStreamReply conn (meta cmd) name
+          IO.Greeter.sayHelloStreamReply conn (callParams cmd) name
         SomeMethod SRouteGuide (SGetFeature p) ->
-          RouteGuide.getFeature conn (meta cmd) p
+          IO.RouteGuide.getFeature conn (callParams cmd) p
         SomeMethod SRouteGuide (SListFeatures r) ->
           if cmdUsePipes cmd
-            then Pipes.RouteGuide.listFeatures conn (meta cmd) r
-            else RouteGuide.listFeatures conn (meta cmd) r
+            then Pi.RouteGuide.listFeatures conn (callParams cmd) r
+            else IO.RouteGuide.listFeatures conn (callParams cmd) r
         SomeMethod SRouteGuide (SRecordRoute ps) ->
           if cmdUsePipes cmd
-            then Pipes.RouteGuide.recordRoute conn (meta cmd) (yieldAll ps)
-            else RouteGuide.recordRoute conn (meta cmd) =<< execAll ps
+            then Pi.RouteGuide.recordRoute conn (callParams cmd) $ yieldAll ps
+            else IO.RouteGuide.recordRoute conn (callParams cmd) =<< execAll ps
         SomeMethod SRouteGuide (SRouteChat notes) ->
           if cmdUsePipes cmd
-            then Pipes.RouteGuide.routeChat conn (meta cmd) (yieldAll notes)
-            else RouteGuide.routeChat conn (meta cmd) =<< execAll notes
+            then Pi.RouteGuide.routeChat conn (callParams cmd) $ yieldAll notes
+            else IO.RouteGuide.routeChat conn (callParams cmd) =<< execAll notes
 
 {-------------------------------------------------------------------------------
   Interpret command line
 -------------------------------------------------------------------------------}
 
-connect :: Cmdline -> (Connection -> IO a) -> IO a
-connect cmd = withConnection (connectionTracer cmd) Http (cmdAuthority cmd)
+connParams :: Cmdline -> ConnParams
+connParams cmd = defaults {
+      connTracer =
+        if cmdDebug cmd
+          then contramap show threadSafeTracer
+          else connTracer defaults
+    , connUpdateCompression =
+        case cmdCompression cmd of
+          Just alg -> Compresion.forceAlgorithm alg
+          Nothing  -> connUpdateCompression defaults
+    }
+  where
+    defaults :: ConnParams
+    defaults = defaultConnParams $ cmdAuthority cmd
 
-connectionTracer :: Show a => Cmdline -> Tracer IO a
-connectionTracer cmd
-  | cmdDebug cmd = contramap show threadSafeTracer
-  | otherwise    = nullTracer
-
--- | Request meta-information
-meta :: Cmdline -> RequestMeta
-meta cmd = def{
-      requestTimeout = Timeout Second . TimeoutValue <$> cmdTimeout cmd
+callParams :: Cmdline -> CallParams
+callParams cmd = def{
+      callTimeout = Timeout Second . TimeoutValue <$> cmdTimeout cmd
     }
 

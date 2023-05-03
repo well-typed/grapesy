@@ -23,7 +23,9 @@ import Data.Text (Text)
 import GHC.TypeLits (Symbol)
 import Options.Applicative
 
-import Network.GRPC.Spec
+import Network.GRPC.Client (Authority(..))
+import Network.GRPC.Compression (Compression)
+import Network.GRPC.Compression qualified as Compression
 
 import Proto.Helloworld
 import Proto.RouteGuide
@@ -35,11 +37,12 @@ import Demo.Driver.DelayOr
 -------------------------------------------------------------------------------}
 
 data Cmdline = Cmdline {
-      cmdAuthority :: Authority
-    , cmdDebug     :: Bool
-    , cmdTimeout   :: Maybe Word
-    , cmdUsePipes  :: Bool
-    , cmdMethod    :: SomeMethod
+      cmdAuthority   :: Authority
+    , cmdDebug       :: Bool
+    , cmdTimeout     :: Maybe Word
+    , cmdUsePipes    :: Bool
+    , cmdCompression :: Maybe Compression
+    , cmdMethod      :: SomeMethod
     }
   deriving (Show)
 
@@ -57,8 +60,8 @@ deriving stock instance Show (SService s)
 
 -- | Select method
 data SMethod :: Type -> Symbol -> Type where
-  SSayHello            :: HelloRequest -> SMethod Greeter "sayHello"
-  SSayHelloStreamReply :: HelloRequest -> SMethod Greeter "sayHelloStreamReply"
+  SSayHello            :: [HelloRequest] -> SMethod Greeter "sayHello"
+  SSayHelloStreamReply :: HelloRequest   -> SMethod Greeter "sayHelloStreamReply"
 
   SGetFeature   :: Point               -> SMethod RouteGuide "getFeature"
   SListFeatures :: Rectangle           -> SMethod RouteGuide "listFeatures"
@@ -90,6 +93,7 @@ parseCmdline =
                long "pipes"
              , help "Use the pipes interface (where applicable)"
              ])
+      <*> optional parseCompression
       <*> parseSomeMethod
 
 {-------------------------------------------------------------------------------
@@ -110,6 +114,14 @@ parseAuthority =
             , value 50051
             ])
 
+parseCompression :: Parser Compression
+parseCompression = asum [
+      flag' Compression.gzip $ mconcat [
+          long "gzip"
+        , help "Use GZip compression for all messages"
+        ]
+    ]
+
 {-------------------------------------------------------------------------------
   Select method
 -------------------------------------------------------------------------------}
@@ -118,7 +130,7 @@ parseSomeMethod :: Parser SomeMethod
 parseSomeMethod = subparser $ mconcat [
       sub "sayHello" "helloworld.Greeter.SayHello" $
         SomeMethod SGreeter . SSayHello <$>
-          parseHelloRequest
+          many parseHelloRequest
     , sub "sayHelloStreamReply" "helloworld.Greeter.SayHelloStreamReply" $
         SomeMethod SGreeter . SSayHelloStreamReply <$>
           parseHelloRequest
@@ -152,7 +164,10 @@ parseDelayOr p = asum [
 
 parseHelloRequest :: Parser HelloRequest
 parseHelloRequest =
-    mkHelloRequest <$> argument str (metavar "NAME")
+    mkHelloRequest <$> option str (mconcat [
+        long "name"
+      , metavar "NAME"
+      ])
   where
     mkHelloRequest :: Text -> HelloRequest
     mkHelloRequest name = (defMessage & #name .~ name)

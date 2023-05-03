@@ -28,7 +28,6 @@ import Data.Proxy
 import GHC.TypeLits
 
 import Network.GRPC.Client
-import Network.GRPC.Spec
 import Network.GRPC.Spec.RPC
 import Network.GRPC.Spec.RPC.Protobuf
 import Network.GRPC.Protobuf.RequireStreamingType
@@ -57,15 +56,15 @@ nonStreaming ::
      IsRPC (RPC s m)
   => MethodStreamingType s m ~ NonStreaming
   => Connection
-  -> RequestMeta
+  -> CallParams
   -> RPC s m
   -> Input (RPC s m)
   -- ^ Single input
   -> IO (Output (RPC s m), Trailers)
   -- ^ Single output
-nonStreaming conn meta rpc input =
+nonStreaming conn params rpc input =
     requireStreamingType rpc (Proxy @NonStreaming) $
-      withRPC conn meta rpc $ \call -> do
+      withRPC conn params rpc $ \call -> do
         atomically $ sendInput call Final $ Just input
         output   <- atomically $ recvOutput call
                              >>= either (expectedOutput rpc) return
@@ -77,15 +76,15 @@ clientStreaming :: forall s m.
      IsRPC (RPC s m)
   => MethodStreamingType s m ~ ClientStreaming
   => Connection
-  -> RequestMeta
+  -> CallParams
   -> RPC s m
   -> IO (IsFinal, Input (RPC s m))
   -- ^ We will repeatedly call this function until it returns a 'Final' 'Input'.
   -> IO (MethodOutput s m, Trailers)
   -- ^ Single output
-clientStreaming conn meta rpc produceInput =
+clientStreaming conn params rpc produceInput =
     requireStreamingType rpc (Proxy @ClientStreaming) $
-      withRPC conn meta rpc $ \call -> do
+      withRPC conn params rpc $ \call -> do
         sendAll produceInput call
         output   <- atomically $ recvOutput call
                              >>= either (expectedOutput rpc) return
@@ -97,16 +96,16 @@ serverStreaming :: forall s m.
      IsRPC (RPC s m)
   => MethodStreamingType s m ~ ServerStreaming
   => Connection
-  -> RequestMeta
+  -> CallParams
   -> RPC s m
   -> Input (RPC s m)
   -- ^ Single input
   -> (Output (RPC s m) -> IO ())
   -- ^ We wil call this function for every 'Output' we receive.
   -> IO Trailers
-serverStreaming conn meta rpc input processOutput =
+serverStreaming conn params rpc input processOutput =
     requireStreamingType rpc (Proxy @ServerStreaming) $
-      withRPC conn meta rpc $ \call -> do
+      withRPC conn params rpc $ \call -> do
         atomically $ sendInput call Final $ Just input
         recvAll processOutput call
 
@@ -114,7 +113,7 @@ biDiStreaming :: forall s m.
      IsRPC (RPC s m)
   => MethodStreamingType s m ~ BiDiStreaming
   => Connection
-  -> RequestMeta
+  -> CallParams
   -> RPC s m
   -> IO (IsFinal, Input (RPC s m))
   -- ^ We will repeatedly call this function until it returns a 'Final' 'Input'
@@ -122,9 +121,9 @@ biDiStreaming :: forall s m.
   -> (Output (RPC s m) -> IO ())
   -- ^ We wil call this function for every 'Output' we receive.
   -> IO Trailers
-biDiStreaming conn meta rpc produceInput processOutput =
+biDiStreaming conn params rpc produceInput processOutput =
     requireStreamingType rpc (Proxy @BiDiStreaming) $
-      withRPC conn meta rpc $ \call -> do
+      withRPC conn params rpc $ \call -> do
         withAsync (sendAll produceInput call) $ \_sendAllThread ->
           recvAll processOutput call
 
@@ -132,7 +131,7 @@ biDiStreaming conn meta rpc produceInput processOutput =
   Internal auxiliary
 -------------------------------------------------------------------------------}
 
-sendAll :: IO (IsFinal, MethodInput s m) -> OpenCall (RPC s m) -> IO ()
+sendAll :: IO (IsFinal, MethodInput s m) -> Call (RPC s m) -> IO ()
 sendAll produceInput call = loop
   where
     loop :: IO ()
@@ -141,7 +140,7 @@ sendAll produceInput call = loop
         atomically $ sendInput call isFinal $ Just input
         unless (isFinal == Final) loop
 
-recvAll :: (MethodOutput s m -> IO a) -> OpenCall (RPC s m) -> IO Trailers
+recvAll :: (MethodOutput s m -> IO a) -> Call (RPC s m) -> IO Trailers
 recvAll processOutput call = loop
   where
     loop :: IO Trailers

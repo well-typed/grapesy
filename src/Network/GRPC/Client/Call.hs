@@ -1,11 +1,11 @@
 -- | Internal state of an open RPC call
 --
 -- Intended for uqnqualified import.
-module Network.GRPC.Client.OpenCall (
+module Network.GRPC.Client.Call (
     -- * Definition
     IsFinal(..)
   , Trailers(..)
-  , OpenCall(..)
+  , Call(..)
   , InboundQ
   , OutboundQ
     -- * Construction
@@ -15,6 +15,7 @@ module Network.GRPC.Client.OpenCall (
   , LogRPC(..)
   ) where
 
+import Control.Concurrent
 import Control.Concurrent.STM
 import Control.Exception
 import Control.Monad
@@ -24,6 +25,7 @@ import Data.ByteString qualified as BS.Strict
 import Data.ByteString.Builder qualified as BS
 import Data.ByteString.Lazy qualified as BS.Lazy
 import Data.ByteString.Lazy qualified as Lazy
+import Data.List.NonEmpty qualified as NE
 import Data.Maybe (fromMaybe)
 import Data.SOP
 import GHC.Stack
@@ -32,54 +34,49 @@ import Network.HPACK.Token qualified as HPACK
 import Network.HTTP.Types qualified as HTTP
 import Network.HTTP2.Client qualified as Client
 
+import Network.GRPC.Client.Connection
+import Network.GRPC.Client.Connection.Meta qualified as ConnMeta
+import Network.GRPC.Client.Connection.Params
+import Network.GRPC.Client.Logging
+import Network.GRPC.Compression (Compression(..), CompressionId)
+import Network.GRPC.Compression qualified as Compression
 import Network.GRPC.Spec
-import Network.GRPC.Spec.HTTP2
-import Network.GRPC.Spec.HTTP2 qualified as HTTP2
+import Network.GRPC.Spec.HTTP2.Connection qualified as Connection
+import Network.GRPC.Spec.HTTP2.LengthPrefixed (MessagePrefix)
+import Network.GRPC.Spec.HTTP2.LengthPrefixed qualified as LengthPrefixed
+import Network.GRPC.Spec.HTTP2.Request qualified as Request
+import Network.GRPC.Spec.HTTP2.Response (ResponseHeaders)
+import Network.GRPC.Spec.HTTP2.Response qualified as Response
 import Network.GRPC.Spec.RPC
 import Network.GRPC.Util.Thread
-import Control.Concurrent
 
 {-------------------------------------------------------------------------------
   Definition
 -------------------------------------------------------------------------------}
 
--- | Mark a input send over a request as final
-data IsFinal = Final | NotFinal
-  deriving stock (Show, Eq)
-
--- | Response trailers
---
--- 'Trailers' are a
--- [HTTP2 concept](https://datatracker.ietf.org/doc/html/rfc7540#section-8.1.3):
--- they are HTTP headers that are sent /after/ the content body. For example,
--- imagine the server is streaming a file that it's reading from disk; it could
--- use trailers to give the client an MD5 checksum when streaming is complete.
-data Trailers = Trailers {
-      grpcStatus  :: Word
-    , grpcMessage :: Maybe String
-    }
-  deriving stock (Show, Eq)
-
 -- | State of the call
 --
 -- This type is kept abstract (opaque) in the public facing API.
-data OpenCall rpc = OpenCall {
-      -- | One-place buffer for inputs to be sent to the server
-      --
-      -- The use of a one-place buffer introduce back-pressure: we cannot
-      -- produce inputs faster than that we can send them to the peer.
+data Call rpc = Call {
+      -- | Thread sending messages to the peer
       callOutbound :: TVar (ThreadState (OutboundQ rpc))
 
-      -- | One-place buffer for responses to the request
-      --
-      -- Like in 'requestInputQ', the use of a one-place buffer introduces
-      -- back-pressure, but now on the peer: they cannot send responses to us
-      -- faster than we can process them.
+      -- | Thread receiving messages from the peer
     , callInbound :: TVar (ThreadState (InboundQ rpc))
     }
 
+-- | Outbound queue
+--
+-- The use of a one-place buffer introduce back-pressure: we cannot produce
+-- inputs faster than that we can send them to the peer.
 type OutboundQ rpc = TMVar (IsFinal, Maybe (Input rpc))
-type InboundQ  rpc = TMVar (Either Trailers (Output rpc))
+
+-- | Inbound queue
+--
+-- Like in 'OutboundQ', the use of a one-place buffer introduces back-pressure,
+-- but now on the peer: they cannot send responses to us faster than we can
+-- process them.
+type InboundQ rpc = TMVar (Either Trailers (Output rpc))
 
 {-------------------------------------------------------------------------------
   Open a call
@@ -87,17 +84,17 @@ type InboundQ  rpc = TMVar (Either Trailers (Output rpc))
 
 openCall :: forall rpc.
      IsRPC rpc
-  => Tracer IO (LogRPC rpc)
-  -> (forall a. Client.Request -> (Client.Response -> IO a) -> IO a)
-  -> RequestMeta
-  -> rpc
-  -> IO (OpenCall rpc)
-openCall tracer sendRequest meta rpc = do
+  => Connection -> CallParams -> rpc -> IO (Call rpc)
+openCall Connection{connSend, connMeta, connParams} callParams rpc = do
     callOutbound <- newTVarIO ThreadNotStarted
     callInbound  <- newTVarIO ThreadNotStarted
 
-    let call :: OpenCall rpc
-        call = OpenCall{callOutbound, callInbound}
+    let call :: Call rpc
+        call = Call{callOutbound, callInbound}
+
+    -- Get current compression settings
+    currentMeta <- atomically $ readTVar connMeta
+    let comprPref = ConnMeta.compression connParams currentMeta
 
     -- Control flow and exception handling here is a little tricky.
     --
@@ -152,12 +149,18 @@ openCall tracer sendRequest meta rpc = do
     --   'InboundInitializing' to 'InboundException'.
     let req :: Client.Request
         req = Client.requestStreaming
-                HTTP2.method
-                (HTTP2.path rpc)
-                (HTTP2.buildRequestHeaders meta rpc)
+                Connection.method
+                (Connection.path rpc)
+                (Request.buildHeaders comprPref callParams rpc)
                 (\push flush ->
                     threadBody callOutbound newEmptyTMVarIO $ \outboundQ ->
-                      sendInputs tracer meta rpc push flush outboundQ
+                      sendInputs
+                        connParams
+                        (Compression.preferOutbound comprPref)
+                        rpc
+                        push
+                        flush
+                        outboundQ
                 )
 
     _inboundThread <- forkIO $
@@ -168,9 +171,30 @@ openCall tracer sendRequest meta rpc = do
       threadBody callInbound newEmptyTMVarIO $ \inboundQ -> do
         -- Any exceptions that we catch on the outside here /must/ come from the
         -- setup phase, because the threads install their own exception handlers.
-        setup <- try $ sendRequest req $ \resp -> do
-                         processResponseHeaders resp
-                         recvOutputs tracer rpc resp inboundQ
+        setup <- try $ connSend req $ \resp -> do
+          hdrs <- processResponseHeaders rpc resp
+
+          -- TODO: This logic should probably be part of processResponseHeaders
+          -- TODO: We should make the user-relevant part of the response headers
+          -- available as part of the call.
+
+          atomically $ do
+              meta <- readTVar connMeta
+              case ConnMeta.updateForResponse connParams hdrs meta of
+                Left  err   -> throwSTM err
+                Right meta' -> writeTVar connMeta meta'
+
+          compr <-
+              case unI (Response.compression hdrs) of
+                Nothing  -> return Compression.identity
+                Just cid ->
+                  case NE.filter
+                         ((== cid) . compressionId)
+                         (Compression.preferInbound comprPref) of
+                    []  -> throwIO $ ResponseUnexpectedCompression cid
+                    c:_ -> return c
+
+          recvOutputs connParams compr rpc resp inboundQ
         case setup of
           Right () -> return ()
           Left e   -> closeCall call $ Just e
@@ -181,22 +205,21 @@ openCall tracer sendRequest meta rpc = do
 --
 -- Under normal circumstances this should only be called once the final input
 -- has been sent and the final output has been received.
-closeCall :: OpenCall rpc -> HasCallStack => Maybe SomeException -> IO ()
-closeCall OpenCall{callOutbound, callInbound} e = do
+closeCall :: Call rpc -> HasCallStack => Maybe SomeException -> IO ()
+closeCall Call{callOutbound, callInbound} e = do
     cancelThread callOutbound $ toException $ CallClosed callStack e
     cancelThread callInbound  $ toException $ CallClosed callStack e
 
-processResponseHeaders :: Client.Response -> IO ()
-processResponseHeaders resp = do
+processResponseHeaders ::
+     IsRPC rpc
+  => rpc -> Client.Response -> IO (ResponseHeaders I)
+processResponseHeaders rpc resp = do
     -- TODO: We should figure out the various error codes
     -- <https://grpc.github.io/grpc/core/md_doc_statuscodes.html>
     -- not sure if there is a better link.
     --
     -- It seems that if there is an error (for example, serialization
     -- error), we get INTERNAL 13 as grpc-status?
-    --
-    -- TODO: We need to keep some state to remember what the peer's
-    -- supported compression algorithms is.
      let status = Client.responseStatus resp
      case HTTP.statusCode <$> status of
        Just 200   -> return ()
@@ -207,16 +230,15 @@ processResponseHeaders resp = do
        Nothing -> return ()
        Just l  -> throwIO $ ResponseUnexpectedContentLength l
 
-     -- TODO: We should make the headers available as part of the request
-     hdrs <- case HTTP2.parseResponseHeaders (getResponseHeaders resp) of
-               Left  err  -> throwIO $ ResponseInvalidHeaders err
-               Right hdrs -> return hdrs
-     return ()
+     case Response.parseHeaders rpc (getResponseHeaders resp) of
+       Left  err  -> throwIO $ ResponseInvalidHeaders err
+       Right hdrs -> return hdrs
 
 -- | The RPC call was closed using 'closeCall'.
---
--- Also records the 'CallStack' to the call to 'closeCall'.
-data CallClosed = CallClosed CallStack (Maybe SomeException)
+data CallClosed = CallClosed {
+      callClosedAt     :: CallStack
+    , callClosedReason :: Maybe SomeException
+    }
   deriving stock (Show)
   deriving anyclass (Exception)
 
@@ -226,25 +248,26 @@ data CallClosed = CallClosed CallStack (Maybe SomeException)
 
 sendInputs :: forall rpc.
      IsRPC rpc
-  => Tracer IO (LogRPC rpc)
-  -> RequestMeta
+  => ConnParams
+  -> Compression
   -> rpc
   -> (BS.Builder -> IO ())  -- ^ Push input
   -> IO ()                  -- ^ Flush
   -> TMVar (IsFinal, Maybe (Input rpc))
   -> IO ()
-sendInputs tracer meta rpc push flush q = loop
+sendInputs ConnParams{connTracer} compr rpc push flush q =
+    loop
   where
     loop :: IO ()
     loop = do
-        traceWith tracer $ WaitingForMessage
+        traceWith connTracer $ LogRPC rpc $ WaitingForMessage
 
         (isFinal, input) <- atomically $ takeTMVar q
-        traceWith tracer $ SendInput input isFinal
+        traceWith connTracer $ LogRPC rpc $ SendInput input isFinal
 
         case input of
           Nothing -> return ()
-          Just i  -> push $ HTTP2.buildLengthPrefixedMessage meta rpc i
+          Just i  -> push $ LengthPrefixed.build compr rpc i
 
         -- When we return from this thread, the final message will be
         -- marked with the END_STREAM flag.
@@ -256,29 +279,31 @@ sendInputs tracer meta rpc push flush q = loop
 
 recvOutputs :: forall rpc.
      IsRPC rpc
-  => Tracer IO (LogRPC rpc)
+  => ConnParams
+  -> Compression
   -> rpc
   -> Client.Response
   -> TMVar (Either Trailers (Output rpc))
   -> IO ()
-recvOutputs tracer rpc resp q = loop Nothing BS.Lazy.empty
+recvOutputs ConnParams{connTracer} compr rpc resp q =
+    loop Nothing BS.Lazy.empty
   where
     loop ::
          Maybe MessagePrefix  -- Message prefix for next message, if known
       -> BS.Lazy.ByteString   -- Accumulated unconsumed bytes
       -> IO ()
     loop mPrefix acc = do
-        traceWith tracer $ WaitingForResponseChunk mPrefix acc
+        traceWith connTracer $ LogRPC rpc $ WaitingForResponseChunk mPrefix acc
         chunk <- Client.getResponseBodyChunk resp
         if BS.Strict.null chunk then
           if BS.Lazy.null acc then do
             trailers <- getResponseTrailers resp
 
-            case HTTP2.parseResponseTrailers trailers of
+            case Response.parseTrailers trailers of
               Left err ->
                 throwIO $ ResponseInvalidTrailers err
               Right parsed -> do
-                atomically $ putTMVar q $ Left (mkTrailers parsed)
+                atomically $ putTMVar q $ Left (Response.toTrailers parsed)
                 -- Terminate only once the final trailers have been read.
                 -- This ensures that we don't put the thread into 'ThreadDone'
                 -- state too early.
@@ -289,12 +314,12 @@ recvOutputs tracer rpc resp q = loop Nothing BS.Lazy.empty
             throwIO $ ResponseTrailingData acc
         else do
           let acc' = BS.Lazy.fromChunks $ BS.Lazy.toChunks acc ++ [chunk]
-          case HTTP2.parseLengthPrefixedMessage rpc mPrefix acc' of
-            InsufficientBytes mPrefix' acc'' ->
+          case LengthPrefixed.parse compr rpc mPrefix acc' of
+            LengthPrefixed.InsufficientBytes mPrefix' acc'' ->
               loop mPrefix' acc''
-            ParseError err ->
+            LengthPrefixed.ParseError err ->
               throwIO $ ResponseParseError err
-            Parsed output acc'' -> do
+            LengthPrefixed.Parsed output acc'' -> do
               atomically $ putTMVar q $ Right output
               loop Nothing acc''
 
@@ -323,6 +348,9 @@ data InvalidResponse =
 
     -- | We failed to parse an incoming message
   | ResponseParseError String
+
+    -- | Server used an unexpected compression algorithm
+  | ResponseUnexpectedCompression CompressionId
   deriving stock (Show)
   deriving anyclass (Exception)
 
@@ -342,21 +370,4 @@ getResponseTrailers =
 
 fromHeaderTable :: HPACK.HeaderTable -> [HTTP.Header]
 fromHeaderTable = map (first HPACK.tokenKey) . fst
-
-mkTrailers :: ResponseTrailers I -> Trailers
-mkTrailers trailers = Trailers {
-      grpcStatus  = unI $ responseGrpcStatus  trailers
-    , grpcMessage = unI $ responseGrpcMessage trailers
-    }
-
-{-------------------------------------------------------------------------------
-  Logging
--------------------------------------------------------------------------------}
-
-data LogRPC rpc =
-    WaitingForMessage
-  | SendInput (Maybe (Input rpc)) IsFinal
-  | WaitingForResponseChunk (Maybe MessagePrefix) Lazy.ByteString
-
-deriving instance IsRPC rpc => Show (LogRPC rpc)
 

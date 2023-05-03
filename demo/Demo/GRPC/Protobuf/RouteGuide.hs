@@ -9,7 +9,6 @@ import Prelude hiding (log)
 
 import Network.GRPC.Client
 import Network.GRPC.Protobuf
-import Network.GRPC.Spec
 
 import Proto.RouteGuide
 
@@ -19,18 +18,18 @@ import Demo.Driver.Logging
   routeguide.RouteGuide
 -------------------------------------------------------------------------------}
 
-getFeature :: Connection -> RequestMeta -> Point -> IO ()
-getFeature conn meta p = log =<<
-    nonStreaming conn meta (RPC @RouteGuide @"getFeature") p
+getFeature :: Connection -> CallParams -> Point -> IO ()
+getFeature conn params p = log =<<
+    nonStreaming conn params (RPC @RouteGuide @"getFeature") p
 
-listFeatures :: Connection -> RequestMeta -> Rectangle -> IO ()
-listFeatures conn meta r = log =<<
-    serverStreaming conn meta (RPC @RouteGuide @"listFeatures") r log
+listFeatures :: Connection -> CallParams -> Rectangle -> IO ()
+listFeatures conn params r = log =<<
+    serverStreaming conn params (RPC @RouteGuide @"listFeatures") r log
 
-recordRoute :: Connection -> RequestMeta -> IO (IsFinal, Point) -> IO ()
-recordRoute conn meta ps = log =<<
-    clientStreaming conn meta (RPC @RouteGuide @"recordRoute") ps
+recordRoute :: Connection -> CallParams -> IO (IsFinal, Point) -> IO ()
+recordRoute conn params ps = log =<<
+    clientStreaming conn params (RPC @RouteGuide @"recordRoute") ps
 
-routeChat :: Connection -> RequestMeta -> IO (IsFinal, RouteNote)-> IO ()
-routeChat conn meta notes = log =<<
-    biDiStreaming conn meta (RPC @RouteGuide @"routeChat") notes log
+routeChat :: Connection -> CallParams -> IO (IsFinal, RouteNote)-> IO ()
+routeChat conn params notes = log =<<
+    biDiStreaming conn params (RPC @RouteGuide @"routeChat") notes log

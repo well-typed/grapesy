@@ -2,7 +2,8 @@ packages: .
 
 package grapesy
   tests: True
-  flags: +build-demo
+  flags: +build-demo 
+--  ghc-options: -Werror
 
 source-repository-package
   type: git

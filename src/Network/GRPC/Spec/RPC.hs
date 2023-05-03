@@ -26,21 +26,26 @@ class ( -- Debug constraints
   -- Messages from the server to the client
   type Output rpc :: Type
 
-  -- | Content encoding
+  -- | Message format
   --
-  -- gRPC is encoding agnostic; the spec defines the @Content-Type@ header as
+  -- gRPC is agnostic to the message format; the spec defines the @Content-Type@
+  -- header as
   --
   -- > Content-Type →
   -- >   "content-type"
   -- >   "application/grpc"
   -- >   [("+proto" / "+json" / {custom})]
   --
-  -- 'contentEncoding' should return the encoding part (e.g., @"proto"@).
+  -- 'serializationFormat' should return the last part (e.g., @"proto"@).
   --
   -- See <https://grpc.io/blog/grpc-with-json/> for a discussion of gRPC with
   -- JSON (we don't currently support this, but it should just be an alternative
   -- 'RPC' instance).
-  contentEncoding :: rpc -> Strict.ByteString
+  --
+  -- Note on terminology: throughout this codebase we avoid the terms "encoding"
+  -- and "decoding", which can be ambiguous. Instead we use
+  -- \"serialize\"/\"deserialize\" and \"compress\"/\"decompress\".
+  serializationFormat :: rpc -> Strict.ByteString
 
   -- | Service name
   --

@@ -9,6 +9,18 @@ of the library.
 * [gRPC](https://github.com/grpc/grpc/blob/master/doc/PROTOCOL-HTTP2.md)
 * [Protobuf](https://protobuf.dev/reference/protobuf/proto3-spec/)
 
+### gRPC spec
+
+The gRPC spec uses ABNF syntax <https://www.rfc-editor.org/rfc/rfc5234>.
+Summary:
+
+* Ordered sequence: `A B C`
+* Alternatives: `A / B / C`
+* Repetition: `*A` for zero-or-more, and `1*A` for one-or-more
+* Optional: `[A]`
+
+In addition (not conform ABNF), the gRPC spec also uses `?A` to mean optional.
+
 ## Debugging
 
 ### Wireshark

@@ -2,62 +2,55 @@
 
 module Network.GRPC.Client (
     -- * Connecting to the server
-    withConnection
-    -- * Open connection
-  , Connection -- opaque
+    Connection -- opaque
+  , withConnection
+
+    -- ** Connection parameters
+  , ConnParams(..)
+  , Scheme(..)
+  , Authority(..)
+  , defaultConnParams
+
+    -- * Make RPCs
+  , Call -- opaque
   , withRPC
   , startRPC
   , stopRPC
-    -- * Open request
+
+    -- ** Call parameters
+  , CallParams(..)
+
+    -- *** Timeouts
+  , Timeout(..)
+  , TimeoutValue(TimeoutValue, getTimeoutValue)
+  , TimeoutUnit(..)
+
+    -- * Ongoing calls
     --
     -- $openRequest
-  , OpenCall -- opaque
+  , RpcException(..)
   , IsFinal(..)
   , Trailers(..)
   , sendInput
   , recvOutput
-    -- * Logging
-  , LogMsg(..)
-  , LogRPC(..)
   ) where
 
 import Control.Concurrent.STM
 import Control.Monad.Catch
-import Control.Tracer
-import Network.HPACK qualified as HPACK
-import Network.HTTP2.Client qualified as Client
-import Network.Run.TCP (runTCPClient)
-
-import Network.GRPC.Client.OpenCall
-import Network.GRPC.Spec
-import Network.GRPC.Spec.HTTP2 qualified as HTTP2
-import Network.GRPC.Spec.RPC
-import Network.GRPC.Util.Thread
 import Control.Monad.IO.Class
 import GHC.Stack
 
+import Network.GRPC.Client.Call
+import Network.GRPC.Client.Connection
+import Network.GRPC.Client.Connection.Params
+import Network.GRPC.Spec
+import Network.GRPC.Spec.HTTP2.Connection (Scheme(..), Authority(..))
+import Network.GRPC.Spec.RPC
+import Network.GRPC.Util.Thread
+
 {-------------------------------------------------------------------------------
-  Connection API
+  Make RPCs
 -------------------------------------------------------------------------------}
-
--- | Open connection
---
--- This type is kept abstract (opaque) in the user facing API.
-data Connection = Connection {
-      -- | Logging
-      --
-      -- Most applications will probably just set this to 'nullTracer' to
-      -- disable logging.
-      connTracer :: Tracer IO LogMsg
-
-      -- | Send request
-      --
-      -- This is the function we get from @http2@.
-    , connSendRequest :: forall a.
-           Client.Request
-        -> (Client.Response -> IO a)
-        -> IO a
-    }
 
 -- | Start RPC call
 --
@@ -67,44 +60,30 @@ data Connection = Connection {
 -- This non-blocking nature makes this safe to use in 'bracket' patterns.
 --
 -- This is a low-level API. Consider using 'withRPC' instead.
-startRPC :: forall rpc.
-     IsRPC rpc
-  => Connection
-  -> RequestMeta
-  -> rpc
-  -> IO (OpenCall rpc)
-startRPC Connection{connTracer, connSendRequest} meta rpc =
-    openCall (contramap (LogRPC rpc) connTracer) connSendRequest meta rpc
+startRPC :: IsRPC rpc => Connection -> CallParams -> rpc -> IO (Call rpc)
+startRPC = openCall
 
 -- | Stop RPC call
 --
 -- This is a low-level API. Consider using 'withRPC' instead.
 --
--- NOTE: When an 'OpenCall' is closed, it remembers the /reason/ why it was
+-- NOTE: When an 'Call' is closed, it remembers the /reason/ why it was
 -- closed. For example, if it is closed due to a network exception, then this
 -- network exception is recorded as part of this reason. When the call is closed
 -- due to call to 'stopRPC', we merely record that the call was closed due to
 -- a call to 'stopRPC' (along with a callstack). /If/ the call to 'stopRPC'
 -- /itself/ was due to an exception, this exception will not be recorded; if
 -- that is undesirable, consider using 'withRPC' instead.
-stopRPC :: HasCallStack => OpenCall rpc -> IO ()
+stopRPC :: HasCallStack => Call rpc -> IO ()
 stopRPC = flip closeCall Nothing
-
-{-------------------------------------------------------------------------------
-  Bracketing
--------------------------------------------------------------------------------}
 
 -- | Scoped RPC call
 withRPC :: forall m rpc a.
      (MonadMask m, MonadIO m, IsRPC rpc)
-  => Connection
-  -> RequestMeta
-  -> rpc
-  -> (OpenCall rpc -> m a)
-  -> m a
-withRPC conn meta rpc = fmap aux .
+  => Connection -> CallParams -> rpc -> (Call rpc -> m a) -> m a
+withRPC conn params rpc = fmap aux .
     generalBracket
-      (liftIO $ startRPC conn meta rpc)
+      (liftIO $ startRPC conn params rpc)
       (\call -> liftIO . \case
           ExitCaseSuccess   _ -> closeCall call $ Nothing
           ExitCaseException e -> closeCall call $ Just e
@@ -120,54 +99,12 @@ data Aborted = Aborted
   deriving anyclass (Exception)
 
 {-------------------------------------------------------------------------------
-  Open a new connection
--------------------------------------------------------------------------------}
-
-withConnection :: forall a.
-     Tracer IO LogMsg
-  -> Scheme
-  -> Authority
-  -> (Connection -> IO a)
-  -> IO a
-withConnection connTracer scheme auth k =
-    runTCPClient (authorityHost auth) (show $ authorityPort auth)  $ \sock ->
-      bracket
-          (Client.allocSimpleConfig sock bufferSize)
-          Client.freeSimpleConfig $ \conf ->
-        Client.run clientConfig conf $ \connSendRequest ->
-          k Connection{connTracer, connSendRequest}
-  where
-    -- See docs of 'confBufferSize', but importantly: "this value is announced
-    -- via SETTINGS_MAX_FRAME_SIZE to the peer."
-    --
-    -- Value of 4kB is taken from the example code.
-    bufferSize :: HPACK.BufferSize
-    bufferSize = 4096
-
-    clientConfig :: Client.ClientConfig
-    clientConfig = Client.ClientConfig {
-          scheme = case scheme of
-                     Http  -> "http"
-                     Https -> "https"
-
-          -- The example code does not include the port number here; the RFC
-          -- lists it as optional
-          -- <https://www.rfc-editor.org/rfc/rfc3986#section-3.2>
-        , authority = HTTP2.authority auth
-
-          -- Docs describe this as "How many pushed responses are contained in
-          -- the cache". I don't think I really know what this means. Value of
-          -- 20 is from the example code.
-        , cacheLimit = 20
-        }
-
-{-------------------------------------------------------------------------------
-  'OpenCall' API
+  Ongoing calls
 -------------------------------------------------------------------------------}
 
 -- $openRequest
 --
--- 'OpenCall' denotes a previously opened request (see 'withRequest').
+-- 'Call' denotes a previously opened request (see 'withRequest').
 --
 -- == Specialization to Protobuf
 --
@@ -248,11 +185,11 @@ data RpcException =
 -- Calling 'sendInput' after sending the final message will result in a
 -- 'SendAfterFinal' exception.
 sendInput ::
-     OpenCall rpc
+     Call rpc
   -> IsFinal
   -> Maybe (Input rpc)
   -> STM ()
-sendInput OpenCall{callOutbound} isFinal input =
+sendInput Call{callOutbound} isFinal input =
     getThreadInterface callOutbound >>= \case
       Just q  -> putTMVar q (isFinal, input)
       Nothing -> throwSTM SendAfterFinal
@@ -265,19 +202,9 @@ sendInput OpenCall{callOutbound} isFinal input =
 -- Though the types cannot guarantee it, you will receive 'Trailers' once, after
 -- the final 'Output'. Calling 'recvOutput' after receiving 'Trailers' will
 -- result in a 'RecvAfterTrailers' exception.
-recvOutput :: OpenCall rpc -> STM (Either Trailers (Output rpc))
-recvOutput OpenCall{callInbound} =
+recvOutput :: Call rpc -> STM (Either Trailers (Output rpc))
+recvOutput Call{callInbound} =
     getThreadInterface callInbound >>= \case
       Just q  -> takeTMVar q
       Nothing -> throwSTM RecvAfterTrailers
-
-{-------------------------------------------------------------------------------
-  Logging
--------------------------------------------------------------------------------}
-
-data LogMsg =
-    forall rpc. IsRPC rpc => LogRPC rpc (LogRPC rpc)
-
-deriving instance Show LogMsg
-
 

@@ -117,7 +117,14 @@ cancelThread state e = do
 
     case mTid of
       Nothing  -> return ()
-      Just tid -> killThread tid
+      Just tid -> throwTo tid $ ThreadCancelled e
+
+-- | Exception thrown by 'cancelThread' to the thread to the cancelled
+newtype ThreadCancelled = ThreadCancelled {
+      reason :: SomeException
+    }
+  deriving stock (Show)
+  deriving anyclass (Exception)
 
 {-------------------------------------------------------------------------------
   Interacting with the thread

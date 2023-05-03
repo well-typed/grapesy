@@ -46,19 +46,19 @@ instance ( Typeable           s
   type Input  (RPC s m) = MethodInput  s m
   type Output (RPC s m) = MethodOutput s m
 
-  contentEncoding   _ = "proto"
-  serviceName       _ = BS.Strict.C8.pack $ concat [
-                            symbolVal $ Proxy @(ServicePackage s)
-                          , "."
-                          , symbolVal $ Proxy @(ServiceName s)
-                          ]
-  methodName        _ = BS.Strict.C8.pack $
-                            symbolVal $ Proxy @(MethodName s m)
-  messageType       _ = BS.Strict.C8.pack $ Text.unpack $
-                            -- 'messageName' returns a qualified name
-                            Protobuf.messageName $ Proxy @(MethodInput s m)
-  serializeInput    _ = BS.Builder.toLazyByteString . Protobuf.buildMessage
-  deserializeOutput _ = Protobuf.runParser parser . BS.Lazy.toStrict
+  serializationFormat _ = "proto"
+  serviceName         _ = BS.Strict.C8.pack $ concat [
+                              symbolVal $ Proxy @(ServicePackage s)
+                            , "."
+                            , symbolVal $ Proxy @(ServiceName s)
+                            ]
+  methodName          _ = BS.Strict.C8.pack $
+                              symbolVal $ Proxy @(MethodName s m)
+  messageType         _ = BS.Strict.C8.pack $ Text.unpack $
+                              -- 'messageName' returns a qualified name
+                              Protobuf.messageName $ Proxy @(MethodInput s m)
+  serializeInput      _ = BS.Builder.toLazyByteString . Protobuf.buildMessage
+  deserializeOutput   _ = Protobuf.runParser parser . BS.Lazy.toStrict
     where
       parser :: Parser (MethodOutput s m)
       parser = do
