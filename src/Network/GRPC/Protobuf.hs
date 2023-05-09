@@ -56,7 +56,7 @@ nonStreaming ::
      IsRPC (RPC s m)
   => MethodStreamingType s m ~ NonStreaming
   => Connection
-  -> CallParams
+  -> PerCallParams
   -> RPC s m
   -> Input (RPC s m)
   -- ^ Single input
@@ -76,7 +76,7 @@ clientStreaming :: forall s m.
      IsRPC (RPC s m)
   => MethodStreamingType s m ~ ClientStreaming
   => Connection
-  -> CallParams
+  -> PerCallParams
   -> RPC s m
   -> IO (IsFinal, Input (RPC s m))
   -- ^ We will repeatedly call this function until it returns a 'Final' 'Input'.
@@ -96,7 +96,7 @@ serverStreaming :: forall s m.
      IsRPC (RPC s m)
   => MethodStreamingType s m ~ ServerStreaming
   => Connection
-  -> CallParams
+  -> PerCallParams
   -> RPC s m
   -> Input (RPC s m)
   -- ^ Single input
@@ -113,7 +113,7 @@ biDiStreaming :: forall s m.
      IsRPC (RPC s m)
   => MethodStreamingType s m ~ BiDiStreaming
   => Connection
-  -> CallParams
+  -> PerCallParams
   -> RPC s m
   -> IO (IsFinal, Input (RPC s m))
   -- ^ We will repeatedly call this function until it returns a 'Final' 'Input'

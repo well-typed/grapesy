@@ -20,7 +20,6 @@ import Data.Version
 import Network.HTTP.Types qualified as HTTP
 
 import Network.GRPC.Compression (Compression(..))
-import Network.GRPC.Compression qualified as Compression
 import Network.GRPC.Spec
 import Network.GRPC.Spec.Compression qualified as Compression
 import Network.GRPC.Spec.CustomMetadata
@@ -37,12 +36,10 @@ import PackageInfo_grapesy qualified as PackageInfo
 -- > Request-Headers →
 -- >   Call-Definition
 -- >   *Custom-Metadata
-buildHeaders ::
-     IsRPC rpc
-  => Compression.Preference -> CallParams -> rpc -> [HTTP.Header]
-buildHeaders compr callParams rpc = concat [
-      callDefinition compr callParams rpc
-    , map customMetadata $ callCustomMetadata callParams
+buildHeaders :: IsRPC rpc => AllCallParams -> rpc -> [HTTP.Header]
+buildHeaders callParams@AllCallParams{perCallParams} rpc = concat [
+      callDefinition callParams rpc
+    , map customMetadata $ callCustomMetadata perCallParams
     ]
   where
     customMetadata :: CustomMetadata -> HTTP.Header
@@ -82,16 +79,14 @@ buildHeaders compr callParams rpc = concat [
 -- @TE@ should come /after/ @Authority@ (if using). However, we will not include
 -- the reserved headers here /at all/, as they are automatically added by
 -- `http2`.
-callDefinition ::
-     IsRPC rpc
-  => Compression.Preference ->CallParams -> rpc -> [HTTP.Header]
-callDefinition = \compr callParams rpc -> catMaybes [
-      hdrTimeout <$> callTimeout callParams
+callDefinition :: IsRPC rpc => AllCallParams -> rpc -> [HTTP.Header]
+callDefinition = \callParams@AllCallParams{perCallParams} rpc -> catMaybes [
+      hdrTimeout <$> callTimeout perCallParams
     , Just $ hdrTe
     , Just $ hdrContentType rpc
     , Just $ hdrMessageType rpc
-    , Just $ hdrMessageEncoding (Compression.preferOutbound compr)
-    , Just $ hdrMessageAcceptEncoding (Compression.preferInbound compr)
+    , Just $ hdrMessageEncoding (callCompression callParams)
+    , Just $ hdrMessageAcceptEncoding (callAcceptCompression callParams)
     , Just $ hdrUserAgent
     ]
   where
@@ -141,18 +136,18 @@ callDefinition = \compr callParams rpc -> catMaybes [
     -- > Message-Encoding → "grpc-encoding" Content-Coding
     -- > Content-Coding → "identity" / "gzip" / "deflate" / "snappy" / {custom}
     hdrMessageEncoding :: Compression -> HTTP.Header
-    hdrMessageEncoding coding = (
+    hdrMessageEncoding compr = (
           "grpc-encoding"
-        , Compression.serializeId $ compressionId coding
+        , Compression.serializeId (compressionId compr)
         )
 
     -- > Message-Accept-Encoding →
     -- >   "grpc-accept-encoding" Content-Coding *("," Content-Coding)
     hdrMessageAcceptEncoding :: NonEmpty Compression -> HTTP.Header
-    hdrMessageAcceptEncoding codings = (
+    hdrMessageAcceptEncoding compr = (
           "grpc-accept-encoding"
         , mconcat . intersperse "," $
-            map (Compression.serializeId . compressionId) (toList codings)
+            map (Compression.serializeId . compressionId) (toList compr)
         )
 
     -- > User-Agent → "user-agent" {structured user-agent string}

@@ -13,12 +13,12 @@ module Network.GRPC.Spec.CustomMetadata (
   , safeAsciiValue
   ) where
 
-import Data.ByteString qualified as Strict (ByteString)
 import Data.ByteString qualified as BS.Strict
+import Data.ByteString qualified as Strict (ByteString)
+import Data.Word
+import GHC.Show
 
 import Network.GRPC.Util.ByteString (strip, ascii)
-import GHC.Show
-import Data.Word
 
 {-------------------------------------------------------------------------------
   Definition

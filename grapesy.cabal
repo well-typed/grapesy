@@ -77,6 +77,7 @@ library
       Network.GRPC.Spec.HTTP2.LengthPrefixed
       Network.GRPC.Spec.HTTP2.Request
       Network.GRPC.Spec.HTTP2.Response
+      Network.GRPC.Spec.PercentEncoding
       Network.GRPC.Spec.RPC
       Network.GRPC.Spec.RPC.Protobuf
       Network.GRPC.Util.ByteString

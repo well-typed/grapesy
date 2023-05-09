@@ -45,10 +45,10 @@ import Network.GRPC.Spec.HTTP2.Connection qualified as Connection
 import Network.GRPC.Spec.HTTP2.LengthPrefixed (MessagePrefix)
 import Network.GRPC.Spec.HTTP2.LengthPrefixed qualified as LengthPrefixed
 import Network.GRPC.Spec.HTTP2.Request qualified as Request
-import Network.GRPC.Spec.HTTP2.Response (ResponseHeaders)
 import Network.GRPC.Spec.HTTP2.Response qualified as Response
 import Network.GRPC.Spec.RPC
 import Network.GRPC.Util.Thread
+import Network.GRPC.Client.Connection.Meta qualified as Meta
 
 {-------------------------------------------------------------------------------
   Definition
@@ -63,6 +63,12 @@ data Call rpc = Call {
 
       -- | Thread receiving messages from the peer
     , callInbound :: TVar (ThreadState (InboundQ rpc))
+
+      -- | Set to 'True' once we sent the final message
+    , callSentFinal :: TVar Bool
+
+      -- | Set to 'False' once we received the 'Trailers'
+    , callRecvTrailers :: TVar Bool
     }
 
 -- | Outbound queue
@@ -82,19 +88,29 @@ type InboundQ rpc = TMVar (Either Trailers (Output rpc))
   Open a call
 -------------------------------------------------------------------------------}
 
+getCallParams :: Connection -> PerCallParams -> IO AllCallParams
+getCallParams Connection{connParams, connMeta} perCallParams = do
+    currentMeta <- atomically $ readTVar connMeta
+    return AllCallParams{
+        perCallParams
+      , callCompression       = fromMaybe Compression.identity $
+                                  Meta.outboundCompression currentMeta
+      , callAcceptCompression = connCompression connParams
+      }
+
 openCall :: forall rpc.
      IsRPC rpc
-  => Connection -> CallParams -> rpc -> IO (Call rpc)
-openCall Connection{connSend, connMeta, connParams} callParams rpc = do
-    callOutbound <- newTVarIO ThreadNotStarted
-    callInbound  <- newTVarIO ThreadNotStarted
+  => Connection -> PerCallParams -> rpc -> IO (Call rpc)
+openCall conn@Connection{connSend, connParams} perCallParams rpc = do
+    callOutbound     <- newTVarIO ThreadNotStarted
+    callInbound      <- newTVarIO ThreadNotStarted
+    callSentFinal    <- newTVarIO False
+    callRecvTrailers <- newTVarIO False
 
     let call :: Call rpc
-        call = Call{callOutbound, callInbound}
+        call = Call{callOutbound, callInbound, callSentFinal, callRecvTrailers}
 
-    -- Get current compression settings
-    currentMeta <- atomically $ readTVar connMeta
-    let comprPref = ConnMeta.compression connParams currentMeta
+    callParams <- getCallParams conn perCallParams
 
     -- Control flow and exception handling here is a little tricky.
     --
@@ -151,12 +167,12 @@ openCall Connection{connSend, connMeta, connParams} callParams rpc = do
         req = Client.requestStreaming
                 Connection.method
                 (Connection.path rpc)
-                (Request.buildHeaders comprPref callParams rpc)
+                (Request.buildHeaders callParams rpc)
                 (\push flush ->
                     threadBody callOutbound newEmptyTMVarIO $ \outboundQ ->
                       sendInputs
                         connParams
-                        (Compression.preferOutbound comprPref)
+                        (callCompression callParams)
                         rpc
                         push
                         flush
@@ -172,34 +188,17 @@ openCall Connection{connSend, connMeta, connParams} callParams rpc = do
         -- Any exceptions that we catch on the outside here /must/ come from the
         -- setup phase, because the threads install their own exception handlers.
         setup <- try $ connSend req $ \resp -> do
-          hdrs <- processResponseHeaders rpc resp
-
-          -- TODO: This logic should probably be part of processResponseHeaders
-          -- TODO: We should make the user-relevant part of the response headers
-          -- available as part of the call.
-
-          atomically $ do
-              meta <- readTVar connMeta
-              case ConnMeta.updateForResponse connParams hdrs meta of
-                Left  err   -> throwSTM err
-                Right meta' -> writeTVar connMeta meta'
-
-          compr <-
-              case unI (Response.compression hdrs) of
-                Nothing  -> return Compression.identity
-                Just cid ->
-                  case NE.filter
-                         ((== cid) . compressionId)
-                         (Compression.preferInbound comprPref) of
-                    []  -> throwIO $ ResponseUnexpectedCompression cid
-                    c:_ -> return c
-
+          compr <- processResponseHeaders conn rpc resp
           recvOutputs connParams compr rpc resp inboundQ
         case setup of
           Right () -> return ()
           Left e   -> closeCall call $ Just e
 
     return call
+
+{-------------------------------------------------------------------------------
+  Closing an open RPC
+-------------------------------------------------------------------------------}
 
 -- | Close an open RPC call
 --
@@ -210,35 +209,89 @@ closeCall Call{callOutbound, callInbound} e = do
     cancelThread callOutbound $ toException $ CallClosed callStack e
     cancelThread callInbound  $ toException $ CallClosed callStack e
 
-processResponseHeaders ::
-     IsRPC rpc
-  => rpc -> Client.Response -> IO (ResponseHeaders I)
-processResponseHeaders rpc resp = do
-    -- TODO: We should figure out the various error codes
-    -- <https://grpc.github.io/grpc/core/md_doc_statuscodes.html>
-    -- not sure if there is a better link.
-    --
-    -- It seems that if there is an error (for example, serialization
-    -- error), we get INTERNAL 13 as grpc-status?
-     let status = Client.responseStatus resp
-     case HTTP.statusCode <$> status of
-       Just 200   -> return ()
-       _otherwise -> throwIO $ ResponseInvalidStatus status
-
-     let contentLength = Client.responseBodySize resp
-     case contentLength of
-       Nothing -> return ()
-       Just l  -> throwIO $ ResponseUnexpectedContentLength l
-
-     case Response.parseHeaders rpc (getResponseHeaders resp) of
-       Left  err  -> throwIO $ ResponseInvalidHeaders err
-       Right hdrs -> return hdrs
-
 -- | The RPC call was closed using 'closeCall'.
 data CallClosed = CallClosed {
       callClosedAt     :: CallStack
     , callClosedReason :: Maybe SomeException
     }
+  deriving stock (Show)
+  deriving anyclass (Exception)
+
+{-------------------------------------------------------------------------------
+  Response headers
+-------------------------------------------------------------------------------}
+
+-- | Process response headers
+--
+-- Throws 'RpcImmediateError' in the @Trailers-Only@ case; see
+-- 'RpcImmediateError' for discussion.
+processResponseHeaders ::
+     IsRPC rpc
+  => Connection -> rpc -> Client.Response -> IO Compression
+processResponseHeaders Connection{connMeta, connParams} rpc resp = do
+    let status = Client.responseStatus resp
+    case HTTP.statusCode <$> status of
+      Just 200   -> return ()
+      _otherwise -> throwIO $ ResponseInvalidStatus status
+
+    -- The gRPC specification defines
+    --
+    -- > Response → (Response-Headers *Length-Prefixed-Message Trailers)
+    -- >          / Trailers-Only
+    --
+    -- Furthermore, in prose, it tells us that
+    --
+    -- 1. For responses end-of-stream is indicated by the presence of the
+    --    END_STREAM flag on the last received HEADERS frame that carries
+    --    Trailers.
+    -- 2. Implementations should expect broken deployments to send non-200 HTTP
+    --    status codes in responses as well as a variety of non-GRPC
+    --    content-types and to omit Status & Status-Message. Implementations
+    --    must synthesize a Status & Status-Message to propagate to the
+    --    application layer when this occurs.
+    --
+    -- This means the only reliable way to determine if we are in the
+    -- @Trailers-Only@ case is to see if the stream is terminated after we
+    -- received the "trailers" (headers). We don't get direct access to this
+    -- information from @http2@, /but/ we are told indirectly: if the stream is
+    -- terminated, we are told that the body size is 0 (normally we do not
+    -- expect an indication of body size at all); this is independent from any
+    -- content-length header (which gRPC does not in fact allow for).
+
+    let contentLength = Client.responseBodySize resp
+        headers       = getResponseHeaders resp
+
+    case contentLength of
+      Just 0  -> throwIO . RpcImmediateError =<< parseTrailers rpc headers
+      Just l  -> throwIO $ ResponseUnexpectedContentLength l
+      Nothing -> do
+        -- The common @Response@ case (i.e., not @Trailers-Only@)
+        hdrs <- parseHeaders rpc headers
+
+        atomically $ do
+          meta <- readTVar connMeta
+          case ConnMeta.update (connCompression connParams) hdrs meta of
+            Left  err   -> throwSTM err
+            Right meta' -> writeTVar connMeta meta'
+
+        case unI (Response.headerCompression hdrs) of
+          Nothing  -> return Compression.identity
+          Just cid -> case NE.filter
+                             ((== cid) . compressionId)
+                             (connCompression connParams) of
+                        []  -> throwIO $ ResponseUnexpectedCompression cid
+                        c:_ -> return c
+
+-- | Thrown by 'openCall' when the remote node indicates an immediate error
+--
+-- The gRPC spec defines:
+--
+-- > Response → (Response-Headers *Length-Prefixed-Message Trailers)
+-- >          / Trailers-Only
+--
+-- and then says in prose: "@Trailers-Only@ is permitted for calls that produce
+-- an immediate error".
+data RpcImmediateError = RpcImmediateError Trailers
   deriving stock (Show)
   deriving anyclass (Exception)
 
@@ -297,19 +350,8 @@ recvOutputs ConnParams{connTracer} compr rpc resp q =
         chunk <- Client.getResponseBodyChunk resp
         if BS.Strict.null chunk then
           if BS.Lazy.null acc then do
-            trailers <- getResponseTrailers resp
-
-            case Response.parseTrailers trailers of
-              Left err ->
-                throwIO $ ResponseInvalidTrailers err
-              Right parsed -> do
-                atomically $ putTMVar q $ Left (Response.toTrailers parsed)
-                -- Terminate only once the final trailers have been read.
-                -- This ensures that we don't put the thread into 'ThreadDone'
-                -- state too early.
-                atomically $ do
-                  trailersRead <- isEmptyTMVar q
-                  unless trailersRead $ retry
+            trailers <- parseTrailers rpc =<< getResponseTrailers resp
+            atomically $ putTMVar q $ Left trailers
           else
             throwIO $ ResponseTrailingData acc
         else do
@@ -330,8 +372,9 @@ recvOutputs ConnParams{connTracer} compr rpc resp q =
 data InvalidResponse =
     -- | Server sent a HTTP status other than 200 OK
     --
-    -- TODO: The spec explicitly disallows this; not sure what something like
-    -- an invalid path would result in though.
+    -- The spec explicitly disallows this; if a particular method is not
+    -- supported, then the server will respond with HTTP 200 and then a
+    -- grpc-status of 'GrpcUnimplemented'.
     ResponseInvalidStatus (Maybe HTTP.Status)
 
     -- | gRPC does not support the HTTP2 content-length header
@@ -358,15 +401,30 @@ data InvalidResponse =
   Internal auxiliary: dealing with the header table
 -------------------------------------------------------------------------------}
 
-getResponseHeaders :: Client.Response -> [HTTP.Header]
-getResponseHeaders =
-      fromHeaderTable
-    . Client.responseHeaders
+parseHeaders ::
+     IsRPC rpc
+  => rpc -> [HTTP.Header] -> IO (Response.ResponseHeaders I)
+parseHeaders rpc headers =
+    case Response.parseHeaders rpc headers of
+      Left  err    -> throwIO $ ResponseInvalidHeaders err
+      Right parsed -> return parsed
 
+parseTrailers :: IsRPC rpc => rpc -> [HTTP.Header] -> IO Trailers
+parseTrailers rpc trailers =
+    case Response.parseTrailers rpc trailers of
+      Left err     -> throwIO $ ResponseInvalidTrailers err
+      Right parsed -> return $ Response.toTrailers parsed
+
+getResponseHeaders :: Client.Response -> [HTTP.Header]
+getResponseHeaders = fromHeaderTable . Client.responseHeaders
+
+-- | Wrapper around 'Client.getResponseTrailers'
+--
+-- The underlying function has this proviso: "must be called after
+-- getResponseBodyChunk returns an empty".
 getResponseTrailers :: Client.Response -> IO [HTTP.Header]
 getResponseTrailers =
-      fmap (fromMaybe [] . fmap fromHeaderTable)
-    . Client.getResponseTrailers
+    fmap (maybe [] fromHeaderTable) . Client.getResponseTrailers
 
 fromHeaderTable :: HPACK.HeaderTable -> [HTTP.Header]
 fromHeaderTable = map (first HPACK.tokenKey) . fst

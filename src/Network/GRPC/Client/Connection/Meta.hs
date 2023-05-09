@@ -11,20 +11,19 @@ module Network.GRPC.Client.Connection.Meta (
     ConnMeta(..)
     -- * Construction
   , init
-  , updateForResponse
+  , UnsupportedCompression(..)
+  , update
     -- * Queries
-  , compression
   ) where
 
 import Prelude hiding (init)
 
-import Control.Monad.Except
-import Data.Maybe (fromMaybe)
+import Control.Exception
+import Data.List.NonEmpty (NonEmpty)
+import Data.List.NonEmpty qualified as NE
 import Data.SOP
 
-import Network.GRPC.Client.Connection.Params
-import Network.GRPC.Compression (UnsupportedCompression)
-import Network.GRPC.Compression qualified as Compression
+import Network.GRPC.Spec.Compression (Compression (..), CompressionId)
 import Network.GRPC.Spec.HTTP2.Response (ResponseHeaders)
 import Network.GRPC.Spec.HTTP2.Response qualified as Response
 
@@ -34,11 +33,12 @@ import Network.GRPC.Spec.HTTP2.Response qualified as Response
 
 -- | Information about on open connection
 data ConnMeta = ConnMeta {
-      -- | Compression preference, if set
+      -- | Compression algorithm for outbound messages
       --
       -- Nothing if the server has not yet reported which algorithms it
-      -- supports.
-      preferredCompression :: Maybe Compression.Preference
+      -- supports. Making this case explicit helps to cross-check our supported
+      -- algorithms with the server supported algorithms only once.
+      outboundCompression :: Maybe Compression
     }
   deriving stock (Show)
 
@@ -49,15 +49,15 @@ data ConnMeta = ConnMeta {
 -- | Initial connection state
 init :: ConnMeta
 init = ConnMeta {
-      preferredCompression = Nothing
+      outboundCompression = Nothing
     }
 
 -- | Update 'ConnMeta' given response headers
-updateForResponse ::
-     ConnParams
+update ::
+     NonEmpty Compression
   -> ResponseHeaders I
   -> ConnMeta -> Either UnsupportedCompression ConnMeta
-updateForResponse params hdrs meta = do
+update ourSupported hdrs meta = do
     -- Update choice compression, if necessary
     --
     -- We have four possibilities:
@@ -66,31 +66,28 @@ updateForResponse params hdrs meta = do
     -- b. We chose from the list of server reported supported algorithms
     -- c. We rejected all of the server reported supported algorithms
     -- d. The server didn't report which algorithms are supported
-    preferredCompression <-
-      case ( preferredCompression meta
-           , connUpdateCompression params <$>
-               unI (Response.acceptCompression hdrs)
+    outboundCompression <-
+      case ( outboundCompression meta
+           , unI $ Response.headerAcceptCompression hdrs
            ) of
-        (Just alreadySet, _)            -> return $ Just alreadySet -- (a)
-        (Nothing, Just (Right updated)) -> return $ Just updated    -- (b)
-        (Nothing, Just (Left err))      -> throwError err           -- (c)
-        (Nothing, Nothing)              -> return Nothing           -- (d)
+        (Just alreadySet, _) ->
+          return $ Just alreadySet                                       -- (a)
+        (Nothing, Just serverSupported) -> do
+           let isSupported :: Compression -> Bool
+               isSupported = (`elem` serverSupported) . compressionId
+           case NE.filter isSupported ourSupported of
+              c:_ -> Right $ Just c                                      -- (b)
+              []  -> Left $ UnsupportedCompression serverSupported       -- (c)
+        (Nothing, Nothing) ->
+           return Nothing                                                -- (d)
 
     return ConnMeta{
-        preferredCompression
+        outboundCompression
       }
 
-{-------------------------------------------------------------------------------
-  Queries
--------------------------------------------------------------------------------}
-
--- | Preferred compression algorithms, if set, or suitable defauls otherwise
-compression :: ConnParams -> ConnMeta -> Compression.Preference
-compression ConnParams{connInitCompression} ConnMeta{preferredCompression} =
-    fromMaybe initCompression preferredCompression
-  where
-    initCompression :: Compression.Preference
-    initCompression = Compression.Preference {
-          preferOutbound = Compression.identity
-        , preferInbound  = connInitCompression
-        }
+-- | Exception thrown when we were unable to pick a preferred compression
+data UnsupportedCompression = UnsupportedCompression {
+      serverSupportedCompression :: [CompressionId]
+    }
+  deriving stock (Show)
+  deriving anyclass (Exception)

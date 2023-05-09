@@ -42,6 +42,9 @@ ever growing (and hopefully eventually shrinking) list of things to do.
       - we sometimes get `StreamErrorIsReceived NoError`
         (e.g., run `routeChat` against `wait_for_ready_with_client_timeout_example_server.py`)
 
+      Status: the former (`ResponseUnexpectedContentLength 0`) is fixed; the
+      latter not yet.
+
 - [ ] When we run the `SayHelloStreamReply` client against the example C++
       server, which does not implement it, we just seem to stall; should use
       Wireshark to see if that is correct, or whether we are getting some output
