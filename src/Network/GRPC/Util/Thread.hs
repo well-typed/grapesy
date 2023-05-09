@@ -29,7 +29,10 @@ data ThreadState a =
   | ThreadRunning ThreadId a
 
     -- | Thread terminated normally
-  | ThreadDone
+    --
+    -- This still carries the thread interface: we may need it to query the
+    -- thread's final status, for example.
+  | ThreadDone a
 
     -- | Thread terminated with an exception
   | ThreadException SomeException
@@ -84,7 +87,7 @@ threadBody state initThread body = mask $ \unmask -> do
       atomically $ writeTVar state $
         case res of
           Left  e  -> ThreadException e
-          Right () -> ThreadDone
+          Right () -> ThreadDone iface
 
 {-------------------------------------------------------------------------------
   Stopping
@@ -112,7 +115,7 @@ cancelThread state e = do
           return Nothing
         ThreadInitializing tid   -> return $ Just tid
         ThreadRunning      tid _ -> return $ Just tid
-        ThreadDone               -> return Nothing
+        ThreadDone             _ -> return Nothing
         ThreadException        _ -> return Nothing
 
     case mTid of
@@ -135,14 +138,19 @@ newtype ThreadCancelled = ThreadCancelled {
 -- The behaviour of this 'getThreadInterface' depends on the thread state; it
 --
 -- * blocks if the thread in case of 'ThreadNotStarted' or 'ThreadInitializing'
--- * returns 'Nothing' in case of 'ThreadDone'
 -- * throws an exception in case of 'ThreadException'.
-getThreadInterface :: TVar (ThreadState a) -> STM (Maybe a)
+-- * returns the thread interface otherwise
+--
+-- We do /not/ distinguish between 'ThreadDone' and 'ThreadRunning' here, as
+-- doing so is inherently racy (we might return that the client is still
+-- running, and then it terminates before the calling code can do anything with
+-- that information).
+getThreadInterface :: TVar (ThreadState a) -> STM a
 getThreadInterface state =  do
     st <- readTVar state
     case st of
       ThreadNotStarted     -> retry
       ThreadInitializing _ -> retry
-      ThreadRunning _ a    -> return (Just a)
-      ThreadDone           -> return Nothing
+      ThreadRunning _ a    -> return a
+      ThreadDone      a    -> return a
       ThreadException e    -> throwSTM e

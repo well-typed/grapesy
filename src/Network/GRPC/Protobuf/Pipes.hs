@@ -30,7 +30,7 @@ clientStreaming :: forall s m.
      IsRPC (RPC s m)
   => MethodStreamingType s m ~ ClientStreaming
   => Connection
-  -> CallParams
+  -> PerCallParams
   -> RPC s m
   -> Consumer'
        (IsFinal, Input (RPC s m))
@@ -51,7 +51,7 @@ serverStreaming :: forall s m.
      IsRPC (RPC s m)
   => MethodStreamingType s m ~ ServerStreaming
   => Connection
-  -> CallParams
+  -> PerCallParams
   -> RPC s m
   -> Input (RPC s m)
   -> Producer' (Output (RPC s m)) (SafeT IO) Trailers
@@ -79,7 +79,7 @@ biDiStreaming :: forall s m a.
      IsRPC (RPC s m)
   => MethodStreamingType s m ~ BiDiStreaming
   => Connection
-  -> CallParams
+  -> PerCallParams
   -> RPC s m
   -> (    Consumer' (IsFinal, Input (RPC s m)) IO ()
        -> Producer' (Output (RPC s m)) IO Trailers

@@ -14,7 +14,7 @@ import Control.Tracer
 import Data.List.NonEmpty (NonEmpty)
 
 import Network.GRPC.Client.Logging
-import Network.GRPC.Compression (CompressionId, Compression)
+import Network.GRPC.Compression (Compression)
 import Network.GRPC.Compression qualified as Compression
 import Network.GRPC.Spec.HTTP2.Connection
 
@@ -29,28 +29,19 @@ data ConnParams = ConnParams {
       -- disable logging.
       connTracer :: Tracer IO LogMsg
 
-      -- | Initial set of accepted compression algorithms
+      -- | Supported compression algorithms
       --
-      -- This is used for inbound messages before the server has told us which
-      -- compression algorithms it supports.
+      -- The order of the list matters:
       --
-      -- For outbound messages we will not use compression until the server has
-      -- reported which compression algorithms it supported; when it does,
-      -- 'connUpdateCompression' is called.
-    , connInitCompression :: NonEmpty Compression
-
-      -- | Update compression preferences
+      -- * We will use the first algorithm in the list that is supported by
+      --   the server for compression of outgoing messages.
+      -- * We will present the list in-order to the server as accepted
+      --   algorithms, which the server may interpret as a list in order of
+      --   preference.
       --
-      -- When this function returns 'Nothing', the connection to the server will
-      -- be closed with an 'UnsupportedCompression' exception.
-      --
-      -- This function will only be called once, when the server gives their
-      -- initial list of supported compression algorithms. The chosen algorithm
-      -- is then used for the duration of the connection.
-    , connUpdateCompression ::
-          [CompressionId]
-          -- ^ Compression algorithms the server reports as supported
-        -> Either Compression.UnsupportedCompression Compression.Preference
+      -- Until we have received a list of supported compression algorithms from
+      -- the server, we will not use /any/ compression for outgoing messages.
+    , connCompression :: NonEmpty Compression
 
       -- | HTTP scheme
     , connScheme :: Scheme
@@ -65,8 +56,7 @@ data ConnParams = ConnParams {
 defaultConnParams :: Authority -> ConnParams
 defaultConnParams connAuthority = ConnParams{
       connTracer            = nullTracer
-    , connInitCompression   = Compression.allSupported
-    , connUpdateCompression = Compression.defaultPreference
+    , connCompression       = Compression.allSupported
     , connScheme            = Http
     , connAuthority
     }

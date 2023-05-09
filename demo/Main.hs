@@ -6,9 +6,9 @@ module Main (main) where
 import Control.Monad
 import Control.Tracer
 import Data.Default
+import Data.List.NonEmpty qualified as NE
 
 import Network.GRPC.Client
-import Network.GRPC.Compression qualified as Compresion
 
 import Demo.Driver.Cmdline
 import Demo.Driver.DelayOr
@@ -57,16 +57,16 @@ connParams cmd = defaults {
         if cmdDebug cmd
           then contramap show threadSafeTracer
           else connTracer defaults
-    , connUpdateCompression =
+    , connCompression =
         case cmdCompression cmd of
-          Just alg -> Compresion.forceAlgorithm alg
-          Nothing  -> connUpdateCompression defaults
+          Just alg -> NE.singleton alg
+          Nothing  -> connCompression defaults
     }
   where
     defaults :: ConnParams
     defaults = defaultConnParams $ cmdAuthority cmd
 
-callParams :: Cmdline -> CallParams
+callParams :: Cmdline -> PerCallParams
 callParams cmd = def{
       callTimeout = Timeout Second . TimeoutValue <$> cmdTimeout cmd
     }

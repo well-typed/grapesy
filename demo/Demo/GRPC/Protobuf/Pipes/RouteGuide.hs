@@ -26,7 +26,7 @@ import Demo.Driver.Logging
 
 listFeatures ::
      Connection
-  -> CallParams
+  -> PerCallParams
   -> Rectangle
   -> IO ()
 listFeatures conn params r = runSafeT . runEffect $
@@ -35,7 +35,7 @@ listFeatures conn params r = runSafeT . runEffect $
 
 recordRoute ::
      Connection
-  -> CallParams
+  -> PerCallParams
   -> Producer' (IsFinal, Point) (SafeT IO) ()
   -> IO ()
 recordRoute conn params ps = runSafeT . runEffect $
@@ -44,7 +44,7 @@ recordRoute conn params ps = runSafeT . runEffect $
 
 routeChat ::
      Connection
-  -> CallParams
+  -> PerCallParams
   -> Producer' (IsFinal, RouteNote) IO ()
   -> IO ()
 routeChat conn params ns =
