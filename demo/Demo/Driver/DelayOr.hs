@@ -7,6 +7,8 @@ module Demo.Driver.DelayOr (
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.MVar
 import Control.Tracer
+import Data.List.NonEmpty (NonEmpty(..))
+import Data.List.NonEmpty qualified as NE
 import Pipes
 
 import Network.GRPC.Client (IsFinal(..))
@@ -18,46 +20,93 @@ data DelayOr a =
   | Exec a       -- ^ Execute the specified RPC
   deriving (Show)
 
-execAll :: forall a. Show a => [DelayOr a] -> IO (IO (IsFinal, a))
-execAll = fmap (flip modifyMVar getNext) . newMVar
+isDelay :: DelayOr a -> Either Double a
+isDelay (Delay d) = Left d
+isDelay (Exec  a) = Right a
+
+execAll :: forall a. Show a => [DelayOr a] -> IO (IO (IsFinal, Maybe a))
+execAll =
+    fmap (flip modifyMVar getNext) . newMVar . alternating . map isDelay
   where
-    getNext :: [DelayOr a] -> IO ([DelayOr a], (IsFinal, a))
-    getNext [] =
-        error "execAll: empty list"
-    getNext [Exec x] = do
-        traceWith threadSafeTracer $ "Sending final " ++ show x
-        return ([], (Final, x))
-    getNext [Delay _] =
-        error "execAll: unexpected delay after final message"
-    getNext (Exec x:xs) = do
-        traceWith threadSafeTracer $ "Sending " ++ show x
-        return (xs, (NotFinal, x))
-    getNext (Delay d:xs) = do
+    getNext :: AltLists Double a -> IO (AltLists Double a, (IsFinal, Maybe a))
+    getNext (Alternating Nil) =
+        return (Alternating Nil, (Final, Nothing))
+    getNext (Alternating (Lft ds xss)) = do
+        let d = sum ds
         traceWith threadSafeTracer $ "Delay " ++ show d ++ "s"
         threadDelay (round (d * 1_000_000))
         traceWith threadSafeTracer $ ""
-        getNext xs
+        getNext (Alternating xss)
+    getNext (Alternating (Rgt (a :| as) xss)) = do
+        traceWith threadSafeTracer $ "Sending " ++ show a
+        return (
+            case as of
+              []     -> Alternating xss
+              a':as' -> Alternating (Rgt (a' :| as') xss)
+          , (checkIsFinal as xss, Just a)
+          )
 
 yieldAll :: forall a m.
      (MonadIO m, Show a)
-  => [DelayOr a] -> Producer' (IsFinal, a) m ()
-yieldAll = go
+  => [DelayOr a] -> Producer' (IsFinal, Maybe a) m ()
+yieldAll = withAlternating go . alternating . map isDelay
   where
-    go :: [DelayOr a] -> Producer' (IsFinal, a) m ()
-    go [] =
-        error "yieldAll: empty list"
-    go [Exec x] = do
-        liftIO $ traceWith threadSafeTracer $ "Yielding final " ++ show x
-        yield (Final, x)
-    go [Delay _] =
-        error "yieldAll: unexpected delay after final message"
-    go (Exec x:xs) = do
-        liftIO $ traceWith threadSafeTracer $ "Yielding " ++ show x
-        yield (NotFinal, x)
-        go xs
-    go (Delay d:xs) = do
+    go ::
+         Alt d (NonEmpty Double) (NonEmpty a)
+      -> Producer' (IsFinal, Maybe a) m ()
+    go Nil =
+        yield (Final, Nothing)
+    go (Lft ds xss) = do
+        let d = sum ds
         liftIO $ do
           traceWith threadSafeTracer $ "Delay " ++ show d ++ "s"
           threadDelay (round (d * 1_000_000))
           traceWith threadSafeTracer $ ""
-        go xs
+        go xss
+    go (Rgt (a :| as) xss) = do
+        liftIO $ traceWith threadSafeTracer $ "Yielding " ++ show a
+        yield (checkIsFinal as xss, Just a)
+        case as of
+          []     -> go xss
+          a':as' -> go (Rgt (a' :| as') xss)
+
+checkIsFinal :: [a] -> Alt L (NonEmpty Double) (NonEmpty a) -> IsFinal
+checkIsFinal []      Nil               = Final
+checkIsFinal []      (Lft _ Nil)       = Final
+checkIsFinal []      (Lft _ (Rgt _ _)) = NotFinal
+checkIsFinal (_ : _)  _                = NotFinal
+
+{-------------------------------------------------------------------------------
+  Auxiliary
+-------------------------------------------------------------------------------}
+
+data Dir = L | R
+
+data Alt (d :: Dir) a b where
+  Nil :: Alt d a b
+  Lft :: a -> Alt R a b -> Alt L a b
+  Rgt :: b -> Alt L a b -> Alt R a b
+
+data Alternating a b where
+  Alternating :: Alt d a b -> Alternating a b
+
+withAlternating :: (forall d. Alt d a b -> r) -> Alternating a b -> r
+withAlternating f (Alternating xs) = f xs
+
+type AltLists a b = Alternating (NonEmpty a) (NonEmpty b)
+
+alternating :: [Either a b] -> AltLists a b
+alternating = \case
+    []         -> Alternating Nil
+    Left  a:xs -> Alternating $ goA (a :| []) xs
+    Right b:xs -> Alternating $ goB (b :| []) xs
+  where
+    goA :: NonEmpty a -> [Either a b] -> Alt L (NonEmpty a) (NonEmpty b)
+    goA acc []           = Lft (NE.reverse acc) Nil
+    goA acc (Left  a:xs) = goA (NE.cons a acc) xs
+    goA acc (Right b:xs) = Lft (NE.reverse acc) (goB (b :| []) xs)
+
+    goB :: NonEmpty b -> [Either a b] -> Alt R (NonEmpty a) (NonEmpty b)
+    goB acc []           = Rgt (NE.reverse acc) Nil
+    goB acc (Right b:xs) = goB (NE.cons b acc) xs
+    goB acc (Left  a:xs) = Rgt (NE.reverse acc) (goA (a :| []) xs)

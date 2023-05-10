@@ -33,7 +33,7 @@ clientStreaming :: forall s m.
   -> PerCallParams
   -> RPC s m
   -> Consumer'
-       (IsFinal, Input (RPC s m))
+       (IsFinal, Maybe (Input (RPC s m)))
        (SafeT IO)
        (Output (RPC s m), Trailers)
 clientStreaming conn params rpc =
@@ -81,7 +81,7 @@ biDiStreaming :: forall s m a.
   => Connection
   -> PerCallParams
   -> RPC s m
-  -> (    Consumer' (IsFinal, Input (RPC s m)) IO ()
+  -> (    Consumer' (IsFinal, Maybe (Input (RPC s m))) IO ()
        -> Producer' (Output (RPC s m)) IO Trailers
        -> IO a
      )
@@ -98,13 +98,13 @@ biDiStreaming conn params rpc k =
 sendAll :: forall f s m.
      MonadIO f
   => Call (RPC s m)
-  -> Consumer' (IsFinal, Input (RPC s m)) f ()
+  -> Consumer' (IsFinal, Maybe (Input (RPC s m))) f ()
 sendAll call = loop
   where
-    loop :: Consumer' (IsFinal, Input (RPC s m)) f ()
+    loop :: Consumer' (IsFinal, Maybe (Input (RPC s m))) f ()
     loop = do
         (isFinal, input) <- await
-        liftIO $ atomically $ sendInput call isFinal $ Just input
+        liftIO $ atomically $ sendInput call isFinal input
         unless (isFinal == Final) loop
 
 recvAll :: forall f s m.
