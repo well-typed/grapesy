@@ -36,7 +36,7 @@ listFeatures conn params r = runSafeT . runEffect $
 recordRoute ::
      Connection
   -> PerCallParams
-  -> Producer' (IsFinal, Point) (SafeT IO) ()
+  -> Producer' (IsFinal, Maybe Point) (SafeT IO) ()
   -> IO ()
 recordRoute conn params ps = runSafeT . runEffect $
     let cons = clientStreaming conn params (RPC @RouteGuide @"recordRoute")
@@ -45,7 +45,7 @@ recordRoute conn params ps = runSafeT . runEffect $
 routeChat ::
      Connection
   -> PerCallParams
-  -> Producer' (IsFinal, RouteNote) IO ()
+  -> Producer' (IsFinal, Maybe RouteNote) IO ()
   -> IO ()
 routeChat conn params ns =
     biDiStreaming conn params (RPC @RouteGuide @"routeChat") $ \cons prod ->

@@ -171,3 +171,6 @@ ever growing (and hopefully eventually shrinking) list of things to do.
 - [ ] `Network.GRPC.Client.Request` currently uses one-place buffers. We should
       replace these with `n`-place buffers, for configurable `n`.
 
+- [ ] Support `content-length` header. This is not part of the spec, but
+      apparently some servers send it anyway
+      (e.g. https://github.com/grpc/grpc-web/issues/1101).

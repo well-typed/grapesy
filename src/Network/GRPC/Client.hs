@@ -173,8 +173,6 @@ data Aborted = Aborted
 -- If you are using the specialized functions from "Network.GRPC.Protobuf",
 -- you do not need to worry about any of this.
 
-
-
 -- | Send an input to the peer
 --
 -- This lives in @STM@ for improved composability. For example, if the peer is

@@ -78,8 +78,11 @@ clientStreaming :: forall s m.
   => Connection
   -> PerCallParams
   -> RPC s m
-  -> IO (IsFinal, Input (RPC s m))
+  -> IO (IsFinal, Maybe (Input (RPC s m)))
   -- ^ We will repeatedly call this function until it returns a 'Final' 'Input'.
+  --
+  -- You should return @(Final, Nothing)@ /only/ in the case that the client
+  -- sends /no/ messages; see discussion in "Network.GRPC.Client".
   -> IO (MethodOutput s m, Trailers)
   -- ^ Single output
 clientStreaming conn params rpc produceInput =
@@ -115,7 +118,7 @@ biDiStreaming :: forall s m.
   => Connection
   -> PerCallParams
   -> RPC s m
-  -> IO (IsFinal, Input (RPC s m))
+  -> IO (IsFinal, Maybe (Input (RPC s m)))
   -- ^ We will repeatedly call this function until it returns a 'Final' 'Input'
   -- or until we receive 'Trailers' from the remote node, whichever comes first.
   -> (Output (RPC s m) -> IO ())
@@ -131,13 +134,13 @@ biDiStreaming conn params rpc produceInput processOutput =
   Internal auxiliary
 -------------------------------------------------------------------------------}
 
-sendAll :: IO (IsFinal, MethodInput s m) -> Call (RPC s m) -> IO ()
+sendAll :: IO (IsFinal, Maybe (MethodInput s m)) -> Call (RPC s m) -> IO ()
 sendAll produceInput call = loop
   where
     loop :: IO ()
     loop = do
         (isFinal, input) <- produceInput
-        atomically $ sendInput call isFinal $ Just input
+        atomically $ sendInput call isFinal input
         unless (isFinal == Final) loop
 
 recvAll :: (MethodOutput s m -> IO a) -> Call (RPC s m) -> IO Trailers
