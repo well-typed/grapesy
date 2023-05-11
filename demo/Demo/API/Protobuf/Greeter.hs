@@ -1,4 +1,4 @@
-module Demo.GRPC.Protobuf.Greeter (
+module Demo.API.Protobuf.Greeter (
     sayHello
   , sayHelloStreamReply
   ) where

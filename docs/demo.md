@@ -128,7 +128,7 @@ or
 grpc-repo/examples/cpp/route_guide$ cmake/build/route_guide_server
 ```
 
-All methods except `getFeature` support the `--pipes` option to use the
+All methods except `getFeature` support the `--protobuf-pipes` option to use the
 [`pipes` interface](/src/Network/GRPC/Protobuf/Pipes.hs).
 
 ### `routeguide.RouteGuide.GetFeature`

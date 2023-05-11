@@ -3,6 +3,7 @@
 -- See @docs/demo.md@ for documentation.
 module Main (main) where
 
+import Control.Exception
 import Control.Monad
 import Control.Tracer
 import Data.Default
@@ -14,9 +15,9 @@ import Demo.Driver.Cmdline
 import Demo.Driver.DelayOr
 import Demo.Driver.Logging
 
-import Demo.GRPC.Protobuf.Greeter          qualified as IO.Greeter
-import Demo.GRPC.Protobuf.Pipes.RouteGuide qualified as Pi.RouteGuide
-import Demo.GRPC.Protobuf.RouteGuide       qualified as IO.RouteGuide
+import Demo.API.Protobuf.Greeter          qualified as IO.Greeter
+import Demo.API.Protobuf.Pipes.RouteGuide qualified as Pipes.RouteGuide
+import Demo.API.Protobuf.RouteGuide       qualified as IO.RouteGuide
 
 {-------------------------------------------------------------------------------
   Application entry point
@@ -26,26 +27,58 @@ main :: IO ()
 main = do
     cmd <- getCmdline
 
+    let unsupportedMode :: IO a
+        unsupportedMode = throwIO $ userError $ concat [
+              "Mode "
+            , show (cmdAPI cmd)
+            , " not supported for "
+            , show (cmdMethod cmd)
+            ]
+
     withConnection (connParams cmd) $ \conn ->
       case cmdMethod cmd of
         SomeMethod SGreeter (SSayHello names) ->
-          forM_ names $ IO.Greeter.sayHello conn (callParams cmd)
+          case cmdAPI cmd of
+            Protobuf ->
+              forM_ names $ IO.Greeter.sayHello conn (callParams cmd)
+            _otherwise ->
+              unsupportedMode
         SomeMethod SGreeter (SSayHelloStreamReply name) ->
-          IO.Greeter.sayHelloStreamReply conn (callParams cmd) name
+          case cmdAPI cmd of
+            Protobuf ->
+              IO.Greeter.sayHelloStreamReply conn (callParams cmd) name
+            _otherwise ->
+              unsupportedMode
         SomeMethod SRouteGuide (SGetFeature p) ->
-          IO.RouteGuide.getFeature conn (callParams cmd) p
+          case cmdAPI cmd of
+            Protobuf ->
+              IO.RouteGuide.getFeature conn (callParams cmd) p
+            _otherwise ->
+              unsupportedMode
         SomeMethod SRouteGuide (SListFeatures r) ->
-          if cmdUsePipes cmd
-            then Pi.RouteGuide.listFeatures conn (callParams cmd) r
-            else IO.RouteGuide.listFeatures conn (callParams cmd) r
+          case cmdAPI cmd of
+            ProtobufPipes ->
+              Pipes.RouteGuide.listFeatures conn (callParams cmd) r
+            Protobuf ->
+              IO.RouteGuide.listFeatures conn (callParams cmd) r
+            _otherwise ->
+              unsupportedMode
         SomeMethod SRouteGuide (SRecordRoute ps) ->
-          if cmdUsePipes cmd
-            then Pi.RouteGuide.recordRoute conn (callParams cmd) $ yieldAll ps
-            else IO.RouteGuide.recordRoute conn (callParams cmd) =<< execAll ps
+          case cmdAPI cmd of
+            ProtobufPipes ->
+              Pipes.RouteGuide.recordRoute conn (callParams cmd) $ yieldAll ps
+            Protobuf ->
+              IO.RouteGuide.recordRoute conn (callParams cmd) =<< execAll ps
+            _otherwise ->
+              unsupportedMode
         SomeMethod SRouteGuide (SRouteChat notes) ->
-          if cmdUsePipes cmd
-            then Pi.RouteGuide.routeChat conn (callParams cmd) $ yieldAll notes
-            else IO.RouteGuide.routeChat conn (callParams cmd) =<< execAll notes
+          case cmdAPI cmd of
+            ProtobufPipes ->
+              Pipes.RouteGuide.routeChat conn (callParams cmd) $ yieldAll notes
+            Protobuf ->
+              IO.RouteGuide.routeChat conn (callParams cmd) =<< execAll notes
+            _otherwise ->
+              unsupportedMode
 
 {-------------------------------------------------------------------------------
   Interpret command line

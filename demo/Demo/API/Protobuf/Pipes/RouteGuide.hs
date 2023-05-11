@@ -1,4 +1,4 @@
-module Demo.GRPC.Protobuf.Pipes.RouteGuide (
+module Demo.API.Protobuf.Pipes.RouteGuide (
     listFeatures
   , recordRoute
   , routeChat
