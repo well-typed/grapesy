@@ -90,6 +90,9 @@ data Alt (d :: Dir) a b where
 data Alternating a b where
   Alternating :: Alt d a b -> Alternating a b
 
+deriving instance (Show a, Show b) => Show (Alt d a b)
+deriving instance (Show a, Show b) => Show (Alternating a b)
+
 withAlternating :: (forall d. Alt d a b -> r) -> Alternating a b -> r
 withAlternating f (Alternating xs) = f xs
 
