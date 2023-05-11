@@ -43,7 +43,9 @@ ever growing (and hopefully eventually shrinking) list of things to do.
         (e.g., run `routeChat` against `wait_for_ready_with_client_timeout_example_server.py`)
 
       Status: the former (`ResponseUnexpectedContentLength 0`) is fixed; the
-      latter not yet.
+      latter not yet; it's due to the problem with http2 mentioned before:
+      the server notices that the client isn't yet in (half-)closed state and
+      so sends a RST_STREAM, but that makes http2 throw an exception.
 
 - [ ] When we run the `SayHelloStreamReply` client against the example C++
       server, which does not implement it, we just seem to stall; should use

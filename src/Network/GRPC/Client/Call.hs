@@ -169,7 +169,7 @@ openCall conn@Connection{connSend, connParams} perCallParams rpc = do
                 (Connection.path rpc)
                 (Request.buildHeaders callParams rpc)
                 (\push flush ->
-                    threadBody callOutbound newEmptyTMVarIO $ \outboundQ ->
+                    threadBody callOutbound newEmptyTMVarIO $ \outboundQ -> do
                       sendInputs
                         connParams
                         (callCompression callParams)
@@ -188,8 +188,10 @@ openCall conn@Connection{connSend, connParams} perCallParams rpc = do
         -- Any exceptions that we catch on the outside here /must/ come from the
         -- setup phase, because the threads install their own exception handlers.
         setup <- try $ connSend req $ \resp -> do
-          compr <- processResponseHeaders conn rpc resp
-          recvOutputs connParams compr rpc resp inboundQ
+          mCompr <- processResponseHeaders conn rpc resp
+          case mCompr of
+            Left  trailers -> atomically $ putTMVar inboundQ $ Left trailers
+            Right compr    -> recvOutputs connParams compr rpc resp inboundQ
         case setup of
           Right () -> return ()
           Left e   -> closeCall call $ Just e
@@ -223,11 +225,20 @@ data CallClosed = CallClosed {
 
 -- | Process response headers
 --
--- Throws 'RpcImmediateError' in the @Trailers-Only@ case; see
--- 'RpcImmediateError' for discussion.
+-- The gRPC specification states that
+--
+-- > Trailers-Only is permitted for calls that produce an immediate error
+--
+-- Spec notwithstanding, gRPC servers can also respond with @Trailers-Only@ in
+-- non-error cases, simply indicating that the server considers the conversation
+-- over. To distinguish, we look at 'grpcStatus': in case of 'GrpcOk' we return
+-- the 'Trailers', and in the case of 'GrpcError' we throw 'RpcImmediateError'.
 processResponseHeaders ::
      IsRPC rpc
-  => Connection -> rpc -> Client.Response -> IO Compression
+  => Connection
+  -> rpc
+  -> Client.Response
+  -> IO (Either Trailers Compression)
 processResponseHeaders Connection{connMeta, connParams} rpc resp = do
     let status = Client.responseStatus resp
     case HTTP.statusCode <$> status of
@@ -262,8 +273,14 @@ processResponseHeaders Connection{connMeta, connParams} rpc resp = do
         headers       = getResponseHeaders resp
 
     case contentLength of
-      Just 0  -> throwIO . RpcImmediateError =<< parseTrailers rpc headers
-      Just l  -> throwIO $ ResponseUnexpectedContentLength l
+      Just 0 -> do
+        trailers <- parseTrailers rpc headers
+        -- Allow for the exception to the specification mentioned above.
+        case grpcStatus trailers of
+          GrpcOk      -> return  $ Left trailers
+          GrpcError _ -> throwIO $ RpcImmediateError trailers
+      Just l ->
+        throwIO $ ResponseUnexpectedContentLength l
       Nothing -> do
         -- The common @Response@ case (i.e., not @Trailers-Only@)
         hdrs <- parseHeaders rpc headers
@@ -275,12 +292,12 @@ processResponseHeaders Connection{connMeta, connParams} rpc resp = do
             Right meta' -> writeTVar connMeta meta'
 
         case unI (Response.headerCompression hdrs) of
-          Nothing  -> return Compression.identity
+          Nothing  -> return $ Right Compression.identity
           Just cid -> case NE.filter
                              ((== cid) . compressionId)
                              (connCompression connParams) of
                         []  -> throwIO $ ResponseUnexpectedCompression cid
-                        c:_ -> return c
+                        c:_ -> return $ Right c
 
 -- | Thrown by 'openCall' when the remote node indicates an immediate error
 --
