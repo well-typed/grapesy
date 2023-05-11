@@ -15,9 +15,10 @@ import Demo.Driver.Cmdline
 import Demo.Driver.DelayOr
 import Demo.Driver.Logging
 
-import Demo.API.Protobuf.Greeter          qualified as IO.Greeter
+import Demo.API.Core.NoFinal.Greeter      qualified as NoFinal.Greeter
+import Demo.API.Protobuf.Greeter          qualified as PBuf.Greeter
 import Demo.API.Protobuf.Pipes.RouteGuide qualified as Pipes.RouteGuide
-import Demo.API.Protobuf.RouteGuide       qualified as IO.RouteGuide
+import Demo.API.Protobuf.RouteGuide       qualified as PBuf.RouteGuide
 
 {-------------------------------------------------------------------------------
   Application entry point
@@ -38,21 +39,24 @@ main = do
     withConnection (connParams cmd) $ \conn ->
       case cmdMethod cmd of
         SomeMethod SGreeter (SSayHello names) ->
-          case cmdAPI cmd of
-            Protobuf ->
-              forM_ names $ IO.Greeter.sayHello conn (callParams cmd)
-            _otherwise ->
-              unsupportedMode
+          forM_ names $ \name ->
+            case cmdAPI cmd of
+              Protobuf ->
+                PBuf.Greeter.sayHello conn (callParams cmd) name
+              CoreNoFinal ->
+                NoFinal.Greeter.sayHello conn (callParams cmd) name
+              _otherwise ->
+                unsupportedMode
         SomeMethod SGreeter (SSayHelloStreamReply name) ->
           case cmdAPI cmd of
             Protobuf ->
-              IO.Greeter.sayHelloStreamReply conn (callParams cmd) name
+              PBuf.Greeter.sayHelloStreamReply conn (callParams cmd) name
             _otherwise ->
               unsupportedMode
         SomeMethod SRouteGuide (SGetFeature p) ->
           case cmdAPI cmd of
             Protobuf ->
-              IO.RouteGuide.getFeature conn (callParams cmd) p
+              PBuf.RouteGuide.getFeature conn (callParams cmd) p
             _otherwise ->
               unsupportedMode
         SomeMethod SRouteGuide (SListFeatures r) ->
@@ -60,7 +64,7 @@ main = do
             ProtobufPipes ->
               Pipes.RouteGuide.listFeatures conn (callParams cmd) r
             Protobuf ->
-              IO.RouteGuide.listFeatures conn (callParams cmd) r
+              PBuf.RouteGuide.listFeatures conn (callParams cmd) r
             _otherwise ->
               unsupportedMode
         SomeMethod SRouteGuide (SRecordRoute ps) ->
@@ -68,7 +72,7 @@ main = do
             ProtobufPipes ->
               Pipes.RouteGuide.recordRoute conn (callParams cmd) $ yieldAll ps
             Protobuf ->
-              IO.RouteGuide.recordRoute conn (callParams cmd) =<< execAll ps
+              PBuf.RouteGuide.recordRoute conn (callParams cmd) =<< execAll ps
             _otherwise ->
               unsupportedMode
         SomeMethod SRouteGuide (SRouteChat notes) ->
@@ -76,7 +80,7 @@ main = do
             ProtobufPipes ->
               Pipes.RouteGuide.routeChat conn (callParams cmd) $ yieldAll notes
             Protobuf ->
-              IO.RouteGuide.routeChat conn (callParams cmd) =<< execAll notes
+              PBuf.RouteGuide.routeChat conn (callParams cmd) =<< execAll notes
             _otherwise ->
               unsupportedMode
 
