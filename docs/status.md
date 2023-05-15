@@ -49,10 +49,13 @@ ever growing (and hopefully eventually shrinking) list of things to do.
       However, it seems to be fixed by
       https://github.com/kazu-yamamoto/http2/pull/78 .
 
-- [ ] When we run the `SayHelloStreamReply` client against the example C++
+- [x] When we run the `SayHelloStreamReply` client against the example C++
       server, which does not implement it, we just seem to stall; should use
       Wireshark to see if that is correct, or whether we are getting some output
       from the server.
+
+      Status: this is fixed as part of the general improvements for error
+      handling.
 
 - [ ] We should set the HTTP2 `Trailers` header. The GRPC spec doesn't stipulate
       this, but perhaps it should (open issue about this at
