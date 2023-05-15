@@ -27,7 +27,6 @@ import Data.ByteString.Lazy qualified as BS.Lazy
 import Data.ByteString.Lazy qualified as Lazy
 import Data.List.NonEmpty qualified as NE
 import Data.Maybe (fromMaybe)
-import Data.SOP
 import GHC.Stack
 import Network.HPACK qualified as HPACK
 import Network.HPACK.Token qualified as HPACK
@@ -36,6 +35,7 @@ import Network.HTTP2.Client qualified as Client
 
 import Network.GRPC.Client.Connection
 import Network.GRPC.Client.Connection.Meta qualified as ConnMeta
+import Network.GRPC.Client.Connection.Meta qualified as Meta
 import Network.GRPC.Client.Connection.Params
 import Network.GRPC.Client.Logging
 import Network.GRPC.Compression (Compression(..), CompressionId)
@@ -48,7 +48,6 @@ import Network.GRPC.Spec.HTTP2.Request qualified as Request
 import Network.GRPC.Spec.HTTP2.Response qualified as Response
 import Network.GRPC.Spec.RPC
 import Network.GRPC.Util.Thread
-import Network.GRPC.Client.Connection.Meta qualified as Meta
 
 {-------------------------------------------------------------------------------
   Definition
@@ -276,7 +275,7 @@ processResponseHeaders Connection{connMeta, connParams} rpc resp = do
       Just 0 -> do
         trailers <- parseTrailers rpc headers
         -- Allow for the exception to the specification mentioned above.
-        case grpcStatus trailers of
+        case trailerGrpcStatus trailers of
           GrpcOk      -> return  $ Left trailers
           GrpcError _ -> throwIO $ RpcImmediateError trailers
       Just l ->
@@ -291,7 +290,7 @@ processResponseHeaders Connection{connMeta, connParams} rpc resp = do
             Left  err   -> throwSTM err
             Right meta' -> writeTVar connMeta meta'
 
-        case unI (Response.headerCompression hdrs) of
+        case headerCompression hdrs of
           Nothing  -> return $ Right Compression.identity
           Just cid -> case NE.filter
                              ((== cid) . compressionId)
@@ -418,9 +417,7 @@ data InvalidResponse =
   Internal auxiliary: dealing with the header table
 -------------------------------------------------------------------------------}
 
-parseHeaders ::
-     IsRPC rpc
-  => rpc -> [HTTP.Header] -> IO (Response.ResponseHeaders I)
+parseHeaders :: IsRPC rpc => rpc -> [HTTP.Header] -> IO Headers
 parseHeaders rpc headers =
     case Response.parseHeaders rpc headers of
       Left  err    -> throwIO $ ResponseInvalidHeaders err
@@ -430,7 +427,7 @@ parseTrailers :: IsRPC rpc => rpc -> [HTTP.Header] -> IO Trailers
 parseTrailers rpc trailers =
     case Response.parseTrailers rpc trailers of
       Left err     -> throwIO $ ResponseInvalidTrailers err
-      Right parsed -> return $ Response.toTrailers parsed
+      Right parsed -> return  parsed
 
 getResponseHeaders :: Client.Response -> [HTTP.Header]
 getResponseHeaders = fromHeaderTable . Client.responseHeaders

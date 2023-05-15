@@ -58,7 +58,7 @@ data CustomMetadata =
     -- as "space and horizontal tab"
     -- <https://www.rfc-editor.org/rfc/rfc5234#section-3.1>.
   | AsciiHeader HeaderName AsciiValue
-  deriving stock (Show)
+  deriving stock (Show, Eq)
 
 {-------------------------------------------------------------------------------
   Header-Name
@@ -76,6 +76,7 @@ data CustomMetadata =
 newtype HeaderName = UnsafeHeaderName {
       getHeaderName :: Strict.ByteString
     }
+  deriving stock (Eq)
 
 -- | 'Show' instance relies on the 'HeaderName' pattern synonym
 instance Show HeaderName where
@@ -128,6 +129,7 @@ isValidHeaderName bs = and [
 newtype AsciiValue = UnsafeAsciiValue {
       getAsciiValue :: Strict.ByteString
     }
+  deriving stock (Eq)
 
 -- | 'Show' instance relies on the 'AsciiValue' pattern synonym
 instance Show AsciiValue where

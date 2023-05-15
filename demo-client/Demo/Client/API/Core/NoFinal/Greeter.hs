@@ -1,4 +1,4 @@
-module Demo.API.Core.NoFinal.Greeter (
+module Demo.Client.API.Core.NoFinal.Greeter (
     sayHello
   ) where
 
