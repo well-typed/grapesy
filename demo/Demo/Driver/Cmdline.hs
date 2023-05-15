@@ -6,6 +6,7 @@
 module Demo.Driver.Cmdline (
     -- * Definition
     Cmdline(..)
+  , API(..)
   , SomeMethod(..)
   , SService(..)
   , SMethod(..)
@@ -40,10 +41,17 @@ data Cmdline = Cmdline {
       cmdAuthority   :: Authority
     , cmdDebug       :: Bool
     , cmdTimeout     :: Maybe Word
-    , cmdUsePipes    :: Bool
+    , cmdAPI         :: API
     , cmdCompression :: Maybe Compression
     , cmdMethod      :: SomeMethod
     }
+  deriving (Show)
+
+-- | Which API to use?
+data API =
+    Protobuf
+  | ProtobufPipes
+  | CoreNoFinal
   deriving (Show)
 
 data SomeMethod where
@@ -89,10 +97,7 @@ parseCmdline =
                long "timeout"
              , metavar "SECONDS"
              ])
-      <*> (switch $ mconcat [
-               long "pipes"
-             , help "Use the pipes interface (where applicable)"
-             ])
+      <*> parseAPI
       <*> optional parseCompression
       <*> parseSomeMethod
 
@@ -120,6 +125,23 @@ parseCompression = asum [
           long "gzip"
         , help "Use GZip compression for all messages"
         ]
+    ]
+
+parseAPI :: Parser API
+parseAPI = asum [
+      flag' Protobuf $ mconcat [
+          long "protobuf"
+        , help "Use the Protobuf API (if applicable)"
+        ]
+    , flag' ProtobufPipes $ mconcat [
+          long "protobuf-pipes"
+        , help "Use the Protobuf pipes API (if applicable)"
+        ]
+    , flag' CoreNoFinal $ mconcat [
+          long "core-dont-mark-final"
+        , help "Use the core API; don't mark the last message as final"
+        ]
+    , pure Protobuf
     ]
 
 {-------------------------------------------------------------------------------

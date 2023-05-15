@@ -138,9 +138,10 @@ executable demo
       Demo.Driver.Cmdline
       Demo.Driver.DelayOr
       Demo.Driver.Logging
-      Demo.GRPC.Protobuf.Greeter
-      Demo.GRPC.Protobuf.RouteGuide
-      Demo.GRPC.Protobuf.Pipes.RouteGuide
+      Demo.API.Core.NoFinal.Greeter
+      Demo.API.Protobuf.Greeter
+      Demo.API.Protobuf.RouteGuide
+      Demo.API.Protobuf.Pipes.RouteGuide
       Proto.Helloworld
       Proto.Helloworld_Fields
       Proto.RouteGuide
@@ -156,6 +157,7 @@ executable demo
     , pipes-safe
     , proto-lens
     , proto-lens-runtime
+    , stm
     , text
 
   if !flag(build-demo)

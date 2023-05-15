@@ -1,4 +1,4 @@
-module Demo.GRPC.Protobuf.RouteGuide (
+module Demo.API.Protobuf.RouteGuide (
     getFeature
   , listFeatures
   , recordRoute
