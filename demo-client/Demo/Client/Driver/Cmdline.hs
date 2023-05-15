@@ -3,7 +3,7 @@
 -- | Command line options
 --
 -- Intended for unqualified import.
-module Demo.Driver.Cmdline (
+module Demo.Client.Driver.Cmdline (
     -- * Definition
     Cmdline(..)
   , API(..)
@@ -31,7 +31,7 @@ import Network.GRPC.Compression qualified as Compression
 import Proto.Helloworld
 import Proto.RouteGuide
 
-import Demo.Driver.DelayOr
+import Demo.Client.Driver.DelayOr
 
 {-------------------------------------------------------------------------------
   Definition

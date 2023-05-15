@@ -1,4 +1,4 @@
-module Demo.API.Protobuf.Pipes.RouteGuide (
+module Demo.Client.API.Protobuf.Pipes.RouteGuide (
     listFeatures
   , recordRoute
   , routeChat
@@ -16,7 +16,7 @@ import Network.GRPC.Protobuf.Pipes
 
 import Proto.RouteGuide
 
-import Demo.Driver.Logging
+import Demo.Client.Driver.Logging
 
 {-------------------------------------------------------------------------------
   routeguide.RouteGuide

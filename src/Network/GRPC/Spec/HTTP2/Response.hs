@@ -2,100 +2,51 @@
 
 -- | Deal with HTTP2 responses
 --
--- Intended for qualified import.
+-- Intended for unqualified import.
 --
--- > import Network.GRPC.Spec.HTTP2.Response (ResponseHeaders, ResponseTrailers)
 -- > import Network.GRPC.Spec.HTTP2.Response qualified as Response
 module Network.GRPC.Spec.HTTP2.Response (
-    -- * Definition
-    ResponseHeaders(..)
-  , ResponseTrailers(..)
-  , toTrailers
+    -- * Construction
+    buildTrailers
     -- * Parsing
   , parseHeaders
   , parseTrailers
   ) where
 
 import Control.Monad.Except
-import Control.Monad.State
 import Data.ByteString qualified as BS.Strict
 import Data.ByteString qualified as Strict (ByteString)
 import Data.ByteString.Char8 qualified as BS.Strict.C8
 import Data.CaseInsensitive qualified as CI
-import Data.Kind
 import Data.List (intersperse)
 import Data.SOP
-import Data.Text (Text)
-import Generics.SOP qualified as SOP
-import GHC.Generics qualified as GHC
 import Network.HTTP.Types qualified as HTTP
 import Text.Read (readMaybe)
 
 import Network.GRPC.Spec
-import Network.GRPC.Spec.Compression (CompressionId)
 import Network.GRPC.Spec.Compression qualified as Compression
 import Network.GRPC.Spec.CustomMetadata
+import Network.GRPC.Spec.PercentEncoding qualified as PercentEncoding
 import Network.GRPC.Spec.RPC
 import Network.GRPC.Util.ByteString
-import Network.GRPC.Util.HKD (IsHKD)
-import Network.GRPC.Util.HKD qualified as HKD
-import Network.GRPC.Spec.PercentEncoding qualified as PercentEncoding
+import Network.GRPC.Util.Partial
 
 {-------------------------------------------------------------------------------
-  Definition
+  Construction
 -------------------------------------------------------------------------------}
 
--- | Response headers
---
--- When we add this, should also update the parser.
-data ResponseHeaders (f :: Type -> Type) = ResponseHeaders {
-      headerCompression       :: f (Maybe CompressionId)
-    , headerAcceptCompression :: f (Maybe [CompressionId])
-    , headerCustomMetadata    :: f [CustomMetadata]
-    }
-  deriving stock (GHC.Generic)
-  deriving anyclass (SOP.Generic, SOP.HasDatatypeInfo)
-
--- | Response trailers
---
--- Response trailers are a
--- [HTTP2 concept](https://datatracker.ietf.org/doc/html/rfc7540#section-8.1.3):
--- they are HTTP headers that are sent /after/ the content body. For example,
--- imagine the server is streaming a file that it's reading from disk; it could
--- use trailers to give the client an MD5 checksum when streaming is complete.
-data ResponseTrailers (f :: Type -> Type) = ResponseTrailers {
-      trailerStatus         :: f GrpcStatus
-    , trailerMessage        :: f (Maybe Text)
-    , trailerCustomMetadata :: f [CustomMetadata]
-    }
-  deriving stock (GHC.Generic)
-  deriving anyclass (SOP.Generic, SOP.HasDatatypeInfo)
-
-deriving instance (forall a. Show a => Show (f a)) => Show (ResponseHeaders  f)
-deriving instance (forall a. Show a => Show (f a)) => Show (ResponseTrailers f)
-
-uninitResponseHeaders :: ResponseHeaders (Either String)
-uninitResponseHeaders = ResponseHeaders {
-      headerCompression       = Right Nothing
-    , headerAcceptCompression = Right Nothing
-    , headerCustomMetadata    = Right []
-    }
-
-uninitResponseTrailers :: ResponseTrailers (Either String)
-uninitResponseTrailers = ResponseTrailers {
-      trailerStatus         = Left "Missing grpc-status"
-    , trailerMessage        = Right Nothing
-    , trailerCustomMetadata = Right []
-    }
-
-toTrailers :: ResponseTrailers I -> Trailers
-toTrailers trailers = Trailers {
-      grpcStatus  = unI $ trailerStatus  trailers
-    , grpcMessage = unI $ trailerMessage trailers
-    }
+buildTrailers :: Trailers -> [HTTP.Header]
+buildTrailers Trailers{ trailerGrpcStatus
+                      , trailerGrpcMessage = _TODO1
+                      , trailerCustom = _TODO2 } = concat [
+      [ ( "grpc-status"
+        , BS.Strict.C8.pack $ show $ fromGrpcStatus trailerGrpcStatus
+        )
+      ]
+    ]
 
 {-------------------------------------------------------------------------------
-  Response headers
+  Parsing
 
   TODO: We should attempt to be more lenient in our parsing here, and throw
   fewer errors. Perhaps have an @Invalid@ constructor or something, so that
@@ -107,27 +58,6 @@ toTrailers trailers = Trailers {
   this for incoming headers.
 -------------------------------------------------------------------------------}
 
-newtype HeaderParser s a = WrapHeaderParser {
-      unwrapHeaderParser :: StateT (s (Either String)) (Except String) a
-    }
-  deriving newtype (
-      Functor
-    , Applicative
-    , Monad
-    , MonadError String
-    , MonadState (s (Either String))
-    )
-
-runHeaderParser ::
-     IsHKD s
-  => s (Either String)
-  -> HeaderParser s () -> Either String (s I)
-runHeaderParser uninit =
-      (>>= HKD.hsequence)
-    . runExcept
-    . flip execStateT uninit
-    . unwrapHeaderParser
-
 -- | Parse response headers
 --
 -- > Response-Headers →
@@ -138,80 +68,42 @@ runHeaderParser uninit =
 -- >   *Custom-Metadata
 --
 -- We do not deal with @HTTP-Status@ here; @http2@ reports this separately.
-parseHeaders ::
-     IsRPC rpc
-  => rpc
-  -> [HTTP.Header]
-  -> Either String (ResponseHeaders I)
+parseHeaders :: IsRPC rpc => rpc -> [HTTP.Header] -> Either String Headers
 parseHeaders rpc =
-      runHeaderParser uninitResponseHeaders
+      runPartialParser uninitResponseHeaders
     . mapM_ parseHeader
   where
     -- HTTP2 header names are always lowercase, and must be ASCII.
     -- <https://datatracker.ietf.org/doc/html/rfc7540#section-8.1.2>
-    parseHeader :: HTTP.Header -> HeaderParser ResponseHeaders ()
+    parseHeader :: HTTP.Header -> PartialParser Headers (Either String) ()
     parseHeader (name, value)
       | name == "content-type"
       = parseContentType rpc value
 
       | name == "grpc-encoding"
-      = modify $ \partial -> partial{
-            headerCompression = Right $ Just $ Compression.deserializeId value
-          }
+      = update updCompression $ \_ -> Right . Just $
+          Compression.deserializeId value
 
       | name == "grpc-accept-encoding"
-      = modify $ \partial -> partial{
-            headerAcceptCompression = Right . Just $
-              map (Compression.deserializeId . strip) $
-                BS.Strict.splitWith (== ascii ',') value
-          }
+      = update updAcceptCompression $ \_ -> Right . Just $
+          map (Compression.deserializeId . strip) $
+            BS.Strict.splitWith (== ascii ',') value
 
       | otherwise
-      = parseCustomMetadata name value >>= \md ->
-        modify $ \partial -> partial{
-              headerCustomMetadata = (md:) <$> headerCustomMetadata partial
-            }
+      = parseCustomMetadata name value >>= update updCustom . fmap . (:)
 
-parseContentType :: IsRPC rpc => rpc -> Strict.ByteString -> HeaderParser a ()
-parseContentType rpc value =
-    unless (value `elem` accepted) $
-      throwError $ concat [
-          "Unexpected content-type "
-        , BS.Strict.C8.unpack value
-        , "; expected one of "
-        , mconcat . intersperse ", " . map BS.Strict.C8.unpack $ accepted
-        , "'"
-        ]
-  where
-    accepted :: [Strict.ByteString]
-    accepted = [
-        "application/grpc"
-      , "application/grpc+" <> serializationFormat rpc
-      ]
+    uninitResponseHeaders :: Partial (Either String) Headers
+    uninitResponseHeaders =
+           return Nothing  -- headerCompression
+        :* return Nothing  -- headerAcceptCompression
+        :* return []       -- headerCustom
+        :* Nil
 
-parseCustomMetadata ::
-     HTTP.HeaderName
-  -> Strict.ByteString
-  -> HeaderParser a CustomMetadata
-parseCustomMetadata name value
-  | "grpc-" `BS.Strict.isPrefixOf` CI.foldedCase name
-  = throwError $ "Reserved header: " ++ show (name, value)
 
-  | "-bin" `BS.Strict.isSuffixOf` CI.foldedCase name
-  = case safeHeaderName (BS.Strict.dropEnd 4 $ CI.foldedCase name) of
-      Just name' ->
-        return $ BinaryHeader name' value
-      _otherwise ->
-        throwError $ "Invalid custom binary header: " ++ show (name, value)
-
-  | otherwise
-  = case ( safeHeaderName (CI.foldedCase name)
-         , safeAsciiValue value
-         ) of
-      (Just name', Just value') ->
-        return $ AsciiHeader name' value'
-      _otherwise ->
-        throwError $ "Invalid custom ASCII header: " ++ show (name, value)
+    (    updCompression
+      :* updAcceptCompression
+      :* updCustom
+      :* Nil ) = partialUpdates (Proxy @Headers)
 
 -- | Parse response trailers
 --
@@ -232,33 +124,82 @@ parseCustomMetadata name value
 parseTrailers ::
      IsRPC rpc
   => rpc
-  -> [HTTP.Header] -> Either String (ResponseTrailers I)
+  -> [HTTP.Header] -> Either String Trailers
 parseTrailers rpc =
-      runHeaderParser uninitResponseTrailers
-    . mapM_ parseHeader
+    runPartialParser uninitTrailers . mapM_ parseHeader
   where
-    parseHeader :: HTTP.Header -> HeaderParser ResponseTrailers ()
+    parseHeader :: HTTP.Header -> PartialParser Trailers (Either String) ()
     parseHeader (name, value)
       | name == "grpc-status"
       = case toGrpcStatus =<< readMaybe (BS.Strict.C8.unpack value) of
           Nothing -> throwError $ "Invalid status: " ++ show value
-          Just v  -> modify $ \partial -> partial{
-                         trailerStatus = Right v
-                       }
+          Just v  -> update updGrpcStatus $ \_ -> return v
 
       | name == "grpc-message"
       = case PercentEncoding.decode value of
           Left  err -> throwError $ show err
-          Right msg -> modify $ \partial -> partial{
-                           trailerMessage = Right (Just msg)
-                         }
+          Right msg -> update updGrpcMessage $ \_ -> return (Just msg)
 
       | name == "content-type" -- only relevant in the Trailers-Only case
       = parseContentType rpc value
 
       | otherwise
-      = parseCustomMetadata name value >>= \md ->
-        modify $ \partial -> partial{
-              trailerCustomMetadata = (md:) <$> trailerCustomMetadata partial
-            }
+      = parseCustomMetadata name value >>= update updCustom . fmap . (:)
+
+    uninitTrailers :: Partial (Either String) Trailers
+    uninitTrailers =
+           throwError "missing: grpc-status"  -- trailerGrpcStatus
+        :* return Nothing                     -- trailerGrpcMessage
+        :* return []                          -- trailerCustom
+        :* Nil
+
+    (     updGrpcStatus
+      :* updGrpcMessage
+      :* updCustom
+      :* Nil ) = partialUpdates (Proxy @Trailers)
+
+parseContentType ::
+     IsRPC rpc
+  => rpc
+  -> Strict.ByteString
+  -> PartialParser r (Either String) ()
+parseContentType rpc value =
+    unless (value `elem` accepted) $
+      throwError $ concat [
+          "Unexpected content-type "
+        , BS.Strict.C8.unpack value
+        , "; expected one of "
+        , mconcat . intersperse ", " . map BS.Strict.C8.unpack $ accepted
+        , "'"
+        ]
+  where
+    accepted :: [Strict.ByteString]
+    accepted = [
+        "application/grpc"
+      , "application/grpc+" <> serializationFormat rpc
+      ]
+
+parseCustomMetadata ::
+     HTTP.HeaderName
+  -> Strict.ByteString
+  -> PartialParser r (Either String) CustomMetadata
+parseCustomMetadata name value
+  | "grpc-" `BS.Strict.isPrefixOf` CI.foldedCase name
+  = throwError $ "Reserved header: " ++ show (name, value)
+
+  | "-bin" `BS.Strict.isSuffixOf` CI.foldedCase name
+  = case safeHeaderName (BS.Strict.dropEnd 4 $ CI.foldedCase name) of
+      Just name' ->
+        return $ BinaryHeader name' value
+      _otherwise ->
+        throwError $ "Invalid custom binary header: " ++ show (name, value)
+
+  | otherwise
+  = case ( safeHeaderName (CI.foldedCase name)
+         , safeAsciiValue value
+         ) of
+      (Just name', Just value') ->
+        return $ AsciiHeader name' value'
+      _otherwise ->
+        throwError $ "Invalid custom ASCII header: " ++ show (name, value)
 

@@ -12,9 +12,11 @@ module Network.GRPC.Spec (
     -- * Inputs (message sent to the peer)
   , IsFinal(..)
     -- * Outputs (messages received from the peer)
+  , Headers(..)
   , Trailers(..)
   , GrpcStatus(..)
   , GrpcError(..)
+  , fromGrpcStatus
   , toGrpcStatus
   ) where
 
@@ -25,6 +27,9 @@ import Data.Text (Text)
 
 import Network.GRPC.Compression (Compression)
 import Network.GRPC.Spec.CustomMetadata
+import GHC.Generics qualified as GHC
+import Generics.SOP qualified as SOP
+import Network.GRPC.Spec.Compression (CompressionId)
 
 {-------------------------------------------------------------------------------
   Requests
@@ -111,12 +116,31 @@ data IsFinal = Final | NotFinal
   Outputs (messages received from the peer)
 -------------------------------------------------------------------------------}
 
--- | Information sent by the peer after the final output
-data Trailers = Trailers {
-      grpcStatus  :: GrpcStatus
-    , grpcMessage :: Maybe Text
+-- | Response headers
+data Headers = Headers {
+      headerCompression       :: Maybe CompressionId
+    , headerAcceptCompression :: Maybe [CompressionId]
+    , headerCustom            :: [CustomMetadata]
     }
   deriving stock (Show, Eq)
+  deriving stock (GHC.Generic)
+  deriving anyclass (SOP.Generic, SOP.HasDatatypeInfo)
+
+-- | Information sent by the peer after the final output
+--
+-- Response trailers are a
+-- [HTTP2 concept](https://datatracker.ietf.org/doc/html/rfc7540#section-8.1.3):
+-- they are HTTP headers that are sent /after/ the content body. For example,
+-- imagine the server is streaming a file that it's reading from disk; it could
+-- use trailers to give the client an MD5 checksum when streaming is complete.
+data Trailers = Trailers {
+      trailerGrpcStatus  :: GrpcStatus
+    , trailerGrpcMessage :: (Maybe Text)
+    , trailerCustom      :: [CustomMetadata]
+    }
+  deriving stock (Show, Eq)
+  deriving stock (GHC.Generic)
+  deriving anyclass (SOP.Generic, SOP.HasDatatypeInfo)
 
 -- | gRPC status
 --
@@ -274,6 +298,25 @@ data GrpcError =
   | GrpcUnauthenticated
   deriving stock (Show, Eq)
   deriving anyclass (Exception)
+
+fromGrpcStatus :: GrpcStatus -> Word
+fromGrpcStatus  GrpcOk                            =  0
+fromGrpcStatus (GrpcError GrpcCancelled)          =  1
+fromGrpcStatus (GrpcError GrpcUnknown)            =  2
+fromGrpcStatus (GrpcError GrpcInvalidArgument)    =  3
+fromGrpcStatus (GrpcError GrpcDeadlineExceeded)   =  4
+fromGrpcStatus (GrpcError GrpcNotFound)           =  5
+fromGrpcStatus (GrpcError GrpcAlreadyExists)      =  6
+fromGrpcStatus (GrpcError GrpcPermissionDenied)   =  7
+fromGrpcStatus (GrpcError GrpcResourceExhausted)  =  8
+fromGrpcStatus (GrpcError GrpcFailedPrecondition) =  9
+fromGrpcStatus (GrpcError GrpcAborted)            = 10
+fromGrpcStatus (GrpcError GrpcOutOfRange)         = 11
+fromGrpcStatus (GrpcError GrpcUnimplemented)      = 12
+fromGrpcStatus (GrpcError GrpcInternal)           = 13
+fromGrpcStatus (GrpcError GrpcUnavailable)        = 14
+fromGrpcStatus (GrpcError GrpcDataLoss)           = 15
+fromGrpcStatus (GrpcError GrpcUnauthenticated)    = 16
 
 toGrpcStatus :: Word -> Maybe GrpcStatus
 toGrpcStatus  0 = Just $ GrpcOk

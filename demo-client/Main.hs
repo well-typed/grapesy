@@ -12,14 +12,14 @@ import System.Mem (performMajorGC)
 
 import Network.GRPC.Client
 
-import Demo.Driver.Cmdline
-import Demo.Driver.DelayOr
-import Demo.Driver.Logging
+import Demo.Client.Driver.Cmdline
+import Demo.Client.Driver.DelayOr
+import Demo.Client.Driver.Logging
 
-import Demo.API.Core.NoFinal.Greeter      qualified as NoFinal.Greeter
-import Demo.API.Protobuf.Greeter          qualified as PBuf.Greeter
-import Demo.API.Protobuf.Pipes.RouteGuide qualified as Pipes.RouteGuide
-import Demo.API.Protobuf.RouteGuide       qualified as PBuf.RouteGuide
+import Demo.Client.API.Core.NoFinal.Greeter      qualified as NoFinal.Greeter
+import Demo.Client.API.Protobuf.Greeter          qualified as PBuf.Greeter
+import Demo.Client.API.Protobuf.Pipes.RouteGuide qualified as Pipes.RouteGuide
+import Demo.Client.API.Protobuf.RouteGuide       qualified as PBuf.RouteGuide
 
 {-------------------------------------------------------------------------------
   Application entry point
@@ -114,4 +114,3 @@ callParams :: Cmdline -> PerCallParams
 callParams cmd = def{
       callTimeout = Timeout Second . TimeoutValue <$> cmdTimeout cmd
     }
-

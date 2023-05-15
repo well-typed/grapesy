@@ -21,11 +21,9 @@ import Prelude hiding (init)
 import Control.Exception
 import Data.List.NonEmpty (NonEmpty)
 import Data.List.NonEmpty qualified as NE
-import Data.SOP
 
+import Network.GRPC.Spec
 import Network.GRPC.Spec.Compression (Compression (..), CompressionId)
-import Network.GRPC.Spec.HTTP2.Response (ResponseHeaders)
-import Network.GRPC.Spec.HTTP2.Response qualified as Response
 
 {-------------------------------------------------------------------------------
   Definition
@@ -55,7 +53,7 @@ init = ConnMeta {
 -- | Update 'ConnMeta' given response headers
 update ::
      NonEmpty Compression
-  -> ResponseHeaders I
+  -> Headers
   -> ConnMeta -> Either UnsupportedCompression ConnMeta
 update ourSupported hdrs meta = do
     -- Update choice compression, if necessary
@@ -68,7 +66,7 @@ update ourSupported hdrs meta = do
     -- d. The server didn't report which algorithms are supported
     outboundCompression <-
       case ( outboundCompression meta
-           , unI $ Response.headerAcceptCompression hdrs
+           , headerAcceptCompression hdrs
            ) of
         (Just alreadySet, _) ->
           return $ Just alreadySet                                       -- (a)

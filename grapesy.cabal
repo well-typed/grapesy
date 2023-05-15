@@ -63,6 +63,7 @@ library
       Network.GRPC.Compression
       Network.GRPC.Protobuf
       Network.GRPC.Protobuf.Pipes
+      Network.GRPC.Server
   other-modules:
       Network.GRPC.Client.Call
       Network.GRPC.Client.Connection
@@ -81,7 +82,7 @@ library
       Network.GRPC.Spec.RPC
       Network.GRPC.Spec.RPC.Protobuf
       Network.GRPC.Util.ByteString
-      Network.GRPC.Util.HKD
+      Network.GRPC.Util.Partial
       Network.GRPC.Util.Thread
 
       PackageInfo_grapesy
@@ -107,6 +108,7 @@ library
     , sop-core
     , stm
     , text
+    , unordered-containers
     , utf8-string
     , zlib
 
@@ -129,19 +131,20 @@ executable demo
   import:
       lang
   hs-source-dirs:
-      demo
+      demo-client
+      proto
   main-is:
       Main.hs
   ghc-options:
       -threaded
   other-modules:
-      Demo.Driver.Cmdline
-      Demo.Driver.DelayOr
-      Demo.Driver.Logging
-      Demo.API.Core.NoFinal.Greeter
-      Demo.API.Protobuf.Greeter
-      Demo.API.Protobuf.RouteGuide
-      Demo.API.Protobuf.Pipes.RouteGuide
+      Demo.Client.Driver.Cmdline
+      Demo.Client.Driver.DelayOr
+      Demo.Client.Driver.Logging
+      Demo.Client.API.Core.NoFinal.Greeter
+      Demo.Client.API.Protobuf.Greeter
+      Demo.Client.API.Protobuf.RouteGuide
+      Demo.Client.API.Protobuf.Pipes.RouteGuide
       Proto.Helloworld
       Proto.Helloworld_Fields
       Proto.RouteGuide
@@ -159,6 +162,31 @@ executable demo
     , proto-lens-runtime
     , stm
     , text
+
+  if !flag(build-demo)
+    buildable:
+      False
+
+executable demo-server
+  import:
+      lang
+  hs-source-dirs:
+      demo-server
+      proto
+  main-is:
+      Main.hs
+  ghc-options:
+      -threaded
+  other-modules:
+      Proto.Helloworld
+      Proto.Helloworld_Fields
+      Proto.RouteGuide
+      Proto.RouteGuide_Fields
+  build-depends:
+    , grapesy
+    , http2
+    , network-run
+    , proto-lens-runtime
 
   if !flag(build-demo)
     buildable:

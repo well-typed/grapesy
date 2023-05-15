@@ -1,4 +1,4 @@
-module Demo.API.Protobuf.Greeter (
+module Demo.Client.API.Protobuf.Greeter (
     sayHello
   , sayHelloStreamReply
   ) where
@@ -10,7 +10,7 @@ import Network.GRPC.Protobuf
 
 import Proto.Helloworld
 
-import Demo.Driver.Logging
+import Demo.Client.Driver.Logging
 
 {-------------------------------------------------------------------------------
   helloworld.Greeter

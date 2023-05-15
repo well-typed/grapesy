@@ -1,4 +1,4 @@
-module Demo.Driver.DelayOr (
+module Demo.Client.Driver.DelayOr (
     DelayOr(..)
   , execAll
   , yieldAll
@@ -13,7 +13,7 @@ import Pipes
 
 import Network.GRPC.Client (IsFinal(..))
 
-import Demo.Driver.Logging
+import Demo.Client.Driver.Logging
 
 data DelayOr a =
     Delay Double -- ^ Delay in seconds
