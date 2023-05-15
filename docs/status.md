@@ -46,6 +46,8 @@ ever growing (and hopefully eventually shrinking) list of things to do.
       latter not yet; it's due to the problem with http2 mentioned before:
       the server notices that the client isn't yet in (half-)closed state and
       so sends a RST_STREAM, but that makes http2 throw an exception.
+      However, it seems to be fixed by
+      https://github.com/kazu-yamamoto/http2/pull/78 .
 
 - [ ] When we run the `SayHelloStreamReply` client against the example C++
       server, which does not implement it, we just seem to stall; should use
@@ -68,6 +70,7 @@ ever growing (and hopefully eventually shrinking) list of things to do.
 
 - [ ] `RST_STREAM` with `NO_ERROR` should not throw `StreamErrorIsReceived`
       https://github.com/kazu-yamamoto/http2/issues/76
+      https://github.com/kazu-yamamoto/http2/pull/78
 
       In the context of `gRPC`, this can be important: if the client sends a
       message to the server but does not mark it as `Final`, but the server
