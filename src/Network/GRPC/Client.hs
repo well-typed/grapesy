@@ -18,7 +18,7 @@ module Network.GRPC.Client (
   , stopRPC
 
     -- ** Call parameters
-  , PerCallParams(..)
+  , CallParams(..)
 
     -- *** Timeouts
   , Timeout(..)
@@ -45,7 +45,7 @@ import Network.GRPC.Client.Call
 import Network.GRPC.Client.Connection
 import Network.GRPC.Client.Connection.Params
 import Network.GRPC.Spec
-import Network.GRPC.Spec.HTTP2.Connection (Scheme(..), Authority(..))
+import Network.GRPC.Spec.PseudoHeaders (Scheme(..), Authority(..))
 import Network.GRPC.Spec.RPC
 import Network.GRPC.Util.Thread
 
@@ -61,7 +61,7 @@ import Network.GRPC.Util.Thread
 -- This non-blocking nature makes this safe to use in 'bracket' patterns.
 --
 -- This is a low-level API. Consider using 'withRPC' instead.
-startRPC :: IsRPC rpc => Connection -> PerCallParams -> rpc -> IO (Call rpc)
+startRPC :: IsRPC rpc => Connection -> CallParams -> rpc -> IO (Call rpc)
 startRPC = openCall
 
 -- | Stop RPC call
@@ -86,7 +86,7 @@ stopRPC = flip closeCall Nothing
 -- * 'CallClosed' when attempting to send or receive data an a closed call.
 withRPC :: forall m rpc a.
      (MonadMask m, MonadIO m, IsRPC rpc)
-  => Connection -> PerCallParams -> rpc -> (Call rpc -> m a) -> m a
+  => Connection -> CallParams -> rpc -> (Call rpc -> m a) -> m a
 withRPC conn params rpc = fmap aux .
     generalBracket
       (liftIO $ startRPC conn params rpc)
@@ -120,7 +120,7 @@ data Aborted = Aborted
 -- communication patterns of non-streaming, server-side streaming, client-side
 -- streaming, or bidirectional streaming. These are not part of the gRPC
 -- standard, but are part of its Protobuf instantiation; see
--- "Network.GRPC.Protobuf".
+-- "Network.GRPC.Client.Protobuf".
 --
 -- == Final messages and trailers
 --
@@ -168,10 +168,10 @@ data Aborted = Aborted
 --     the last; in the example above of a non-streaming @grpc+proto@ RPC call,
 --     we only expect a single output. In this case the client can (and should)
 --     call 'recvOutput' again to wait for the trailers (which, amongst other
---     things, will include the 'grpcStatus').
+--     things, will include the 'trailerGrpcStatus').
 --
--- If you are using the specialized functions from "Network.GRPC.Protobuf",
--- you do not need to worry about any of this.
+-- If you are using the specialized functions from
+-- "Network.GRPC.Client.Protobuf" you do not need to worry about any of this.
 
 -- | Send an input to the peer
 --

@@ -11,14 +11,21 @@ module Network.GRPC.Spec.CustomMetadata (
   , AsciiValue(AsciiValue)
   , getAsciiValue
   , safeAsciiValue
+    -- * To and from HTTP headers
+  , buildCustomMetadata
+  , parseCustomMetadata
   ) where
 
 import Data.ByteString qualified as BS.Strict
 import Data.ByteString qualified as Strict (ByteString)
 import Data.Word
 import GHC.Show
+import Data.ByteString.Base64 qualified as BS.Strict.B64
 
 import Network.GRPC.Util.ByteString (strip, ascii)
+import Network.HTTP.Types qualified as HTTP
+import Data.CaseInsensitive qualified as CI
+import Control.Monad.Except
 
 {-------------------------------------------------------------------------------
   Definition
@@ -157,3 +164,39 @@ isValidAsciiValue bs = and [
       BS.Strict.length bs >= 1
     , BS.Strict.all (\c -> 0x20 <= c && c <= 0x7E) bs
     ]
+
+{-------------------------------------------------------------------------------
+  To/from HTTP2
+-------------------------------------------------------------------------------}
+
+buildCustomMetadata :: CustomMetadata -> HTTP.Header
+buildCustomMetadata (BinaryHeader name value) = (
+      CI.mk $ getHeaderName name <> "-bin"
+    , BS.Strict.B64.encode value
+    )
+buildCustomMetadata (AsciiHeader name value) = (
+      CI.mk $ getHeaderName name
+    , getAsciiValue value
+    )
+
+parseCustomMetadata :: MonadError String m => HTTP.Header-> m CustomMetadata
+parseCustomMetadata (name, value)
+  | "grpc-" `BS.Strict.isPrefixOf` CI.foldedCase name
+  = throwError $ "Reserved header: " ++ show (name, value)
+
+  | "-bin" `BS.Strict.isSuffixOf` CI.foldedCase name
+  = case safeHeaderName (BS.Strict.dropEnd 4 $ CI.foldedCase name) of
+      Just name' ->
+        return $ BinaryHeader name' value
+      _otherwise ->
+        throwError $ "Invalid custom binary header: " ++ show (name, value)
+
+  | otherwise
+  = case ( safeHeaderName (CI.foldedCase name)
+         , safeAsciiValue value
+         ) of
+      (Just name', Just value') ->
+        return $ AsciiHeader name' value'
+      _otherwise ->
+        throwError $ "Invalid custom ASCII header: " ++ show (name, value)
+

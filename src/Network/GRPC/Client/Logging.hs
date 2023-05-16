@@ -10,7 +10,7 @@ import Data.ByteString.Lazy qualified as Lazy
 
 import Network.GRPC.Spec (IsFinal)
 import Network.GRPC.Spec.RPC (IsRPC, Input)
-import Network.GRPC.Spec.HTTP2.LengthPrefixed (MessagePrefix)
+import Network.GRPC.Spec.LengthPrefixed (MessagePrefix)
 
 {-------------------------------------------------------------------------------
   Definition

@@ -4,14 +4,12 @@
 --
 -- Intended for qualified import.
 --
--- > import Network.GRPC.Spec.HTTP2.Request qualified as Request
-module Network.GRPC.Spec.HTTP2.Request (
+-- > import Network.GRPC.Spec.Request qualified as Request
+module Network.GRPC.Spec.Request (
     buildHeaders
   ) where
 
-import Data.ByteString.Base64 qualified as BS.Strict.B64
 import Data.ByteString.Char8 qualified as BS.Strict.C8
-import Data.CaseInsensitive qualified as CI
 import Data.Foldable (toList)
 import Data.List (intersperse)
 import Data.List.NonEmpty (NonEmpty)
@@ -23,12 +21,13 @@ import Network.GRPC.Compression (Compression(..))
 import Network.GRPC.Spec
 import Network.GRPC.Spec.Compression qualified as Compression
 import Network.GRPC.Spec.CustomMetadata
+import Network.GRPC.Spec.PercentEncoding qualified as PercentEncoding
 import Network.GRPC.Spec.RPC
 
 import PackageInfo_grapesy qualified as PackageInfo
 
 {-------------------------------------------------------------------------------
-  Headers
+  Construction
 -------------------------------------------------------------------------------}
 
 -- | Request headers
@@ -36,21 +35,11 @@ import PackageInfo_grapesy qualified as PackageInfo
 -- > Request-Headers →
 -- >   Call-Definition
 -- >   *Custom-Metadata
-buildHeaders :: IsRPC rpc => AllCallParams -> rpc -> [HTTP.Header]
-buildHeaders callParams@AllCallParams{perCallParams} rpc = concat [
+buildHeaders :: IsRPC rpc => RequestHeaders -> rpc -> [HTTP.Header]
+buildHeaders callParams@RequestHeaders{requestParams} rpc = concat [
       callDefinition callParams rpc
-    , map customMetadata $ callCustomMetadata perCallParams
+    , map buildCustomMetadata $ callCustomMetadata requestParams
     ]
-  where
-    customMetadata :: CustomMetadata -> HTTP.Header
-    customMetadata (BinaryHeader name value) = (
-          CI.mk $ getHeaderName name <> "-bin"
-        , BS.Strict.B64.encode value
-        )
-    customMetadata (AsciiHeader name value) = (
-          CI.mk $ getHeaderName name
-        , getAsciiValue value
-        )
 
 -- | Call definition
 --
@@ -79,14 +68,14 @@ buildHeaders callParams@AllCallParams{perCallParams} rpc = concat [
 -- @TE@ should come /after/ @Authority@ (if using). However, we will not include
 -- the reserved headers here /at all/, as they are automatically added by
 -- `http2`.
-callDefinition :: IsRPC rpc => AllCallParams -> rpc -> [HTTP.Header]
-callDefinition = \callParams@AllCallParams{perCallParams} rpc -> catMaybes [
-      hdrTimeout <$> callTimeout perCallParams
+callDefinition :: IsRPC rpc => RequestHeaders -> rpc -> [HTTP.Header]
+callDefinition = \callParams@RequestHeaders{requestParams} rpc -> catMaybes [
+      hdrTimeout <$> callTimeout requestParams
     , Just $ hdrTe
     , Just $ hdrContentType rpc
     , Just $ hdrMessageType rpc
-    , Just $ hdrMessageEncoding (callCompression callParams)
-    , Just $ hdrMessageAcceptEncoding (callAcceptCompression callParams)
+    , Just $ hdrMessageEncoding (requestCompression callParams)
+    , Just $ hdrMessageAcceptEncoding (requestAcceptCompression callParams)
     , Just $ hdrUserAgent
     ]
   where
@@ -131,7 +120,10 @@ callDefinition = \callParams@AllCallParams{perCallParams} rpc -> catMaybes [
 
     -- > Message-Type → "grpc-message-type" {type name for message schema}
     hdrMessageType :: IsRPC rpc => rpc -> HTTP.Header
-    hdrMessageType rpc = ("grpc-message-type", messageType rpc)
+    hdrMessageType rpc = (
+          "grpc-message-type"
+        , PercentEncoding.encode $ messageType rpc
+        )
 
     -- > Message-Encoding → "grpc-encoding" Content-Coding
     -- > Content-Coding → "identity" / "gzip" / "deflate" / "snappy" / {custom}

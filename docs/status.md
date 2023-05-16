@@ -71,7 +71,7 @@ ever growing (and hopefully eventually shrinking) list of things to do.
       https://github.com/kazu-yamamoto/http2/issues/73 /
       https://github.com/kazu-yamamoto/http2/pull/74
 
-- [ ] `RST_STREAM` with `NO_ERROR` should not throw `StreamErrorIsReceived`
+- [x] `RST_STREAM` with `NO_ERROR` should not throw `StreamErrorIsReceived`
       https://github.com/kazu-yamamoto/http2/issues/76
       https://github.com/kazu-yamamoto/http2/pull/78
 
@@ -79,6 +79,25 @@ ever growing (and hopefully eventually shrinking) list of things to do.
       message to the server but does not mark it as `Final`, but the server
       _does_ consider the conversation as being finished, the server can send
       a `RST_STREAM` frame to the client.
+
+- [ ] It looks as if client-side streams are not GCed.
+      Discussed the problem at https://github.com/kazu-yamamoto/http2/pull/78.
+
+- [ ] If we make a gRPC request using GET rather than POST (or indeed, anything
+      else..?) against the C++ or Python server, we get
+
+      > demo: BadThingHappen Prelude.undefined
+      > CallStack (from HasCallStack):
+      >   error, called at libraries/base/GHC/Err.hs:74:14 in base:GHC.Err
+      >   undefined, called at ./Network/HTTP2/Arch/Receiver.hs:266:17
+
+      That line is
+
+      ```haskell
+      | otherwise = undefined -- never reach
+      ```
+
+      Obviously, it's not as unreachable as that comment suggests :)
 
 ## Testing
 

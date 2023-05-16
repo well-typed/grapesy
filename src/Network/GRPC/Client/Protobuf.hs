@@ -3,7 +3,7 @@
 -- | gRPC with Protobuf
 --
 -- Intended for unqualified import.
-module Network.GRPC.Protobuf (
+module Network.GRPC.Client.Protobuf (
     RPC(..)
     -- * Specialized calls
     --
@@ -30,7 +30,7 @@ import GHC.TypeLits
 import Network.GRPC.Client
 import Network.GRPC.Spec.RPC
 import Network.GRPC.Spec.RPC.Protobuf
-import Network.GRPC.Protobuf.RequireStreamingType
+import Network.GRPC.Util.RedundantConstraint
 
 -- $specialized
 --
@@ -52,31 +52,32 @@ import Network.GRPC.Protobuf.RequireStreamingType
   'ProtobufUnexpectedTrailers', which may or may not be ok).
 -------------------------------------------------------------------------------}
 
-nonStreaming ::
+nonStreaming :: forall s m.
      IsRPC (RPC s m)
   => MethodStreamingType s m ~ NonStreaming
   => Connection
-  -> PerCallParams
+  -> CallParams
   -> RPC s m
   -> Input (RPC s m)
   -- ^ Single input
   -> IO (Output (RPC s m), Trailers)
   -- ^ Single output
 nonStreaming conn params rpc input =
-    requireStreamingType rpc (Proxy @NonStreaming) $
-      withRPC conn params rpc $ \call -> do
-        atomically $ sendInput call Final $ Just input
-        output   <- atomically $ recvOutput call
-                             >>= either (expectedOutput rpc) return
-        trailers <- atomically $ recvOutput call
-                             >>= either return (expectedTrailers rpc)
-        return (output, trailers)
+    withRPC conn params rpc $ \call -> do
+      atomically $ sendInput call Final $ Just input
+      output   <- atomically $ recvOutput call
+                           >>= either (expectedOutput rpc) return
+      trailers <- atomically $ recvOutput call
+                           >>= either return (expectedTrailers rpc)
+      return (output, trailers)
+  where
+    _ = addConstraint $ Proxy @(MethodStreamingType s m ~ NonStreaming)
 
 clientStreaming :: forall s m.
      IsRPC (RPC s m)
   => MethodStreamingType s m ~ ClientStreaming
   => Connection
-  -> PerCallParams
+  -> CallParams
   -> RPC s m
   -> IO (IsFinal, Maybe (Input (RPC s m)))
   -- ^ We will repeatedly call this function until it returns a 'Final' 'Input'.
@@ -86,20 +87,21 @@ clientStreaming :: forall s m.
   -> IO (MethodOutput s m, Trailers)
   -- ^ Single output
 clientStreaming conn params rpc produceInput =
-    requireStreamingType rpc (Proxy @ClientStreaming) $
-      withRPC conn params rpc $ \call -> do
-        sendAll produceInput call
-        output   <- atomically $ recvOutput call
-                             >>= either (expectedOutput rpc) return
-        trailers <- atomically $ recvOutput call
-                             >>= either return (expectedTrailers rpc)
-        return (output, trailers)
+    withRPC conn params rpc $ \call -> do
+      sendAll produceInput call
+      output   <- atomically $ recvOutput call
+                           >>= either (expectedOutput rpc) return
+      trailers <- atomically $ recvOutput call
+                           >>= either return (expectedTrailers rpc)
+      return (output, trailers)
+  where
+    _ = addConstraint $ Proxy @(MethodStreamingType s m ~ ClientStreaming)
 
 serverStreaming :: forall s m.
      IsRPC (RPC s m)
   => MethodStreamingType s m ~ ServerStreaming
   => Connection
-  -> PerCallParams
+  -> CallParams
   -> RPC s m
   -> Input (RPC s m)
   -- ^ Single input
@@ -107,16 +109,17 @@ serverStreaming :: forall s m.
   -- ^ We wil call this function for every 'Output' we receive.
   -> IO Trailers
 serverStreaming conn params rpc input processOutput =
-    requireStreamingType rpc (Proxy @ServerStreaming) $
-      withRPC conn params rpc $ \call -> do
-        atomically $ sendInput call Final $ Just input
-        recvAll processOutput call
+    withRPC conn params rpc $ \call -> do
+      atomically $ sendInput call Final $ Just input
+      recvAll processOutput call
+  where
+    _ = addConstraint $ Proxy @(MethodStreamingType s m ~ ServerStreaming)
 
 biDiStreaming :: forall s m.
      IsRPC (RPC s m)
   => MethodStreamingType s m ~ BiDiStreaming
   => Connection
-  -> PerCallParams
+  -> CallParams
   -> RPC s m
   -> IO (IsFinal, Maybe (Input (RPC s m)))
   -- ^ We will repeatedly call this function until it returns a 'Final' 'Input'
@@ -125,10 +128,11 @@ biDiStreaming :: forall s m.
   -- ^ We wil call this function for every 'Output' we receive.
   -> IO Trailers
 biDiStreaming conn params rpc produceInput processOutput =
-    requireStreamingType rpc (Proxy @BiDiStreaming) $
-      withRPC conn params rpc $ \call -> do
-        withAsync (sendAll produceInput call) $ \_sendAllThread ->
-          recvAll processOutput call
+    withRPC conn params rpc $ \call -> do
+      withAsync (sendAll produceInput call) $ \_sendAllThread ->
+        recvAll processOutput call
+  where
+    _ = addConstraint $ Proxy @(MethodStreamingType s m ~ BiDiStreaming)
 
 {-------------------------------------------------------------------------------
   Internal auxiliary

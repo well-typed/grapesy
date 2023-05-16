@@ -2,7 +2,7 @@
 --
 -- This module is primarily intended as a proof of concept, illustrating how the
 -- library could interact with streaming interfaces.
-module Network.GRPC.Protobuf.Pipes (
+module Network.GRPC.Client.Protobuf.Pipes (
     RPC(..)
   , clientStreaming
   , serverStreaming
@@ -17,10 +17,10 @@ import Pipes
 import Pipes.Safe
 
 import Network.GRPC.Client
-import Network.GRPC.Protobuf (expectedOutput, expectedTrailers)
-import Network.GRPC.Protobuf.RequireStreamingType
+import Network.GRPC.Client.Protobuf (expectedOutput, expectedTrailers)
 import Network.GRPC.Spec.RPC
 import Network.GRPC.Spec.RPC.Protobuf
+import Network.GRPC.Util.RedundantConstraint
 
 {-------------------------------------------------------------------------------
   Pipes for Protobuf communication patterns
@@ -30,39 +30,38 @@ clientStreaming :: forall s m.
      IsRPC (RPC s m)
   => MethodStreamingType s m ~ ClientStreaming
   => Connection
-  -> PerCallParams
+  -> CallParams
   -> RPC s m
   -> Consumer'
        (IsFinal, Maybe (Input (RPC s m)))
        (SafeT IO)
        (Output (RPC s m), Trailers)
 clientStreaming conn params rpc =
-    requireStreamingType rpc (Proxy @ClientStreaming) $
-      withRPC conn params rpc $ \call -> do
-        sendAll call
-        liftIO $ do
-          output   <- atomically $ recvOutput call
-                               >>= either (expectedOutput rpc) return
-          trailers <- atomically $ recvOutput call
-                               >>= either return (expectedTrailers rpc)
-          return (output, trailers)
+    withRPC conn params rpc $ \call -> do
+      sendAll call
+      liftIO $ do
+        output   <- atomically $ recvOutput call
+                             >>= either (expectedOutput rpc) return
+        trailers <- atomically $ recvOutput call
+                             >>= either return (expectedTrailers rpc)
+        return (output, trailers)
+  where
+    _ = addConstraint $ Proxy @(MethodStreamingType s m ~ ClientStreaming)
 
 serverStreaming :: forall s m.
      IsRPC (RPC s m)
   => MethodStreamingType s m ~ ServerStreaming
   => Connection
-  -> PerCallParams
+  -> CallParams
   -> RPC s m
   -> Input (RPC s m)
   -> Producer' (Output (RPC s m)) (SafeT IO) Trailers
 serverStreaming conn params rpc input =
-    requireStreamingType rpc (Proxy @ServerStreaming) $
-      withRPC conn params rpc $ \call -> aux call
+    withRPC conn params rpc $ \call -> do
+      liftIO $ atomically $ sendInput call Final $ Just input
+      recvAll call
   where
-    aux :: Call (RPC s m) -> Producer' (Output (RPC s m)) (SafeT IO) Trailers
-    aux call = do
-        liftIO $ atomically $ sendInput call Final $ Just input
-        recvAll call
+    _ = addConstraint $ Proxy @(MethodStreamingType s m ~ ServerStreaming)
 
 -- | Bidirectional streaming
 --
@@ -79,7 +78,7 @@ biDiStreaming :: forall s m a.
      IsRPC (RPC s m)
   => MethodStreamingType s m ~ BiDiStreaming
   => Connection
-  -> PerCallParams
+  -> CallParams
   -> RPC s m
   -> (    Consumer' (IsFinal, Maybe (Input (RPC s m))) IO ()
        -> Producer' (Output (RPC s m)) IO Trailers
@@ -87,9 +86,10 @@ biDiStreaming :: forall s m a.
      )
   -> IO a
 biDiStreaming conn params rpc k =
-    requireStreamingType rpc (Proxy @BiDiStreaming) $
-      withRPC conn params rpc $ \call ->
-        k (sendAll call) (recvAll call)
+    withRPC conn params rpc $ \call ->
+      k (sendAll call) (recvAll call)
+  where
+    _ = addConstraint $ Proxy @(MethodStreamingType s m ~ BiDiStreaming)
 
 {-------------------------------------------------------------------------------
   Internal auxiliary

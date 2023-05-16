@@ -5,11 +5,21 @@ module Network.GRPC.Spec.RPC (
 import Data.ByteString qualified as Strict (ByteString)
 import Data.ByteString.Lazy qualified as Lazy
 import Data.Kind
+import Data.Text (Text)
 
 {-------------------------------------------------------------------------------
   RPC call
 -------------------------------------------------------------------------------}
 
+-- | Abstract definition of an RPC
+--
+-- Note on encoding: the gRPC specification does not say anything about text
+-- encoding issues for paths (service names and method names) or message types.
+-- We allow them to be arbitrary 'Text' here, and then use the gRPC defined
+-- percent encoding (which it mandates for status messages).
+--
+-- TODO: We need to check interop with existing libraries to see if they all
+-- agree on this.
 class ( -- Debug constraints
         --
         -- For debugging it is useful when we have 'Show' instances in scope.
@@ -50,17 +60,17 @@ class ( -- Debug constraints
   -- | Service name
   --
   -- For Protobuf, this is the fully qualified service name.
-  serviceName :: rpc -> Strict.ByteString
+  serviceName :: rpc -> Text
 
   -- | Method name
   --
   -- For Protobuf, this is /just/ the method name (no qualifier required).
-  methodName :: rpc -> Strict.ByteString
+  methodName :: rpc -> Text
 
   -- | Message type
   --
   -- For Protobuf, this is the fully qualified message type.
-  messageType :: rpc -> Strict.ByteString
+  messageType :: rpc -> Text
 
   -- | Serialize messages to the server
   --

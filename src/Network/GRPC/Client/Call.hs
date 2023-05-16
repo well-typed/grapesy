@@ -41,11 +41,11 @@ import Network.GRPC.Client.Logging
 import Network.GRPC.Compression (Compression(..), CompressionId)
 import Network.GRPC.Compression qualified as Compression
 import Network.GRPC.Spec
-import Network.GRPC.Spec.HTTP2.Connection qualified as Connection
-import Network.GRPC.Spec.HTTP2.LengthPrefixed (MessagePrefix)
-import Network.GRPC.Spec.HTTP2.LengthPrefixed qualified as LengthPrefixed
-import Network.GRPC.Spec.HTTP2.Request qualified as Request
-import Network.GRPC.Spec.HTTP2.Response qualified as Response
+import Network.GRPC.Spec.LengthPrefixed (MessagePrefix)
+import Network.GRPC.Spec.LengthPrefixed qualified as LengthPrefixed
+import Network.GRPC.Spec.PseudoHeaders
+import Network.GRPC.Spec.Request qualified as Request
+import Network.GRPC.Spec.Response qualified as Response
 import Network.GRPC.Spec.RPC
 import Network.GRPC.Util.Thread
 
@@ -87,19 +87,19 @@ type InboundQ rpc = TMVar (Either Trailers (Output rpc))
   Open a call
 -------------------------------------------------------------------------------}
 
-getCallParams :: Connection -> PerCallParams -> IO AllCallParams
-getCallParams Connection{connParams, connMeta} perCallParams = do
+getRequestHeaders :: Connection -> CallParams -> IO RequestHeaders
+getRequestHeaders Connection{connParams, connMeta} requestParams = do
     currentMeta <- atomically $ readTVar connMeta
-    return AllCallParams{
-        perCallParams
-      , callCompression       = fromMaybe Compression.identity $
+    return RequestHeaders{
+        requestParams
+      , requestCompression       = fromMaybe Compression.identity $
                                   Meta.outboundCompression currentMeta
-      , callAcceptCompression = connCompression connParams
+      , requestAcceptCompression = connCompression connParams
       }
 
 openCall :: forall rpc.
      IsRPC rpc
-  => Connection -> PerCallParams -> rpc -> IO (Call rpc)
+  => Connection -> CallParams -> rpc -> IO (Call rpc)
 openCall conn@Connection{connSend, connParams} perCallParams rpc = do
     callOutbound     <- newTVarIO ThreadNotStarted
     callInbound      <- newTVarIO ThreadNotStarted
@@ -109,7 +109,13 @@ openCall conn@Connection{connSend, connParams} perCallParams rpc = do
     let call :: Call rpc
         call = Call{callOutbound, callInbound, callSentFinal, callRecvTrailers}
 
-    callParams <- getCallParams conn perCallParams
+        resourceHeaders :: RawResourceHeaders
+        resourceHeaders = buildResourceHeaders $ ResourceHeaders {
+              resourceMethod = Post
+            , resourcePath   = rpcPath rpc
+            }
+
+    requestHeaders <- getRequestHeaders conn perCallParams
 
     -- Control flow and exception handling here is a little tricky.
     --
@@ -164,14 +170,14 @@ openCall conn@Connection{connSend, connParams} perCallParams rpc = do
     --   'InboundInitializing' to 'InboundException'.
     let req :: Client.Request
         req = Client.requestStreaming
-                Connection.method
-                (Connection.path rpc)
-                (Request.buildHeaders callParams rpc)
+                (rawMethod resourceHeaders)
+                (rawPath resourceHeaders)
+                (Request.buildHeaders requestHeaders rpc)
                 (\push flush ->
                     threadBody callOutbound newEmptyTMVarIO $ \outboundQ -> do
                       sendInputs
                         connParams
-                        (callCompression callParams)
+                        (requestCompression requestHeaders)
                         rpc
                         push
                         flush
@@ -230,8 +236,9 @@ data CallClosed = CallClosed {
 --
 -- Spec notwithstanding, gRPC servers can also respond with @Trailers-Only@ in
 -- non-error cases, simply indicating that the server considers the conversation
--- over. To distinguish, we look at 'grpcStatus': in case of 'GrpcOk' we return
--- the 'Trailers', and in the case of 'GrpcError' we throw 'RpcImmediateError'.
+-- over. To distinguish, we look at 'trailerGrpcStatus': in case of 'GrpcOk' we
+-- return the 'Trailers', and in the case of 'GrpcError' we throw
+-- 'RpcImmediateError'.
 processResponseHeaders ::
      IsRPC rpc
   => Connection
@@ -290,7 +297,7 @@ processResponseHeaders Connection{connMeta, connParams} rpc resp = do
             Left  err   -> throwSTM err
             Right meta' -> writeTVar connMeta meta'
 
-        case headerCompression hdrs of
+        case responseCompression hdrs of
           Nothing  -> return $ Right Compression.identity
           Just cid -> case NE.filter
                              ((== cid) . compressionId)
@@ -417,7 +424,7 @@ data InvalidResponse =
   Internal auxiliary: dealing with the header table
 -------------------------------------------------------------------------------}
 
-parseHeaders :: IsRPC rpc => rpc -> [HTTP.Header] -> IO Headers
+parseHeaders :: IsRPC rpc => rpc -> [HTTP.Header] -> IO ResponseHeaders
 parseHeaders rpc headers =
     case Response.parseHeaders rpc headers of
       Left  err    -> throwIO $ ResponseInvalidHeaders err

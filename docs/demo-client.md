@@ -1,7 +1,7 @@
-# Demo
+# Demo client
 
-The code for the demo can be found in [`demo/Main.hs`](/demo/Main.hs). It is
-based on the examples from the [gRPC docs](https://grpc.io/docs/). We will
+The code for the demo can be found in [`demo/Main.hs`](/demo-client/Main.hs). It
+is based on the examples from the [gRPC docs](https://grpc.io/docs/). We will
 mostly refer to the [Python version]https://grpc.io/docs/languages/python/) of
 these examples, as it is the most complete, although we will also provide some
 pointers for testing against the [C++
@@ -30,7 +30,7 @@ The demo client supports a `--debug` command line argument. If enabled, you will
 get verbose debug logs of the communication between the client and the server.
 
 ```
-cabal run demo -- --debug sayHello --name 'John'
+cabal run demo-client -- --debug sayHello --name 'John'
 ```
 
 ## Quick start
@@ -56,7 +56,7 @@ Assumes running server:
 Run client with
 
 ```
-cabal run demo -- sayHello --name 'John'
+cabal run demo-client -- sayHello --name 'John'
 ```
 
 The output will be slightly different depending on which server you use.
@@ -66,7 +66,7 @@ The output will be slightly different depending on which server you use.
 Unlike most demos, the `sayHello` example can also send _multiple_ messages:
 
 ```
-cabal run demo -- sayHello --name 'John' --name 'Alice'
+cabal run demo-client -- sayHello --name 'John' --name 'Alice'
 ```
 
 This can be interesting for example to verify that compression is working
@@ -85,7 +85,7 @@ the server actually compress anything:
 For example:
 
 ```
-cabal run demo -- --gzip sayHello \
+cabal run demo-client -- --gzip sayHello \
   --name 'John' \
   --name '0xxxxxxxxxx1xxxxxxxxxx2xxxxxxxxxx3xxxxxxxxxx4xxxxxxxxxx5xxxxxxxxxx'
 ```
@@ -108,7 +108,7 @@ grpc-repo/examples/python/wait_for_ready$
 Run client with
 
 ```
-cabal run demo -- sayHelloStreamReply --name 'John'
+cabal run demo-client -- sayHelloStreamReply --name 'John'
 ```
 
 Note that the Python server has some intentional delays in there, so the
@@ -129,7 +129,7 @@ grpc-repo/examples/cpp/route_guide$ cmake/build/route_guide_server
 ```
 
 All methods except `getFeature` support the `--protobuf-pipes` option to use the
-[`pipes` interface](/src/Network/GRPC/Protobuf/Pipes.hs).
+[`pipes` interface](/src/Network/GRPC/Client/Protobuf/Pipes.hs).
 
 ### `routeguide.RouteGuide.GetFeature`
 
@@ -138,13 +138,13 @@ Haskell implementation: `routeGuideGetFeature`.
 Run client:
 
 ```
-cabal run demo -- getFeature --latitude 409146138 --longitude -746188906
+cabal run demo-client -- getFeature --latitude 409146138 --longitude -746188906
 ```
 
 (for a location where there exists a feature), or
 
 ```
-cabal run demo -- getFeature --latitude 0 --longitude 0
+cabal run demo-client -- getFeature --latitude 0 --longitude 0
 ```
 
 for a location where there is not.
@@ -156,7 +156,7 @@ Haskell implementation: `routeGuideListFeatures`.
 Run client:
 
 ```
-cabal run demo -- listFeatures \
+cabal run demo-client -- listFeatures \
     --lo-latitude   400000000 \
     --lo-longitude -750000000 \
     --hi-latitude   420000000 \
@@ -170,7 +170,7 @@ Haskell implementation: `routeGuideRecordRoute`.
 Run client:
 
 ```
-cabal run demo -- recordRoute \
+cabal run demo-client -- recordRoute \
 --latitude 404306372 --longitude -741079661 \
 --delay 0.5                                 \
 --latitude 406109563 --longitude -742186778 \
@@ -209,7 +209,7 @@ previous notes at that same location. So if you run the client with something
 like this:
 
 ```
-cabal run demo -- routeChat \
+cabal run demo-client -- routeChat \
   --latitude 0 --longitude 0 'A' \
   --delay 1                      \
   --latitude 0 --longitude 0 'B' \

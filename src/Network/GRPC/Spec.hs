@@ -3,17 +3,18 @@
 -- Intended for unqualified import.
 module Network.GRPC.Spec (
     -- * Call parameters
-    PerCallParams(..)
-  , AllCallParams(..)
+    CallParams(..)
     -- ** Timeouts
   , Timeout(..)
   , TimeoutValue(TimeoutValue, getTimeoutValue)
   , TimeoutUnit(..)
     -- * Inputs (message sent to the peer)
+  , RequestHeaders(..)
   , IsFinal(..)
     -- * Outputs (messages received from the peer)
-  , Headers(..)
+  , ResponseHeaders(..)
   , Trailers(..)
+    -- * GRPC status
   , GrpcStatus(..)
   , GrpcError(..)
   , fromGrpcStatus
@@ -24,19 +25,19 @@ import Control.Exception
 import Data.Default
 import Data.List.NonEmpty (NonEmpty)
 import Data.Text (Text)
+import Generics.SOP qualified as SOP
+import GHC.Generics qualified as GHC
 
 import Network.GRPC.Compression (Compression)
-import Network.GRPC.Spec.CustomMetadata
-import GHC.Generics qualified as GHC
-import Generics.SOP qualified as SOP
 import Network.GRPC.Spec.Compression (CompressionId)
+import Network.GRPC.Spec.CustomMetadata
 
 {-------------------------------------------------------------------------------
   Requests
 -------------------------------------------------------------------------------}
 
 -- | RPC parameters that can be chosen on a per-call basis
-data PerCallParams = PerCallParams {
+data CallParams = CallParams {
       -- | Timeout
       --
       -- If Timeout is omitted a server should assume an infinite timeout.
@@ -50,25 +51,11 @@ data PerCallParams = PerCallParams {
   deriving stock (Show)
 
 -- | Default 'CallParams'
-instance Default PerCallParams where
-  def = PerCallParams {
+instance Default CallParams where
+  def = CallParams {
         callTimeout        = Nothing
       , callCustomMetadata = []
       }
-
--- | Full set of call parameters required to construct the RPC call
---
--- This is constructed internally; it is not part of the public API.
-data AllCallParams = AllCallParams {
-      -- | Parameters set on a per-call basis
-      perCallParams :: PerCallParams
-
-      -- | Compression used for outgoing messages
-    , callCompression :: Compression
-
-      -- | Accepted compression algorithms for incoming messages
-    , callAcceptCompression :: NonEmpty Compression
-    }
 
 {-------------------------------------------------------------------------------
   Timeouts
@@ -108,6 +95,20 @@ data TimeoutUnit =
   Inputs (message sent to the peer)
 -------------------------------------------------------------------------------}
 
+-- | Full set of call parameters required to construct the RPC call
+--
+-- This is constructed internally; it is not part of the public API.
+data RequestHeaders = RequestHeaders {
+      -- | Parameters set on a per-call basis
+      requestParams :: CallParams
+
+      -- | Compression used for outgoing messages
+    , requestCompression :: Compression
+
+      -- | Accepted compression algorithms for incoming messages
+    , requestAcceptCompression :: NonEmpty Compression
+    }
+
 -- | Mark a input sent as final
 data IsFinal = Final | NotFinal
   deriving stock (Show, Eq)
@@ -117,10 +118,10 @@ data IsFinal = Final | NotFinal
 -------------------------------------------------------------------------------}
 
 -- | Response headers
-data Headers = Headers {
-      headerCompression       :: Maybe CompressionId
-    , headerAcceptCompression :: Maybe [CompressionId]
-    , headerCustom            :: [CustomMetadata]
+data ResponseHeaders = ResponseHeaders {
+      responseCompression       :: Maybe CompressionId
+    , responseAcceptCompression :: Maybe [CompressionId]
+    , responseCustom            :: [CustomMetadata]
     }
   deriving stock (Show, Eq)
   deriving stock (GHC.Generic)

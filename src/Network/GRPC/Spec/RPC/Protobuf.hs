@@ -6,7 +6,6 @@ module Network.GRPC.Spec.RPC.Protobuf (
   ) where
 
 import Data.ByteString.Builder qualified as BS.Builder
-import Data.ByteString.Char8 qualified as BS.Strict.C8
 import Data.ByteString.Lazy qualified as BS.Lazy
 import Data.Kind
 import Data.ProtoLens qualified as Protobuf
@@ -47,16 +46,14 @@ instance ( Typeable           s
   type Output (RPC s m) = MethodOutput s m
 
   serializationFormat _ = "proto"
-  serviceName         _ = BS.Strict.C8.pack $ concat [
+  serviceName         _ = Text.pack $ concat [
                               symbolVal $ Proxy @(ServicePackage s)
                             , "."
                             , symbolVal $ Proxy @(ServiceName s)
                             ]
-  methodName          _ = BS.Strict.C8.pack $
+  methodName          _ = Text.pack $
                               symbolVal $ Proxy @(MethodName s m)
-  messageType         _ = BS.Strict.C8.pack $ Text.unpack $
-                              -- 'messageName' returns a qualified name
-                              Protobuf.messageName $ Proxy @(MethodInput s m)
+  messageType         _ = Protobuf.messageName $ Proxy @(MethodInput s m)
   serializeInput      _ = BS.Builder.toLazyByteString . Protobuf.buildMessage
   deserializeOutput   _ = Protobuf.runParser parser . BS.Lazy.toStrict
     where

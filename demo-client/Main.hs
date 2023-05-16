@@ -110,7 +110,7 @@ connParams cmd = defaults {
     defaults :: ConnParams
     defaults = defaultConnParams $ cmdAuthority cmd
 
-callParams :: Cmdline -> PerCallParams
+callParams :: Cmdline -> CallParams
 callParams cmd = def{
       callTimeout = Timeout Second . TimeoutValue <$> cmdTimeout cmd
     }
