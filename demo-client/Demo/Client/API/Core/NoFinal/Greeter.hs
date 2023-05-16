@@ -4,7 +4,7 @@ module Demo.Client.API.Core.NoFinal.Greeter (
 
 import Control.Concurrent.STM
 import Network.GRPC.Client
-import Network.GRPC.Protobuf (RPC(..))
+import Network.GRPC.Client.Protobuf (RPC(..))
 
 import Proto.Helloworld
 
@@ -12,7 +12,7 @@ import Proto.Helloworld
   helloworld.Greeter
 -------------------------------------------------------------------------------}
 
-sayHello :: Connection -> PerCallParams -> HelloRequest -> IO ()
+sayHello :: Connection -> CallParams -> HelloRequest -> IO ()
 sayHello conn params n =
     withRPC conn params (RPC @Greeter @"sayHello") $ \call -> do
       atomically $ sendInput call NotFinal (Just n)

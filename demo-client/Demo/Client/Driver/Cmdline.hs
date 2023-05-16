@@ -107,7 +107,7 @@ parseCmdline =
 
 parseAuthority :: Parser Authority
 parseAuthority =
-    Authority Nothing
+    Authority
       <$> (option str $ mconcat [
               long "host"
             , showDefault

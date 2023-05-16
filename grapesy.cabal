@@ -25,6 +25,7 @@ common lang
       DeriveGeneric
       DerivingStrategies
       DisambiguateRecordFields
+      EmptyCase
       FlexibleContexts
       FlexibleInstances
       GADTs
@@ -60,29 +61,31 @@ library
       -Wprepositive-qualified-module
   exposed-modules:
       Network.GRPC.Client
+      Network.GRPC.Client.Protobuf
+      Network.GRPC.Client.Protobuf.Pipes
       Network.GRPC.Compression
-      Network.GRPC.Protobuf
-      Network.GRPC.Protobuf.Pipes
       Network.GRPC.Server
+      Network.GRPC.Server.Protobuf
   other-modules:
       Network.GRPC.Client.Call
       Network.GRPC.Client.Connection
       Network.GRPC.Client.Connection.Meta
       Network.GRPC.Client.Connection.Params
       Network.GRPC.Client.Logging
-      Network.GRPC.Protobuf.RequireStreamingType
+      Network.GRPC.Server.Call
       Network.GRPC.Spec
       Network.GRPC.Spec.Compression
       Network.GRPC.Spec.CustomMetadata
-      Network.GRPC.Spec.HTTP2.Connection
-      Network.GRPC.Spec.HTTP2.LengthPrefixed
-      Network.GRPC.Spec.HTTP2.Request
-      Network.GRPC.Spec.HTTP2.Response
+      Network.GRPC.Spec.LengthPrefixed
       Network.GRPC.Spec.PercentEncoding
+      Network.GRPC.Spec.PseudoHeaders
+      Network.GRPC.Spec.Request
+      Network.GRPC.Spec.Response
       Network.GRPC.Spec.RPC
       Network.GRPC.Spec.RPC.Protobuf
       Network.GRPC.Util.ByteString
       Network.GRPC.Util.Partial
+      Network.GRPC.Util.RedundantConstraint
       Network.GRPC.Util.Thread
 
       PackageInfo_grapesy
@@ -98,6 +101,7 @@ library
     , data-default
     , exceptions
     , generics-sop
+    , hashable
     , http-types
     , http2
     , mtl
@@ -127,7 +131,7 @@ test-suite test-grapesy
   build-depends:
     , tasty
 
-executable demo
+executable demo-client
   import:
       lang
   hs-source-dirs:
@@ -187,6 +191,7 @@ executable demo-server
     , http2
     , network-run
     , proto-lens-runtime
+    , stm
 
   if !flag(build-demo)
     buildable:

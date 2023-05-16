@@ -14,8 +14,7 @@ import Network.Run.TCP (runTCPClient)
 import Network.GRPC.Client.Connection.Params
 import Network.GRPC.Client.Connection.Meta (ConnMeta)
 import Network.GRPC.Client.Connection.Meta qualified as ConnMeta
-import Network.GRPC.Spec.HTTP2.Connection (Scheme(..), Authority(..))
-import Network.GRPC.Spec.HTTP2.Connection qualified as Connection
+import Network.GRPC.Spec.PseudoHeaders
 
 {-------------------------------------------------------------------------------
   Connection API
@@ -63,16 +62,16 @@ withConnection connParams k = do
     bufferSize :: HPACK.BufferSize
     bufferSize = 4096
 
+    serverPseudoHeaders :: RawServerHeaders
+    serverPseudoHeaders = buildServerHeaders $ ServerHeaders {
+          serverScheme    = connScheme    connParams
+        , serverAuthority = connAuthority connParams
+        }
+
     clientConfig :: Client.ClientConfig
     clientConfig = Client.ClientConfig {
-          scheme = case connScheme connParams of
-                     Http  -> "http"
-                     Https -> "https"
-
-          -- The example code does not include the port number here; the RFC
-          -- lists it as optional
-          -- <https://www.rfc-editor.org/rfc/rfc3986#section-3.2>
-        , authority = Connection.authority $ connAuthority connParams
+          scheme    = rawScheme serverPseudoHeaders
+        , authority = rawAuthority serverPseudoHeaders
 
           -- Docs describe this as "How many pushed responses are contained in
           -- the cache". I don't think I really know what this means. Value of

@@ -53,7 +53,7 @@ init = ConnMeta {
 -- | Update 'ConnMeta' given response headers
 update ::
      NonEmpty Compression
-  -> Headers
+  -> ResponseHeaders
   -> ConnMeta -> Either UnsupportedCompression ConnMeta
 update ourSupported hdrs meta = do
     -- Update choice compression, if necessary
@@ -66,7 +66,7 @@ update ourSupported hdrs meta = do
     -- d. The server didn't report which algorithms are supported
     outboundCompression <-
       case ( outboundCompression meta
-           , headerAcceptCompression hdrs
+           , responseAcceptCompression hdrs
            ) of
         (Just alreadySet, _) ->
           return $ Just alreadySet                                       -- (a)

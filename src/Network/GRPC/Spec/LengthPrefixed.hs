@@ -4,8 +4,8 @@
 --
 -- Intended for qualified import.
 --
--- > import Network.GRPC.Spec.HTTP2.LengthPrefixed qualified as LengthPrefixed
-module Network.GRPC.Spec.HTTP2.LengthPrefixed (
+-- > import Network.GRPC.Spec.LengthPrefixed qualified as LengthPrefixed
+module Network.GRPC.Spec.LengthPrefixed (
     -- * Message prefix
     MessagePrefix(..)
     -- * Construction

@@ -1,34 +1,39 @@
 module Main (main) where
 
-import Network.GRPC.Server
+import Control.Exception
+import Control.Monad.STM
 import Network.HTTP2.Server qualified as HTTP2
 import Network.Run.TCP
 
-import Proto.Helloworld
-import Control.Exception
+import Network.GRPC.Server
+import Network.GRPC.Server.Protobuf
 
-handlersGreeter :: MethodHandlersFor Greeter
-handlersGreeter =
-      HandleMethod handleSayHello
-    $ HandleMethod handleSayHelloStreamReply
+import Proto.Helloworld
+
+handlers :: ServiceHandlers '[Greeter]
+handlers =
+      HandleService handleGreeter
+    $ AllServicesHandled
+
+handleGreeter :: ServiceHandler Greeter
+handleGreeter = ServiceHandler $
+      HandleMethod (HandleNonStreaming sayHello)
+    $ HandleMethod (HandleServerStreaming sayHelloStreamReply)
     $ AllMethodsHandled
 
-handleSayHello :: MethodHandler Greeter "sayHello"
-handleSayHello = MethodHandler $ do
-    putStrLn "handleSayHello"
+sayHello :: HelloRequest -> IO (HelloReply, Trailers)
+sayHello _ = do
+    putStrLn "sayHello"
+    return undefined
 
-handleSayHelloStreamReply :: MethodHandler Greeter "sayHelloStreamReply"
-handleSayHelloStreamReply = MethodHandler $ do
-    putStrLn "handleSayHelloStreamReply"
-
-serviceHandlers :: ServiceHandlers '[Greeter]
-serviceHandlers =
-     HandleService handlersGreeter
-   $ AllServicesHandled
+sayHelloStreamReply :: HelloRequest -> (HelloReply -> STM ()) -> IO Trailers
+sayHelloStreamReply _ _ = do
+    putStrLn "sayHelloStreamReply"
+    return undefined
 
 main :: IO ()
 main =
     runTCPServer Nothing "50051" $ \s ->
       bracket (HTTP2.allocSimpleConfig s 4096)
-              HTTP2.freeSimpleConfig
-              (\config -> HTTP2.run config $ server serviceHandlers)
+              HTTP2.freeSimpleConfig $ \config ->
+        HTTP2.run config $ server $ protobufHandlers handlers

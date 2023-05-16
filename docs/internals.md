@@ -5,8 +5,17 @@ of the library.
 
 ## Relevant specifications
 
+* [HTTP1](https://datatracker.ietf.org/doc/html/rfc7231)
+
+  Although gRPC is based on HTTP2, the HTTP2 standard itself refers back to
+  the HTTP1 standard for things like error codes.
+
 * [HTTP2](https://datatracker.ietf.org/doc/html/rfc7540)
+
+* [URI](https://datatracker.ietf.org/doc/html/rfc3986)
+
 * [gRPC](https://github.com/grpc/grpc/blob/master/doc/PROTOCOL-HTTP2.md)
+
 * [Protobuf](https://protobuf.dev/reference/protobuf/proto3-spec/)
 
 ### gRPC spec

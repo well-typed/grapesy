@@ -4,8 +4,8 @@
 --
 -- Intended for unqualified import.
 --
--- > import Network.GRPC.Spec.HTTP2.Response qualified as Response
-module Network.GRPC.Spec.HTTP2.Response (
+-- > import Network.GRPC.Spec.Response qualified as Response
+module Network.GRPC.Spec.Response (
     -- * Construction
     buildTrailers
     -- * Parsing
@@ -17,7 +17,6 @@ import Control.Monad.Except
 import Data.ByteString qualified as BS.Strict
 import Data.ByteString qualified as Strict (ByteString)
 import Data.ByteString.Char8 qualified as BS.Strict.C8
-import Data.CaseInsensitive qualified as CI
 import Data.List (intersperse)
 import Data.SOP
 import Network.HTTP.Types qualified as HTTP
@@ -37,12 +36,18 @@ import Network.GRPC.Util.Partial
 
 buildTrailers :: Trailers -> [HTTP.Header]
 buildTrailers Trailers{ trailerGrpcStatus
-                      , trailerGrpcMessage = _TODO1
-                      , trailerCustom = _TODO2 } = concat [
+                      , trailerGrpcMessage
+                      , trailerCustom } = concat [
       [ ( "grpc-status"
         , BS.Strict.C8.pack $ show $ fromGrpcStatus trailerGrpcStatus
         )
       ]
+    , [ ( "grpc-message"
+        , PercentEncoding.encode msg
+        )
+      | Just msg <- [trailerGrpcMessage]
+      ]
+    , map buildCustomMetadata trailerCustom
     ]
 
 {-------------------------------------------------------------------------------
@@ -68,15 +73,19 @@ buildTrailers Trailers{ trailerGrpcStatus
 -- >   *Custom-Metadata
 --
 -- We do not deal with @HTTP-Status@ here; @http2@ reports this separately.
-parseHeaders :: IsRPC rpc => rpc -> [HTTP.Header] -> Either String Headers
+parseHeaders ::
+     IsRPC rpc
+  => rpc -> [HTTP.Header] -> Either String ResponseHeaders
 parseHeaders rpc =
       runPartialParser uninitResponseHeaders
     . mapM_ parseHeader
   where
     -- HTTP2 header names are always lowercase, and must be ASCII.
     -- <https://datatracker.ietf.org/doc/html/rfc7540#section-8.1.2>
-    parseHeader :: HTTP.Header -> PartialParser Headers (Either String) ()
-    parseHeader (name, value)
+    parseHeader ::
+         HTTP.Header
+      -> PartialParser ResponseHeaders (Either String) ()
+    parseHeader hdr@(name, value)
       | name == "content-type"
       = parseContentType rpc value
 
@@ -90,9 +99,9 @@ parseHeaders rpc =
             BS.Strict.splitWith (== ascii ',') value
 
       | otherwise
-      = parseCustomMetadata name value >>= update updCustom . fmap . (:)
+      = parseCustomMetadata hdr >>= update updCustom . fmap . (:)
 
-    uninitResponseHeaders :: Partial (Either String) Headers
+    uninitResponseHeaders :: Partial (Either String) ResponseHeaders
     uninitResponseHeaders =
            return Nothing  -- headerCompression
         :* return Nothing  -- headerAcceptCompression
@@ -103,7 +112,7 @@ parseHeaders rpc =
     (    updCompression
       :* updAcceptCompression
       :* updCustom
-      :* Nil ) = partialUpdates (Proxy @Headers)
+      :* Nil ) = partialUpdates (Proxy @ResponseHeaders)
 
 -- | Parse response trailers
 --
@@ -129,7 +138,7 @@ parseTrailers rpc =
     runPartialParser uninitTrailers . mapM_ parseHeader
   where
     parseHeader :: HTTP.Header -> PartialParser Trailers (Either String) ()
-    parseHeader (name, value)
+    parseHeader hdr@(name, value)
       | name == "grpc-status"
       = case toGrpcStatus =<< readMaybe (BS.Strict.C8.unpack value) of
           Nothing -> throwError $ "Invalid status: " ++ show value
@@ -144,7 +153,7 @@ parseTrailers rpc =
       = parseContentType rpc value
 
       | otherwise
-      = parseCustomMetadata name value >>= update updCustom . fmap . (:)
+      = parseCustomMetadata hdr >>= update updCustom . fmap . (:)
 
     uninitTrailers :: Partial (Either String) Trailers
     uninitTrailers =
@@ -178,28 +187,3 @@ parseContentType rpc value =
         "application/grpc"
       , "application/grpc+" <> serializationFormat rpc
       ]
-
-parseCustomMetadata ::
-     HTTP.HeaderName
-  -> Strict.ByteString
-  -> PartialParser r (Either String) CustomMetadata
-parseCustomMetadata name value
-  | "grpc-" `BS.Strict.isPrefixOf` CI.foldedCase name
-  = throwError $ "Reserved header: " ++ show (name, value)
-
-  | "-bin" `BS.Strict.isSuffixOf` CI.foldedCase name
-  = case safeHeaderName (BS.Strict.dropEnd 4 $ CI.foldedCase name) of
-      Just name' ->
-        return $ BinaryHeader name' value
-      _otherwise ->
-        throwError $ "Invalid custom binary header: " ++ show (name, value)
-
-  | otherwise
-  = case ( safeHeaderName (CI.foldedCase name)
-         , safeAsciiValue value
-         ) of
-      (Just name', Just value') ->
-        return $ AsciiHeader name' value'
-      _otherwise ->
-        throwError $ "Invalid custom ASCII header: " ++ show (name, value)
-

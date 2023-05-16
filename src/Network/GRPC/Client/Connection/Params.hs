@@ -16,7 +16,7 @@ import Data.List.NonEmpty (NonEmpty)
 import Network.GRPC.Client.Logging
 import Network.GRPC.Compression (Compression)
 import Network.GRPC.Compression qualified as Compression
-import Network.GRPC.Spec.HTTP2.Connection
+import Network.GRPC.Spec.PseudoHeaders
 
 {-------------------------------------------------------------------------------
   Definition
