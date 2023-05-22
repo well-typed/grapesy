@@ -32,11 +32,8 @@ module Network.GRPC.Client (
   , Trailers(..)
   , sendInput
   , recvOutput
-  , SendAfterFinal(..)
-  , RecvAfterTrailers(..)
   ) where
 
-import Control.Concurrent.STM
 import Control.Monad.Catch
 import Control.Monad.IO.Class
 import GHC.Stack
@@ -47,7 +44,6 @@ import Network.GRPC.Client.Connection.Params
 import Network.GRPC.Spec
 import Network.GRPC.Spec.PseudoHeaders (Scheme(..), Authority(..))
 import Network.GRPC.Spec.RPC
-import Network.GRPC.Util.Thread
 
 {-------------------------------------------------------------------------------
   Make RPCs
@@ -173,81 +169,3 @@ data Aborted = Aborted
 -- If you are using the specialized functions from
 -- "Network.GRPC.Client.Protobuf" you do not need to worry about any of this.
 
--- | Send an input to the peer
---
--- This lives in @STM@ for improved composability. For example, if the peer is
--- currently busy then 'sendInput' will block, but you can then use 'orElse' to
--- provide an alternative codepath.
---
--- Calling 'sendInput' again after sending the final message is a bug.
-sendInput ::
-     Call rpc
-  -> IsFinal
-  -> Maybe (Input rpc)
-  -> STM ()
-sendInput Call{callOutbound, callSentFinal} isFinal input = do
-    sentFinal <- readTVar callSentFinal
-
-    if sentFinal then
-      throwSTM SendAfterFinal
-    else do
-      q <- getThreadInterface callOutbound
-
-      -- We write to the queue and update 'callSentFinal' in the same STM tx;
-      -- this is important to avoid race conditions.
-      case isFinal of
-        Final    -> writeTVar callSentFinal True
-        NotFinal -> return ()
-
-      -- By checking that we haven't sent the final message yet, we know that
-      -- this call to 'putMVar' will not block indefinitely: the thread that
-      -- sends messages to the peer will get to it eventually (unless it dies,
-      -- in which case the thread status will change and the call to
-      -- 'getThreadInterface' will be retried).
-      putTMVar q (isFinal, input)
-
--- | Receive an output from the peer
---
--- This lives in @STM@ for improved compositionality. For example, you can wait
--- on multiple clients and see which one responds first.
---
--- Though the types cannot guarantee it, you will receive 'Trailers' once, after
--- the final 'Output'. Calling 'recvOutput' again after receiving 'Trailers' is
--- a bug.
-recvOutput :: Call rpc -> STM (Either Trailers (Output rpc))
-recvOutput Call{callInbound, callRecvTrailers} = do
-    recvTrailers <- readTVar callRecvTrailers
-
-    if recvTrailers then
-      throwSTM RecvAfterTrailers
-    else do
-      q <- getThreadInterface callInbound
-
-      -- By checking that we haven't received the trailers yet, we know that
-      -- this call to 'takeTMVar' will not block indefinitely: the thread that
-      -- receives messages from the peer will get to it eventually (unless it
-      -- dies, in which case the thread status will change and the call to
-      -- 'getThreadInterface' will be retried).
-      r <- takeTMVar q
-
-      -- We read from the queue and update 'calRecvTrailers' in the same STM tx;
-      -- this is important to avoid race conditions.
-      case r of
-        Left _trailers -> writeTVar callRecvTrailers True
-        Right _output  -> return ()
-
-      return r
-
--- | Thrown by 'sendInput'
---
--- This indicates a bug in client code. See 'sendInput' for discussion.
-data SendAfterFinal = SendAfterFinal
-  deriving stock (Show)
-  deriving anyclass (Exception)
-
--- | Thrown by 'recvOutput'
---
--- This indicates a bug in client code. See 'recvOutput' for discussion.
-data RecvAfterTrailers = RecvAfterTrailers
-  deriving stock (Show)
-  deriving anyclass (Exception)

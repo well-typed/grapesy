@@ -3,3 +3,4 @@ module Network.GRPC.Server.Call (
   ) where
 
 data Call rpc = Call
+
