@@ -224,7 +224,7 @@ data CallClosed = CallClosed {
   deriving anyclass (Exception)
 
 {-------------------------------------------------------------------------------
-  Open call
+  Open (ongoing) call
 -------------------------------------------------------------------------------}
 
 -- | Send an input to the peer
@@ -401,7 +401,7 @@ data RpcImmediateError = RpcImmediateError Trailers
   deriving anyclass (Exception)
 
 {-------------------------------------------------------------------------------
-  Internal thread: send inputs to the peer
+  Internal thread: send inputs to the server
 -------------------------------------------------------------------------------}
 
 sendInputs :: forall rpc.
@@ -432,7 +432,7 @@ sendInputs ConnParams{connTracer} compr rpc push flush q =
         unless (isFinal == Final) $ flush >> loop
 
 {-------------------------------------------------------------------------------
-  Internal thread: receive outputs from the peer
+  Internal thread: receive outputs from the server
 -------------------------------------------------------------------------------}
 
 recvOutputs :: forall rpc.

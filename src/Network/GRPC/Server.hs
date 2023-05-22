@@ -16,7 +16,6 @@ module Network.GRPC.Server (
   , server
   ) where
 
-import Control.Concurrent.STM
 import Control.Monad.Except
 import Data.ByteString qualified as BS.Strict
 import Data.ByteString qualified as Strict (ByteString)
@@ -53,19 +52,6 @@ handlerPath :: RpcHandler -> Path
 handlerPath (RpcHandler rpc _) = rpcPath rpc
 
 {-------------------------------------------------------------------------------
-  Ongoing calls
--------------------------------------------------------------------------------}
-
-recvInput :: Call rpc -> STM (IsFinal, Maybe (Input rpc))
-recvInput = undefined
-
-sendOutput :: Call rpc -> Output rpc -> STM ()
-sendOutput = undefined
-
-sendTrailers :: Call rpc -> Trailers -> STM ()
-sendTrailers = undefined
-
-{-------------------------------------------------------------------------------
   Server proper
 -------------------------------------------------------------------------------}
 
@@ -93,7 +79,7 @@ handleGrpcRequest ::
   -> HTTP2.Aux
   -> (HTTP2.Response -> [HTTP2.PushPromise] -> IO ())
   -> ExceptT ServerError IO ()
-handleGrpcRequest handlerMap req _aux _respond = do
+handleGrpcRequest handlerMap req _aux respond = do
     -- > Call-Definition →
     -- >   Method
     -- >   Scheme
@@ -121,12 +107,16 @@ handleGrpcRequest handlerMap req _aux _respond = do
     liftIO $ print pseudoHeaders
     liftIO $ print handlerMap
 
-    handler <- case HashMap.lookup resourcePath handlerMap of
-                 Nothing -> throwError $ grpcUnimplemented resourcePath
-                 Just s  -> return s
+    RpcHandler _ h <-
+      case HashMap.lookup resourcePath handlerMap of
+        Nothing -> throwError $ grpcUnimplemented resourcePath
+        Just s  -> return s
 
-    case handler of
-      RpcHandler _ h -> liftIO $ h Call
+    liftIO $ withCall req respond' $ h
+  where
+    -- gRPC does not make use of push promises
+    respond' :: HTTP2.Response -> IO ()
+    respond' resp = respond resp []
 
 {-------------------------------------------------------------------------------
   Pseudo headers
