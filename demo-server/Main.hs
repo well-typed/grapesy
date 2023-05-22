@@ -9,31 +9,53 @@ import Network.GRPC.Server
 import Network.GRPC.Server.Protobuf
 
 import Proto.Helloworld
+import Proto.RouteGuide
 
-handlers :: ServiceHandlers '[Greeter]
-handlers =
-      HandleService handleGreeter
-    $ AllServicesHandled
+{-------------------------------------------------------------------------------
+  Greeter
+-------------------------------------------------------------------------------}
 
-handleGreeter :: ServiceHandler Greeter
-handleGreeter = ServiceHandler $
-      HandleMethod (HandleNonStreaming sayHello)
-    $ HandleMethod (HandleServerStreaming sayHelloStreamReply)
-    $ AllMethodsHandled
+handleGreeter :: MethodsOf Greeter
+handleGreeter = Methods $
+      Method handleSayHello
+    $ Method handleSayHelloStreamReply
+    $ NoMoreMethods
 
-sayHello :: HelloRequest -> IO (HelloReply, Trailers)
-sayHello _ = do
+handleSayHello :: HelloRequest -> IO (HelloReply, Trailers)
+handleSayHello _req = do
     putStrLn "sayHello"
     return undefined
 
-sayHelloStreamReply :: HelloRequest -> (HelloReply -> STM ()) -> IO Trailers
-sayHelloStreamReply _ _ = do
+handleSayHelloStreamReply ::
+     HelloRequest
+  -> (HelloReply -> STM ())
+  -> IO Trailers
+handleSayHelloStreamReply _req _respond = do
     putStrLn "sayHelloStreamReply"
     return undefined
+
+{-------------------------------------------------------------------------------
+  Route Guide
+-------------------------------------------------------------------------------}
+
+handleRouteGuide :: MethodsOf RouteGuide
+handleRouteGuide = undefined
+
+{-------------------------------------------------------------------------------
+  Top-level
+-------------------------------------------------------------------------------}
+
+services :: Services '[Greeter, RouteGuide]
+services =
+      Service handleGreeter
+    $ Service handleRouteGuide
+    $ NoMoreServices
 
 main :: IO ()
 main =
     runTCPServer Nothing "50051" $ \s ->
       bracket (HTTP2.allocSimpleConfig s 4096)
               HTTP2.freeSimpleConfig $ \config ->
-        HTTP2.run config $ server $ protobufHandlers handlers
+        HTTP2.run config $ server $ protobufServices services
+
+
