@@ -5,6 +5,7 @@
 -- Intended for unqualified import.
 module Network.GRPC.Client.Protobuf (
     RPC(..)
+
     -- * Specialized calls
     --
     -- $specialized
@@ -12,22 +13,16 @@ module Network.GRPC.Client.Protobuf (
   , clientStreaming
   , serverStreaming
   , biDiStreaming
-    -- * Exceptions
-  , ProtobufException(..)
-  , expectedOutput
-  , expectedTrailers
   ) where
 
 import Control.Concurrent.Async
-import Control.Concurrent.STM
-import Control.Exception
-import Control.Monad
-import Data.Kind
+import Control.Monad.Catch (MonadMask)
+import Control.Monad.IO.Class
 import Data.ProtoLens.Service.Types
 import Data.Proxy
-import GHC.TypeLits
 
 import Network.GRPC.Client
+import Network.GRPC.Common.Protobuf
 import Network.GRPC.Spec.RPC
 import Network.GRPC.Spec.RPC.Protobuf
 import Network.GRPC.Util.RedundantConstraint
@@ -46,150 +41,76 @@ import Network.GRPC.Util.RedundantConstraint
 
 {-------------------------------------------------------------------------------
   Specialized calls
-
-  TODO: We should figure out what happens when gRPC services return failure,
-  and deal with this properly (right now this will probably result in
-  'ProtobufUnexpectedTrailers', which may or may not be ok).
 -------------------------------------------------------------------------------}
 
-nonStreaming :: forall s m.
-     IsRPC (RPC s m)
-  => MethodStreamingType s m ~ NonStreaming
+-- | Non-streaming call (single input, single output)
+nonStreaming :: forall m serv meth.
+     (MonadIO m, MonadMask m)
+  => IsRPC (RPC serv meth)
+  => MethodStreamingType serv meth ~ NonStreaming
   => Connection
   -> CallParams
-  -> RPC s m
-  -> Input (RPC s m)
-  -- ^ Single input
-  -> IO (Output (RPC s m), Trailers)
-  -- ^ Single output
+  -> RPC serv meth
+  -> Handler m serv meth
 nonStreaming conn params rpc input =
     withRPC conn params rpc $ \call -> do
-      atomically $ sendInput call Final $ Just input
-      output   <- atomically $ recvOutput call
-                           >>= either (expectedOutput rpc) return
-      trailers <- atomically $ recvOutput call
-                           >>= either return (expectedTrailers rpc)
-      return (output, trailers)
+      sendOnlyInput call input
+      recvOnlyOutput call
   where
-    _ = addConstraint $ Proxy @(MethodStreamingType s m ~ NonStreaming)
+    _ = addConstraint $ Proxy @(MethodStreamingType serv meth ~ NonStreaming)
 
-clientStreaming :: forall s m.
-     IsRPC (RPC s m)
-  => MethodStreamingType s m ~ ClientStreaming
+-- | Client-side streaming
+clientStreaming :: forall m serv meth.
+     (MonadIO m, MonadMask m)
+  => IsRPC (RPC serv meth)
+  => MethodStreamingType serv meth ~ ClientStreaming
   => Connection
   -> CallParams
-  -> RPC s m
-  -> IO (IsFinal, Maybe (Input (RPC s m)))
-  -- ^ We will repeatedly call this function until it returns a 'Final' 'Input'.
-  --
-  -- You should return @(Final, Nothing)@ /only/ in the case that the client
-  -- sends /no/ messages; see discussion in "Network.GRPC.Client".
-  -> IO (MethodOutput s m, Trailers)
-  -- ^ Single output
+  -> RPC serv meth
+  -> Handler m serv meth
 clientStreaming conn params rpc produceInput =
     withRPC conn params rpc $ \call -> do
-      sendAll produceInput call
-      output   <- atomically $ recvOutput call
-                           >>= either (expectedOutput rpc) return
-      trailers <- atomically $ recvOutput call
-                           >>= either return (expectedTrailers rpc)
-      return (output, trailers)
+      sendAllInputs call produceInput
+      recvOnlyOutput call
   where
-    _ = addConstraint $ Proxy @(MethodStreamingType s m ~ ClientStreaming)
+    _ = addConstraint $ Proxy @(MethodStreamingType serv meth ~ ClientStreaming)
 
-serverStreaming :: forall s m.
-     IsRPC (RPC s m)
-  => MethodStreamingType s m ~ ServerStreaming
+-- | Server-side streaming
+serverStreaming :: forall m serv meth.
+     (MonadIO m, MonadMask m)
+  => IsRPC (RPC serv meth)
+  => MethodStreamingType serv meth ~ ServerStreaming
   => Connection
   -> CallParams
-  -> RPC s m
-  -> Input (RPC s m)
-  -- ^ Single input
-  -> (Output (RPC s m) -> IO ())
-  -- ^ We wil call this function for every 'Output' we receive.
-  -> IO Trailers
+  -> RPC serv meth
+  -> Handler m serv meth
 serverStreaming conn params rpc input processOutput =
     withRPC conn params rpc $ \call -> do
-      atomically $ sendInput call Final $ Just input
-      recvAll processOutput call
+      sendOnlyInput call input
+      recvAllOutputs call processOutput
   where
-    _ = addConstraint $ Proxy @(MethodStreamingType s m ~ ServerStreaming)
+    _ = addConstraint $ Proxy @(MethodStreamingType serv meth ~ ServerStreaming)
 
-biDiStreaming :: forall s m.
-     IsRPC (RPC s m)
-  => MethodStreamingType s m ~ BiDiStreaming
+-- | Bidirectional streaming
+--
+-- Unlike the other functions, we have not generalized this to an arbitrary
+-- monad @m@, because it spawns a new thread.
+--
+-- TODO: This is an indication that we should reconsider the signature of this
+-- function. Another indication that we should is that the corresponding
+-- function in "Network.GRPC.Client.Protobuf.Pipes" cannot be defined in terms
+-- of this function, unlike for the other streaming functions.
+biDiStreaming :: forall serv meth.
+     IsRPC (RPC serv meth)
+  => MethodStreamingType serv meth ~ BiDiStreaming
   => Connection
   -> CallParams
-  -> RPC s m
-  -> IO (IsFinal, Maybe (Input (RPC s m)))
-  -- ^ We will repeatedly call this function until it returns a 'Final' 'Input'
-  -- or until we receive 'Trailers' from the remote node, whichever comes first.
-  -> (Output (RPC s m) -> IO ())
-  -- ^ We wil call this function for every 'Output' we receive.
-  -> IO Trailers
+  -> RPC serv meth
+  -> Handler IO serv meth
 biDiStreaming conn params rpc produceInput processOutput =
     withRPC conn params rpc $ \call -> do
-      withAsync (sendAll produceInput call) $ \_sendAllThread ->
-        recvAll processOutput call
+      withAsync (sendAllInputs call produceInput) $ \_sendAllThread ->
+        recvAllOutputs call processOutput
   where
-    _ = addConstraint $ Proxy @(MethodStreamingType s m ~ BiDiStreaming)
-
-{-------------------------------------------------------------------------------
-  Internal auxiliary
--------------------------------------------------------------------------------}
-
-sendAll :: IO (IsFinal, Maybe (MethodInput s m)) -> Call (RPC s m) -> IO ()
-sendAll produceInput call = loop
-  where
-    loop :: IO ()
-    loop = do
-        (isFinal, input) <- produceInput
-        atomically $ sendInput call isFinal input
-        unless (isFinal == Final) loop
-
-recvAll :: (MethodOutput s m -> IO a) -> Call (RPC s m) -> IO Trailers
-recvAll processOutput call = loop
-  where
-    loop :: IO Trailers
-    loop = do
-        mOutput <- atomically $ recvOutput call
-        case mOutput of
-          Left  trailers -> return trailers
-          Right output   -> processOutput output >> loop
-
-{-------------------------------------------------------------------------------
-  Exceptions
--------------------------------------------------------------------------------}
-
-data ProtobufException =
-    forall s m.
-         IsRPC (RPC s m)
-      => ProtobufRpcException (RPC s m) (ProtobufRpcException s m)
-
-deriving stock    instance Show      ProtobufException
-deriving anyclass instance Exception ProtobufException
-
-data ProtobufRpcException (s :: Type) (m :: Symbol) =
-    -- | We expected an output, but got trailers instead
-    ProtobufUnexpectedTrailers Trailers
-
-    -- | We expected trailers, but got an output instead
-  | ProtobufUnexpectedOutput (Output (RPC s m))
-
-deriving stock instance IsRPC (RPC s m) => Show (ProtobufRpcException s m)
-
-expectedOutput ::
-     IsRPC (RPC s m)
-  => RPC s m -> Trailers -> STM (MethodOutput s m)
-expectedOutput rpc trailers = throwSTM $
-    ProtobufRpcException rpc $
-      ProtobufUnexpectedTrailers trailers
-
-expectedTrailers ::
-     IsRPC (RPC s m)
-  => RPC s m -> MethodOutput s m -> STM Trailers
-expectedTrailers rpc output = throwSTM $
-    ProtobufRpcException rpc $
-      ProtobufUnexpectedOutput output
-
+    _ = addConstraint $ Proxy @(MethodStreamingType serv meth ~ BiDiStreaming)
 

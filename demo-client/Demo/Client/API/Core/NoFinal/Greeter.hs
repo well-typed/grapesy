@@ -15,7 +15,7 @@ import Proto.Helloworld
 sayHello :: Connection -> CallParams -> HelloRequest -> IO ()
 sayHello conn params n =
     withRPC conn params (RPC @Greeter @"sayHello") $ \call -> do
-      atomically $ sendInput call NotFinal (Just n)
+      atomically $ sendInput call $ StreamElem n
       out      <- atomically $ recvOutput call
       trailers <- atomically $ recvOutput call
       print (out, trailers)

@@ -4,19 +4,21 @@
 --
 -- Intended for qualified import.
 --
+-- > import Network.GRPC.Spec.LengthPrefixed (MessagePrefix)
 -- > import Network.GRPC.Spec.LengthPrefixed qualified as LengthPrefixed
 module Network.GRPC.Spec.LengthPrefixed (
     -- * Message prefix
     MessagePrefix(..)
-    -- * Construction
-  , build
-    -- * Parsing
-  , ParseResult(..)
-  , parse
+    -- * Length-prefixex messages
+  , buildInput
+  , buildOutput
+  , parseInput
+  , parseOutput
   ) where
 
 import Data.Binary.Get (Get)
 import Data.Binary.Get qualified as Binary
+import Data.ByteString qualified as Strict (ByteString)
 import Data.ByteString.Builder qualified as BS (Builder)
 import Data.ByteString.Builder qualified as BS.Builder
 import Data.ByteString.Lazy qualified as BS.Lazy
@@ -26,6 +28,7 @@ import Data.Word
 import Network.GRPC.Spec.Compression (Compression)
 import Network.GRPC.Spec.Compression qualified as Compression
 import Network.GRPC.Spec.RPC
+import Network.GRPC.Util.Parser (Parser(..))
 
 {-------------------------------------------------------------------------------
   Message prefix
@@ -60,7 +63,7 @@ getMessagePrefix = do
   larger than the original.
 -------------------------------------------------------------------------------}
 
--- | Inputs sent from the client to the server
+-- | Serialize RPC input
 --
 -- > Length-Prefixed-Message → Compressed-Flag Message-Length Message
 -- >
@@ -69,14 +72,22 @@ getMessagePrefix = do
 -- > Message-Length  → {length of Message}
 -- >                     # encoded as 4 byte unsigned integer (big endian)
 -- > Message         → *{binary octet}
-build :: IsRPC rpc => Compression -> rpc -> Input rpc -> BS.Builder
-build compr rpc input = mconcat [
+buildInput :: IsRPC rpc => rpc -> Compression -> Input rpc -> BS.Builder
+buildInput = buildMsg . serializeInput
+
+-- | Serialize RPC output
+buildOutput :: IsRPC rpc => rpc -> Compression -> Output rpc -> BS.Builder
+buildOutput = buildMsg . serializeOutput
+
+-- | Generalization of 'buildInput' and 'buildOutput'
+buildMsg :: (x -> Lazy.ByteString) -> Compression -> x -> BS.Builder
+buildMsg build compr x = mconcat [
       buildMessagePrefix prefix
     , BS.Builder.lazyByteString compressed
     ]
   where
     compressed :: Lazy.ByteString
-    compressed = Compression.compress compr $ serializeInput rpc input
+    compressed = Compression.compress compr $ build x
 
     prefix :: MessagePrefix
     prefix = MessagePrefix {
@@ -86,50 +97,50 @@ build compr rpc input = mconcat [
 
 {-------------------------------------------------------------------------------
   Parsing
+
+  TODO: We should stress-test this parser, cutting the data stream into
+  arbitrary chunks, ideally both by calling the parser directly and through the
+  larger library, testing 'Network.GRPC.Call.Peer.receiveMessages'.
 -------------------------------------------------------------------------------}
 
-data ParseResult a =
-    -- | We haven't read enough bytes from the remote peer yet
-    --
-    -- It may well happen that we have insufficient bytes to fully decode the
-    -- message, but we /do/ have sufficient bytes to decode the message prefix.
-    -- We therefore return the message prefix, if known, as well as the
-    -- unconsumed input, to avoid reparsing that message prefix each time.
-    InsufficientBytes (Maybe MessagePrefix) Lazy.ByteString
+parseInput :: IsRPC rpc => rpc -> Compression -> Parser (Input rpc)
+parseInput = parseMsg . deserializeInput
 
-    -- | We have sufficient data, but the parse failed
-  | ParseError String
+parseOutput :: IsRPC rpc => rpc -> Compression -> Parser (Output rpc)
+parseOutput = parseMsg . deserializeOutput
 
-    -- | Parsing succeed
-    --
-    -- We return the value as well as the remaining bytes
-  | Parsed a Lazy.ByteString
+parseMsg :: forall x.
+     (Lazy.ByteString -> Either String x)
+  -> Compression
+  -> Parser x
+parseMsg parse compr =
+    waitForPrefix BS.Lazy.empty
+  where
+    waitForPrefix :: Lazy.ByteString -> Parser x
+    waitForPrefix acc
+      | BS.Lazy.length acc < 5
+      = ParserNeedsData acc $ \next -> waitForPrefix (snoc acc next)
 
--- | Parse length-prefixed message
-parse ::
-     IsRPC rpc
-  => Compression
-  -> rpc
-  -> Maybe MessagePrefix  -- ^ Message prefix, if already known
-  -> Lazy.ByteString      -- ^ Input (not including prefix, if known)
-  -> ParseResult (Output rpc)
-parse compr rpc Nothing bs =
-    if BS.Lazy.length bs < 5 then
-      InsufficientBytes Nothing bs
-    else
-      case Binary.runGetOrFail getMessagePrefix bs of
-        Left (_, _, err) ->
-          ParseError err
-        Right (unconsumed, _lenConsumed, prefix) ->
-          parse compr rpc (Just prefix) unconsumed
-parse compr rpc (Just prefix) bs =
-    if BS.Lazy.length bs < fromIntegral (msgLength prefix) then
-      InsufficientBytes (Just prefix) bs
-    else
-      let (msg, rest) = BS.Lazy.splitAt (fromIntegral $ msgLength prefix) bs
-          serialized  = if msgIsCompressed prefix
-                          then Compression.decompress compr msg
-                          else msg
-      in case deserializeOutput rpc serialized of
-           Left err -> ParseError err
-           Right a  -> Parsed a rest
+      | otherwise
+      = case Binary.runGetOrFail getMessagePrefix acc of
+          Left (_, _, err) ->
+            ParserError err
+          Right (unconsumed, _lenConsumed, prefix) ->
+            withPrefix prefix unconsumed
+
+    withPrefix :: MessagePrefix -> Lazy.ByteString -> Parser x
+    withPrefix prefix acc
+      | BS.Lazy.length acc < fromIntegral (msgLength prefix)
+      = ParserNeedsData acc $ \next -> withPrefix prefix (snoc acc next)
+
+      | otherwise
+      = let (msg, rest) = BS.Lazy.splitAt (fromIntegral $ msgLength prefix) acc
+            serialized  = if msgIsCompressed prefix
+                            then Compression.decompress compr msg
+                            else msg
+        in case parse serialized of
+             Left err -> ParserError err
+             Right a  -> ParserDone a $ waitForPrefix rest
+
+    snoc :: Lazy.ByteString -> Strict.ByteString -> Lazy.ByteString
+    snoc acc next = acc <> BS.Lazy.fromStrict next

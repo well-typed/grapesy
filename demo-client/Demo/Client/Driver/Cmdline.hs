@@ -25,8 +25,8 @@ import GHC.TypeLits (Symbol)
 import Options.Applicative
 
 import Network.GRPC.Client (Authority(..))
-import Network.GRPC.Compression (Compression)
-import Network.GRPC.Compression qualified as Compression
+import Network.GRPC.Common.Compression (Compression)
+import Network.GRPC.Common.Compression qualified as Compression
 
 import Proto.Helloworld
 import Proto.RouteGuide

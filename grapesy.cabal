@@ -8,6 +8,8 @@ maintainer:         edsko@well-typed.com
 category:           Network
 build-type:         Simple
 extra-doc-files:    CHANGELOG.md
+data-dir:           data
+data-files:         route_guide_db.json
 
 common lang
   ghc-options:
@@ -19,10 +21,14 @@ common lang
   default-language:
       Haskell2010
   default-extensions:
+      BangPatterns
       ConstraintKinds
       DataKinds
       DeriveAnyClass
+      DeriveFoldable
+      DeriveFunctor
       DeriveGeneric
+      DeriveTraversable
       DerivingStrategies
       DisambiguateRecordFields
       EmptyCase
@@ -63,17 +69,20 @@ library
       Network.GRPC.Client
       Network.GRPC.Client.Protobuf
       Network.GRPC.Client.Protobuf.Pipes
-      Network.GRPC.Compression
+      Network.GRPC.Common.Compression
+      Network.GRPC.Common.Exceptions
+      Network.GRPC.Common.Protobuf
       Network.GRPC.Server
       Network.GRPC.Server.Protobuf
   other-modules:
       Network.GRPC.Client.Call
       Network.GRPC.Client.Connection
-      Network.GRPC.Client.Connection.Meta
-      Network.GRPC.Client.Connection.Params
-      Network.GRPC.Client.Logging
       Network.GRPC.Server.Call
+      Network.GRPC.Server.Connection
+      Network.GRPC.Server.Context
+      Network.GRPC.Server.Handler
       Network.GRPC.Spec
+      Network.GRPC.Spec.Common
       Network.GRPC.Spec.Compression
       Network.GRPC.Spec.CustomMetadata
       Network.GRPC.Spec.LengthPrefixed
@@ -84,8 +93,11 @@ library
       Network.GRPC.Spec.RPC
       Network.GRPC.Spec.RPC.Protobuf
       Network.GRPC.Util.ByteString
+      Network.GRPC.Util.Parser
       Network.GRPC.Util.Partial
+      Network.GRPC.Util.Peer
       Network.GRPC.Util.RedundantConstraint
+      Network.GRPC.Util.StreamElem
       Network.GRPC.Util.Thread
 
       PackageInfo_grapesy
@@ -136,19 +148,20 @@ executable demo-client
       lang
   hs-source-dirs:
       demo-client
+      demo-common
       proto
   main-is:
       Main.hs
   ghc-options:
       -threaded
   other-modules:
-      Demo.Client.Driver.Cmdline
-      Demo.Client.Driver.DelayOr
-      Demo.Client.Driver.Logging
       Demo.Client.API.Core.NoFinal.Greeter
       Demo.Client.API.Protobuf.Greeter
-      Demo.Client.API.Protobuf.RouteGuide
       Demo.Client.API.Protobuf.Pipes.RouteGuide
+      Demo.Client.API.Protobuf.RouteGuide
+      Demo.Client.Driver.Cmdline
+      Demo.Client.Driver.DelayOr
+      Demo.Common.Logging
       Proto.Helloworld
       Proto.Helloworld_Fields
       Proto.RouteGuide
@@ -176,22 +189,35 @@ executable demo-server
       lang
   hs-source-dirs:
       demo-server
+      demo-common
       proto
   main-is:
       Main.hs
   ghc-options:
       -threaded
   other-modules:
+      Demo.Common.Logging
+      Demo.Server.API.Protobuf.Greeter
+      Demo.Server.API.Protobuf.RouteGuide
+      Demo.Server.Aux.RouteGuide
+      Paths_grapesy
       Proto.Helloworld
       Proto.Helloworld_Fields
       Proto.RouteGuide
       Proto.RouteGuide_Fields
   build-depends:
+    , aeson
+    , containers
+    , contra-tracer
+    , data-default
     , grapesy
     , http2
+    , lens
     , network-run
+    , proto-lens
     , proto-lens-runtime
-    , stm
+    , text
+    , time
 
   if !flag(build-demo)
     buildable:

@@ -10,16 +10,14 @@ module Network.GRPC.Spec.Request (
   ) where
 
 import Data.ByteString.Char8 qualified as BS.Strict.C8
-import Data.Foldable (toList)
 import Data.List (intersperse)
-import Data.List.NonEmpty (NonEmpty)
 import Data.Maybe (catMaybes)
 import Data.Version
 import Network.HTTP.Types qualified as HTTP
 
-import Network.GRPC.Compression (Compression(..))
 import Network.GRPC.Spec
-import Network.GRPC.Spec.Compression qualified as Compression
+import Network.GRPC.Spec.Common
+import Network.GRPC.Spec.Compression (compressionId)
 import Network.GRPC.Spec.CustomMetadata
 import Network.GRPC.Spec.PercentEncoding qualified as PercentEncoding
 import Network.GRPC.Spec.RPC
@@ -38,7 +36,7 @@ import PackageInfo_grapesy qualified as PackageInfo
 buildHeaders :: IsRPC rpc => RequestHeaders -> rpc -> [HTTP.Header]
 buildHeaders callParams@RequestHeaders{requestParams} rpc = concat [
       callDefinition callParams rpc
-    , map buildCustomMetadata $ callCustomMetadata requestParams
+    , map buildCustomMetadata $ callRequestMetadata requestParams
     ]
 
 -- | Call definition
@@ -71,12 +69,12 @@ buildHeaders callParams@RequestHeaders{requestParams} rpc = concat [
 callDefinition :: IsRPC rpc => RequestHeaders -> rpc -> [HTTP.Header]
 callDefinition = \callParams@RequestHeaders{requestParams} rpc -> catMaybes [
       hdrTimeout <$> callTimeout requestParams
-    , Just $ hdrTe
-    , Just $ hdrContentType rpc
-    , Just $ hdrMessageType rpc
-    , Just $ hdrMessageEncoding (requestCompression callParams)
-    , Just $ hdrMessageAcceptEncoding (requestAcceptCompression callParams)
-    , Just $ hdrUserAgent
+    , Just $ buildTe
+    , Just $ buildContentType rpc
+    , Just $ buildMessageType rpc
+    , Just $ buildMessageEncoding (compressionId $ requestCompression callParams)
+    , Just $ buildMessageAcceptEncoding (requestAcceptCompression callParams)
+    , Just $ buildUserAgent
     ]
   where
     -- > Timeout      → "grpc-timeout" TimeoutValue TimeoutUnit
@@ -105,42 +103,16 @@ callDefinition = \callParams@RequestHeaders{requestParams} rpc -> catMaybes [
         )
 
     -- > TE → "te" "trailers" # Used to detect incompatible proxies
-    hdrTe :: HTTP.Header
-    hdrTe  = ("te", "trailers")
-
-    -- > Content-Type →
-    -- >   "content-type"
-    -- >   "application/grpc"
-    -- >   [("+proto" / "+json" / {custom})]
-    hdrContentType :: IsRPC rpc => rpc -> HTTP.Header
-    hdrContentType rpc = (
-          "content-type"
-        , "application/grpc+" <> serializationFormat rpc
-        )
+    buildTe :: HTTP.Header
+    buildTe  = ("te", "trailers")
 
     -- > Message-Type → "grpc-message-type" {type name for message schema}
-    hdrMessageType :: IsRPC rpc => rpc -> HTTP.Header
-    hdrMessageType rpc = (
+    buildMessageType :: IsRPC rpc => rpc -> HTTP.Header
+    buildMessageType rpc = (
           "grpc-message-type"
         , PercentEncoding.encode $ messageType rpc
         )
 
-    -- > Message-Encoding → "grpc-encoding" Content-Coding
-    -- > Content-Coding → "identity" / "gzip" / "deflate" / "snappy" / {custom}
-    hdrMessageEncoding :: Compression -> HTTP.Header
-    hdrMessageEncoding compr = (
-          "grpc-encoding"
-        , Compression.serializeId (compressionId compr)
-        )
-
-    -- > Message-Accept-Encoding →
-    -- >   "grpc-accept-encoding" Content-Coding *("," Content-Coding)
-    hdrMessageAcceptEncoding :: NonEmpty Compression -> HTTP.Header
-    hdrMessageAcceptEncoding compr = (
-          "grpc-accept-encoding"
-        , mconcat . intersperse "," $
-            map (Compression.serializeId . compressionId) (toList compr)
-        )
 
     -- > User-Agent → "user-agent" {structured user-agent string}
     --
@@ -159,8 +131,8 @@ callDefinition = \callParams@RequestHeaders{requestParams} rpc -> catMaybes [
     -- >   "/"
     -- >   Version
     -- >   ?( " ("  *(AdditionalProperty ";") ")" )
-    hdrUserAgent :: HTTP.Header
-    hdrUserAgent = (
+    buildUserAgent :: HTTP.Header
+    buildUserAgent = (
           "user-agent"
         , mconcat [
               "grpc-"

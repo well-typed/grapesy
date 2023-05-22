@@ -28,43 +28,47 @@ import Network.GRPC.Spec.RPC
   > Content-Type → "application/grpc+proto"
 -------------------------------------------------------------------------------}
 
-data RPC (s :: Type) (m :: Symbol) = RPC
+data RPC (serv :: Type) (meth :: Symbol) = RPC
 
-instance (Typeable s, HasMethodImpl s m) => Show (RPC s m) where
+instance ( Typeable serv
+         , HasMethodImpl serv meth
+         ) => Show (RPC serv meth) where
   showsPrec p RPC = showParen (p >= appPrec1) $
         showString "RPC @"
-      . showsPrec appPrec1 (typeRep (Proxy @s))
+      . showsPrec appPrec1 (typeRep (Proxy @serv))
       . showSpace
-      . showsPrec appPrec1 (symbolVal (Proxy @m))
+      . showsPrec appPrec1 (symbolVal (Proxy @meth))
 
-instance ( Typeable           s
-         , HasMethodImpl      s m
-         , Show (MethodInput  s m)
-         , Show (MethodOutput s m)
-         ) => IsRPC (RPC s m) where
-  type Input  (RPC s m) = MethodInput  s m
-  type Output (RPC s m) = MethodOutput s m
+instance ( Typeable           serv
+         , HasMethodImpl      serv meth
+         , Show (MethodInput  serv meth)
+         , Show (MethodOutput serv meth)
+         ) => IsRPC (RPC serv meth) where
+  type Input  (RPC serv meth) = MethodInput  serv meth
+  type Output (RPC serv meth) = MethodOutput serv meth
 
   serializationFormat _ = "proto"
   serviceName         _ = Text.pack $ concat [
-                              symbolVal $ Proxy @(ServicePackage s)
+                              symbolVal $ Proxy @(ServicePackage serv)
                             , "."
-                            , symbolVal $ Proxy @(ServiceName s)
+                            , symbolVal $ Proxy @(ServiceName serv)
                             ]
   methodName          _ = Text.pack $
-                              symbolVal $ Proxy @(MethodName s m)
-  messageType         _ = Protobuf.messageName $ Proxy @(MethodInput s m)
+                              symbolVal $ Proxy @(MethodName serv meth)
+  messageType         _ = Protobuf.messageName $ Proxy @(MethodInput serv meth)
   serializeInput      _ = BS.Builder.toLazyByteString . Protobuf.buildMessage
-  deserializeOutput   _ = Protobuf.runParser parser . BS.Lazy.toStrict
-    where
-      parser :: Parser (MethodOutput s m)
-      parser = do
-          msg   <- Protobuf.parseMessage
-          atEnd <- Protobuf.atEnd
-          if atEnd then
-            return msg
-          else
-            fail $ concat [
-                Text.unpack $ Protobuf.messageName $ Proxy @(MethodOutput s m)
-              , ": unconsumed bytes"
-              ]
+  serializeOutput     _ = BS.Builder.toLazyByteString . Protobuf.buildMessage
+  deserializeInput    _ = Protobuf.runParser parseMessage . BS.Lazy.toStrict
+  deserializeOutput   _ = Protobuf.runParser parseMessage . BS.Lazy.toStrict
+
+parseMessage :: forall msg. Protobuf.Message msg => Parser msg
+parseMessage = do
+    msg   <- Protobuf.parseMessage
+    atEnd <- Protobuf.atEnd
+    if atEnd then
+      return msg
+    else
+      fail $ concat [
+          Text.unpack $ Protobuf.messageName $ Proxy @msg
+        , ": unconsumed bytes"
+        ]

@@ -1,5 +1,10 @@
 {-# LANGUAGE OverloadedStrings #-}
 
+-- | Custom metadata
+--
+-- These are application-defined headers/trailers.
+--
+-- Intended for unqualified import.
 module Network.GRPC.Spec.CustomMetadata (
     -- * Definition
     CustomMetadata(..)

@@ -16,7 +16,7 @@ import Network.GRPC.Client.Protobuf.Pipes
 
 import Proto.RouteGuide
 
-import Demo.Client.Driver.Logging
+import Demo.Common.Logging
 
 {-------------------------------------------------------------------------------
   routeguide.RouteGuide
@@ -32,7 +32,7 @@ listFeatures conn params r = runSafeT . runEffect $
 recordRoute ::
      Connection
   -> CallParams
-  -> Producer' (IsFinal, Maybe Point) (SafeT IO) ()
+  -> Producer' (StreamElem () Point) (SafeT IO) ()
   -> IO ()
 recordRoute conn params ps = runSafeT . runEffect $
     let cons = clientStreaming conn params (RPC @RouteGuide @"recordRoute")
@@ -41,7 +41,7 @@ recordRoute conn params ps = runSafeT . runEffect $
 routeChat ::
      Connection
   -> CallParams
-  -> Producer' (IsFinal, Maybe RouteNote) IO ()
+  -> Producer' (StreamElem () RouteNote) IO ()
   -> IO ()
 routeChat conn params ns =
     biDiStreaming conn params (RPC @RouteGuide @"routeChat") $ \cons prod ->

@@ -28,7 +28,7 @@ import Data.Text (Text)
 import Generics.SOP qualified as SOP
 import GHC.Generics qualified as GHC
 
-import Network.GRPC.Compression (Compression)
+import Network.GRPC.Common.Compression (Compression)
 import Network.GRPC.Spec.Compression (CompressionId)
 import Network.GRPC.Spec.CustomMetadata
 
@@ -46,15 +46,19 @@ data CallParams = CallParams {
       callTimeout :: Maybe Timeout
 
       -- | Custom metadata
-    , callCustomMetadata :: [CustomMetadata]
+      --
+      -- This is the metadata included in the request. (The server can include
+      -- its own metadata in the response: see 'responseMetadata' and
+      -- 'trailerMetadatda'.)
+    , callRequestMetadata :: [CustomMetadata]
     }
   deriving stock (Show)
 
 -- | Default 'CallParams'
 instance Default CallParams where
   def = CallParams {
-        callTimeout        = Nothing
-      , callCustomMetadata = []
+        callTimeout         = Nothing
+      , callRequestMetadata = []
       }
 
 {-------------------------------------------------------------------------------
@@ -106,7 +110,7 @@ data RequestHeaders = RequestHeaders {
     , requestCompression :: Compression
 
       -- | Accepted compression algorithms for incoming messages
-    , requestAcceptCompression :: NonEmpty Compression
+    , requestAcceptCompression :: NonEmpty CompressionId
     }
 
 -- | Mark a input sent as final
@@ -120,8 +124,8 @@ data IsFinal = Final | NotFinal
 -- | Response headers
 data ResponseHeaders = ResponseHeaders {
       responseCompression       :: Maybe CompressionId
-    , responseAcceptCompression :: Maybe [CompressionId]
-    , responseCustom            :: [CustomMetadata]
+    , responseAcceptCompression :: Maybe (NonEmpty CompressionId)
+    , responseMetadata          :: [CustomMetadata]
     }
   deriving stock (Show, Eq)
   deriving stock (GHC.Generic)
@@ -136,12 +140,16 @@ data ResponseHeaders = ResponseHeaders {
 -- use trailers to give the client an MD5 checksum when streaming is complete.
 data Trailers = Trailers {
       trailerGrpcStatus  :: GrpcStatus
-    , trailerGrpcMessage :: (Maybe Text)
-    , trailerCustom      :: [CustomMetadata]
+    , trailerGrpcMessage :: Maybe Text
+    , trailerMetadata    :: [CustomMetadata]
     }
   deriving stock (Show, Eq)
   deriving stock (GHC.Generic)
   deriving anyclass (SOP.Generic, SOP.HasDatatypeInfo)
+
+{-------------------------------------------------------------------------------
+  gRPC status
+-------------------------------------------------------------------------------}
 
 -- | gRPC status
 --

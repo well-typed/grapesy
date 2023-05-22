@@ -12,7 +12,7 @@ import Network.GRPC.Client.Protobuf
 
 import Proto.RouteGuide
 
-import Demo.Client.Driver.Logging
+import Demo.Common.Logging
 
 {-------------------------------------------------------------------------------
   routeguide.RouteGuide
@@ -26,10 +26,10 @@ listFeatures :: Connection -> CallParams -> Rectangle -> IO ()
 listFeatures conn params r = log =<<
     serverStreaming conn params (RPC @RouteGuide @"listFeatures") r log
 
-recordRoute :: Connection -> CallParams -> IO (IsFinal, Maybe Point) -> IO ()
+recordRoute :: Connection -> CallParams -> IO (StreamElem () Point) -> IO ()
 recordRoute conn params ps = log =<<
     clientStreaming conn params (RPC @RouteGuide @"recordRoute") ps
 
-routeChat :: Connection -> CallParams -> IO (IsFinal, Maybe RouteNote) -> IO ()
+routeChat :: Connection -> CallParams -> IO (StreamElem () RouteNote) -> IO ()
 routeChat conn params notes = log =<<
     biDiStreaming conn params (RPC @RouteGuide @"routeChat") notes log

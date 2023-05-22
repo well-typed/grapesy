@@ -195,7 +195,7 @@ cabal run demo-client -- recordRoute \
 This should report something like
 
 ```
-Just {point_count: 10 feature_count: 6 distance: 667689 elapsed_time: 4}
+{point_count: 10 feature_count: 10 distance: 667689 elapsed_time: 4}
 ```
 
 ### `routeguide.RouteGuide.RouteChat`
@@ -260,12 +260,12 @@ Delay 1.0s
 {location { longitude: 1 } message: "E"}
 {location { longitude: 1 } message: "F"}
 
-Sending final {location { } message: "H"}
+Sending {location { } message: "H"}
 {location { } message: "A"}
 {location { } message: "B"}
 {location { } message: "C"}
 {location { } message: "D"}
-Trailers {grpcStatus = 0, grpcMessage = Nothing}
+[]
 ```
 
 **Note**: The C++ implementation of this server seems buggy: new clients that
