@@ -1,59 +1,120 @@
-{-# LANGUAGE OverloadedStrings #-}
-
+-- | Connection to a server
+--
+-- Intended for qualified import.
+--
+-- > import Network.GRPC.Client.Connection (Connection, withConnection)
+-- > import Network.GRPC.Client.Connection qualified as Connection
 module Network.GRPC.Client.Connection (
-    Connection(..)
+    -- * Definition
+    Connection -- opaque
   , withConnection
+  , send
+  , params
+    -- * Configuration
+  , ConnParams(..)
+  , PeerDebugMsg(..)
+    -- * Information about the connection
+  , Meta(..)
+  , currentMeta
+  , updateMeta
   ) where
 
-import Control.Concurrent.STM
+import Control.Concurrent
 import Control.Monad.Catch
+import Control.Tracer
+import Data.Default
 import Network.HPACK qualified as HPACK
 import Network.HTTP2.Client qualified as Client
 import Network.Run.TCP (runTCPClient)
 
-import Network.GRPC.Client.Connection.Params
-import Network.GRPC.Client.Connection.Meta (ConnMeta)
-import Network.GRPC.Client.Connection.Meta qualified as ConnMeta
+import Network.GRPC.Common.Compression (Compression)
+import Network.GRPC.Common.Compression qualified as Compression
+import Network.GRPC.Spec
 import Network.GRPC.Spec.PseudoHeaders
+import Network.GRPC.Spec.RPC
+import Network.GRPC.Util.Peer qualified as Peer
+import Data.List.NonEmpty (NonEmpty)
 
 {-------------------------------------------------------------------------------
   Connection API
+
+  'Connection' is kept abstract (opaque) in the user facing API.
+
+  The closest concept on the server side concept is
+  'Network.GRPC.Server.Context': this does not identify a connection from a
+  particular client (@http2@ gives us each request separately, without
+  identifying which requests come from the same client), but keeps track of the
+  overall server state.
 -------------------------------------------------------------------------------}
 
--- | Open connection
+-- | Open connection to server
 --
--- This type is kept abstract (opaque) in the user facing API.
+-- Before we can send RPC requests, we have to connect to a specific server
+-- first. Once we have opened a connection to that server, we can send as many
+-- RPC requests over that one connection as we wish. 'Connection' abstracts over
+-- this connection, and also maintains some information about the server.
+--
+-- TODO: Discuss and implement auto reconnect.
 data Connection = Connection {
-      -- | Connection parameters
-      connParams :: ConnParams
+      -- | Configuration
+      params :: ConnParams
 
       -- | Information about the open connection
-    , connMeta :: TVar ConnMeta
+    , metaVar :: MVar Meta
 
       -- | Send request
       --
       -- This is the function we get from @http2@.
-    , connSend :: forall a.
+    , send :: forall a.
            Client.Request
         -> (Client.Response -> IO a)
         -> IO a
     }
 
 {-------------------------------------------------------------------------------
+  Config
+-------------------------------------------------------------------------------}
+
+-- | Connection configuration
+data ConnParams = ConnParams {
+      -- | Logging
+      --
+      -- Most applications will probably just set this to 'nullTracer' to
+      -- disable logging.
+      connTracer :: Tracer IO (SomeRPC PeerDebugMsg)
+
+      -- | Compression negotation
+    , connCompression :: Compression.Negotation
+    }
+
+instance Default ConnParams where
+  def = ConnParams {
+        connTracer      = nullTracer
+      , connCompression = def
+      }
+
+newtype PeerDebugMsg rpc = PeerDebugMsg (Peer.DebugMsg (Input rpc) (Output rpc))
+
+deriving instance IsRPC rpc => Show (PeerDebugMsg rpc)
+
+{-------------------------------------------------------------------------------
   Open a new connection
 -------------------------------------------------------------------------------}
 
-withConnection :: forall a. ConnParams -> (Connection -> IO a) -> IO a
-withConnection connParams k = do
-    connMeta <- newTVarIO $ ConnMeta.init
-    runTCPClient (       authorityHost $ connAuthority connParams)
-                 (show . authorityPort $ connAuthority connParams)
-               $ \sock ->
+withConnection ::
+     ConnParams
+  -> Scheme
+  -> Authority
+  -> (Connection -> IO a)
+  -> IO a
+withConnection params scheme auth k = do
+    metaVar <- newMVar $ initMeta
+    runTCPClient (authorityHost auth) (show $ authorityPort auth) $ \sock ->
       bracket
           (Client.allocSimpleConfig sock bufferSize)
           Client.freeSimpleConfig $ \conf ->
-        Client.run clientConfig conf $ \connSend ->
-          k Connection{connParams, connMeta, connSend}
+        Client.run clientConfig conf $ \send ->
+          k Connection{params, metaVar, send}
   where
     -- See docs of 'confBufferSize', but importantly: "this value is announced
     -- via SETTINGS_MAX_FRAME_SIZE to the peer."
@@ -63,10 +124,7 @@ withConnection connParams k = do
     bufferSize = 4096
 
     serverPseudoHeaders :: RawServerHeaders
-    serverPseudoHeaders = buildServerHeaders $ ServerHeaders {
-          serverScheme    = connScheme    connParams
-        , serverAuthority = connAuthority connParams
-        }
+    serverPseudoHeaders = buildServerHeaders $ ServerHeaders scheme auth
 
     clientConfig :: Client.ClientConfig
     clientConfig = Client.ClientConfig {
@@ -79,3 +137,70 @@ withConnection connParams k = do
         , cacheLimit = 20
         }
 
+{-------------------------------------------------------------------------------
+  Information about an open connection
+-------------------------------------------------------------------------------}
+
+-- | Information about on open connection
+data Meta = Meta {
+      -- | Compression algorithm used for sending messages to the server
+      --
+      -- Nothing if the compression negotation has not yet happened.
+      serverCompression :: Maybe Compression
+    }
+  deriving stock (Show)
+
+-- | Initial connection state
+initMeta :: Meta
+initMeta = Meta {
+      serverCompression = Nothing
+    }
+
+{-------------------------------------------------------------------------------
+  Access and update meta information
+-------------------------------------------------------------------------------}
+
+currentMeta :: Connection -> IO Meta
+currentMeta Connection{metaVar} = readMVar metaVar
+
+-- | Update 'Meta' given response headers
+--
+-- Returns the updated 'Meta'.
+updateMeta :: Connection -> ResponseHeaders -> IO Meta
+updateMeta Connection{params, metaVar} hdrs =
+    modifyMVar metaVar $ \meta -> do
+      meta' <-
+         Meta
+           <$> updateCompression params
+                 (responseAcceptCompression hdrs)
+                 (serverCompression meta)
+      return (meta', meta')
+
+--atomically $ do
+--    meta  <- readTVar metaVar
+--    meta' <- Meta <$> updateCompression (serverCompression meta)
+--    writeTVar metaVar meta'
+--    return meta'
+  where
+
+-- Update choice compression, if necessary
+--
+-- We have four possibilities:
+--
+-- a. Compression algorithms have already been set
+-- b. We chose from the list of server reported supported algorithms
+-- c. We rejected all of the server reported supported algorithms
+-- d. The server didn't report which algorithms are supported
+updateCompression ::
+     MonadThrow m
+  => ConnParams
+  -> Maybe (NonEmpty Compression.CompressionId)
+  -> Maybe Compression -> m (Maybe Compression)
+updateCompression params accepted = go
+  where
+    go (Just compr) = return $ Just compr              -- (a)
+    go Nothing      =
+        case Compression.choose (connCompression params) <$> accepted of
+          Just (Right compr) -> return $ Just compr    -- (b)
+          Just (Left err)    -> throwM err             -- (c)
+          Nothing            -> return Nothing         -- (d)

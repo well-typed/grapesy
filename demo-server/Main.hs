@@ -1,39 +1,62 @@
 module Main (main) where
 
 import Control.Exception
-import Control.Monad.STM
+import Control.Tracer
+import Data.Aeson
+import Data.Default
+import Data.ProtoLens.Labels ()
 import Network.HTTP2.Server qualified as HTTP2
 import Network.Run.TCP
 
 import Network.GRPC.Server
 import Network.GRPC.Server.Protobuf
 
+import Demo.Common.Logging
+import Demo.Server.Aux.RouteGuide ()
+
+import Demo.Server.API.Protobuf.Greeter    qualified as Greeter
+import Demo.Server.API.Protobuf.RouteGuide qualified as RouteGuide
+
 import Proto.Helloworld
+import Proto.RouteGuide
 
-handlers :: ServiceHandlers '[Greeter]
-handlers =
-      HandleService handleGreeter
-    $ AllServicesHandled
+import Paths_grapesy
 
-handleGreeter :: ServiceHandler Greeter
-handleGreeter = ServiceHandler $
-      HandleMethod (HandleNonStreaming sayHello)
-    $ HandleMethod (HandleServerStreaming sayHelloStreamReply)
-    $ AllMethodsHandled
+{-------------------------------------------------------------------------------
+  All services
+-------------------------------------------------------------------------------}
 
-sayHello :: HelloRequest -> IO (HelloReply, Trailers)
-sayHello _ = do
-    putStrLn "sayHello"
-    return undefined
+services :: [Feature] -> Services '[Greeter, RouteGuide]
+services db =
+      Service Greeter.handlers
+    $ Service (RouteGuide.handlers db)
+    $ NoMoreServices
 
-sayHelloStreamReply :: HelloRequest -> (HelloReply -> STM ()) -> IO Trailers
-sayHelloStreamReply _ _ = do
-    putStrLn "sayHelloStreamReply"
-    return undefined
+{-------------------------------------------------------------------------------
+  Application
+-------------------------------------------------------------------------------}
 
 main :: IO ()
-main =
+main = do
+    db <- getRouteGuideDb
     runTCPServer Nothing "50051" $ \s ->
       bracket (HTTP2.allocSimpleConfig s 4096)
               HTTP2.freeSimpleConfig $ \config ->
-        HTTP2.run config $ server $ protobufHandlers handlers
+        withServer serverParams (protobufServices (services db)) $ \server ->
+          HTTP2.run config server
+
+getRouteGuideDb :: IO [Feature]
+getRouteGuideDb = do
+    path <- getDataFileName "route_guide_db.json"
+    mDb  <- decodeFileStrict path
+    case mDb of
+      Just db -> return db
+      Nothing -> error "Could not parse the route guide DB"
+
+serverParams :: ServerParams
+serverParams = ServerParams {
+      serverTracer      = contramap show threadSafeTracer
+    , serverCompression = def
+    }
+
+

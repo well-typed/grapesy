@@ -11,9 +11,9 @@ import Data.List.NonEmpty (NonEmpty(..))
 import Data.List.NonEmpty qualified as NE
 import Pipes
 
-import Network.GRPC.Client (IsFinal(..))
+import Network.GRPC.Client (StreamElem(..))
 
-import Demo.Client.Driver.Logging
+import Demo.Common.Logging
 
 data DelayOr a =
     Delay Double -- ^ Delay in seconds
@@ -24,13 +24,13 @@ isDelay :: DelayOr a -> Either Double a
 isDelay (Delay d) = Left d
 isDelay (Exec  a) = Right a
 
-execAll :: forall a. Show a => [DelayOr a] -> IO (IO (IsFinal, Maybe a))
+execAll :: forall a. Show a => [DelayOr a] -> IO (IO (StreamElem () a))
 execAll =
     fmap (flip modifyMVar getNext) . newMVar . alternating . map isDelay
   where
-    getNext :: AltLists Double a -> IO (AltLists Double a, (IsFinal, Maybe a))
+    getNext :: AltLists Double a -> IO (AltLists Double a, (StreamElem () a))
     getNext (Alternating Nil) =
-        return (Alternating Nil, (Final, Nothing))
+        return (Alternating Nil, NoMoreElems ())
     getNext (Alternating (Lft ds xss)) = do
         let d = sum ds
         traceWith threadSafeTracer $ "Delay " ++ show d ++ "s"
@@ -43,19 +43,19 @@ execAll =
             case as of
               []     -> Alternating xss
               a':as' -> Alternating (Rgt (a' :| as') xss)
-          , (checkIsFinal as xss, Just a)
+          , checkIsFinal (a :| as) xss
           )
 
 yieldAll :: forall a m.
      (MonadIO m, Show a)
-  => [DelayOr a] -> Producer' (IsFinal, Maybe a) m ()
+  => [DelayOr a] -> Producer' (StreamElem () a) m ()
 yieldAll = withAlternating go . alternating . map isDelay
   where
     go ::
          Alt d (NonEmpty Double) (NonEmpty a)
-      -> Producer' (IsFinal, Maybe a) m ()
+      -> Producer' (StreamElem () a) m ()
     go Nil =
-        yield (Final, Nothing)
+        yield $ NoMoreElems ()
     go (Lft ds xss) = do
         let d = sum ds
         liftIO $ do
@@ -65,16 +65,19 @@ yieldAll = withAlternating go . alternating . map isDelay
         go xss
     go (Rgt (a :| as) xss) = do
         liftIO $ traceWith threadSafeTracer $ "Yielding " ++ show a
-        yield (checkIsFinal as xss, Just a)
+        yield $ checkIsFinal (a :| as) xss
         case as of
           []     -> go xss
           a':as' -> go (Rgt (a' :| as') xss)
 
-checkIsFinal :: [a] -> Alt L (NonEmpty Double) (NonEmpty a) -> IsFinal
-checkIsFinal []      Nil               = Final
-checkIsFinal []      (Lft _ Nil)       = Final
-checkIsFinal []      (Lft _ (Rgt _ _)) = NotFinal
-checkIsFinal (_ : _)  _                = NotFinal
+checkIsFinal ::
+     NonEmpty a
+  -> Alt L (NonEmpty Double) (NonEmpty a)
+  -> StreamElem () a
+checkIsFinal (a :| [])      Nil               = FinalElem  a ()
+checkIsFinal (a :| [])      (Lft _ Nil)       = FinalElem  a ()
+checkIsFinal (a :| [])      (Lft _ (Rgt _ _)) = StreamElem a
+checkIsFinal (a :| (_ : _))  _                = StreamElem a
 
 {-------------------------------------------------------------------------------
   Auxiliary

@@ -1,4 +1,4 @@
-module Demo.Client.Driver.Logging (
+module Demo.Common.Logging (
     threadSafeTracer
   , log
   ) where

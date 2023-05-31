@@ -1,3 +1,6 @@
+-- | Monitored threads
+--
+-- Intended for unqualified import.
 module Network.GRPC.Util.Thread (
     ThreadState(..)
   , threadBody
@@ -105,13 +108,13 @@ threadBody state initThread body = mask $ \unmask -> do
 -- 'ThreadNotStarted'); instead, we rely on the exception handler inside
 -- 'threadBody' to do so (we are guaranteed that this thread handler is
 -- installed if the thread state is anything other than 'ThreadNotStarted').
-cancelThread :: TVar (ThreadState a) -> SomeException -> IO ()
+cancelThread :: Exception e => TVar (ThreadState a) -> e -> IO ()
 cancelThread state e = do
     mTid <- atomically $ do
       st <- readTVar state
       case st of
         ThreadNotStarted -> do
-          writeTVar state $ ThreadException e
+          writeTVar state $ ThreadException (toException e)
           return Nothing
         ThreadInitializing tid   -> return $ Just tid
         ThreadRunning      tid _ -> return $ Just tid
@@ -120,7 +123,7 @@ cancelThread state e = do
 
     case mTid of
       Nothing  -> return ()
-      Just tid -> throwTo tid $ ThreadCancelled e
+      Just tid -> throwTo tid $ ThreadCancelled (toException e)
 
 -- | Exception thrown by 'cancelThread' to the thread to the cancelled
 newtype ThreadCancelled = ThreadCancelled {

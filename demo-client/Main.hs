@@ -7,14 +7,14 @@ import Control.Exception
 import Control.Monad
 import Control.Tracer
 import Data.Default
-import Data.List.NonEmpty qualified as NE
 import System.Mem (performMajorGC)
 
 import Network.GRPC.Client
+import Network.GRPC.Common.Compression qualified as Compression
 
 import Demo.Client.Driver.Cmdline
 import Demo.Client.Driver.DelayOr
-import Demo.Client.Driver.Logging
+import Demo.Common.Logging
 
 import Demo.Client.API.Core.NoFinal.Greeter      qualified as NoFinal.Greeter
 import Demo.Client.API.Protobuf.Greeter          qualified as PBuf.Greeter
@@ -29,7 +29,7 @@ main :: IO ()
 main = do
     cmd <- getCmdline
 
-    withConnection (connParams cmd) $ \conn ->
+    withConnection (connParams cmd) Http (cmdAuthority cmd) $ \conn ->
       dispatch cmd conn (cmdMethod cmd)
 
     performMajorGC
@@ -96,19 +96,16 @@ dispatch cmd conn = \case
 -------------------------------------------------------------------------------}
 
 connParams :: Cmdline -> ConnParams
-connParams cmd = defaults {
+connParams cmd = def {
       connTracer =
         if cmdDebug cmd
           then contramap show threadSafeTracer
-          else connTracer defaults
+          else connTracer def
     , connCompression =
         case cmdCompression cmd of
-          Just alg -> NE.singleton alg
-          Nothing  -> connCompression defaults
+          Just alg -> Compression.require alg
+          Nothing  -> connCompression def
     }
-  where
-    defaults :: ConnParams
-    defaults = defaultConnParams $ cmdAuthority cmd
 
 callParams :: Cmdline -> CallParams
 callParams cmd = def{

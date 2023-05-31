@@ -7,55 +7,39 @@
 -- > import Network.GRPC.Spec.Response qualified as Response
 module Network.GRPC.Spec.Response (
     -- * Construction
-    buildTrailers
+    buildHeaders
+  , buildTrailers
     -- * Parsing
   , parseHeaders
   , parseTrailers
   ) where
 
 import Control.Monad.Except
-import Data.ByteString qualified as BS.Strict
-import Data.ByteString qualified as Strict (ByteString)
 import Data.ByteString.Char8 qualified as BS.Strict.C8
-import Data.List (intersperse)
 import Data.SOP
 import Network.HTTP.Types qualified as HTTP
 import Text.Read (readMaybe)
 
 import Network.GRPC.Spec
-import Network.GRPC.Spec.Compression qualified as Compression
+import Network.GRPC.Spec.Common
 import Network.GRPC.Spec.CustomMetadata
 import Network.GRPC.Spec.PercentEncoding qualified as PercentEncoding
 import Network.GRPC.Spec.RPC
-import Network.GRPC.Util.ByteString
 import Network.GRPC.Util.Partial
 
 {-------------------------------------------------------------------------------
-  Construction
--------------------------------------------------------------------------------}
+  > Response-Headers →
+  >   HTTP-Status
+  >   [Message-Encoding]
+  >   [Message-Accept-Encoding]
+  >   Content-Type
+  >   *Custom-Metadata
 
-buildTrailers :: Trailers -> [HTTP.Header]
-buildTrailers Trailers{ trailerGrpcStatus
-                      , trailerGrpcMessage
-                      , trailerCustom } = concat [
-      [ ( "grpc-status"
-        , BS.Strict.C8.pack $ show $ fromGrpcStatus trailerGrpcStatus
-        )
-      ]
-    , [ ( "grpc-message"
-        , PercentEncoding.encode msg
-        )
-      | Just msg <- [trailerGrpcMessage]
-      ]
-    , map buildCustomMetadata trailerCustom
-    ]
-
-{-------------------------------------------------------------------------------
-  Parsing
+  We do not deal with @HTTP-Status@ here; @http2@ deals this separately.
 
   TODO: We should attempt to be more lenient in our parsing here, and throw
-  fewer errors. Perhaps have an @Invalid@ constructor or something, so that
-  we can mark incoming headers that were not valid, but still give them to the
+  fewer errors. Perhaps have an @Invalid@ constructor or something, so that we
+  can mark incoming headers that were not valid, but still give them to the
   user, but then throw an error if we try to /send/ those.
 
   TODO: Related to the above, the spec says: "Implementations MUST accept padded
@@ -63,16 +47,26 @@ buildTrailers Trailers{ trailerGrpcStatus
   this for incoming headers.
 -------------------------------------------------------------------------------}
 
+-- | Build response headers
+buildHeaders :: IsRPC rpc => rpc -> ResponseHeaders -> [HTTP.Header]
+buildHeaders rpc
+             ResponseHeaders{ responseCompression
+                            , responseAcceptCompression
+                            , responseMetadata
+                            } = concat [
+      [ buildContentType rpc ]
+    , [ buildMessageEncoding x
+      | Just x <- [responseCompression]
+      ]
+    , [ buildMessageAcceptEncoding x
+      | Just x <- [responseAcceptCompression]
+      ]
+    , [ buildCustomMetadata x
+      | x <- responseMetadata
+      ]
+    ]
+
 -- | Parse response headers
---
--- > Response-Headers →
--- >   HTTP-Status
--- >   [Message-Encoding]
--- >   [Message-Accept-Encoding]
--- >   Content-Type
--- >   *Custom-Metadata
---
--- We do not deal with @HTTP-Status@ here; @http2@ reports this separately.
 parseHeaders ::
      IsRPC rpc
   => rpc -> [HTTP.Header] -> Either String ResponseHeaders
@@ -87,16 +81,15 @@ parseHeaders rpc =
       -> PartialParser ResponseHeaders (Either String) ()
     parseHeader hdr@(name, value)
       | name == "content-type"
-      = parseContentType rpc value
+      = liftEither $ parseContentType rpc value
 
       | name == "grpc-encoding"
-      = update updCompression $ \_ -> Right . Just $
-          Compression.deserializeId value
+      = update updCompression $ \_ ->
+          Just <$> parseMessageEncoding value
 
       | name == "grpc-accept-encoding"
-      = update updAcceptCompression $ \_ -> Right . Just $
-          map (Compression.deserializeId . strip) $
-            BS.Strict.splitWith (== ascii ',') value
+      = update updAcceptCompression $ \_ ->
+          Just <$> parseMessageAcceptEncoding value
 
       | otherwise
       = parseCustomMetadata hdr >>= update updCustom . fmap . (:)
@@ -108,11 +101,33 @@ parseHeaders rpc =
         :* return []       -- headerCustom
         :* Nil
 
-
     (    updCompression
       :* updAcceptCompression
       :* updCustom
       :* Nil ) = partialUpdates (Proxy @ResponseHeaders)
+
+{-------------------------------------------------------------------------------
+  > Trailers → Status [Status-Message] *Custom-Metadata
+-------------------------------------------------------------------------------}
+
+-- | Build trailers
+buildTrailers :: Trailers -> [HTTP.Header]
+buildTrailers Trailers{ trailerGrpcStatus
+                      , trailerGrpcMessage
+                      , trailerMetadata } = concat [
+      [ ( "grpc-status"
+        , BS.Strict.C8.pack $ show $ fromGrpcStatus trailerGrpcStatus
+        )
+      ]
+    , [ ( "grpc-message"
+        , PercentEncoding.encode x
+        )
+      | Just x <- [trailerGrpcMessage]
+      ]
+    , [ buildCustomMetadata x
+      | x <- trailerMetadata
+      ]
+    ]
 
 -- | Parse response trailers
 --
@@ -150,7 +165,7 @@ parseTrailers rpc =
           Right msg -> update updGrpcMessage $ \_ -> return (Just msg)
 
       | name == "content-type" -- only relevant in the Trailers-Only case
-      = parseContentType rpc value
+      = liftEither $ parseContentType rpc value
 
       | otherwise
       = parseCustomMetadata hdr >>= update updCustom . fmap . (:)
@@ -167,23 +182,3 @@ parseTrailers rpc =
       :* updCustom
       :* Nil ) = partialUpdates (Proxy @Trailers)
 
-parseContentType ::
-     IsRPC rpc
-  => rpc
-  -> Strict.ByteString
-  -> PartialParser r (Either String) ()
-parseContentType rpc value =
-    unless (value `elem` accepted) $
-      throwError $ concat [
-          "Unexpected content-type "
-        , BS.Strict.C8.unpack value
-        , "; expected one of "
-        , mconcat . intersperse ", " . map BS.Strict.C8.unpack $ accepted
-        , "'"
-        ]
-  where
-    accepted :: [Strict.ByteString]
-    accepted = [
-        "application/grpc"
-      , "application/grpc+" <> serializationFormat rpc
-      ]

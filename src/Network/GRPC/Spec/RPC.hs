@@ -1,11 +1,13 @@
 module Network.GRPC.Spec.RPC (
     IsRPC(..)
+  , SomeRPC(..)
   ) where
 
 import Data.ByteString qualified as Strict (ByteString)
 import Data.ByteString.Lazy qualified as Lazy
 import Data.Kind
 import Data.Text (Text)
+import Data.Typeable
 
 {-------------------------------------------------------------------------------
   RPC call
@@ -20,7 +22,9 @@ import Data.Text (Text)
 --
 -- TODO: We need to check interop with existing libraries to see if they all
 -- agree on this.
-class ( -- Debug constraints
+class ( Typeable rpc -- for use in exceptions
+
+      , -- Debug constraints
         --
         -- For debugging it is useful when we have 'Show' instances in scope.
         -- This is not that strong a requirement; after all, we must be able
@@ -72,7 +76,7 @@ class ( -- Debug constraints
   -- For Protobuf, this is the fully qualified message type.
   messageType :: rpc -> Text
 
-  -- | Serialize messages to the server
+  -- | Serialize RPC input
   --
   -- We don't ask for a builder here, but instead ask for the complete
   -- serialized form. gRPC insists that individual messages are length prefixed,
@@ -84,9 +88,23 @@ class ( -- Debug constraints
   -- \"encode\"/\"decode\", which could refer to either process.
   serializeInput :: rpc -> Input rpc -> Lazy.ByteString
 
-  -- | Deserialize message
+  -- | Serialize RPC output
+  serializeOutput :: rpc -> Output rpc -> Lazy.ByteString
+
+  -- | Deserialize RPC input
   --
   -- This function does not have to deal with compression or length prefixes,
   -- and can assume fully consume the given bytestring (if there are unconsumed
   -- bytes, this should be considered a parse failure).
+  deserializeInput :: rpc -> Lazy.ByteString -> Either String (Input rpc)
+
+  -- | Deserialize RPC output
+  --
+  -- Discussion of 'deserializeInput' applies here, also.
   deserializeOutput :: rpc -> Lazy.ByteString -> Either String (Output rpc)
+
+-- | Existential RPC
+data SomeRPC f where
+  SomeRPC :: forall f rpc. IsRPC rpc => f rpc -> SomeRPC f
+
+deriving instance (forall rpc. IsRPC rpc => Show (f rpc)) => Show (SomeRPC f)

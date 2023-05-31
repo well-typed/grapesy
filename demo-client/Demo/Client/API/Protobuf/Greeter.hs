@@ -10,7 +10,7 @@ import Network.GRPC.Client.Protobuf
 
 import Proto.Helloworld
 
-import Demo.Client.Driver.Logging
+import Demo.Common.Logging
 
 {-------------------------------------------------------------------------------
   helloworld.Greeter

@@ -3,19 +3,18 @@
 module Network.GRPC.Client (
     -- * Connecting to the server
     Connection -- opaque
+  , ConnParams(..)
   , withConnection
 
     -- ** Connection parameters
-  , ConnParams(..)
   , Scheme(..)
   , Authority(..)
-  , defaultConnParams
 
     -- * Make RPCs
   , Call -- opaque
   , withRPC
   , startRPC
-  , stopRPC
+  , abortRPC
 
     -- ** Call parameters
   , CallParams(..)
@@ -28,26 +27,29 @@ module Network.GRPC.Client (
     -- * Ongoing calls
     --
     -- $openRequest
-  , IsFinal(..)
-  , Trailers(..)
+  , StreamElem(..)
+  , CustomMetadata(..)
   , sendInput
   , recvOutput
-  , SendAfterFinal(..)
-  , RecvAfterTrailers(..)
+
+    -- ** Protocol specific wrappers
+  , sendOnlyInput
+  , sendAllInputs
+  , recvOnlyOutput
+  , recvAllOutputs
   ) where
 
-import Control.Concurrent.STM
 import Control.Monad.Catch
 import Control.Monad.IO.Class
 import GHC.Stack
 
 import Network.GRPC.Client.Call
 import Network.GRPC.Client.Connection
-import Network.GRPC.Client.Connection.Params
 import Network.GRPC.Spec
+import Network.GRPC.Spec.CustomMetadata
 import Network.GRPC.Spec.PseudoHeaders (Scheme(..), Authority(..))
 import Network.GRPC.Spec.RPC
-import Network.GRPC.Util.Thread
+import Network.GRPC.Util.StreamElem
 
 {-------------------------------------------------------------------------------
   Make RPCs
@@ -62,21 +64,22 @@ import Network.GRPC.Util.Thread
 --
 -- This is a low-level API. Consider using 'withRPC' instead.
 startRPC :: IsRPC rpc => Connection -> CallParams -> rpc -> IO (Call rpc)
-startRPC = openCall
+startRPC = initiateCall
 
 -- | Stop RPC call
 --
 -- This is a low-level API. Consider using 'withRPC' instead.
 --
--- NOTE: When an 'Call' is closed, it remembers the /reason/ why it was
--- closed. For example, if it is closed due to a network exception, then this
--- network exception is recorded as part of this reason. When the call is closed
--- due to call to 'stopRPC', we merely record that the call was closed due to
--- a call to 'stopRPC' (along with a callstack). /If/ the call to 'stopRPC'
--- /itself/ was due to an exception, this exception will not be recorded; if
--- that is undesirable, consider using 'withRPC' instead.
-stopRPC :: HasCallStack => Call rpc -> IO ()
-stopRPC = flip closeCall Nothing
+-- TODO: Say say something about why this is called abort.
+--
+-- NOTE: When an 'Call' is closed, it remembers the /reason/ why it was closed.
+-- For example, if it is closed due to a network exception, then this network
+-- exception is recorded as part of this reason. When the call is closed due to
+-- call to 'stopRPC', we use the 'CallAborted' exception. /If/ the call to
+-- 'stopRPC' /itself/ was due to an exception, this exception will not be
+-- recorded; if that is undesirable, consider using 'withRPC' instead.
+abortRPC :: HasCallStack => Call rpc -> IO ()
+abortRPC call = abortCall call $ CallAborted callStack
 
 -- | Scoped RPC call
 --
@@ -91,16 +94,23 @@ withRPC conn params rpc = fmap aux .
     generalBracket
       (liftIO $ startRPC conn params rpc)
       (\call -> liftIO . \case
-          ExitCaseSuccess   _ -> closeCall call $ Nothing
-          ExitCaseException e -> closeCall call $ Just e
-          ExitCaseAbort       -> closeCall call $ Just (toException Aborted)
+          ExitCaseSuccess   _ -> abortCall call $ CallAborted callStack
+          ExitCaseException e -> abortCall call e
+          ExitCaseAbort       -> abortCall call UnknownException
       )
   where
     aux :: (a, ()) -> a
     aux = fst
 
+-- | Exception corresponding to 'stopRPC'
+--
+-- We record the callstack to 'stopRPC'.
+data CallAborted = CallAborted CallStack
+  deriving stock (Show)
+  deriving anyclass (Exception)
+
 -- | Exception corresponding to the 'ExitCaseAbort' case of 'ExitCase'
-data Aborted = Aborted
+data UnknownException = UnknownException
   deriving stock (Show)
   deriving anyclass (Exception)
 
@@ -173,81 +183,3 @@ data Aborted = Aborted
 -- If you are using the specialized functions from
 -- "Network.GRPC.Client.Protobuf" you do not need to worry about any of this.
 
--- | Send an input to the peer
---
--- This lives in @STM@ for improved composability. For example, if the peer is
--- currently busy then 'sendInput' will block, but you can then use 'orElse' to
--- provide an alternative codepath.
---
--- Calling 'sendInput' again after sending the final message is a bug.
-sendInput ::
-     Call rpc
-  -> IsFinal
-  -> Maybe (Input rpc)
-  -> STM ()
-sendInput Call{callOutbound, callSentFinal} isFinal input = do
-    sentFinal <- readTVar callSentFinal
-
-    if sentFinal then
-      throwSTM SendAfterFinal
-    else do
-      q <- getThreadInterface callOutbound
-
-      -- We write to the queue and update 'callSentFinal' in the same STM tx;
-      -- this is important to avoid race conditions.
-      case isFinal of
-        Final    -> writeTVar callSentFinal True
-        NotFinal -> return ()
-
-      -- By checking that we haven't sent the final message yet, we know that
-      -- this call to 'putMVar' will not block indefinitely: the thread that
-      -- sends messages to the peer will get to it eventually (unless it dies,
-      -- in which case the thread status will change and the call to
-      -- 'getThreadInterface' will be retried).
-      putTMVar q (isFinal, input)
-
--- | Receive an output from the peer
---
--- This lives in @STM@ for improved compositionality. For example, you can wait
--- on multiple clients and see which one responds first.
---
--- Though the types cannot guarantee it, you will receive 'Trailers' once, after
--- the final 'Output'. Calling 'recvOutput' again after receiving 'Trailers' is
--- a bug.
-recvOutput :: Call rpc -> STM (Either Trailers (Output rpc))
-recvOutput Call{callInbound, callRecvTrailers} = do
-    recvTrailers <- readTVar callRecvTrailers
-
-    if recvTrailers then
-      throwSTM RecvAfterTrailers
-    else do
-      q <- getThreadInterface callInbound
-
-      -- By checking that we haven't received the trailers yet, we know that
-      -- this call to 'takeTMVar' will not block indefinitely: the thread that
-      -- receives messages from the peer will get to it eventually (unless it
-      -- dies, in which case the thread status will change and the call to
-      -- 'getThreadInterface' will be retried).
-      r <- takeTMVar q
-
-      -- We read from the queue and update 'calRecvTrailers' in the same STM tx;
-      -- this is important to avoid race conditions.
-      case r of
-        Left _trailers -> writeTVar callRecvTrailers True
-        Right _output  -> return ()
-
-      return r
-
--- | Thrown by 'sendInput'
---
--- This indicates a bug in client code. See 'sendInput' for discussion.
-data SendAfterFinal = SendAfterFinal
-  deriving stock (Show)
-  deriving anyclass (Exception)
-
--- | Thrown by 'recvOutput'
---
--- This indicates a bug in client code. See 'recvOutput' for discussion.
-data RecvAfterTrailers = RecvAfterTrailers
-  deriving stock (Show)
-  deriving anyclass (Exception)
