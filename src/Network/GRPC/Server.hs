@@ -63,6 +63,11 @@ handleRequest handlers conn = do
       , handlerRun
       } <- getHandler handlers path
     call <- acceptCall conn handlerRPC handlerResponseMetadata
+
+    -- TODO: Timeouts
+    --
+    -- Wait-for-ready semantics makes this more complicated, maybe.
+    -- See example in the grpc-repo (python/wait_for_ready).
     handlerRun call
   where
     path :: Path

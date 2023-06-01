@@ -55,6 +55,9 @@ import Data.List.NonEmpty (NonEmpty)
 -- this connection, and also maintains some information about the server.
 --
 -- TODO: Discuss and implement auto reconnect.
+-- TODO: (Related:) wait-for-ready semantics
+--       See <https://github.com/grpc/grpc/blob/master/doc/wait-for-ready.md>
+--       as well as <https://github.com/grpc/grpc/blob/master/examples/python/wait_for_ready/README.md>
 data Connection = Connection {
       -- | Configuration
       params :: ConnParams
