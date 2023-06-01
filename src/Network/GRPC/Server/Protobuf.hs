@@ -3,12 +3,25 @@ module Network.GRPC.Server.Protobuf (
 
     -- * Services
   , Methods(..)
-  , MethodsOf(..)
+  , MethodsOf
   , Services(..)
   , protobufServices
-  )
-  where
 
+    -- * Handlers
+  , NonStreamingHandler    -- opaque
+  , ClientStreamingHandler -- opaque
+  , ServerStreamingHandler -- opaque
+  , BiDiStreamingHandler   -- opaque
+    -- ** Execution
+  , RunHandler(..)
+    -- ** Construction
+  , nonStreaming
+  , clientStreaming
+  , serverStreaming
+  , biDiStreaming
+  ) where
+
+import Control.Monad.IO.Class
 import Data.ProtoLens.Service.Types
 
 import Network.GRPC.Common.Protobuf
@@ -20,126 +33,166 @@ import Network.GRPC.Spec.RPC.Protobuf
   Services
 -------------------------------------------------------------------------------}
 
-data Methods serv ms where
-  NoMoreMethods :: Methods serv '[]
+-- | Declare handlers for all methods of a service
+--
+-- Example usage:
+--
+-- > handlers :: MethodsOf IO Greeter
+-- > handlers = Methods $
+-- >       Method sayHello
+-- >     $ Method sayHelloStreamReply
+-- >     $ NoMoreMethods
+--
+-- Taking advantage of type inference: as long as you give a signature to the
+-- definition of handlers, the types of the handlers can be inferred:
+--
+-- > handlers :: MethodsOf IO Greeter
+-- > handlers =
+-- >      Method _sayHello
+-- >    $ Method _sayHelloStreamReply
+-- >    $ NoMoreMethods
+--
+-- will result in two holes of the correct type:
+--
+-- > _sayHello            :: NonStreamingHandler    IO Greeter "sayHello"
+-- > _sayHelloStreamReply :: ServerStreamingHandler IO Greeter "sayHelloStreamReply"
+data Methods m serv meths where
+  -- | All methods of the service handled
+  NoMoreMethods :: Methods m serv '[]
 
-  -- | Define handler for the next method of the service
-  --
-  -- Example usage:
-  --
-  -- > handleGreeter :: MethodsOf Greeter
-  -- > handleGreeter = Methods $
-  -- >       Method handleSayHello
-  -- >     $ Method handleSayHelloStreamReply
-  -- >     $ NoMoreMethods
-  --
-  -- It is advisable to provide the type annotation
-  -- (@MethodsOf Greeter@)
-  -- to aid type inference.
-  Method :: forall serv m ms.
-       ( IsRPC (RPC serv m)
-       , IsStreamingType (MethodStreamingType serv m)
+  -- | Handle next method of the service
+  Method ::
+       ( IsRPC (RPC serv meth)
+       , h ~ HandlerFor (MethodStreamingType serv meth)
+       , RunHandler h
        )
-    => Handler IO serv m
-    -> Methods serv ms
-    -> Methods serv (m ': ms)
+    => h m serv meth
+    -> Methods m serv meths
+    -> Methods m serv (meth ': meths)
 
-newtype MethodsOf serv = Methods {
-      getMethods :: Methods serv (ServiceMethods serv)
-    }
+  -- | Like 'Method', but using the raw 'RpcHandler' API
+  --
+  -- This is useful if you need access to the full server API; for example,
+  -- if you need access to metadata, or need to use communication patterns that
+  -- don't quite match the official Protobuf patterns.
+  RawMethod ::
+       RpcHandler m
+    -> Methods m serv meths
+    -> Methods m serv (meth ': meths)
 
-data Services ss where
-  NoMoreServices :: Services '[]
+type MethodsOf m serv = Methods m serv (ServiceMethods serv)
 
-  -- | Add supported service
-  --
-  -- Example usage:
-  --
-  -- > services ::
-  -- > services =
-  -- >       Service handleGreeter
-  -- >     $ Service handleRouteGuide
-  -- >     $ NoMoreServices
-  --
-  -- It is advisable to add the type annotation
-  -- (@Services '[Greeter, RouteGuide]@)
-  -- to add type inference.
+-- | Declare handlers for all services supported by a server
+--
+-- Example usage:
+--
+-- > services :: [Feature] -> Services IO '[Greeter, RouteGuide]
+-- > services db =
+-- >       Service Greeter.handlers
+-- >     $ Service (RouteGuide.handlers db)
+-- >     $ NoMoreServices
+data Services m servs where
+  NoMoreServices :: Services m '[]
+
   Service ::
-       MethodsOf s
-    -> Services ss
-    -> Services (s : ss)
+       MethodsOf m serv
+    -> Services m servs
+    -> Services m (serv : servs)
 
 {-------------------------------------------------------------------------------
   Translate all handlers for a set of services
 -------------------------------------------------------------------------------}
 
-protobufServices :: Services ss -> [RpcHandler]
+protobufServices :: forall m ss.
+     MonadIO m
+  => Services m ss -> [RpcHandler m]
 protobufServices = concat . go
   where
-    go :: Services ss -> [[RpcHandler]]
+    go :: Services m ss' -> [[RpcHandler m]]
     go NoMoreServices = []
     go (Service s ss) = protobufMethods s : go ss
 
-protobufMethods :: forall serv. MethodsOf serv -> [RpcHandler]
-protobufMethods = go . getMethods
+protobufMethods :: forall m serv.
+     MonadIO m
+  => MethodsOf m serv -> [RpcHandler m]
+protobufMethods = go
   where
-    go :: Methods serv ms -> [RpcHandler]
-    go NoMoreMethods     = []
-    go ms@(Method h ms') = go' ms h : go ms'
-
-    go' :: forall m ms.
-         ( IsRPC (RPC serv m)
-         , IsStreamingType (MethodStreamingType serv m)
-         )
-      => Methods serv (m : ms) -> Handler IO serv m -> RpcHandler
-    go' _proxy = protobufMethod (RPC @serv @m)
-
-protobufMethod :: forall serv meth.
-     ( IsRPC (RPC serv meth)
-     , IsStreamingType (MethodStreamingType serv meth)
-     )
-  => RPC serv meth -> Handler IO serv meth -> RpcHandler
-protobufMethod rpc h =
-    case isStreamingType @(MethodStreamingType serv meth) of
-      SNonStreaming    -> nonStreaming    rpc h
-      SClientStreaming -> clientStreaming rpc h
-      SServerStreaming -> serverStreaming rpc h
-      SBiDiStreaming   -> biDiStreaming   rpc h
+    go :: Methods m serv meths -> [RpcHandler m]
+    go NoMoreMethods    = []
+    go (Method    m ms) = runHandler m : go ms
+    go (RawMethod m ms) =            m : go ms
 
 {-------------------------------------------------------------------------------
-  Individual handlers
+  Execution
 -------------------------------------------------------------------------------}
 
-nonStreaming :: forall serv meth.
-     ( IsRPC (RPC serv meth)
-     , MethodStreamingType serv meth ~ NonStreaming
-     )
-  => RPC serv meth -> Handler IO serv meth -> RpcHandler
-nonStreaming rpc h = defRpcHandler rpc $ \call -> do
-    inp <- recvOnlyInput call
-    sendOnlyOutput call =<< h inp
+class RunHandler h where
+  runHandler' ::
+       (MonadIO m, IsRPC (RPC serv meth))
+    => RPC serv meth -> h m serv meth -> RpcHandler m
 
-clientStreaming :: forall serv meth.
-     ( IsRPC (RPC serv meth)
-     , MethodStreamingType serv meth ~ ClientStreaming
-     )
-  => RPC serv meth -> Handler IO serv meth -> RpcHandler
-clientStreaming rpc h = defRpcHandler rpc $ \call ->
-    sendOnlyOutput call =<< h (recvNextInput call)
+runHandler :: forall m serv meth h.
+     (MonadIO m, IsRPC (RPC serv meth), RunHandler h)
+  => h m serv meth -> RpcHandler m
+runHandler = runHandler' (RPC @serv @meth)
 
-serverStreaming :: forall serv meth.
-     ( IsRPC (RPC serv meth)
-     , MethodStreamingType serv meth ~ ServerStreaming
-     )
-  => RPC serv meth -> Handler IO serv meth -> RpcHandler
-serverStreaming rpc h = defRpcHandler rpc $ \call -> do
-    inp <- recvOnlyInput call
-    sendTrailers call =<< h inp (sendNextOutput call)
+instance RunHandler NonStreamingHandler where
+  runHandler' rpc (NonStreamingHandler h) =
+    mkRpcHandler rpc $ \call -> do
+      inp <- liftIO $ recvOnlyInput call
+      out <- h inp
+      liftIO $ sendOnlyOutput call (out, [])
 
-biDiStreaming :: forall serv meth.
-     ( IsRPC (RPC serv meth)
-     , MethodStreamingType serv meth ~ BiDiStreaming
+instance RunHandler ClientStreamingHandler where
+  runHandler' rpc (ClientStreamingHandler h) =
+    mkRpcHandler rpc $ \call -> do
+      out <- h (liftIO $ recvNextInput call)
+      liftIO $ sendOnlyOutput call (out, [])
+
+instance RunHandler ServerStreamingHandler where
+  runHandler' rpc (ServerStreamingHandler h) =
+    mkRpcHandler rpc $ \call -> do
+      inp      <- liftIO $ recvOnlyInput call
+      h inp (liftIO . sendNextOutput call)
+      liftIO $ sendTrailers call []
+
+instance RunHandler BiDiStreamingHandler where
+  runHandler' rpc (BiDiStreamingHandler h) =
+    mkRpcHandler rpc $ \call -> do
+      h (liftIO $ recvNextInput  call) (liftIO . sendNextOutput call)
+      liftIO $ sendTrailers call []
+
+{-------------------------------------------------------------------------------
+  Construction
+-------------------------------------------------------------------------------}
+
+nonStreaming :: forall m serv meth.
+     (    MethodInput serv meth
+       -> m (MethodOutput serv meth)
      )
-  => RPC serv meth -> Handler IO serv meth -> RpcHandler
-biDiStreaming rpc h = defRpcHandler rpc $ \call ->
-    sendTrailers call =<< h (recvNextInput call) (sendNextOutput call)
+  -> NonStreamingHandler m serv meth
+nonStreaming = NonStreamingHandler
+
+clientStreaming :: forall m serv meth.
+     (    m (StreamElem () (MethodInput serv meth))
+       -> m (MethodOutput serv meth)
+     )
+  -> ClientStreamingHandler m serv meth
+clientStreaming = ClientStreamingHandler
+
+serverStreaming :: forall m serv meth.
+     (    MethodInput serv meth
+       -> (MethodOutput serv meth -> m ())
+       -> m ()
+     )
+  -> ServerStreamingHandler m serv meth
+serverStreaming = ServerStreamingHandler
+
+biDiStreaming :: forall m serv meth.
+     (    m (StreamElem () (MethodInput serv meth))
+       -> (MethodOutput serv meth -> m ())
+       -> m ()
+     )
+  -> BiDiStreamingHandler m serv meth
+biDiStreaming = BiDiStreamingHandler
+

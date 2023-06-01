@@ -6,9 +6,10 @@ module Network.GRPC.Server (
   , withServer
 
     -- * Handlers
-  , RpcHandler(..)
-  , Call -- opaque
-  , Handler.defRpcHandler
+  , Call       -- opaque
+  , RpcHandler -- opaque
+  , Handler.mkRpcHandler
+  , Handler.handlerMetadata
 
     -- * Ongoing calls
   , StreamElem(..)
@@ -46,23 +47,28 @@ import Network.GRPC.Util.StreamElem
   TODO: Deal with https.
 -------------------------------------------------------------------------------}
 
-withServer :: ServerParams -> [RpcHandler] -> (HTTP2.Server -> IO a) -> IO a
+withServer :: ServerParams -> [RpcHandler IO] -> (HTTP2.Server -> IO a) -> IO a
 withServer params handlers k = do
     Context.withContext params $ \ctxt ->
       k $ withConnection ctxt $
         handleRequest (Handler.constructMap handlers)
 
-handleRequest :: Handler.Map -> Connection -> IO ()
+handleRequest :: Handler.Map IO -> Connection -> IO ()
 handleRequest handlers conn = do
     -- TODO: Proper "Apache style" logging (in addition to the debug logging)
     print path
 
     RpcHandler{
         handlerRPC
-      , handlerResponseMetadata
+      , handlerMetadata
       , handlerRun
       } <- getHandler handlers path
-    call <- acceptCall conn handlerRPC handlerResponseMetadata
+    call <- acceptCall conn handlerRPC handlerMetadata
+
+    -- TODO: Timeouts
+    --
+    -- Wait-for-ready semantics makes this more complicated, maybe.
+    -- See example in the grpc-repo (python/wait_for_ready).
     handlerRun call
   where
     path :: Path
@@ -72,7 +78,7 @@ handleRequest handlers conn = do
   Get handler for the request
 -------------------------------------------------------------------------------}
 
-getHandler :: Handler.Map -> Path -> IO RpcHandler
+getHandler :: Handler.Map m -> Path -> IO (RpcHandler m)
 getHandler handlers path = do
     case Handler.lookup path handlers of
       Nothing -> throwIO $ grpcUnimplemented path

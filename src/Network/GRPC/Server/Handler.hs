@@ -11,7 +11,7 @@
 module Network.GRPC.Server.Handler (
     RpcHandler(..)
     -- * Construction
-  , defRpcHandler
+  , mkRpcHandler
     -- * Query
   , path
     -- * Collection of handlers
@@ -22,12 +22,13 @@ module Network.GRPC.Server.Handler (
 
 import Prelude hiding (lookup)
 
+import Data.HashMap.Strict (HashMap)
+import Data.HashMap.Strict qualified as HashMap
+
 import Network.GRPC.Server.Call
 import Network.GRPC.Spec.CustomMetadata
 import Network.GRPC.Spec.PseudoHeaders
 import Network.GRPC.Spec.RPC
-import Data.HashMap.Strict (HashMap)
-import Data.HashMap.Strict qualified as HashMap
 
 {-------------------------------------------------------------------------------
   Handlers
@@ -36,7 +37,7 @@ import Data.HashMap.Strict qualified as HashMap
   "Network.GRPC.Server.Protobuf".
 -------------------------------------------------------------------------------}
 
-data RpcHandler = forall rpc. IsRPC rpc => RpcHandler {
+data RpcHandler m = forall rpc. IsRPC rpc => RpcHandler {
       -- | The RPC handled by this handler
       handlerRPC :: rpc
 
@@ -49,13 +50,13 @@ data RpcHandler = forall rpc. IsRPC rpc => RpcHandler {
       --
       -- The handler can return additional metadata in the trailers at the /end/
       -- of the communication; see 'sendOutput'.
-    , handlerResponseMetadata :: [CustomMetadata] -> IO [CustomMetadata]
+    , handlerMetadata :: [CustomMetadata] -> m [CustomMetadata]
 
       -- | Handler proper
-    , handlerRun :: Call rpc -> IO ()
+    , handlerRun :: Call rpc -> m ()
     }
 
-instance Show RpcHandler where
+instance Show (RpcHandler m) where
   show RpcHandler{handlerRPC} = "<RpcHandler " ++ show handlerRPC ++ ">"
 
 {-------------------------------------------------------------------------------
@@ -63,30 +64,32 @@ instance Show RpcHandler where
 -------------------------------------------------------------------------------}
 
 -- | Default RPC handler
-defRpcHandler :: IsRPC rpc => rpc -> (Call rpc -> IO ()) -> RpcHandler
-defRpcHandler handlerRPC handlerRun = RpcHandler{
+mkRpcHandler ::
+     (Monad m, IsRPC rpc)
+  => rpc -> (Call rpc -> m ()) -> RpcHandler m
+mkRpcHandler handlerRPC handlerRun = RpcHandler{
       handlerRPC
     , handlerRun
-    , handlerResponseMetadata = \_ -> return []
+    , handlerMetadata = \_ -> return []
     }
 
 {-------------------------------------------------------------------------------
   Query
 -------------------------------------------------------------------------------}
 
-path :: RpcHandler -> Path
+path :: RpcHandler m -> Path
 path RpcHandler{handlerRPC} = rpcPath handlerRPC
 
 {-------------------------------------------------------------------------------
   Collection of handlers
 -------------------------------------------------------------------------------}
 
-newtype Map = Map {
-      getMap :: HashMap Path RpcHandler
+newtype Map m = Map {
+      getMap :: HashMap Path (RpcHandler m)
     }
 
-constructMap :: [RpcHandler] -> Map
+constructMap :: [RpcHandler m] -> Map m
 constructMap = Map . HashMap.fromList . map (\h -> (path h, h))
 
-lookup :: Path -> Map -> Maybe RpcHandler
+lookup :: Path -> Map m -> Maybe (RpcHandler m)
 lookup p = HashMap.lookup p . getMap

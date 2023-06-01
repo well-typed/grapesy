@@ -19,34 +19,39 @@ import Proto.Helloworld
   Top-level
 -------------------------------------------------------------------------------}
 
-handlers :: MethodsOf Greeter
-handlers = Methods $
+handlers :: MethodsOf IO Greeter
+handlers =
       Method sayHello
-    $ Method sayHelloStreamReply
+    $ RawMethod sayHelloStreamReply
     $ NoMoreMethods
 
 {-------------------------------------------------------------------------------
   Individual handlers
 -------------------------------------------------------------------------------}
 
-sayHello :: HelloRequest -> IO (HelloReply, [CustomMetadata])
-sayHello req = do
-    return (defMessage & #message .~ msg, [])
-  where
-    msg :: Text
-    msg = "Hello, " <> req ^. #name <> "!"
+sayHello :: NonStreamingHandler IO Greeter "sayHello"
+sayHello = nonStreaming $ \req -> do
+    let msg :: Text
+        msg = "Hello, " <> req ^. #name <> "!"
 
-sayHelloStreamReply ::
-     HelloRequest
-  -> (HelloReply -> IO ())
-  -> IO [CustomMetadata]
-sayHelloStreamReply req send = do
-    -- TODO: Currently this just tests server-side streaming of responses.
-    -- We should emulate the Python example code more closely here.
-    forM_ ["0", "1", "2"] $ \i ->
-      send $ defMessage & #message .~ msg i
-    return []
-  where
-    msg :: Text -> Text
-    msg i = "Hello " <> req ^. #name <> " times " <> i
+    return $ defMessage & #message .~ msg
 
+sayHelloStreamReply :: RpcHandler IO
+sayHelloStreamReply =
+    (mkRpcHandler (RPC @Greeter @"sayHelloStreamReply") go) {
+        handlerMetadata = \_reqMetadata -> return [
+            AsciiHeader "initial-md" "initial-md-value"
+          ]
+      }
+  where
+    go :: Call (RPC Greeter "sayHelloStreamReply") -> IO ()
+    go call = do
+        req <- recvOnlyInput call
+
+        let msg :: Text -> Text
+            msg i = "Hello " <> req ^. #name <> " times " <> i
+
+        forM_ ["0", "1", "2"] $ \i ->
+          sendNextOutput call $ defMessage & #message .~ msg i
+
+        sendTrailers call []

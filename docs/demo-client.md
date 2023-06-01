@@ -112,7 +112,26 @@ cabal run demo-client -- sayHelloStreamReply --name 'John'
 ```
 
 Note that the Python server has some intentional delays in there, so the
-streaming will be relatively slow (delays on the order of seconds).
+streaming will be relatively slow (delays on the order of seconds). Moreover,
+this example also sends some metadata in the initial request. Metadata is
+not available using the standard Protobuf API in grapesy; instead, we need
+to use the full client API. The demo does this in the `Core` implementation:
+
+```
+cabal run demo-client -- --core sayHelloStreamReply --name 'John'
+```
+
+This should output something like:
+
+```
+# pause..
+[AsciiHeader (HeaderName "initial-md") (AsciiValue "initial-md-value")]
+# pause..
+{message: "Hello John times 0"}
+{message: "Hello John times 1"}
+{message: "Hello John times 2"}
+[]
+```
 
 ## Route guide
 
@@ -265,7 +284,6 @@ Sending {location { } message: "H"}
 {location { } message: "B"}
 {location { } message: "C"}
 {location { } message: "D"}
-[]
 ```
 
 **Note**: The C++ implementation of this server seems buggy: new clients that

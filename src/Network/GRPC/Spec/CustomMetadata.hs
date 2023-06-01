@@ -21,16 +21,17 @@ module Network.GRPC.Spec.CustomMetadata (
   , parseCustomMetadata
   ) where
 
+import Control.Monad.Except
 import Data.ByteString qualified as BS.Strict
 import Data.ByteString qualified as Strict (ByteString)
+import Data.ByteString.Base64 qualified as BS.Strict.B64
+import Data.CaseInsensitive qualified as CI
+import Data.String
 import Data.Word
 import GHC.Show
-import Data.ByteString.Base64 qualified as BS.Strict.B64
+import Network.HTTP.Types qualified as HTTP
 
 import Network.GRPC.Util.ByteString (strip, ascii)
-import Network.HTTP.Types qualified as HTTP
-import Data.CaseInsensitive qualified as CI
-import Control.Monad.Except
 
 {-------------------------------------------------------------------------------
   Definition
@@ -96,6 +97,9 @@ instance Show HeaderName where
         showString "HeaderName "
       . showsPrec appPrec1 name
 
+instance IsString HeaderName where
+  fromString = HeaderName . fromString
+
 pattern HeaderName :: Strict.ByteString -> HeaderName
 pattern HeaderName n <- UnsafeHeaderName n
   where
@@ -148,6 +152,9 @@ instance Show AsciiValue where
   showsPrec p (UnsafeAsciiValue value) = showParen (p >= appPrec1) $
         showString "AsciiValue "
       . showsPrec appPrec1 value
+
+instance IsString AsciiValue where
+  fromString = AsciiValue . fromString
 
 pattern AsciiValue :: Strict.ByteString -> AsciiValue
 pattern AsciiValue v <- UnsafeAsciiValue v

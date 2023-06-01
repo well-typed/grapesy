@@ -15,10 +15,11 @@ import Pipes
 import Pipes.Safe
 
 import Network.GRPC.Client
+import Network.GRPC.Client.Protobuf (rpcWith)
+import Network.GRPC.Client.Protobuf qualified as Protobuf
 import Network.GRPC.Spec.RPC
 import Network.GRPC.Spec.RPC.Protobuf
 import Network.GRPC.Util.RedundantConstraint
-import Network.GRPC.Client.Protobuf qualified as Protobuf
 
 {-------------------------------------------------------------------------------
   Pipes for Protobuf communication patterns
@@ -33,9 +34,11 @@ clientStreaming :: forall serv meth.
   -> Consumer'
        (StreamElem () (MethodInput serv meth))
        (SafeT IO)
-       (MethodOutput serv meth, [CustomMetadata])
-clientStreaming call params rpc =
-    Protobuf.clientStreaming call params rpc await
+       (MethodOutput serv meth)
+clientStreaming call params _proxy =
+    Protobuf.clientStreaming
+      (rpcWith @serv @meth call params)
+      await
 
 serverStreaming :: forall serv meth.
      IsRPC (RPC serv meth)
@@ -44,9 +47,12 @@ serverStreaming :: forall serv meth.
   -> CallParams
   -> RPC serv meth
   -> MethodInput serv meth
-  -> Producer' (MethodOutput serv meth) (SafeT IO) [CustomMetadata]
-serverStreaming conn params rpc input =
-   Protobuf.serverStreaming conn params rpc input yield
+  -> Producer' (MethodOutput serv meth) (SafeT IO) ()
+serverStreaming conn params _proxy input =
+   Protobuf.serverStreaming
+     (rpcWith @serv @meth conn params)
+     input
+     yield
 
 -- | Bidirectional streaming
 --
@@ -66,12 +72,12 @@ biDiStreaming :: forall serv meth a.
   -> CallParams
   -> RPC serv meth
   -> (    Consumer' (StreamElem () (MethodInput serv meth)) IO ()
-       -> Producer' (MethodOutput serv meth) IO [CustomMetadata]
+       -> Producer' (MethodOutput serv meth) IO ()
        -> IO a
      )
   -> IO a
-biDiStreaming conn params rpc k =
-    withRPC conn params rpc $ \call ->
-      k (sendAllInputs call await) (recvAllOutputs call yield)
+biDiStreaming conn params proxy k =
+    withRPC conn params proxy $ \call ->
+      k (sendAllInputs call await) (void $ recvAllOutputs call yield)
   where
     _ = addConstraint $ Proxy @(MethodStreamingType serv meth ~ BiDiStreaming)

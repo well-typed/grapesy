@@ -16,6 +16,7 @@ import Demo.Client.Driver.Cmdline
 import Demo.Client.Driver.DelayOr
 import Demo.Common.Logging
 
+import Demo.Client.API.Core.Greeter              qualified as Core.Greeter
 import Demo.Client.API.Core.NoFinal.Greeter      qualified as NoFinal.Greeter
 import Demo.Client.API.Protobuf.Greeter          qualified as PBuf.Greeter
 import Demo.Client.API.Protobuf.Pipes.RouteGuide qualified as Pipes.RouteGuide
@@ -40,46 +41,48 @@ dispatch cmd conn = \case
       forM_ names $ \name -> do
         case cmdAPI cmd of
           Protobuf ->
-            PBuf.Greeter.sayHello conn (callParams cmd) name
+            PBuf.Greeter.sayHello conn name
           CoreNoFinal ->
-            NoFinal.Greeter.sayHello conn (callParams cmd) name
+            NoFinal.Greeter.sayHello conn name
           _otherwise ->
             unsupportedMode
         performMajorGC
     SomeMethod SGreeter (SSayHelloStreamReply name) ->
       case cmdAPI cmd of
+        Core ->
+          Core.Greeter.sayHelloStreamReply conn name
         Protobuf ->
-          PBuf.Greeter.sayHelloStreamReply conn (callParams cmd) name
+          PBuf.Greeter.sayHelloStreamReply conn name
         _otherwise ->
           unsupportedMode
     SomeMethod SRouteGuide (SGetFeature p) ->
       case cmdAPI cmd of
         Protobuf ->
-          PBuf.RouteGuide.getFeature conn (callParams cmd) p
+          PBuf.RouteGuide.getFeature conn p
         _otherwise ->
           unsupportedMode
     SomeMethod SRouteGuide (SListFeatures r) ->
       case cmdAPI cmd of
         ProtobufPipes ->
-          Pipes.RouteGuide.listFeatures conn (callParams cmd) r
+          Pipes.RouteGuide.listFeatures conn r
         Protobuf ->
-          PBuf.RouteGuide.listFeatures conn (callParams cmd) r
+          PBuf.RouteGuide.listFeatures conn r
         _otherwise ->
           unsupportedMode
     SomeMethod SRouteGuide (SRecordRoute ps) ->
       case cmdAPI cmd of
         ProtobufPipes ->
-          Pipes.RouteGuide.recordRoute conn (callParams cmd) $ yieldAll ps
+          Pipes.RouteGuide.recordRoute conn $ yieldAll ps
         Protobuf ->
-          PBuf.RouteGuide.recordRoute conn (callParams cmd) =<< execAll ps
+          PBuf.RouteGuide.recordRoute conn =<< execAll ps
         _otherwise ->
           unsupportedMode
     SomeMethod SRouteGuide (SRouteChat notes) ->
       case cmdAPI cmd of
         ProtobufPipes ->
-          Pipes.RouteGuide.routeChat conn (callParams cmd) $ yieldAll notes
+          Pipes.RouteGuide.routeChat conn $ yieldAll notes
         Protobuf ->
-          PBuf.RouteGuide.routeChat conn (callParams cmd) =<< execAll notes
+          PBuf.RouteGuide.routeChat conn =<< execAll notes
         _otherwise ->
           unsupportedMode
   where
@@ -105,9 +108,7 @@ connParams cmd = def {
         case cmdCompression cmd of
           Just alg -> Compression.require alg
           Nothing  -> connCompression def
+    , connDefaultTimeout =
+        Timeout Second . TimeoutValue <$> cmdTimeout cmd
     }
 
-callParams :: Cmdline -> CallParams
-callParams cmd = def{
-      callTimeout = Timeout Second . TimeoutValue <$> cmdTimeout cmd
-    }

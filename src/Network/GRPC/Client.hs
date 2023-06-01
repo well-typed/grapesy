@@ -29,6 +29,7 @@ module Network.GRPC.Client (
     -- $openRequest
   , StreamElem(..)
   , CustomMetadata(..)
+  , callResponseMetadata
   , sendInput
   , recvOutput
 

@@ -55,6 +55,9 @@ import Data.List.NonEmpty (NonEmpty)
 -- this connection, and also maintains some information about the server.
 --
 -- TODO: Discuss and implement auto reconnect.
+-- TODO: (Related:) wait-for-ready semantics
+--       See <https://github.com/grpc/grpc/blob/master/doc/wait-for-ready.md>
+--       as well as <https://github.com/grpc/grpc/blob/master/examples/python/wait_for_ready/README.md>
 data Connection = Connection {
       -- | Configuration
       params :: ConnParams
@@ -85,12 +88,18 @@ data ConnParams = ConnParams {
 
       -- | Compression negotation
     , connCompression :: Compression.Negotation
+
+      -- | Default timeout
+      --
+      -- Individual RPC calls can override this through 'CallParams'.
+    , connDefaultTimeout :: Maybe Timeout
     }
 
 instance Default ConnParams where
   def = ConnParams {
-        connTracer      = nullTracer
-      , connCompression = def
+        connTracer         = nullTracer
+      , connCompression    = def
+      , connDefaultTimeout = Nothing
       }
 
 newtype PeerDebugMsg rpc = PeerDebugMsg (Peer.DebugMsg (Input rpc) (Output rpc))
@@ -175,13 +184,6 @@ updateMeta Connection{params, metaVar} hdrs =
                  (responseAcceptCompression hdrs)
                  (serverCompression meta)
       return (meta', meta')
-
---atomically $ do
---    meta  <- readTVar metaVar
---    meta' <- Meta <$> updateCompression (serverCompression meta)
---    writeTVar metaVar meta'
---    return meta'
-  where
 
 -- Update choice compression, if necessary
 --
