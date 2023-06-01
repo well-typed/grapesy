@@ -154,8 +154,15 @@ recvNextInput call = atomically $ recvInput call
 sendOnlyOutput :: Call rpc -> (Output rpc, [CustomMetadata]) -> IO ()
 sendOnlyOutput call = atomically . sendOutput call . uncurry FinalElem
 
+-- | Send the next output
+--
+-- If this is the last output, you should call 'sendTrailers' after.
 sendNextOutput :: Call rpc -> Output rpc -> IO ()
 sendNextOutput call = atomically . sendOutput call . StreamElem
 
+-- | Send trailers
+--
+-- This tells the client that there will be no more outputs. You should call
+-- this even when there /are/ no trailers (just supply the empty list).
 sendTrailers :: Call rpc -> [CustomMetadata] -> IO ()
 sendTrailers call = atomically . sendOutput call . NoMoreElems

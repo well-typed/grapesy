@@ -6,9 +6,10 @@ module Network.GRPC.Server (
   , withServer
 
     -- * Handlers
-  , RpcHandler(..)
-  , Call -- opaque
-  , Handler.defRpcHandler
+  , Call       -- opaque
+  , RpcHandler -- opaque
+  , Handler.mkRpcHandler
+  , Handler.handlerMetadata
 
     -- * Ongoing calls
   , StreamElem(..)
@@ -59,10 +60,10 @@ handleRequest handlers conn = do
 
     RpcHandler{
         handlerRPC
-      , handlerResponseMetadata
+      , handlerMetadata
       , handlerRun
       } <- getHandler handlers path
-    call <- acceptCall conn handlerRPC handlerResponseMetadata
+    call <- acceptCall conn handlerRPC handlerMetadata
 
     -- TODO: Timeouts
     --

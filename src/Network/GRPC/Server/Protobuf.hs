@@ -57,14 +57,26 @@ import Network.GRPC.Spec.RPC.Protobuf
 -- > _sayHello            :: NonStreamingHandler    IO Greeter "sayHello"
 -- > _sayHelloStreamReply :: ServerStreamingHandler IO Greeter "sayHelloStreamReply"
 data Methods m serv meths where
+  -- | All methods of the service handled
   NoMoreMethods :: Methods m serv '[]
 
+  -- | Handle next method of the service
   Method ::
        ( IsRPC (RPC serv meth)
        , h ~ HandlerFor (MethodStreamingType serv meth)
        , RunHandler h
        )
     => h m serv meth
+    -> Methods m serv meths
+    -> Methods m serv (meth ': meths)
+
+  -- | Like 'Method', but using the raw 'RpcHandler' API
+  --
+  -- This is useful if you need access to the full server API; for example,
+  -- if you need access to metadata, or need to use communication patterns that
+  -- don't quite match the official Protobuf patterns.
+  RawMethod ::
+       RpcHandler m
     -> Methods m serv meths
     -> Methods m serv (meth ': meths)
 
@@ -106,8 +118,9 @@ protobufMethods :: forall m serv.
 protobufMethods = go
   where
     go :: Methods m serv meths -> [RpcHandler m]
-    go NoMoreMethods = []
-    go (Method m ms) = runHandler m : go ms
+    go NoMoreMethods    = []
+    go (Method    m ms) = runHandler m : go ms
+    go (RawMethod m ms) =            m : go ms
 
 {-------------------------------------------------------------------------------
   Execution
@@ -125,27 +138,27 @@ runHandler = runHandler' (RPC @serv @meth)
 
 instance RunHandler NonStreamingHandler where
   runHandler' rpc (NonStreamingHandler h) =
-    defRpcHandler rpc $ \call -> do
+    mkRpcHandler rpc $ \call -> do
       inp <- liftIO $ recvOnlyInput call
       out <- h inp
       liftIO $ sendOnlyOutput call out
 
 instance RunHandler ClientStreamingHandler where
   runHandler' rpc (ClientStreamingHandler h) =
-    defRpcHandler rpc $ \call -> do
+    mkRpcHandler rpc $ \call -> do
       out <- h (liftIO $ recvNextInput call)
       liftIO $ sendOnlyOutput call out
 
 instance RunHandler ServerStreamingHandler where
   runHandler' rpc (ServerStreamingHandler h) =
-    defRpcHandler rpc $ \call -> do
+    mkRpcHandler rpc $ \call -> do
       inp      <- liftIO $ recvOnlyInput call
       trailers <- h inp (liftIO . sendNextOutput call)
       liftIO $ sendTrailers call trailers
 
 instance RunHandler BiDiStreamingHandler where
   runHandler' rpc (BiDiStreamingHandler h) =
-    defRpcHandler rpc $ \call -> do
+    mkRpcHandler rpc $ \call -> do
       trailers <- h (liftIO $ recvNextInput  call)
                     (liftIO . sendNextOutput call)
       liftIO $ sendTrailers call trailers

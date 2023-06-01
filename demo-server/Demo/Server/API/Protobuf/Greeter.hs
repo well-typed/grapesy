@@ -10,6 +10,7 @@ import Data.ProtoLens
 import Data.ProtoLens.Labels ()
 import Data.Text (Text)
 
+import Network.GRPC.Server
 import Network.GRPC.Server.Protobuf
 
 import Proto.Helloworld
@@ -21,7 +22,7 @@ import Proto.Helloworld
 handlers :: MethodsOf IO Greeter
 handlers =
       Method sayHello
-    $ Method sayHelloStreamReply
+    $ RawMethod sayHelloStreamReply
     $ NoMoreMethods
 
 {-------------------------------------------------------------------------------
@@ -35,14 +36,22 @@ sayHello = nonStreaming $ \req -> do
 
     return (defMessage & #message .~ msg, [])
 
--- TODO: Currently this just tests server-side streaming of responses.
--- We should emulate the Python example code more closely here.
-sayHelloStreamReply :: ServerStreamingHandler IO Greeter "sayHelloStreamReply"
-sayHelloStreamReply = serverStreaming $ \req send -> do
-    let msg :: Text -> Text
-        msg i = "Hello " <> req ^. #name <> " times " <> i
+sayHelloStreamReply :: RpcHandler IO
+sayHelloStreamReply =
+    (mkRpcHandler (RPC @Greeter @"sayHelloStreamReply") go) {
+        handlerMetadata = \_reqMetadata -> return [
+            AsciiHeader "initial-md" "initial-md-value"
+          ]
+      }
+  where
+    go :: Call (RPC Greeter "sayHelloStreamReply") -> IO ()
+    go call = do
+        req <- recvOnlyInput call
 
-    forM_ ["0", "1", "2"] $ \i ->
-      send $ defMessage & #message .~ msg i
+        let msg :: Text -> Text
+            msg i = "Hello " <> req ^. #name <> " times " <> i
 
-    return []
+        forM_ ["0", "1", "2"] $ \i ->
+          sendNextOutput call $ defMessage & #message .~ msg i
+
+        sendTrailers call []

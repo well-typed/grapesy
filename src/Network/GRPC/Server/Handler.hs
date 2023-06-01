@@ -11,7 +11,7 @@
 module Network.GRPC.Server.Handler (
     RpcHandler(..)
     -- * Construction
-  , defRpcHandler
+  , mkRpcHandler
     -- * Query
   , path
     -- * Collection of handlers
@@ -22,12 +22,13 @@ module Network.GRPC.Server.Handler (
 
 import Prelude hiding (lookup)
 
+import Data.HashMap.Strict (HashMap)
+import Data.HashMap.Strict qualified as HashMap
+
 import Network.GRPC.Server.Call
 import Network.GRPC.Spec.CustomMetadata
 import Network.GRPC.Spec.PseudoHeaders
 import Network.GRPC.Spec.RPC
-import Data.HashMap.Strict (HashMap)
-import Data.HashMap.Strict qualified as HashMap
 
 {-------------------------------------------------------------------------------
   Handlers
@@ -49,7 +50,7 @@ data RpcHandler m = forall rpc. IsRPC rpc => RpcHandler {
       --
       -- The handler can return additional metadata in the trailers at the /end/
       -- of the communication; see 'sendOutput'.
-    , handlerResponseMetadata :: [CustomMetadata] -> m [CustomMetadata]
+    , handlerMetadata :: [CustomMetadata] -> m [CustomMetadata]
 
       -- | Handler proper
     , handlerRun :: Call rpc -> m ()
@@ -63,13 +64,13 @@ instance Show (RpcHandler m) where
 -------------------------------------------------------------------------------}
 
 -- | Default RPC handler
-defRpcHandler ::
+mkRpcHandler ::
      (Monad m, IsRPC rpc)
   => rpc -> (Call rpc -> m ()) -> RpcHandler m
-defRpcHandler handlerRPC handlerRun = RpcHandler{
+mkRpcHandler handlerRPC handlerRun = RpcHandler{
       handlerRPC
     , handlerRun
-    , handlerResponseMetadata = \_ -> return []
+    , handlerMetadata = \_ -> return []
     }
 
 {-------------------------------------------------------------------------------
