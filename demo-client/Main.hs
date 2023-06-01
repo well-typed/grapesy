@@ -16,6 +16,7 @@ import Demo.Client.Driver.Cmdline
 import Demo.Client.Driver.DelayOr
 import Demo.Common.Logging
 
+import Demo.Client.API.Core.Greeter              qualified as Core.Greeter
 import Demo.Client.API.Core.NoFinal.Greeter      qualified as NoFinal.Greeter
 import Demo.Client.API.Protobuf.Greeter          qualified as PBuf.Greeter
 import Demo.Client.API.Protobuf.Pipes.RouteGuide qualified as Pipes.RouteGuide
@@ -48,6 +49,8 @@ dispatch cmd conn = \case
         performMajorGC
     SomeMethod SGreeter (SSayHelloStreamReply name) ->
       case cmdAPI cmd of
+        Core ->
+          Core.Greeter.sayHelloStreamReply conn name
         Protobuf ->
           PBuf.Greeter.sayHelloStreamReply conn name
         _otherwise ->

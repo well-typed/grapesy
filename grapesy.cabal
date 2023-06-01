@@ -155,6 +155,7 @@ executable demo-client
   ghc-options:
       -threaded
   other-modules:
+      Demo.Client.API.Core.Greeter
       Demo.Client.API.Core.NoFinal.Greeter
       Demo.Client.API.Protobuf.Greeter
       Demo.Client.API.Protobuf.Pipes.RouteGuide

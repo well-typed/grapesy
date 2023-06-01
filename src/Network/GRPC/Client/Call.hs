@@ -9,6 +9,9 @@ module Network.GRPC.Client.Call (
   , initiateCall
   , abortCall
 
+    -- * Query
+  , callResponseMetadata
+
     -- * Open (ongoing) call
   , sendInput
   , recvOutput
@@ -20,6 +23,7 @@ module Network.GRPC.Client.Call (
   , recvAllOutputs
   ) where
 
+import Control.Applicative
 import Control.Concurrent.STM
 import Control.Exception
 import Control.Monad.Catch
@@ -47,7 +51,6 @@ import Network.GRPC.Spec.RPC
 import Network.GRPC.Util.Peer (Peer, ServerContext)
 import Network.GRPC.Util.Peer qualified as Peer
 import Network.GRPC.Util.StreamElem
-import Control.Applicative
 
 {-------------------------------------------------------------------------------
   Definition
@@ -59,6 +62,21 @@ import Control.Applicative
 data Call rpc = IsRPC rpc => Call {
       callRPC  :: rpc
     , callPeer :: Peer (Input rpc) (Output rpc)
+
+      -- | The initial metadata that was included in the response headers
+      --
+      -- The server might send additional metadata after the final output;
+      -- see 'recvOutput'.
+      --
+      -- This lives in STM because it might block: we need to wait until we
+      -- receive the metadata. The precise communication pattern will depend
+      -- on the specifics of each server, but
+      --
+      -- * It might well be necessary to send one or more inputs to the server
+      --   before it returns any replies
+      -- * The response metadata /will/ be available before the first output
+      --   from the server, and may indeed be available /well/ before.
+    , callResponseMetadata :: STM [CustomMetadata]
     }
 
 {-------------------------------------------------------------------------------
@@ -70,11 +88,13 @@ getRequestHeaders conn callParams = do
     meta <- Connection.currentMeta conn
     return RequestHeaders{
         requestParams = CallParams {
-            callTimeout  = asum [
-                               callTimeout callParams
-                             , connDefaultTimeout $ Connection.params conn
-                             ]
-          , callMetadata = callMetadata callParams
+            callTimeout =
+              asum [
+                  callTimeout callParams
+                , connDefaultTimeout $ Connection.params conn
+                ]
+          , callRequestMetadata =
+              callRequestMetadata callParams
           }
       , requestCompression =
            fromMaybe Compression.identity $
@@ -108,19 +128,25 @@ initiateCall conn perCallParams rpc = do
             , parseInbound      = \cIn -> LengthPrefixed.parseOutput rpc cIn
             }
 
+    responseMetadataVar <- newEmptyTMVarIO
+
     callPeer <-
       Peer.connectToServer
         tracer
         (Connection.send conn)
         peerConfig
         Peer.Server {
-            serverContext  = processHeaders conn rpc
+            serverContext  = processHeaders conn rpc responseMetadataVar
           , requestMethod  = rawMethod resourceHeaders
           , requestPath    = rawPath resourceHeaders
           , requestHeaders = Request.buildHeaders requestHeaders rpc
           }
 
-    return Call{callRPC = rpc, callPeer}
+    return Call{
+        callRPC = rpc
+      , callPeer
+      , callResponseMetadata = readTMVar responseMetadataVar
+      }
   where
     tracer :: Tracer IO (Peer.DebugMsg (Input rpc) (Output rpc))
     tracer =
@@ -279,11 +305,12 @@ processHeaders ::
      IsRPC rpc
   => Connection
   -> rpc
+  -> TMVar [CustomMetadata] -- ^ Response metadata
   -> Maybe HTTP.Status
   -> Maybe Int
   -> [HTTP.Header]
   -> IO (ServerContext Compression)
-processHeaders conn rpc status contentLength headers = do
+processHeaders conn rpc responseMetadataVar status contentLength headers = do
     case HTTP.statusCode <$> status of
       Just 200   -> return ()
       _otherwise -> throwIO $ ResponseInvalidStatus status
@@ -296,6 +323,7 @@ processHeaders conn rpc status contentLength headers = do
         hdrs <- case Response.parseHeaders rpc headers of
                   Left  err    -> throwIO $ ResponseInvalidHeaders err
                   Right parsed -> return parsed
+        atomically $ putTMVar responseMetadataVar $ responseMetadata hdrs
         meta <- Connection.updateMeta conn hdrs
         return $ Peer.ServerContext $
           fromMaybe Compression.identity (Connection.serverCompression meta)

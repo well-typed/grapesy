@@ -51,6 +51,7 @@ data Cmdline = Cmdline {
 data API =
     Protobuf
   | ProtobufPipes
+  | Core
   | CoreNoFinal
   deriving (Show)
 
@@ -136,6 +137,10 @@ parseAPI = asum [
     , flag' ProtobufPipes $ mconcat [
           long "protobuf-pipes"
         , help "Use the Protobuf pipes API (if applicable)"
+        ]
+    , flag' Core $ mconcat [
+          long "core"
+        , help "Use the core API"
         ]
     , flag' CoreNoFinal $ mconcat [
           long "core-dont-mark-final"

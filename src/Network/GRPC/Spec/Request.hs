@@ -36,7 +36,7 @@ import PackageInfo_grapesy qualified as PackageInfo
 buildHeaders :: IsRPC rpc => RequestHeaders -> rpc -> [HTTP.Header]
 buildHeaders callParams@RequestHeaders{requestParams} rpc = concat [
       callDefinition callParams rpc
-    , map buildCustomMetadata $ callMetadata requestParams
+    , map buildCustomMetadata $ callRequestMetadata requestParams
     ]
 
 -- | Call definition
