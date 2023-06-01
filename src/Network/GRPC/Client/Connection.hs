@@ -23,17 +23,17 @@ import Control.Concurrent
 import Control.Monad.Catch
 import Control.Tracer
 import Data.Default
+import Data.List.NonEmpty (NonEmpty)
 import Network.HPACK qualified as HPACK
 import Network.HTTP2.Client qualified as Client
 import Network.Run.TCP (runTCPClient)
 
 import Network.GRPC.Common.Compression (Compression)
 import Network.GRPC.Common.Compression qualified as Compression
+import Network.GRPC.Common.Peer qualified as Peer
 import Network.GRPC.Spec
 import Network.GRPC.Spec.PseudoHeaders
 import Network.GRPC.Spec.RPC
-import Network.GRPC.Util.Peer qualified as Peer
-import Data.List.NonEmpty (NonEmpty)
 
 {-------------------------------------------------------------------------------
   Connection API

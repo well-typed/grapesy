@@ -12,8 +12,8 @@ module Network.GRPC.Server (
   , Handler.handlerMetadata
 
     -- * Ongoing calls
-  , StreamElem(..)
   , CustomMetadata(..)
+  , StreamElem(..)
   , recvInput
   , sendOutput
 
@@ -28,6 +28,7 @@ module Network.GRPC.Server (
 import Control.Exception
 import Network.HTTP2.Server qualified as HTTP2
 
+import Network.GRPC.Common.StreamElem (StreamElem(..))
 import Network.GRPC.Common.Exceptions
 import Network.GRPC.Server.Call
 import Network.GRPC.Server.Connection (Connection, withConnection)
@@ -39,7 +40,6 @@ import Network.GRPC.Server.Handler qualified as Handler
 import Network.GRPC.Spec
 import Network.GRPC.Spec.CustomMetadata
 import Network.GRPC.Spec.PseudoHeaders
-import Network.GRPC.Util.StreamElem
 
 {-------------------------------------------------------------------------------
   Server proper

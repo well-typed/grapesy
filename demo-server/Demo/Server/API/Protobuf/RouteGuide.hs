@@ -3,14 +3,15 @@
 module Demo.Server.API.Protobuf.RouteGuide (handlers) where
 
 import Control.Lens (view, (^.))
-import Data.Map (Map)
+import Control.Monad.State
 import Data.Map qualified as Map
 import Data.Maybe (fromMaybe)
 import Data.ProtoLens
 import Data.ProtoLens.Labels ()
 import Data.Time
+import Control.Monad.Trans.State (modifyM)
 
-import Network.GRPC.Server
+import Network.GRPC.Common.StreamElem qualified as StreamElem
 import Network.GRPC.Server.Protobuf
 
 import Proto.RouteGuide
@@ -44,42 +45,12 @@ listFeatures db = serverStreaming $ \r send -> do
 recordRoute :: [Feature] -> ClientStreamingHandler IO RouteGuide "recordRoute"
 recordRoute db = clientStreaming $ \recv -> do
     start <- getCurrentTime
-    go recv start
-  where
-    go :: IO (StreamElem () Point) -> UTCTime -> IO RouteSummary
-    go recv start = loop []
-      where
-        loop :: [Point] -> IO RouteSummary
-        loop acc = do
-            mp <- recv
-            case mp of
-              StreamElem p    -> loop     (p:acc)
-              FinalElem  p () -> finalise (p:acc)
-              NoMoreElems  () -> finalise    acc
-
-        finalise :: [Point] -> IO RouteSummary
-        finalise acc = do
-            stop <- getCurrentTime
-            return $ summary db (stop `diffUTCTime` start) (reverse acc)
+    ps    <- StreamElem.collect recv
+    stop  <- getCurrentTime
+    return $ summary db (stop `diffUTCTime` start) ps
 
 routeChat :: [Feature] -> BiDiStreamingHandler IO RouteGuide "routeChat"
-routeChat _db = biDiStreaming go
-  where
-    go :: IO (StreamElem () RouteNote) -> (RouteNote -> IO ()) -> IO ()
-    go recv send = loop Map.empty
-      where
-        loop :: Map Point [RouteNote] -> IO ()
-        loop acc = do
-            mNote <- recv
-            case mNote of
-              StreamElem n    -> goNote acc n >>= loop
-              FinalElem  n () -> goNote acc n >>  return ()
-              NoMoreElems  () ->                  return ()
-
-        goNote ::
-             Map Point [RouteNote]
-          -> RouteNote
-          -> IO (Map Point [RouteNote])
-        goNote acc n = do
-            mapM_ send $ Map.findWithDefault [] (n ^. #location) acc
-            return $ Map.alter (Just . (n:) . fromMaybe []) (n ^. #location) acc
+routeChat _db = biDiStreaming $ \recv send -> flip evalStateT Map.empty $
+    StreamElem.mapM_ (lift recv) $ \n -> modifyM $ \acc -> do
+      mapM_ send $ reverse $ Map.findWithDefault [] (n ^. #location) acc
+      return $ Map.alter (Just . (n:) . fromMaybe []) (n ^. #location) acc

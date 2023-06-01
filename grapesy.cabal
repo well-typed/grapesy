@@ -71,12 +71,14 @@ library
       Network.GRPC.Client.Protobuf.Pipes
       Network.GRPC.Common.Compression
       Network.GRPC.Common.Exceptions
+      Network.GRPC.Common.StreamElem
       Network.GRPC.Server
       Network.GRPC.Server.Protobuf
   other-modules:
       Network.GRPC.Client.Call
       Network.GRPC.Client.Connection
       Network.GRPC.Common.Protobuf
+      Network.GRPC.Common.Peer
       Network.GRPC.Server.Call
       Network.GRPC.Server.Connection
       Network.GRPC.Server.Context
@@ -95,9 +97,7 @@ library
       Network.GRPC.Util.ByteString
       Network.GRPC.Util.Parser
       Network.GRPC.Util.Partial
-      Network.GRPC.Util.Peer
       Network.GRPC.Util.RedundantConstraint
-      Network.GRPC.Util.StreamElem
       Network.GRPC.Util.Thread
 
       PackageInfo_grapesy
@@ -214,11 +214,16 @@ executable demo-server
     , grapesy
     , http2
     , lens
+    , mtl
     , network-run
     , proto-lens
     , proto-lens-runtime
     , text
     , time
+
+      -- This is a very recent version but it's only for the demo
+      -- (introduces modifyM)
+    , transformers >= 0.6.1
 
   if !flag(build-demo)
     buildable:

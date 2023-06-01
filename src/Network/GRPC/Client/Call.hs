@@ -41,6 +41,10 @@ import Network.GRPC.Client.Connection qualified as Connection
 import Network.GRPC.Common.Compression (Compression(..), CompressionId)
 import Network.GRPC.Common.Compression qualified as Compression
 import Network.GRPC.Common.Exceptions
+import Network.GRPC.Common.Peer (Peer, ServerContext)
+import Network.GRPC.Common.Peer qualified as Peer
+import Network.GRPC.Common.StreamElem (StreamElem(..))
+import Network.GRPC.Common.StreamElem qualified as StreamElem
 import Network.GRPC.Spec
 import Network.GRPC.Spec.CustomMetadata
 import Network.GRPC.Spec.LengthPrefixed qualified as LengthPrefixed
@@ -48,9 +52,6 @@ import Network.GRPC.Spec.PseudoHeaders
 import Network.GRPC.Spec.Request qualified as Request
 import Network.GRPC.Spec.Response qualified as Response
 import Network.GRPC.Spec.RPC
-import Network.GRPC.Util.Peer (Peer, ServerContext)
-import Network.GRPC.Util.Peer qualified as Peer
-import Network.GRPC.Util.StreamElem
 
 {-------------------------------------------------------------------------------
   Definition
@@ -220,7 +221,7 @@ sendAllInputs call produceInput = loop
     loop = do
         inp <- produceInput
         liftIO $ atomically $ sendInput call inp
-        case streamElemDefinitelyFinal inp of
+        case StreamElem.definitelyFinal inp of
           Nothing -> loop
           Just _  -> return ()
 

@@ -1,12 +1,19 @@
 -- | Positioned elements
 --
--- This is intended for unqualified import ('StreamElem' is re-exported as part of the
--- library's public API).
-module Network.GRPC.Util.StreamElem (
+-- Intended for qualified import.
+--
+-- > import Network.GRPC.Common.StreamElem (StreamElem(..))
+-- > import Network.GRPC.Common.StreamElem qualified as StreamElem
+module Network.GRPC.Common.StreamElem (
     StreamElem(..)
-  , streamElemDefinitelyFinal
+  , definitelyFinal
+  , mapM_
+  , collect
   ) where
 
+import Prelude hiding (mapM_)
+
+import Control.Monad.State
 import Data.Bifoldable
 import Data.Bifunctor
 import Data.Bitraversable
@@ -69,10 +76,30 @@ instance Bitraversable StreamElem where
 --
 -- A 'False' result does not mean the element is not final; see 'StreamElem' for
 -- detailed discussion.
-streamElemDefinitelyFinal :: StreamElem b a -> Maybe b
-streamElemDefinitelyFinal = \case
+definitelyFinal :: StreamElem b a -> Maybe b
+definitelyFinal = \case
     StreamElem  _   -> Nothing
     FinalElem   _ b -> Just b
     NoMoreElems   b -> Just b
 
+-- | Map over all elements
+mapM_ :: forall m a. Monad m => m (StreamElem () a) -> (a -> m ()) -> m ()
+mapM_ recv f = loop
+  where
+    loop :: m ()
+    loop = do
+        x <- recv
+        case x of
+          StreamElem a    -> f a >> loop
+          FinalElem  a () -> f a
+          NoMoreElems  () -> return ()
 
+-- | Collect all elements
+--
+-- Returns the elements in the order they were received.
+collect :: forall m a. Monad m => m (StreamElem () a) -> m [a]
+collect recv =
+    reverse <$> execStateT go []
+  where
+    go :: StateT [a] m ()
+    go = mapM_ (lift recv) $ modify . (:)

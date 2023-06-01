@@ -44,13 +44,13 @@ import Control.Monad.Catch
 import Control.Monad.IO.Class
 import GHC.Stack
 
+import Network.GRPC.Common.StreamElem (StreamElem(..))
 import Network.GRPC.Client.Call
 import Network.GRPC.Client.Connection
 import Network.GRPC.Spec
 import Network.GRPC.Spec.CustomMetadata
 import Network.GRPC.Spec.PseudoHeaders (Scheme(..), Authority(..))
 import Network.GRPC.Spec.RPC
-import Network.GRPC.Util.StreamElem
 
 {-------------------------------------------------------------------------------
   Make RPCs

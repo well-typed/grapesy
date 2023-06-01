@@ -29,6 +29,9 @@ import Network.HTTP.Types qualified as HTTP
 import Network.GRPC.Common.Compression (Compression)
 import Network.GRPC.Common.Compression qualified as Compression
 import Network.GRPC.Common.Exceptions
+import Network.GRPC.Common.Peer (Peer)
+import Network.GRPC.Common.Peer qualified as Peer
+import Network.GRPC.Common.StreamElem (StreamElem(..))
 import Network.GRPC.Server.Connection (Connection)
 import Network.GRPC.Server.Connection qualified as Connection
 import Network.GRPC.Server.Context qualified as Context
@@ -37,9 +40,6 @@ import Network.GRPC.Spec.CustomMetadata
 import Network.GRPC.Spec.LengthPrefixed qualified as LengthPrefixed
 import Network.GRPC.Spec.Response
 import Network.GRPC.Spec.RPC
-import Network.GRPC.Util.Peer (Peer)
-import Network.GRPC.Util.Peer qualified as Peer
-import Network.GRPC.Util.StreamElem
 
 {-------------------------------------------------------------------------------
   Definition

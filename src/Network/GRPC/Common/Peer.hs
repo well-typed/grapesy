@@ -4,9 +4,9 @@
 --
 -- Intended for qualified import import.
 --
--- > import Network.GRPC.Util.Peer (Peer)
--- > import Network.GRPC.Util.Peer qualified as Peer
-module Network.GRPC.Util.Peer (
+-- > import Network.GRPC.Common.Peer (Peer)
+-- > import Network.GRPC.Common.Peer qualified as Peer
+module Network.GRPC.Common.Peer (
     -- * Definition
     Peer -- opaque
   , HttpTrailers
@@ -46,8 +46,9 @@ import Network.HTTP2.Client qualified as Client
 import Network.HTTP2.Client qualified as HTTP2
 import Network.HTTP2.Server qualified as Server
 
+import Network.GRPC.Common.StreamElem (StreamElem(..))
+import Network.GRPC.Common.StreamElem qualified as StreamElem
 import Network.GRPC.Util.Parser
-import Network.GRPC.Util.StreamElem
 import Network.GRPC.Util.Thread
 
 {-------------------------------------------------------------------------------
@@ -139,7 +140,7 @@ recv Peer{peerInbound, peerRecvFinal} = do
         msg   <- takeTMVar queue
         -- We update 'peerRecvFinal' in the same tx as the read, so that we
         -- atomically change from "there is a value" to "all values read".
-        forM_(streamElemDefinitelyFinal msg) $ \trailers ->
+        forM_(StreamElem.definitelyFinal msg) $ \trailers ->
           putTMVar peerRecvFinal (callStack, trailers)
         return msg
 
@@ -160,7 +161,7 @@ send Peer{peerOutbound, peerSentFinal} msg = do
         throwSTM $ SendAfterFinal cs trailers
       Nothing -> do
         queue <- getThreadInterface peerOutbound
-        forM_ (streamElemDefinitelyFinal msg) $ \trailers ->
+        forM_ (StreamElem.definitelyFinal msg) $ \trailers ->
           putTMVar peerSentFinal (callStack, trailers)
         putTMVar queue msg
 

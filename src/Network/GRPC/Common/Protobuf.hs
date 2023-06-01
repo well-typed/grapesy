@@ -40,7 +40,7 @@ import Data.Kind
 import Data.ProtoLens.Service.Types
 import GHC.TypeLits
 
-import Network.GRPC.Util.StreamElem
+import Network.GRPC.Common.StreamElem (StreamElem)
 
 {-------------------------------------------------------------------------------
   Handler types

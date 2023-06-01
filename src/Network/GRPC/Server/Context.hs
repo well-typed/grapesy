@@ -18,8 +18,8 @@ import Control.Tracer
 import Data.Default
 
 import Network.GRPC.Common.Compression qualified as Compression
+import Network.GRPC.Common.Peer qualified as Peer
 import Network.GRPC.Spec.RPC
-import Network.GRPC.Util.Peer qualified as Peer
 
 {-------------------------------------------------------------------------------
   Context
