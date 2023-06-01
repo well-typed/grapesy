@@ -50,15 +50,15 @@ data CallParams = CallParams {
       -- This is the metadata included in the request. (The server can include
       -- its own metadata in the response: see 'responseMetadata' and
       -- 'trailerMetadatda'.)
-    , callRequestMetadata :: [CustomMetadata]
+    , callMetadata :: [CustomMetadata]
     }
   deriving stock (Show)
 
 -- | Default 'CallParams'
 instance Default CallParams where
   def = CallParams {
-        callTimeout         = Nothing
-      , callRequestMetadata = []
+        callTimeout  = Nothing
+      , callMetadata = []
       }
 
 {-------------------------------------------------------------------------------

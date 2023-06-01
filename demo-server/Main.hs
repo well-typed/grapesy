@@ -26,7 +26,7 @@ import Paths_grapesy
   All services
 -------------------------------------------------------------------------------}
 
-services :: [Feature] -> Services '[Greeter, RouteGuide]
+services :: [Feature] -> Services IO '[Greeter, RouteGuide]
 services db =
       Service Greeter.handlers
     $ Service (RouteGuide.handlers db)

@@ -71,12 +71,12 @@ library
       Network.GRPC.Client.Protobuf.Pipes
       Network.GRPC.Common.Compression
       Network.GRPC.Common.Exceptions
-      Network.GRPC.Common.Protobuf
       Network.GRPC.Server
       Network.GRPC.Server.Protobuf
   other-modules:
       Network.GRPC.Client.Call
       Network.GRPC.Client.Connection
+      Network.GRPC.Common.Protobuf
       Network.GRPC.Server.Call
       Network.GRPC.Server.Connection
       Network.GRPC.Server.Context

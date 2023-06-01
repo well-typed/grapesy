@@ -18,18 +18,22 @@ import Demo.Common.Logging
   routeguide.RouteGuide
 -------------------------------------------------------------------------------}
 
-getFeature :: Connection -> CallParams -> Point -> IO ()
-getFeature conn params p = log =<<
-    nonStreaming conn params (RPC @RouteGuide @"getFeature") p
+getFeature :: Connection -> Point -> IO ()
+getFeature conn point = do
+    features <- nonStreaming @RouteGuide @"getFeature" (rpc conn) point
+    log features
 
-listFeatures :: Connection -> CallParams -> Rectangle -> IO ()
-listFeatures conn params r = log =<<
-    serverStreaming conn params (RPC @RouteGuide @"listFeatures") r log
+listFeatures :: Connection -> Rectangle -> IO ()
+listFeatures conn rect = do
+    metadata <- serverStreaming @RouteGuide @"listFeatures" (rpc conn) rect log
+    log (metadata :: [CustomMetadata])
 
-recordRoute :: Connection -> CallParams -> IO (StreamElem () Point) -> IO ()
-recordRoute conn params ps = log =<<
-    clientStreaming conn params (RPC @RouteGuide @"recordRoute") ps
+recordRoute :: Connection -> IO (StreamElem () Point) -> IO ()
+recordRoute conn getPoint = do
+    summary <- clientStreaming @RouteGuide @"recordRoute" (rpc conn) getPoint
+    log summary
 
-routeChat :: Connection -> CallParams -> IO (StreamElem () RouteNote) -> IO ()
-routeChat conn params notes = log =<<
-    biDiStreaming conn params (RPC @RouteGuide @"routeChat") notes log
+routeChat :: Connection -> IO (StreamElem () RouteNote) -> IO ()
+routeChat conn getNote = do
+    metadata <- biDiStreaming @RouteGuide @"routeChat" (rpc conn) getNote log
+    log (metadata :: [CustomMetadata])

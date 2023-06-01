@@ -21,8 +21,8 @@ import Demo.Server.Aux.RouteGuide
   Top-level
 -------------------------------------------------------------------------------}
 
-handlers :: [Feature] -> MethodsOf RouteGuide
-handlers db = Methods $
+handlers :: [Feature] -> MethodsOf IO RouteGuide
+handlers db =
      Method (getFeature   db)
    $ Method (listFeatures db)
    $ Method (recordRoute  db)
@@ -33,64 +33,60 @@ handlers db = Methods $
   Handlers
 -------------------------------------------------------------------------------}
 
-getFeature ::
-     [Feature]
-  -> Point
-  -> IO (Feature, [CustomMetadata])
-getFeature db p =
+getFeature :: [Feature] -> NonStreamingHandler IO RouteGuide "getFeature"
+getFeature db = nonStreaming $ \p ->
     return (fromMaybe defMessage $ featureAt db p, [])
 
-listFeatures ::
-     [Feature]
-  -> Rectangle
-  -> (Feature -> IO ())
-  -> IO [CustomMetadata]
-listFeatures db r send = do
+listFeatures :: [Feature] -> ServerStreamingHandler IO RouteGuide "listFeatures"
+listFeatures db = serverStreaming $ \r send -> do
     mapM_ send $ filter (inRectangle r . view #location) db
     return []
 
-recordRoute ::
-     [Feature]
-  -> IO (StreamElem () Point)
-  -> IO (RouteSummary, [CustomMetadata])
-recordRoute db recv = do
+recordRoute :: [Feature] -> ClientStreamingHandler IO RouteGuide "recordRoute"
+recordRoute db = clientStreaming $ \recv -> do
     start <- getCurrentTime
-    go start []
+    go recv start
   where
-    go :: UTCTime -> [Point] -> IO (RouteSummary, [CustomMetadata])
-    go start acc = do
-        mp <- recv
-        case mp of
-          StreamElem p    -> go       start (p:acc)
-          FinalElem  p () -> finalise start (p:acc)
-          NoMoreElems  () -> finalise start    acc
+    go ::
+         IO (StreamElem () Point)
+      -> UTCTime
+      -> IO (RouteSummary, [CustomMetadata])
+    go recv start = loop []
+      where
+        loop :: [Point] -> IO (RouteSummary, [CustomMetadata])
+        loop acc = do
+            mp <- recv
+            case mp of
+              StreamElem p    -> loop     (p:acc)
+              FinalElem  p () -> finalise (p:acc)
+              NoMoreElems  () -> finalise    acc
 
-    finalise :: UTCTime -> [Point] -> IO (RouteSummary, [CustomMetadata])
-    finalise start acc = do
-        stop <- getCurrentTime
-        return (summary db (stop `diffUTCTime` start) (reverse acc), [])
+        finalise :: [Point] -> IO (RouteSummary, [CustomMetadata])
+        finalise acc = do
+            stop <- getCurrentTime
+            return (summary db (stop `diffUTCTime` start) (reverse acc), [])
 
-routeChat ::
-     [Feature]
-  -> IO (StreamElem () RouteNote)
-  -> (RouteNote -> IO ())
-  -> IO [CustomMetadata]
-routeChat _db recv send = go Map.empty
+routeChat :: [Feature] -> BiDiStreamingHandler IO RouteGuide "routeChat"
+routeChat _db = biDiStreaming go
   where
-    go :: Map Point [RouteNote] -> IO [CustomMetadata]
-    go acc = do
-        mNote <- recv
-        case mNote of
-          StreamElem n    -> goNote acc n >>= go
-          FinalElem  n () -> goNote acc n >>  return []
-          NoMoreElems  () ->                  return []
+    go ::
+         IO (StreamElem () RouteNote)
+      -> (RouteNote -> IO ())
+      -> IO [CustomMetadata]
+    go recv send = loop Map.empty
+      where
+        loop :: Map Point [RouteNote] -> IO [CustomMetadata]
+        loop acc = do
+            mNote <- recv
+            case mNote of
+              StreamElem n    -> goNote acc n >>= loop
+              FinalElem  n () -> goNote acc n >>  return []
+              NoMoreElems  () ->                  return []
 
-    goNote :: Map Point [RouteNote] -> RouteNote -> IO (Map Point [RouteNote])
-    goNote acc n = do
-        mapM_ send $ Map.findWithDefault [] (n ^. #location) acc
-        return $ Map.alter (Just . (n:) . fromMaybe []) (n ^. #location) acc
-
-
-
-
-
+        goNote ::
+             Map Point [RouteNote]
+          -> RouteNote
+          -> IO (Map Point [RouteNote])
+        goNote acc n = do
+            mapM_ send $ Map.findWithDefault [] (n ^. #location) acc
+            return $ Map.alter (Just . (n:) . fromMaybe []) (n ^. #location) acc

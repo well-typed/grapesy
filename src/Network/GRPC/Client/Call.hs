@@ -32,7 +32,7 @@ import Data.Maybe (fromMaybe)
 import GHC.Stack
 import Network.HTTP.Types qualified as HTTP
 
-import Network.GRPC.Client.Connection (Connection)
+import Network.GRPC.Client.Connection (Connection, ConnParams (..))
 import Network.GRPC.Client.Connection qualified as Connection
 import Network.GRPC.Common.Compression (Compression(..), CompressionId)
 import Network.GRPC.Common.Compression qualified as Compression
@@ -47,6 +47,7 @@ import Network.GRPC.Spec.RPC
 import Network.GRPC.Util.Peer (Peer, ServerContext)
 import Network.GRPC.Util.Peer qualified as Peer
 import Network.GRPC.Util.StreamElem
+import Control.Applicative
 
 {-------------------------------------------------------------------------------
   Definition
@@ -65,16 +66,22 @@ data Call rpc = IsRPC rpc => Call {
 -------------------------------------------------------------------------------}
 
 getRequestHeaders :: Connection -> CallParams -> IO RequestHeaders
-getRequestHeaders conn requestParams = do
+getRequestHeaders conn callParams = do
     meta <- Connection.currentMeta conn
     return RequestHeaders{
-        requestParams
+        requestParams = CallParams {
+            callTimeout  = asum [
+                               callTimeout callParams
+                             , connDefaultTimeout $ Connection.params conn
+                             ]
+          , callMetadata = callMetadata callParams
+          }
       , requestCompression =
            fromMaybe Compression.identity $
              Connection.serverCompression meta
       , requestAcceptCompression =
           Compression.offer $
-            Connection.connCompression $ Connection.params conn
+            connCompression $ Connection.params conn
       }
 
 initiateCall :: forall rpc.
@@ -118,7 +125,7 @@ initiateCall conn perCallParams rpc = do
     tracer :: Tracer IO (Peer.DebugMsg (Input rpc) (Output rpc))
     tracer =
         contramap (SomeRPC . Connection.PeerDebugMsg @rpc) $
-          Connection.connTracer (Connection.params conn)
+          connTracer (Connection.params conn)
 
 {-------------------------------------------------------------------------------
   Closing an open RPC

@@ -5,19 +5,26 @@
 -- Intended for unqualified import.
 module Network.GRPC.Client.Protobuf (
     RPC(..)
-
-    -- * Specialized calls
-    --
-    -- $specialized
+    -- * Handlers
+  , NonStreamingHandler    -- opaque
+  , ClientStreamingHandler -- opaque
+  , ServerStreamingHandler -- opaque
+  , BiDiStreamingHandler   -- opaque
+    -- ** Execution
   , nonStreaming
   , clientStreaming
   , serverStreaming
   , biDiStreaming
+    -- ** Construction
+  , MakeHandler -- opaque
+  , rpc
+  , rpcWith
   ) where
 
 import Control.Concurrent.Async
 import Control.Monad.Catch (MonadMask)
 import Control.Monad.IO.Class
+import Data.Default
 import Data.ProtoLens.Service.Types
 import Data.Proxy
 
@@ -40,56 +47,121 @@ import Network.GRPC.Util.RedundantConstraint
 -- interface from "Network.GRPC.Client" is not much more difficult.
 
 {-------------------------------------------------------------------------------
-  Specialized calls
+  Execution
 -------------------------------------------------------------------------------}
 
--- | Non-streaming call (single input, single output)
-nonStreaming :: forall m serv meth.
-     (MonadIO m, MonadMask m)
-  => IsRPC (RPC serv meth)
-  => MethodStreamingType serv meth ~ NonStreaming
-  => Connection
-  -> CallParams
-  -> RPC serv meth
-  -> Handler m serv meth
-nonStreaming conn params rpc input =
-    withRPC conn params rpc $ \call -> do
-      sendOnlyInput call input
-      recvOnlyOutput call
+-- | Make a non-streaming RPC
+--
+-- Example usage:
+--
+-- > nonStreaming @RouteGuide @"getFeature" (rpc conn) point
+nonStreaming :: forall serv meth m.
+     MethodStreamingType serv meth ~ NonStreaming
+  => NonStreamingHandler m serv meth
+  -> MethodInput serv meth
+  -> m (MethodOutput serv meth, [CustomMetadata])
+nonStreaming (NonStreamingHandler h) = h
   where
     _ = addConstraint $ Proxy @(MethodStreamingType serv meth ~ NonStreaming)
 
--- | Client-side streaming
-clientStreaming :: forall m serv meth.
-     (MonadIO m, MonadMask m)
-  => IsRPC (RPC serv meth)
-  => MethodStreamingType serv meth ~ ClientStreaming
-  => Connection
-  -> CallParams
-  -> RPC serv meth
-  -> Handler m serv meth
-clientStreaming conn params rpc produceInput =
-    withRPC conn params rpc $ \call -> do
-      sendAllInputs call produceInput
-      recvOnlyOutput call
+-- | Make a client-side streaming RPC
+--
+-- Example usage:
+--
+-- > clientStreaming @RouteGuide @"recordRoute" (rpc conn) getPoint
+clientStreaming :: forall serv meth m.
+     MethodStreamingType serv meth ~ ClientStreaming
+  => ClientStreamingHandler m serv meth
+  -> m (StreamElem () (MethodInput serv meth))
+  -> m (MethodOutput serv meth, [CustomMetadata])
+clientStreaming (ClientStreamingHandler h) = h
   where
     _ = addConstraint $ Proxy @(MethodStreamingType serv meth ~ ClientStreaming)
 
--- | Server-side streaming
-serverStreaming :: forall m serv meth.
-     (MonadIO m, MonadMask m)
-  => IsRPC (RPC serv meth)
-  => MethodStreamingType serv meth ~ ServerStreaming
-  => Connection
-  -> CallParams
-  -> RPC serv meth
-  -> Handler m serv meth
-serverStreaming conn params rpc input processOutput =
-    withRPC conn params rpc $ \call -> do
-      sendOnlyInput call input
-      recvAllOutputs call processOutput
+-- | Make a server-side streaming RPC
+--
+-- Example usage:
+--
+-- > serverStreaming @RouteGuide @"listFeatures" (rpc conn) rect usePoint
+serverStreaming :: forall serv meth m.
+     MethodStreamingType serv meth ~ ServerStreaming
+  => ServerStreamingHandler m serv meth
+  -> MethodInput serv meth
+  -> (MethodOutput serv meth -> m ()) -> m [CustomMetadata]
+serverStreaming (ServerStreamingHandler h) = h
   where
     _ = addConstraint $ Proxy @(MethodStreamingType serv meth ~ ServerStreaming)
+
+-- | Make a bidirectional RPC
+--
+-- Example usage:
+--
+-- > biDiStreaming @RouteGuide @"routeChat" (rpc conn) getNote useNote
+biDiStreaming :: forall serv meth m.
+     MethodStreamingType serv meth ~ BiDiStreaming
+  => BiDiStreamingHandler m serv meth
+  -> m (StreamElem () (MethodInput serv meth))
+  -> (MethodOutput serv meth -> m ()) -> m [CustomMetadata]
+biDiStreaming (BiDiStreamingHandler h) = h
+  where
+    _ = addConstraint $ Proxy @(MethodStreamingType serv meth ~ BiDiStreaming)
+
+{-------------------------------------------------------------------------------
+  Construction
+-------------------------------------------------------------------------------}
+
+class MakeHandler h where
+  mkHandler ::
+       IsRPC (RPC serv meth)
+    => Connection
+    -> CallParams
+    -> RPC serv meth
+    -> h serv meth
+
+-- | Construct RPC handler
+--
+-- See 'nonStreaming' and friends for example usage.
+rpc :: forall serv meth h.
+     ( MakeHandler h
+     , IsRPC (RPC serv meth)
+     )
+  => Connection -> h serv meth
+rpc conn = rpcWith conn def
+
+-- | Generalization of 'rpc' with 'CallParams'
+rpcWith :: forall serv meth h.
+     ( MakeHandler h
+     , IsRPC (RPC serv meth)
+     )
+  => Connection -> CallParams -> h serv meth
+rpcWith conn params = mkHandler conn params (RPC @serv @meth)
+
+instance ( MonadIO   m
+         , MonadMask m
+         ) => MakeHandler (NonStreamingHandler m) where
+  mkHandler conn params proxy =
+    NonStreamingHandler $ \input ->
+      withRPC conn params proxy $ \call -> do
+        sendOnlyInput call input
+        recvOnlyOutput call
+
+instance ( MonadIO   m
+         , MonadMask m
+         ) => MakeHandler (ClientStreamingHandler m) where
+  mkHandler conn params proxy =
+    ClientStreamingHandler $ \produceInput ->
+      withRPC conn params proxy $ \call -> do
+        sendAllInputs call produceInput
+        recvOnlyOutput call
+
+instance ( MonadIO   m
+         , MonadMask m
+         ) => MakeHandler (ServerStreamingHandler m) where
+  mkHandler conn params proxy =
+    ServerStreamingHandler $ \input processOutput ->
+      withRPC conn params proxy $ \call -> do
+        sendOnlyInput call input
+        recvAllOutputs call processOutput
 
 -- | Bidirectional streaming
 --
@@ -100,17 +172,9 @@ serverStreaming conn params rpc input processOutput =
 -- function. Another indication that we should is that the corresponding
 -- function in "Network.GRPC.Client.Protobuf.Pipes" cannot be defined in terms
 -- of this function, unlike for the other streaming functions.
-biDiStreaming :: forall serv meth.
-     IsRPC (RPC serv meth)
-  => MethodStreamingType serv meth ~ BiDiStreaming
-  => Connection
-  -> CallParams
-  -> RPC serv meth
-  -> Handler IO serv meth
-biDiStreaming conn params rpc produceInput processOutput =
-    withRPC conn params rpc $ \call -> do
-      withAsync (sendAllInputs call produceInput) $ \_sendAllThread ->
-        recvAllOutputs call processOutput
-  where
-    _ = addConstraint $ Proxy @(MethodStreamingType serv meth ~ BiDiStreaming)
-
+instance MakeHandler (BiDiStreamingHandler IO) where
+  mkHandler conn params proxy =
+    BiDiStreamingHandler $ \produceInput processOutput ->
+      withRPC conn params proxy $ \call -> do
+        withAsync (sendAllInputs call produceInput) $ \_sendAllThread ->
+          recvAllOutputs call processOutput

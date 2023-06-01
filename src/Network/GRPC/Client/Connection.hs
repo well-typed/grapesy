@@ -85,12 +85,18 @@ data ConnParams = ConnParams {
 
       -- | Compression negotation
     , connCompression :: Compression.Negotation
+
+      -- | Default timeout
+      --
+      -- Individual RPC calls can override this through 'CallParams'.
+    , connDefaultTimeout :: Maybe Timeout
     }
 
 instance Default ConnParams where
   def = ConnParams {
-        connTracer      = nullTracer
-      , connCompression = def
+        connTracer         = nullTracer
+      , connCompression    = def
+      , connDefaultTimeout = Nothing
       }
 
 newtype PeerDebugMsg rpc = PeerDebugMsg (Peer.DebugMsg (Input rpc) (Output rpc))
