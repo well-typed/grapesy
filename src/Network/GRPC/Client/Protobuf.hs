@@ -59,7 +59,7 @@ nonStreaming :: forall serv meth m.
      MethodStreamingType serv meth ~ NonStreaming
   => NonStreamingHandler m serv meth
   -> MethodInput serv meth
-  -> m (MethodOutput serv meth, [CustomMetadata])
+  -> m (MethodOutput serv meth)
 nonStreaming (NonStreamingHandler h) = h
   where
     _ = addConstraint $ Proxy @(MethodStreamingType serv meth ~ NonStreaming)
@@ -73,7 +73,7 @@ clientStreaming :: forall serv meth m.
      MethodStreamingType serv meth ~ ClientStreaming
   => ClientStreamingHandler m serv meth
   -> m (StreamElem () (MethodInput serv meth))
-  -> m (MethodOutput serv meth, [CustomMetadata])
+  -> m (MethodOutput serv meth)
 clientStreaming (ClientStreamingHandler h) = h
   where
     _ = addConstraint $ Proxy @(MethodStreamingType serv meth ~ ClientStreaming)
@@ -87,7 +87,8 @@ serverStreaming :: forall serv meth m.
      MethodStreamingType serv meth ~ ServerStreaming
   => ServerStreamingHandler m serv meth
   -> MethodInput serv meth
-  -> (MethodOutput serv meth -> m ()) -> m [CustomMetadata]
+  -> (MethodOutput serv meth -> m ())
+  -> m ()
 serverStreaming (ServerStreamingHandler h) = h
   where
     _ = addConstraint $ Proxy @(MethodStreamingType serv meth ~ ServerStreaming)
@@ -101,7 +102,8 @@ biDiStreaming :: forall serv meth m.
      MethodStreamingType serv meth ~ BiDiStreaming
   => BiDiStreamingHandler m serv meth
   -> m (StreamElem () (MethodInput serv meth))
-  -> (MethodOutput serv meth -> m ()) -> m [CustomMetadata]
+  -> (MethodOutput serv meth -> m ())
+  -> m ()
 biDiStreaming (BiDiStreamingHandler h) = h
   where
     _ = addConstraint $ Proxy @(MethodStreamingType serv meth ~ BiDiStreaming)
@@ -143,7 +145,8 @@ instance ( MonadIO   m
     NonStreamingHandler $ \input ->
       withRPC conn params proxy $ \call -> do
         sendOnlyInput call input
-        recvOnlyOutput call
+        (output, _trailers) <- recvOnlyOutput call
+        return output
 
 instance ( MonadIO   m
          , MonadMask m
@@ -152,7 +155,8 @@ instance ( MonadIO   m
     ClientStreamingHandler $ \produceInput ->
       withRPC conn params proxy $ \call -> do
         sendAllInputs call produceInput
-        recvOnlyOutput call
+        (output, _trailers) <- recvOnlyOutput call
+        return output
 
 instance ( MonadIO   m
          , MonadMask m
@@ -161,7 +165,8 @@ instance ( MonadIO   m
     ServerStreamingHandler $ \input processOutput ->
       withRPC conn params proxy $ \call -> do
         sendOnlyInput call input
-        recvAllOutputs call processOutput
+        _trailers <- recvAllOutputs call processOutput
+        return ()
 
 -- | Bidirectional streaming
 --
@@ -176,5 +181,6 @@ instance MakeHandler (BiDiStreamingHandler IO) where
   mkHandler conn params proxy =
     BiDiStreamingHandler $ \produceInput processOutput ->
       withRPC conn params proxy $ \call -> do
-        withAsync (sendAllInputs call produceInput) $ \_sendAllThread ->
-          recvAllOutputs call processOutput
+        withAsync (sendAllInputs call produceInput) $ \_sendAllThread -> do
+          _trailers <- recvAllOutputs call processOutput
+          return ()

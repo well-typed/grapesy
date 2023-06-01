@@ -141,27 +141,26 @@ instance RunHandler NonStreamingHandler where
     mkRpcHandler rpc $ \call -> do
       inp <- liftIO $ recvOnlyInput call
       out <- h inp
-      liftIO $ sendOnlyOutput call out
+      liftIO $ sendOnlyOutput call (out, [])
 
 instance RunHandler ClientStreamingHandler where
   runHandler' rpc (ClientStreamingHandler h) =
     mkRpcHandler rpc $ \call -> do
       out <- h (liftIO $ recvNextInput call)
-      liftIO $ sendOnlyOutput call out
+      liftIO $ sendOnlyOutput call (out, [])
 
 instance RunHandler ServerStreamingHandler where
   runHandler' rpc (ServerStreamingHandler h) =
     mkRpcHandler rpc $ \call -> do
       inp      <- liftIO $ recvOnlyInput call
-      trailers <- h inp (liftIO . sendNextOutput call)
-      liftIO $ sendTrailers call trailers
+      h inp (liftIO . sendNextOutput call)
+      liftIO $ sendTrailers call []
 
 instance RunHandler BiDiStreamingHandler where
   runHandler' rpc (BiDiStreamingHandler h) =
     mkRpcHandler rpc $ \call -> do
-      trailers <- h (liftIO $ recvNextInput  call)
-                    (liftIO . sendNextOutput call)
-      liftIO $ sendTrailers call trailers
+      h (liftIO $ recvNextInput  call) (liftIO . sendNextOutput call)
+      liftIO $ sendTrailers call []
 
 {-------------------------------------------------------------------------------
   Construction
@@ -169,28 +168,30 @@ instance RunHandler BiDiStreamingHandler where
 
 nonStreaming :: forall m serv meth.
      (    MethodInput serv meth
-       -> m (MethodOutput serv meth, [CustomMetadata])
+       -> m (MethodOutput serv meth)
      )
   -> NonStreamingHandler m serv meth
 nonStreaming = NonStreamingHandler
 
 clientStreaming :: forall m serv meth.
      (    m (StreamElem () (MethodInput serv meth))
-       -> m (MethodOutput serv meth, [CustomMetadata])
+       -> m (MethodOutput serv meth)
      )
   -> ClientStreamingHandler m serv meth
 clientStreaming = ClientStreamingHandler
 
 serverStreaming :: forall m serv meth.
      (    MethodInput serv meth
-       -> (MethodOutput serv meth -> m ()) -> m [CustomMetadata]
+       -> (MethodOutput serv meth -> m ())
+       -> m ()
      )
   -> ServerStreamingHandler m serv meth
 serverStreaming = ServerStreamingHandler
 
 biDiStreaming :: forall m serv meth.
      (    m (StreamElem () (MethodInput serv meth))
-       -> (MethodOutput serv meth -> m ()) -> m [CustomMetadata]
+       -> (MethodOutput serv meth -> m ())
+       -> m ()
      )
   -> BiDiStreamingHandler m serv meth
 biDiStreaming = BiDiStreamingHandler

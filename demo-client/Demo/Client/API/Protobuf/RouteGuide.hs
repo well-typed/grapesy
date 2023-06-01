@@ -25,8 +25,7 @@ getFeature conn point = do
 
 listFeatures :: Connection -> Rectangle -> IO ()
 listFeatures conn rect = do
-    metadata <- serverStreaming @RouteGuide @"listFeatures" (rpc conn) rect log
-    log (metadata :: [CustomMetadata])
+    serverStreaming @RouteGuide @"listFeatures" (rpc conn) rect log
 
 recordRoute :: Connection -> IO (StreamElem () Point) -> IO ()
 recordRoute conn getPoint = do
@@ -35,5 +34,4 @@ recordRoute conn getPoint = do
 
 routeChat :: Connection -> IO (StreamElem () RouteNote) -> IO ()
 routeChat conn getNote = do
-    metadata <- biDiStreaming @RouteGuide @"routeChat" (rpc conn) getNote log
-    log (metadata :: [CustomMetadata])
+    biDiStreaming @RouteGuide @"routeChat" (rpc conn) getNote log

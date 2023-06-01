@@ -22,6 +22,5 @@ sayHello conn name = do
     log reply
 
 sayHelloStreamReply :: Connection -> HelloRequest -> IO ()
-sayHelloStreamReply conn name = do
-    metadata <- serverStreaming @Greeter @"sayHelloStreamReply" (rpc conn) name print
-    log (metadata :: [CustomMetadata])
+sayHelloStreamReply conn name =
+    serverStreaming @Greeter @"sayHelloStreamReply" (rpc conn) name print

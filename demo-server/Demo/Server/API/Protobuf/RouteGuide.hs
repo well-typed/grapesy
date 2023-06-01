@@ -35,25 +35,21 @@ handlers db =
 
 getFeature :: [Feature] -> NonStreamingHandler IO RouteGuide "getFeature"
 getFeature db = nonStreaming $ \p ->
-    return (fromMaybe defMessage $ featureAt db p, [])
+    return $ fromMaybe defMessage $ featureAt db p
 
 listFeatures :: [Feature] -> ServerStreamingHandler IO RouteGuide "listFeatures"
 listFeatures db = serverStreaming $ \r send -> do
     mapM_ send $ filter (inRectangle r . view #location) db
-    return []
 
 recordRoute :: [Feature] -> ClientStreamingHandler IO RouteGuide "recordRoute"
 recordRoute db = clientStreaming $ \recv -> do
     start <- getCurrentTime
     go recv start
   where
-    go ::
-         IO (StreamElem () Point)
-      -> UTCTime
-      -> IO (RouteSummary, [CustomMetadata])
+    go :: IO (StreamElem () Point) -> UTCTime -> IO RouteSummary
     go recv start = loop []
       where
-        loop :: [Point] -> IO (RouteSummary, [CustomMetadata])
+        loop :: [Point] -> IO RouteSummary
         loop acc = do
             mp <- recv
             case mp of
@@ -61,27 +57,24 @@ recordRoute db = clientStreaming $ \recv -> do
               FinalElem  p () -> finalise (p:acc)
               NoMoreElems  () -> finalise    acc
 
-        finalise :: [Point] -> IO (RouteSummary, [CustomMetadata])
+        finalise :: [Point] -> IO RouteSummary
         finalise acc = do
             stop <- getCurrentTime
-            return (summary db (stop `diffUTCTime` start) (reverse acc), [])
+            return $ summary db (stop `diffUTCTime` start) (reverse acc)
 
 routeChat :: [Feature] -> BiDiStreamingHandler IO RouteGuide "routeChat"
 routeChat _db = biDiStreaming go
   where
-    go ::
-         IO (StreamElem () RouteNote)
-      -> (RouteNote -> IO ())
-      -> IO [CustomMetadata]
+    go :: IO (StreamElem () RouteNote) -> (RouteNote -> IO ()) -> IO ()
     go recv send = loop Map.empty
       where
-        loop :: Map Point [RouteNote] -> IO [CustomMetadata]
+        loop :: Map Point [RouteNote] -> IO ()
         loop acc = do
             mNote <- recv
             case mNote of
               StreamElem n    -> goNote acc n >>= loop
-              FinalElem  n () -> goNote acc n >>  return []
-              NoMoreElems  () ->                  return []
+              FinalElem  n () -> goNote acc n >>  return ()
+              NoMoreElems  () ->                  return ()
 
         goNote ::
              Map Point [RouteNote]

@@ -34,7 +34,7 @@ sayHello = nonStreaming $ \req -> do
     let msg :: Text
         msg = "Hello, " <> req ^. #name <> "!"
 
-    return (defMessage & #message .~ msg, [])
+    return $ defMessage & #message .~ msg
 
 sayHelloStreamReply :: RpcHandler IO
 sayHelloStreamReply =

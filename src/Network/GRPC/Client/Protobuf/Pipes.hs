@@ -34,7 +34,7 @@ clientStreaming :: forall serv meth.
   -> Consumer'
        (StreamElem () (MethodInput serv meth))
        (SafeT IO)
-       (MethodOutput serv meth, [CustomMetadata])
+       (MethodOutput serv meth)
 clientStreaming call params _proxy =
     Protobuf.clientStreaming
       (rpcWith @serv @meth call params)
@@ -47,7 +47,7 @@ serverStreaming :: forall serv meth.
   -> CallParams
   -> RPC serv meth
   -> MethodInput serv meth
-  -> Producer' (MethodOutput serv meth) (SafeT IO) [CustomMetadata]
+  -> Producer' (MethodOutput serv meth) (SafeT IO) ()
 serverStreaming conn params _proxy input =
    Protobuf.serverStreaming
      (rpcWith @serv @meth conn params)
@@ -72,12 +72,12 @@ biDiStreaming :: forall serv meth a.
   -> CallParams
   -> RPC serv meth
   -> (    Consumer' (StreamElem () (MethodInput serv meth)) IO ()
-       -> Producer' (MethodOutput serv meth) IO [CustomMetadata]
+       -> Producer' (MethodOutput serv meth) IO ()
        -> IO a
      )
   -> IO a
 biDiStreaming conn params proxy k =
     withRPC conn params proxy $ \call ->
-      k (sendAllInputs call await) (recvAllOutputs call yield)
+      k (sendAllInputs call await) (void $ recvAllOutputs call yield)
   where
     _ = addConstraint $ Proxy @(MethodStreamingType serv meth ~ BiDiStreaming)
