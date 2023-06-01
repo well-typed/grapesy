@@ -176,13 +176,6 @@ updateMeta Connection{params, metaVar} hdrs =
                  (serverCompression meta)
       return (meta', meta')
 
---atomically $ do
---    meta  <- readTVar metaVar
---    meta' <- Meta <$> updateCompression (serverCompression meta)
---    writeTVar metaVar meta'
---    return meta'
-  where
-
 -- Update choice compression, if necessary
 --
 -- We have four possibilities:
