@@ -5,7 +5,7 @@
 -- Intended for qualified import.
 --
 -- > import Network.GRPC.Spec.LengthPrefixed (MessagePrefix)
--- > import Network.GRPC.Spec.LengthPrefixed qualified as LengthPrefixed
+-- > import Network.GRPC.Spec.LengthPrefixed qualified as LP
 module Network.GRPC.Spec.LengthPrefixed (
     -- * Message prefix
     MessagePrefix(..)
@@ -19,14 +19,14 @@ module Network.GRPC.Spec.LengthPrefixed (
 import Data.Binary.Get (Get)
 import Data.Binary.Get qualified as Binary
 import Data.ByteString qualified as Strict (ByteString)
-import Data.ByteString.Builder qualified as BS (Builder)
-import Data.ByteString.Builder qualified as BS.Builder
+import Data.ByteString.Builder (Builder)
+import Data.ByteString.Builder qualified as Builder
 import Data.ByteString.Lazy qualified as BS.Lazy
 import Data.ByteString.Lazy qualified as Lazy (ByteString)
 import Data.Word
 
 import Network.GRPC.Spec.Compression (Compression)
-import Network.GRPC.Spec.Compression qualified as Compression
+import Network.GRPC.Spec.Compression qualified as Compr
 import Network.GRPC.Spec.RPC
 import Network.GRPC.Util.Parser (Parser(..))
 
@@ -40,10 +40,10 @@ data MessagePrefix = MessagePrefix {
     }
   deriving (Show)
 
-buildMessagePrefix :: MessagePrefix -> BS.Builder
+buildMessagePrefix :: MessagePrefix -> Builder
 buildMessagePrefix MessagePrefix{msgLength, msgIsCompressed} = mconcat [
-      BS.Builder.word8    $ if msgIsCompressed then 1 else 0
-    , BS.Builder.word32BE $ fromIntegral msgLength
+      Builder.word8    $ if msgIsCompressed then 1 else 0
+    , Builder.word32BE $ fromIntegral msgLength
     ]
 
 getMessagePrefix :: Get MessagePrefix
@@ -72,26 +72,26 @@ getMessagePrefix = do
 -- > Message-Length  → {length of Message}
 -- >                     # encoded as 4 byte unsigned integer (big endian)
 -- > Message         → *{binary octet}
-buildInput :: IsRPC rpc => rpc -> Compression -> Input rpc -> BS.Builder
+buildInput :: IsRPC rpc => rpc -> Compression -> Input rpc -> Builder
 buildInput = buildMsg . serializeInput
 
 -- | Serialize RPC output
-buildOutput :: IsRPC rpc => rpc -> Compression -> Output rpc -> BS.Builder
+buildOutput :: IsRPC rpc => rpc -> Compression -> Output rpc -> Builder
 buildOutput = buildMsg . serializeOutput
 
 -- | Generalization of 'buildInput' and 'buildOutput'
-buildMsg :: (x -> Lazy.ByteString) -> Compression -> x -> BS.Builder
+buildMsg :: (x -> Lazy.ByteString) -> Compression -> x -> Builder
 buildMsg build compr x = mconcat [
       buildMessagePrefix prefix
-    , BS.Builder.lazyByteString compressed
+    , Builder.lazyByteString compressed
     ]
   where
     compressed :: Lazy.ByteString
-    compressed = Compression.compress compr $ build x
+    compressed = Compr.compress compr $ build x
 
     prefix :: MessagePrefix
     prefix = MessagePrefix {
-          msgIsCompressed = not $ Compression.isIdentity compr
+          msgIsCompressed = not $ Compr.isIdentity compr
         , msgLength       = fromIntegral $ BS.Lazy.length compressed
         }
 
@@ -136,7 +136,7 @@ parseMsg parse compr =
       | otherwise
       = let (msg, rest) = BS.Lazy.splitAt (fromIntegral $ msgLength prefix) acc
             serialized  = if msgIsCompressed prefix
-                            then Compression.decompress compr msg
+                            then Compr.decompress compr msg
                             else msg
         in case parse serialized of
              Left err -> ParserError err

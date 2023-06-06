@@ -2,6 +2,8 @@ module Demo.Client.API.Core.Greeter (
     sayHelloStreamReply
   ) where
 
+import Prelude hiding (log)
+
 import Control.Concurrent.STM
 import Data.Default
 
@@ -9,6 +11,8 @@ import Network.GRPC.Client
 import Network.GRPC.Client.Protobuf (RPC(..))
 
 import Proto.Helloworld
+
+import Demo.Common.Logging
 
 {-------------------------------------------------------------------------------
   helloworld.Greeter
@@ -22,10 +26,10 @@ sayHelloStreamReply conn name =
 
       -- We should see the response metadata immediately, and the first output
       -- after a delay.
-      initMetadata <- atomically $ callResponseMetadata call
-      print initMetadata
+      initMetadata <- atomically $ recvResponseMetadata call
+      log initMetadata
 
       -- For completeness, we also show the final metadata, although the
       -- example does not include any.
-      finalMetadata <- recvAllOutputs call print
-      print finalMetadata
+      finalMetadata <- recvAllOutputs call log
+      log finalMetadata

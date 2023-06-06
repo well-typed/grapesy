@@ -10,7 +10,7 @@ import Data.Default
 import System.Mem (performMajorGC)
 
 import Network.GRPC.Client
-import Network.GRPC.Common.Compression qualified as Compression
+import Network.GRPC.Common.Compression qualified as Compr
 
 import Demo.Client.Driver.Cmdline
 import Demo.Client.Driver.DelayOr
@@ -18,6 +18,7 @@ import Demo.Common.Logging
 
 import Demo.Client.API.Core.Greeter              qualified as Core.Greeter
 import Demo.Client.API.Core.NoFinal.Greeter      qualified as NoFinal.Greeter
+import Demo.Client.API.Core.RouteGuide           qualified as Core.RouteGuide
 import Demo.Client.API.Protobuf.Greeter          qualified as PBuf.Greeter
 import Demo.Client.API.Protobuf.Pipes.RouteGuide qualified as Pipes.RouteGuide
 import Demo.Client.API.Protobuf.RouteGuide       qualified as PBuf.RouteGuide
@@ -67,6 +68,8 @@ dispatch cmd conn = \case
           Pipes.RouteGuide.listFeatures conn r
         Protobuf ->
           PBuf.RouteGuide.listFeatures conn r
+        Core ->
+          Core.RouteGuide.listFeatures conn r
         _otherwise ->
           unsupportedMode
     SomeMethod SRouteGuide (SRecordRoute ps) ->
@@ -106,7 +109,7 @@ connParams cmd = def {
           else connTracer def
     , connCompression =
         case cmdCompression cmd of
-          Just alg -> Compression.require alg
+          Just alg -> Compr.require alg
           Nothing  -> connCompression def
     , connDefaultTimeout =
         Timeout Second . TimeoutValue <$> cmdTimeout cmd

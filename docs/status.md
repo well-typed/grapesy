@@ -121,6 +121,13 @@ ever growing (and hopefully eventually shrinking) list of things to do.
       https://learning.postman.com/docs/sending-requests/grpc/test-examples/.
       Might be useful to try out, just in terms of compliance testing.
 
+- [ ] We should pitch a server and client against each other with support for
+      /multiple/ compression algorithms, and make sure that this can be chosen
+      on a request by request basis.
+
+- [ ] We should have tests for some grpc error codes
+      (at the very least, "unsupported method").
+
 ## Demo
 
 - [X] Update demo once we have specialized functions for the various

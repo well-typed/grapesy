@@ -93,6 +93,20 @@ cabal run demo-client -- --gzip sayHello \
 Of course, the compression is transparent to the user, but you can observe in
 in Wireshark.
 
+### Dealing with unterminated streams
+
+Normally the last message to the server is marked as `END_STREAM`. If this is
+not the case, the server can still respond, but they will additionally send a
+`RST_STREAM` frame to the client to indicate that the stream has ended.
+To test this we can intentionally omit the `END_STREAM` marker:
+
+```
+cabal run demo-client -- --core-dont-mark-final sayHello --name 'John'
+```
+
+Wireshark can be used to observe the `END_STREAM` marker being sent
+(note that this depends on https://github.com/kazu-yamamoto/http2/pull/78).
+
 ### `helloworld.Greeter.SayHelloStreamReply`
 
 Haskell implementation: `greeterSayHelloStreamReply`.
@@ -111,11 +125,11 @@ Run client with
 cabal run demo-client -- sayHelloStreamReply --name 'John'
 ```
 
-Note that the Python server has some intentional delays in there, so the
-streaming will be relatively slow (delays on the order of seconds). Moreover,
-this example also sends some metadata in the initial request. Metadata is
-not available using the standard Protobuf API in grapesy; instead, we need
-to use the full client API. The demo does this in the `Core` implementation:
+The Python server has some intentional delays in there, so the streaming will be
+relatively slow (delays on the order of seconds). Moreover, this example also
+sends some metadata in the initial request. Metadata is not available using the
+standard Protobuf API in grapesy; instead, we need to use the full client API.
+The demo does this in the `Core` implementation:
 
 ```
 cabal run demo-client -- --core sayHelloStreamReply --name 'John'
@@ -150,7 +164,7 @@ grpc-repo/examples/cpp/route_guide$ cmake/build/route_guide_server
 All methods except `getFeature` support the `--protobuf-pipes` option to use the
 [`pipes` interface](/src/Network/GRPC/Client/Protobuf/Pipes.hs).
 
-### `routeguide.RouteGuide.GetFeature`
+### `routeguide.RouteGuide.GetFeature` (non-streaming RPC)
 
 Haskell implementation: `routeGuideGetFeature`.
 
@@ -168,7 +182,7 @@ cabal run demo-client -- getFeature --latitude 0 --longitude 0
 
 for a location where there is not.
 
-### `routeguide.RouteGuide.ListFeatures`
+### `routeguide.RouteGuide.ListFeatures` (server-side streaming)
 
 Haskell implementation: `routeGuideListFeatures`.
 
@@ -182,7 +196,28 @@ cabal run demo-client -- listFeatures \
     --hi-longitude -730000000
 ```
 
-### `routeguide.RouteGuide.RecordRuite`
+#### Edge case: no features
+
+An important edge case here is the case where there are zero features in
+the specified rectangle:
+
+```
+cabal run demo-client -- --debug listFeatures \
+  --lo-latitude  0 \
+  --lo-longitude 0 \
+  --hi-latitude  0 \
+  --hi-longitude 0
+```
+
+This is important because this triggers the gRPC `Trailers-Only` case despite
+not being an error (strictly speaking this is not conform the gRPC spec).
+
+This test can also be run with `--core`, in which case it shows the received
+metadata. This is important, even though that metadata is empty, because it
+requires some special case to treat that metadata correctly in this case; see
+discussion in `Network.GRPC.Spec.Response`.
+
+### `routeguide.RouteGuide.RecordRuite` (client-side streaming)
 
 Haskell implementation: `routeGuideRecordRoute`.
 
@@ -190,25 +225,25 @@ Run client:
 
 ```
 cabal run demo-client -- recordRoute \
---latitude 404306372 --longitude -741079661 \
---delay 0.5                                 \
---latitude 406109563 --longitude -742186778 \
---delay 0.5                                 \
---latitude 417951888 --longitude -748484944 \
---delay 0.5                                 \
---latitude 411236786 --longitude -744070769 \
---delay 0.5                                 \
---latitude 409224445 --longitude -748286738 \
---delay 0.5                                 \
---latitude 407586880 --longitude -741670168 \
---delay 0.5                                 \
---latitude 415736605 --longitude -742847522 \
---delay 0.5                                 \
---latitude 411236786 --longitude -744070769 \
---delay 0.5                                 \
---latitude 400106455 --longitude -742870190 \
---delay 0.5                                 \
---latitude 404615353 --longitude -745129803
+  --latitude 404306372 --longitude -741079661 \
+  --delay 0.5                                 \
+  --latitude 406109563 --longitude -742186778 \
+  --delay 0.5                                 \
+  --latitude 417951888 --longitude -748484944 \
+  --delay 0.5                                 \
+  --latitude 411236786 --longitude -744070769 \
+  --delay 0.5                                 \
+  --latitude 409224445 --longitude -748286738 \
+  --delay 0.5                                 \
+  --latitude 407586880 --longitude -741670168 \
+  --delay 0.5                                 \
+  --latitude 415736605 --longitude -742847522 \
+  --delay 0.5                                 \
+  --latitude 411236786 --longitude -744070769 \
+  --delay 0.5                                 \
+  --latitude 400106455 --longitude -742870190 \
+  --delay 0.5                                 \
+  --latitude 404615353 --longitude -745129803
 ```
 
 This should report something like
@@ -217,7 +252,19 @@ This should report something like
 {point_count: 10 feature_count: 10 distance: 667689 elapsed_time: 4}
 ```
 
-### `routeguide.RouteGuide.RouteChat`
+#### Edge case: empty route
+
+One important edge case here is the empty route:
+
+```
+cabal run demo-client -- --debug recordRoute
+```
+
+(This is effectively the equivalent of the  `Trailers-Only` case from the "no
+features" edge case above, except of course that gRPC does not actually support
+request trailers. Nonetheless, similar scenario.)
+
+### `routeguide.RouteGuide.RouteChat` (bidirectional streaming)
 
 Haskell implementation: `routeGuideRouteChat`.
 

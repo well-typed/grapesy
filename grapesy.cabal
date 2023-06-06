@@ -39,6 +39,7 @@ common lang
       ImportQualifiedPost
       LambdaCase
       MultiParamTypeClasses
+      MultiWayIf
       NamedFieldPuns
       NumericUnderscores
       PatternSynonyms
@@ -71,18 +72,20 @@ library
       Network.GRPC.Client.Protobuf.Pipes
       Network.GRPC.Common.Compression
       Network.GRPC.Common.Exceptions
+      Network.GRPC.Common.Protobuf
       Network.GRPC.Common.StreamElem
       Network.GRPC.Server
       Network.GRPC.Server.Protobuf
   other-modules:
       Network.GRPC.Client.Call
       Network.GRPC.Client.Connection
-      Network.GRPC.Common.Protobuf
-      Network.GRPC.Common.Peer
+      Network.GRPC.Client.Meta
+      Network.GRPC.Client.Session
       Network.GRPC.Server.Call
       Network.GRPC.Server.Connection
       Network.GRPC.Server.Context
       Network.GRPC.Server.Handler
+      Network.GRPC.Server.Session
       Network.GRPC.Spec
       Network.GRPC.Spec.Common
       Network.GRPC.Spec.Compression
@@ -95,9 +98,15 @@ library
       Network.GRPC.Spec.RPC
       Network.GRPC.Spec.RPC.Protobuf
       Network.GRPC.Util.ByteString
+      Network.GRPC.Util.HTTP2
       Network.GRPC.Util.Parser
       Network.GRPC.Util.Partial
       Network.GRPC.Util.RedundantConstraint
+      Network.GRPC.Util.Session
+      Network.GRPC.Util.Session.API
+      Network.GRPC.Util.Session.Channel
+      Network.GRPC.Util.Session.Client
+      Network.GRPC.Util.Session.Server
       Network.GRPC.Util.Thread
 
       PackageInfo_grapesy
@@ -109,6 +118,7 @@ library
     , binary
     , bytestring
     , case-insensitive
+    , containers
     , contra-tracer
     , data-default
     , exceptions
@@ -156,6 +166,7 @@ executable demo-client
       -threaded
   other-modules:
       Demo.Client.API.Core.Greeter
+      Demo.Client.API.Core.RouteGuide
       Demo.Client.API.Core.NoFinal.Greeter
       Demo.Client.API.Protobuf.Greeter
       Demo.Client.API.Protobuf.Pipes.RouteGuide

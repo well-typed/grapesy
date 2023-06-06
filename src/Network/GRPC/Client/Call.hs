@@ -1,6 +1,6 @@
 -- | Open (ongoing) RPC call
 --
--- Intended for uqnqualified import.
+-- Intended for unqualified import.
 module Network.GRPC.Client.Call (
     -- * Definition
     Call -- opaque
@@ -9,12 +9,10 @@ module Network.GRPC.Client.Call (
   , initiateCall
   , abortCall
 
-    -- * Query
-  , callResponseMetadata
-
     -- * Open (ongoing) call
   , sendInput
   , recvOutput
+  , recvResponseMetadata
 
     -- ** Protocol specific wrappers
   , sendOnlyInput
@@ -26,32 +24,24 @@ module Network.GRPC.Client.Call (
 import Control.Applicative
 import Control.Concurrent.STM
 import Control.Exception
-import Control.Monad.Catch
 import Control.Monad.IO.Class
 import Control.Tracer
-import Data.Bifunctor
-import Data.Bitraversable
-import Data.ByteString.Lazy qualified as Lazy
 import Data.Maybe (fromMaybe)
 import GHC.Stack
-import Network.HTTP.Types qualified as HTTP
 
 import Network.GRPC.Client.Connection (Connection, ConnParams (..))
 import Network.GRPC.Client.Connection qualified as Connection
-import Network.GRPC.Common.Compression (Compression(..), CompressionId)
+import Network.GRPC.Client.Meta qualified as Meta
+import Network.GRPC.Client.Session
+import Network.GRPC.Common.Compression (Compression(..))
 import Network.GRPC.Common.Compression qualified as Compression
 import Network.GRPC.Common.Exceptions
-import Network.GRPC.Common.Peer (Peer, ServerContext)
-import Network.GRPC.Common.Peer qualified as Peer
 import Network.GRPC.Common.StreamElem (StreamElem(..))
 import Network.GRPC.Common.StreamElem qualified as StreamElem
 import Network.GRPC.Spec
 import Network.GRPC.Spec.CustomMetadata
-import Network.GRPC.Spec.LengthPrefixed qualified as LengthPrefixed
-import Network.GRPC.Spec.PseudoHeaders
-import Network.GRPC.Spec.Request qualified as Request
-import Network.GRPC.Spec.Response qualified as Response
 import Network.GRPC.Spec.RPC
+import Network.GRPC.Util.Session qualified as Session
 
 {-------------------------------------------------------------------------------
   Definition
@@ -61,95 +51,52 @@ import Network.GRPC.Spec.RPC
 --
 -- This type is kept abstract (opaque) in the public facing API.
 data Call rpc = IsRPC rpc => Call {
-      callRPC  :: rpc
-    , callPeer :: Peer (Input rpc) (Output rpc)
-
-      -- | The initial metadata that was included in the response headers
-      --
-      -- The server might send additional metadata after the final output;
-      -- see 'recvOutput'.
-      --
-      -- This lives in STM because it might block: we need to wait until we
-      -- receive the metadata. The precise communication pattern will depend
-      -- on the specifics of each server, but
-      --
-      -- * It might well be necessary to send one or more inputs to the server
-      --   before it returns any replies
-      -- * The response metadata /will/ be available before the first output
-      --   from the server, and may indeed be available /well/ before.
-    , callResponseMetadata :: STM [CustomMetadata]
+      callSession :: ClientSession rpc
+    , callChannel :: Session.Channel (ClientSession rpc)
     }
 
 {-------------------------------------------------------------------------------
   Open a call
 -------------------------------------------------------------------------------}
 
-getRequestHeaders :: Connection -> CallParams -> IO RequestHeaders
-getRequestHeaders conn callParams = do
-    meta <- Connection.currentMeta conn
-    return RequestHeaders{
-        requestParams = CallParams {
-            callTimeout =
-              asum [
-                  callTimeout callParams
-                , connDefaultTimeout $ Connection.params conn
-                ]
-          , callRequestMetadata =
-              callRequestMetadata callParams
-          }
-      , requestCompression =
-           fromMaybe Compression.identity $
-             Connection.serverCompression meta
-      , requestAcceptCompression =
-          Compression.offer $
-            connCompression $ Connection.params conn
-      }
-
 initiateCall :: forall rpc.
      IsRPC rpc
   => Connection -> CallParams -> rpc -> IO (Call rpc)
-initiateCall conn perCallParams rpc = do
-    requestHeaders <- getRequestHeaders conn perCallParams
-    let resourceHeaders :: RawResourceHeaders
-        resourceHeaders = buildResourceHeaders $ ResourceHeaders {
-              resourceMethod = Post
-            , resourcePath   = rpcPath rpc
-            }
-
-    -- The server and the client can make independent choices about which
-    -- compression algorithm to use. The server tells us which algorithm they
-    -- use in the response headers; we make our choice here (that should will
-    -- have been informed by which algorithms the server supports, of course).
-    let cOut :: Compression
-        cOut = requestCompression requestHeaders
-
-        peerConfig :: Peer.Config Compression (Input rpc) (Output rpc)
-        peerConfig = Peer.Config {
-              serializeOutbound =         LengthPrefixed.buildInput  rpc cOut
-            , parseInbound      = \cIn -> LengthPrefixed.parseOutput rpc cIn
-            }
-
-    responseMetadataVar <- newEmptyTMVarIO
-
-    callPeer <-
-      Peer.connectToServer
-        tracer
-        (Connection.send conn)
-        peerConfig
-        Peer.Server {
-            serverContext  = processHeaders conn rpc responseMetadataVar
-          , requestMethod  = rawMethod resourceHeaders
-          , requestPath    = rawPath resourceHeaders
-          , requestHeaders = Request.buildHeaders requestHeaders rpc
-          }
-
-    return Call{
-        callRPC = rpc
-      , callPeer
-      , callResponseMetadata = readTMVar responseMetadataVar
-      }
+initiateCall conn callParams rpc = do
+    cOut <- Meta.outboundCompression <$> Connection.currentMeta conn
+    Call callSession <$> Session.initiateRequest
+      callSession
+      tracer
+      (Connection.connectionToServer conn)
+      OutboundHeaders {
+          outHeaders     = requestHeaders cOut
+        , outCompression = fromMaybe Compression.identity cOut
+        }
   where
-    tracer :: Tracer IO (Peer.DebugMsg (Input rpc) (Output rpc))
+    callSession :: ClientSession rpc
+    callSession = ClientSession {
+          clientRPC         = rpc
+        , clientCompression = connCompression $ Connection.params conn
+        , clientUpdateMeta  = Connection.updateMeta conn
+        }
+
+    requestHeaders :: Maybe Compression -> RequestHeaders
+    requestHeaders cOut = RequestHeaders{
+          requestTimeout =
+            asum [
+                callTimeout callParams
+              , connDefaultTimeout $ Connection.params conn
+              ]
+        , requestMetadata =
+            callRequestMetadata callParams
+        , requestCompression =
+            compressionId <$> cOut
+        , requestAcceptCompression = Just $
+            Compression.offer $
+              connCompression $ Connection.params conn
+        }
+
+    tracer :: Tracer IO (Session.DebugMsg (ClientSession rpc))
     tracer =
         contramap (SomeRPC . Connection.PeerDebugMsg @rpc) $
           connTracer (Connection.params conn)
@@ -162,7 +109,7 @@ initiateCall conn perCallParams rpc = do
 --
 -- TODO: Docs.
 abortCall :: Exception e => Call rpc -> HasCallStack => e -> IO ()
-abortCall Call{callPeer} = Peer.disconnect callPeer
+abortCall = Session.close . callChannel
 
 {-------------------------------------------------------------------------------
   Open (ongoing) call
@@ -181,7 +128,7 @@ abortCall Call{callPeer} = Peer.disconnect callPeer
 --
 -- TODO: We should have a way to detect this and throw an exception.
 sendInput :: HasCallStack => Call rpc -> StreamElem () (Input rpc) -> STM ()
-sendInput Call{callPeer} = Peer.send callPeer . first (const [])
+sendInput = Session.send . callChannel
 
 -- | Receive an output from the peer
 --
@@ -194,9 +141,24 @@ sendInput Call{callPeer} = Peer.send callPeer . first (const [])
 -- status will result in a 'GrpcException'. Calling 'recvOutput' again after
 -- receiving the trailers is a bug and results in a 'RecvAfterFinal' exception.
 recvOutput :: Call rpc -> STM (StreamElem [CustomMetadata] (Output rpc))
-recvOutput Call{callRPC, callPeer} =
-        Peer.recv callPeer
-    >>= bitraverse (processTrailers callRPC) pure
+recvOutput = Session.recv . callChannel
+
+-- | The initial metadata that was included in the response headers
+--
+-- The server might send additional metadata after the final output; see
+-- 'recvOutput'.
+--
+-- This lives in STM because it might block: we need to wait until we receive
+-- the metadata. The precise communication pattern will depend on the specifics
+-- of each server:
+--
+-- * It might be necessary to send one or more inputs to the server before it
+--   returns any replies.
+-- * The response metadata /will/ be available before the first output from the
+--   server, and may indeed be available /well/ before.
+recvResponseMetadata :: Call rpc -> STM [CustomMetadata]
+recvResponseMetadata Call{callChannel} =
+    responseMetadata . inbHeaders <$> Session.getInboundHeaders callChannel
 
 {-------------------------------------------------------------------------------
   Protocol specific wrappers
@@ -232,17 +194,17 @@ recvOnlyOutput ::
      MonadIO m
   => Call rpc
   -> m (Output rpc, [CustomMetadata])
-recvOnlyOutput call@Call{callRPC} = liftIO $ do
+recvOnlyOutput call@Call{callSession = ClientSession{clientRPC}} = liftIO $ do
     out1 <- atomically $ recvOutput call
     case out1 of
-      NoMoreElems    ts -> protocolException callRPC $ TooFewOutputs ts
+      NoMoreElems    ts -> protocolException clientRPC $ TooFewOutputs ts
       FinalElem  out ts -> return (out, ts)
       StreamElem out    -> do
         out2 <- atomically $ recvOutput call
         case out2 of
           NoMoreElems ts    -> return (out, ts)
-          FinalElem  out' _ -> protocolException callRPC $ TooManyOutputs out'
-          StreamElem out'   -> protocolException callRPC $ TooManyOutputs out'
+          FinalElem  out' _ -> protocolException clientRPC $ TooManyOutputs out'
+          StreamElem out'   -> protocolException clientRPC $ TooManyOutputs out'
 
 recvAllOutputs :: forall m rpc.
      MonadIO m
@@ -263,116 +225,3 @@ recvAllOutputs call processOutput = loop
           FinalElem out trailers -> do
             processOutput out
             return trailers
-
-{-------------------------------------------------------------------------------
-  Response headers
--------------------------------------------------------------------------------}
-
--- | Process response headers
---
--- The gRPC specification defines
---
--- > Response → (Response-Headers *Length-Prefixed-Message Trailers)
--- >          / Trailers-Only
---
--- The spec states in prose that
---
--- 1. For responses end-of-stream is indicated by the presence of the END_STREAM
---    flag on the last received HEADERS frame that carries Trailers.
--- 2. Implementations should expect broken deployments to send non-200 HTTP
---    status codes in responses as well as a variety of non-GRPC content-types
---    and to omit Status & Status-Message. Implementations must synthesize a
---    Status & Status-Message to propagate to the application layer when this
---    occurs.
---
--- This means the only reliable way to determine if we're in the @Trailers-Only@
--- case is to see if the stream is terminated after we received the \"trailers\"
--- (headers). We don't get direct access to this information from @http2@, /but/
--- we are told indirectly: if the stream is terminated, we are told that the
--- body size is 0 (normally we do not expect an indication of body size at all);
--- this is independent from any content-length header (which gRPC does not in
--- fact allow for).
---
--- Moreover, the gRPC spec states that
---
--- > Trailers-Only is permitted for calls that produce an immediate error
---
--- However, in practice gRPC servers can also respond with @Trailers-Only@ in
--- non-error cases, simply indicating that the server considers the conversation
--- over. To distinguish, we look at 'trailerGrpcStatus': in case of 'GrpcOk' we
--- return the 'Trailers', and in the case of 'GrpcError' we throw
--- 'RpcImmediateError'.
-processHeaders ::
-     IsRPC rpc
-  => Connection
-  -> rpc
-  -> TMVar [CustomMetadata] -- ^ Response metadata
-  -> Maybe HTTP.Status
-  -> Maybe Int
-  -> [HTTP.Header]
-  -> IO (ServerContext Compression)
-processHeaders conn rpc responseMetadataVar status contentLength headers = do
-    case HTTP.statusCode <$> status of
-      Just 200   -> return ()
-      _otherwise -> throwIO $ ResponseInvalidStatus status
-
-    case contentLength of
-      Just 0 -> return Peer.NoServerContext
-      Just l -> throwIO $ ResponseUnexpectedContentLength l
-      Nothing -> do
-        -- The common @Response@ case (i.e., not @Trailers-Only@)
-        hdrs <- case Response.parseHeaders rpc headers of
-                  Left  err    -> throwIO $ ResponseInvalidHeaders err
-                  Right parsed -> return parsed
-        atomically $ putTMVar responseMetadataVar $ responseMetadata hdrs
-        meta <- Connection.updateMeta conn hdrs
-        return $ Peer.ServerContext $
-          fromMaybe Compression.identity (Connection.serverCompression meta)
-
-processTrailers ::
-     (IsRPC rpc, MonadThrow m)
-  => rpc -> [HTTP.Header] -> m [CustomMetadata]
-processTrailers rpc raw = do
-    case Response.parseTrailers rpc raw of
-      Left err -> throwM $ ResponseInvalidTrailers err
-      Right trailers ->
-        case grpcExceptionFromTrailers trailers of
-          Nothing  -> return $ trailerMetadata trailers
-          Just err -> throwM err
-
-{-------------------------------------------------------------------------------
-  Exceptions
--------------------------------------------------------------------------------}
-
--- | Server sent an invalid response
---
--- If this happens, it's indicative of a bad server (or a bug in @grapesy@..).
--- It is /not/ indicative of a bug in client code.
-data InvalidResponse =
-    -- | Server sent a HTTP status other than 200 OK
-    --
-    -- The spec explicitly disallows this; if a particular method is not
-    -- supported, then the server will respond with HTTP 200 and then a
-    -- grpc-status of 'GrpcUnimplemented'.
-    ResponseInvalidStatus (Maybe HTTP.Status)
-
-    -- | gRPC does not support the HTTP2 content-length header
-  | ResponseUnexpectedContentLength Int
-
-    -- | We received a response header we could not parse
-  | ResponseInvalidHeaders String
-
-    -- | We received a trailing header we could not parse
-  | ResponseInvalidTrailers String
-
-    -- | When the server indicated end of stream, we still had unparsed data
-  | ResponseTrailingData Lazy.ByteString
-
-    -- | We failed to parse an incoming message
-  | ResponseParseError String
-
-    -- | Server used an unexpected compression algorithm
-  | ResponseUnexpectedCompression CompressionId
-  deriving stock (Show)
-  deriving anyclass (Exception)
-

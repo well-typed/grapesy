@@ -5,7 +5,7 @@
 -- Intended for qualified import.
 --
 -- > import Network.GRPC.Spec.Compression (Compression)
--- > import Network.GRPC.Spec.Compression qualified as Compression
+-- > import Network.GRPC.Spec.Compression qualified as Compr
 module Network.GRPC.Spec.Compression (
     -- * Definition
     Compression(..)

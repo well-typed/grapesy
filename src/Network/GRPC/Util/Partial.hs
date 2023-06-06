@@ -12,13 +12,25 @@ module Network.GRPC.Util.Partial (
   , PartialParser -- opaque
   , runPartialParser
   , update
+    -- * Utilities
+    -- ** General purpose
+  , expectAtLeastOne
+    -- ** Parsing HTTP headers
+  , expectHeaderValue
   ) where
 
+import Control.Monad
 import Control.Monad.Except
 import Control.Monad.State
+import Data.ByteString qualified as Strict (ByteString)
+import Data.ByteString.Char8 qualified as BS.Strict.C8
+import Data.List (intercalate)
 import Data.SOP
 import Data.SOP.Constraint
 import Generics.SOP
+import Network.HTTP.Types qualified as HTTP
+import Data.Typeable
+import Data.List.NonEmpty (NonEmpty(..))
 
 {-------------------------------------------------------------------------------
   Partial values
@@ -71,7 +83,7 @@ newtype PartialParser r m a = PartialParser {
       Functor
     , Applicative
     , Monad
-    , MonadError e
+    , MonadError e -- inherited from @m@
     )
 
 instance MonadTrans (PartialParser r) where
@@ -87,3 +99,36 @@ runPartialParser partial =
 
 update :: Monad m => PartialUpdate m r a -> (m a -> m a) -> PartialParser r m ()
 update upd f = PartialParser $ modify $ applyPartialUpdate upd f
+
+{-------------------------------------------------------------------------------
+  General utilities
+-------------------------------------------------------------------------------}
+
+expectAtLeastOne :: forall m a.
+     (MonadError String m, Typeable a)
+  => [a] -> m (NonEmpty a)
+expectAtLeastOne (x : xs) = return (x :| xs)
+expectAtLeastOne []       = throwError $ concat [
+                                "Expected at least one "
+                              , show (typeRep (Proxy @a))
+                              ]
+
+{-------------------------------------------------------------------------------
+  Specific support for parsing headers
+-------------------------------------------------------------------------------}
+
+expectHeaderValue ::
+     MonadError String m
+  => HTTP.Header -> [Strict.ByteString] -> m ()
+expectHeaderValue (name, actual) expected =
+    unless (actual `elem` expected) $ throwError $ concat [
+        "Unexpected value \""
+      , BS.Strict.C8.unpack actual
+      , "\" for header"
+      , show name -- Show instance adds quotes
+      , ". Expected "
+      , intercalate " or " $
+          map (\e -> "\"" ++ BS.Strict.C8.unpack e ++ "\"") expected
+      , "."
+      ]
+

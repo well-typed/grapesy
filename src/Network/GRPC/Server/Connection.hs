@@ -16,14 +16,15 @@ module Network.GRPC.Server.Connection (
   ) where
 
 import Data.ByteString qualified as Strict (ByteString)
-import Data.ByteString.Builder qualified as BS (Builder)
-import Data.ByteString.Builder qualified as BS.Builder
+import Data.ByteString.Builder (Builder)
+import Data.ByteString.Builder qualified as Builder
 import Data.Maybe (fromMaybe)
 import Network.HTTP.Types qualified as HTTP
 import Network.HTTP2.Server qualified as HTTP2
 
 import Network.GRPC.Server.Context
 import Network.GRPC.Spec.PseudoHeaders
+import Network.GRPC.Util.Session (ConnectionToClient(..))
 
 {-------------------------------------------------------------------------------
   Connection API
@@ -40,10 +41,9 @@ import Network.GRPC.Spec.PseudoHeaders
 
 -- | Open connection to a client (for one specific request)
 data Connection = Connection {
-      context       :: ServerContext
-    , pseudoHeaders :: PseudoHeaders
-    , request       :: HTTP2.Request
-    , respond       :: HTTP2.Response -> IO ()
+      context            :: ServerContext
+    , pseudoHeaders      :: PseudoHeaders
+    , connectionToClient :: ConnectionToClient
     }
 
 {-------------------------------------------------------------------------------
@@ -58,22 +58,15 @@ withConnection context k request _aux respond' = do
       let conn :: Connection
           conn = Connection{
               context
-            , request
-            , respond
             , pseudoHeaders
+            , connectionToClient
             }
 
-      -- TODO: We need to think hard about error handling here.
-      --
-      -- * Exceptions should be caught
-      -- * It should be possible to throw a specific gRPC non-OK status
-      --   (i.e., we should catch GrpcException and give it special treatment)
-      -- * We need to think about how streaming works with trailers, if
-      --   streaming goes wrong halfway
-      -- * We need to consider security concerns here, too
-      --   (exceptions can leak sensitive data)
       k conn
   where
+    connectionToClient :: ConnectionToClient
+    connectionToClient = ConnectionToClient{request, respond}
+
     -- gRPC does not make use of push promises
     respond :: HTTP2.Response -> IO ()
     respond = flip respond' []
@@ -98,11 +91,11 @@ getPseudoHeaders req =
       Left (InvalidMethod    x) -> Left $ httpMethodNotAllowed    x
       Right hdrs                -> return hdrs
   where
-    bad :: BS.Builder -> Strict.ByteString -> OutOfSpecError
+    bad :: Builder -> Strict.ByteString -> OutOfSpecError
     bad msg arg = httpBadRequest $ mconcat [
           msg
         , ": "
-        , BS.Builder.byteString arg
+        , Builder.byteString arg
         ]
 
 rawPseudoHeaders :: HTTP2.Request -> RawPseudoHeaders
@@ -137,7 +130,7 @@ rawPseudoHeaders req = RawPseudoHeaders {
 data OutOfSpecError = OutOfSpecError {
       outOfSpecStatus  :: HTTP.Status
     , outOfSpecHeaders :: [HTTP.Header]
-    , outOfSpecBody    :: BS.Builder
+    , outOfSpecBody    :: Builder
     }
 
 outOfSpecResponse :: OutOfSpecError -> HTTP2.Response
@@ -156,7 +149,7 @@ httpMethodNotAllowed method = OutOfSpecError {
       outOfSpecStatus  = HTTP.methodNotAllowed405
     , outOfSpecHeaders = [("Allow", "POST")]
     , outOfSpecBody    = mconcat [
-          "Unexpected :method " <> BS.Builder.byteString method <> ".\n"
+          "Unexpected :method " <> Builder.byteString method <> ".\n"
         , "The only method supported by gRPC is POST.\n"
         ]
     }
@@ -164,7 +157,7 @@ httpMethodNotAllowed method = OutOfSpecError {
 -- | 400 Bad Request
 --
 -- <https://datatracker.ietf.org/doc/html/rfc7231#section-6.5.1>
-httpBadRequest :: BS.Builder -> OutOfSpecError
+httpBadRequest :: Builder -> OutOfSpecError
 httpBadRequest body = OutOfSpecError {
       outOfSpecStatus  = HTTP.badRequest400
     , outOfSpecHeaders = []

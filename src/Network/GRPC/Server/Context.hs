@@ -17,17 +17,15 @@ module Network.GRPC.Server.Context (
 import Control.Tracer
 import Data.Default
 
-import Network.GRPC.Common.Compression qualified as Compression
-import Network.GRPC.Common.Peer qualified as Peer
+import Network.GRPC.Common.Compression qualified as Compr
+import Network.GRPC.Server.Session (ServerSession)
 import Network.GRPC.Spec.RPC
+import Network.GRPC.Util.Session qualified as Session
 
 {-------------------------------------------------------------------------------
   Context
 
-  TODO:
-
-  - Compression
-  - Server stats
+  TODO: Stats
 -------------------------------------------------------------------------------}
 
 data ServerContext = ServerContext {
@@ -43,7 +41,7 @@ withContext params k = k $ ServerContext{params}
 
 data ServerParams = ServerParams {
       serverTracer      :: Tracer IO (SomeRPC PeerDebugMsg)
-    , serverCompression :: Compression.Negotation
+    , serverCompression :: Compr.Negotation
     }
 
 instance Default ServerParams where
@@ -52,7 +50,7 @@ instance Default ServerParams where
       , serverCompression = def
       }
 
-newtype PeerDebugMsg rpc = PeerDebugMsg (Peer.DebugMsg (Output rpc) (Input rpc))
+newtype PeerDebugMsg rpc = PeerDebugMsg (Session.DebugMsg (ServerSession rpc))
 
 deriving instance IsRPC rpc => Show (PeerDebugMsg rpc)
 

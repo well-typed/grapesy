@@ -63,13 +63,33 @@ handleRequest handlers conn = do
       , handlerMetadata
       , handlerRun
       } <- getHandler handlers path
-    call <- acceptCall conn handlerRPC handlerMetadata
+    mCall :: Either SomeException (Call rpc) <-
+      try $ acceptCall conn handlerRPC handlerMetadata
 
-    -- TODO: Timeouts
-    --
-    -- Wait-for-ready semantics makes this more complicated, maybe.
-    -- See example in the grpc-repo (python/wait_for_ready).
-    handlerRun call
+    case mCall of
+      Right call -> do
+        -- TODO: Timeouts
+        --
+        -- Wait-for-ready semantics makes this more complicated, maybe.
+        -- See example in the grpc-repo (python/wait_for_ready).
+
+        mErr :: Either SomeException () <- try $ handlerRun call
+        case mErr of
+          Right () -> return ()
+          Left err -> do
+            -- TODO: We need to think hard about error handling.
+            --
+            -- * It should be possible to throw a specific gRPC non-OK status
+            --   (i.e., we should catch GrpcException and give it special treatment)
+            -- * We need to think about how streaming works with trailers, if
+            --   streaming goes wrong halfway
+            -- * We need to consider security concerns here, too
+            --   (exceptions can leak sensitive data)
+            putStrLn $ "Uncaught exception: " ++ show err
+            putStrLn "(TODO: We need a proper handler here.)"
+      Left err -> do
+        putStrLn $ "Uncaught exception during acceptCall: " ++ show err
+        putStrLn "(TODO: We need a proper handler here.)"
   where
     path :: Path
     path = Connection.path conn
