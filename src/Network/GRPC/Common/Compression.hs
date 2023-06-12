@@ -3,7 +3,7 @@
 -- Intended for qualified import.
 --
 -- > import Network.GRPC.Common.Compression (Compression(..))
--- > import Network.GRPC.Common.Compression qualified as Compression
+-- > import Network.GRPC.Common.Compression qualified as Compr
 module Network.GRPC.Common.Compression (
     -- * Definition
     Compression(..)
@@ -14,15 +14,22 @@ module Network.GRPC.Common.Compression (
   , gzip
     -- * Negotation
   , Negotation(..)
-  , UnsupportedCompression(..)
+  , getSupported
   , chooseFirst
   , require
+    -- ** Exceptions
+  , UnsupportedCompression(..)
+  , CompressionNegotationFailed(..)
   ) where
 
 import Control.Exception
+import Control.Monad.Catch
 import Data.Default
+import Data.Foldable (toList)
 import Data.List.NonEmpty (NonEmpty)
 import Data.List.NonEmpty qualified as NE
+import Data.Map (Map)
+import Data.Map qualified as Map
 
 import Network.GRPC.Spec.Compression
 
@@ -32,7 +39,7 @@ import Network.GRPC.Spec.Compression
 
 -- | Compression negotation
 data Negotation = Negotation {
-      -- | Which algorithms should be offered (in this order) to the server?
+      -- | Which algorithms should be offered (in this order) to the peer?
       offer :: NonEmpty CompressionId
 
       -- | Choose compression algorithm
@@ -42,15 +49,23 @@ data Negotation = Negotation {
       -- compression negotation has taken place, no compression should be used.
     , choose ::
            NonEmpty CompressionId
-        -> Either UnsupportedCompression Compression
+        -> Either CompressionNegotationFailed Compression
+
+      -- | All supported compression algorithms
+    , supported :: CompressionId -> Maybe Compression
     }
 
--- | Exception thrown when we were unable to pick a preferred compression
-data UnsupportedCompression = UnsupportedCompression {
-      serverSupportedCompression :: NonEmpty CompressionId
-    }
-  deriving stock (Show)
-  deriving anyclass (Exception)
+-- | Map 'CompressionId' to 'Compression' for supported algorithms
+--
+-- Throws 'UnsupportedCompression' if the algorithm is not supported.
+getSupported ::
+     MonadThrow m
+  => Negotation -> Maybe CompressionId -> m Compression
+getSupported _     Nothing    = return identity
+getSupported compr (Just cid) =
+    case supported compr cid of
+      Nothing -> throwM $ UnsupportedCompression cid
+      Just c  -> return c
 
 instance Default Negotation where
   def = chooseFirst allSupported
@@ -58,15 +73,46 @@ instance Default Negotation where
 -- | Choose the first algorithm that appears in the list of client supported
 chooseFirst :: NonEmpty Compression -> Negotation
 chooseFirst ourSupported = Negotation {
-      offer  = fmap compressionId ourSupported
+      offer =
+        fmap compressionId ourSupported
     , choose = \serverSupported ->
         let isSupported :: Compression -> Bool
             isSupported = (`elem` serverSupported) . compressionId
         in case NE.filter isSupported ourSupported of
              c:_ -> Right c
-             []  -> Left $ UnsupportedCompression serverSupported
+             []  -> Left $ CompressionNegotationFailed serverSupported
+    , supported = \cid -> Map.lookup cid ourSupported'
     }
+  where
+    ourSupported' :: Map CompressionId Compression
+    ourSupported' =
+        Map.fromList $
+          map (\c -> (compressionId c, c)) (toList ourSupported)
 
 -- | Insist on the specified algorithm
 require :: Compression -> Negotation
 require = chooseFirst . NE.singleton
+
+{-------------------------------------------------------------------------------
+  Exceptions
+-------------------------------------------------------------------------------}
+
+-- | Compression exception
+--
+-- This is indicative of a misbehaving peer: they should not use a particular
+-- compression algorithm unless they have evidence that we support it.
+data UnsupportedCompression =
+    -- | The peer uses a compression algorithm we do not support
+    UnsupportedCompression CompressionId
+  deriving stock (Show)
+  deriving anyclass (Exception)
+
+-- | Negotation failed
+--
+-- Unlike 'CompressionException', this is /not/ indicative of a misbehaving
+-- peer. It does however mean that we probably cannot talk to this peer.
+data CompressionNegotationFailed =
+    -- | We don't support any of the compression algorithms listed by the peer
+    CompressionNegotationFailed (NonEmpty CompressionId)
+  deriving stock (Show)
+  deriving anyclass (Exception)

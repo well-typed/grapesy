@@ -18,8 +18,8 @@ import Data.Bifunctor
 import Data.Bits
 import Data.ByteString qualified as BS.Strict
 import Data.ByteString qualified as Strict (ByteString)
-import Data.ByteString.Builder qualified as BS (Builder)
-import Data.ByteString.Builder qualified as BS.Builder
+import Data.ByteString.Builder (Builder)
+import Data.ByteString.Builder qualified as Builder
 import Data.ByteString.Lazy qualified as BS.Lazy
 import Data.Text (Text)
 import Data.Text.Encoding qualified as Text
@@ -35,20 +35,20 @@ import Network.GRPC.Util.ByteString (ascii)
 encode :: Text -> Strict.ByteString
 encode =
       BS.Lazy.toStrict
-    . BS.Builder.toLazyByteString
+    . Builder.toLazyByteString
     . foldMap encodeChar
     . BS.Strict.unpack
     . Text.encodeUtf8
 
-encodeChar :: Word8 -> BS.Builder
+encodeChar :: Word8 -> Builder
 encodeChar c
   | needsEncoding c = let (hi, lo) = toBase16 c
                       in mconcat [
-                             BS.Builder.char7 '%'
-                           , BS.Builder.word8 hi
-                           , BS.Builder.word8 lo
+                             Builder.char7 '%'
+                           , Builder.word8 hi
+                           , Builder.word8 lo
                            ]
-  | otherwise       = BS.Builder.word8 c
+  | otherwise       = Builder.word8 c
 
 -- | Does this character have to be encoded?
 --

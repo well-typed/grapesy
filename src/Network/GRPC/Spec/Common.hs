@@ -22,31 +22,17 @@ module Network.GRPC.Spec.Common (
   ) where
 
 import Data.ByteString qualified as BS.Strict
-import Data.ByteString qualified as Strict (ByteString)
-import Data.ByteString.Char8 qualified as BS.Strict.C8
+import Control.Monad.Except
 import Data.Foldable (toList)
 import Data.List (intersperse)
 import Data.List.NonEmpty (NonEmpty(..))
-import Data.Typeable
 import Network.HTTP.Types qualified as HTTP
 
 import Network.GRPC.Spec.Compression (CompressionId)
-import Network.GRPC.Spec.Compression qualified as Compression
+import Network.GRPC.Spec.Compression qualified as Compr
 import Network.GRPC.Spec.RPC
 import Network.GRPC.Util.ByteString
-
-{-------------------------------------------------------------------------------
-  Preliminaries
--------------------------------------------------------------------------------}
-
-type HeaderValue = Strict.ByteString
-
-checkAtLeastOne :: forall a. Typeable a => [a] -> Either String (NonEmpty a)
-checkAtLeastOne (x : xs) = Right (x :| xs)
-checkAtLeastOne []       = Left $ concat [
-                               "Expected at least one "
-                             , show (typeRep (Proxy @a))
-                             ]
+import Network.GRPC.Util.Partial
 
 {-------------------------------------------------------------------------------
   > Content-Type →
@@ -62,25 +48,12 @@ buildContentType rpc = (
     )
 
 parseContentType ::
-     IsRPC rpc
+     (MonadError String m, IsRPC rpc)
   => rpc
-  -> HeaderValue
-  -> Either String ()
-parseContentType rpc value =
-    if value `elem` accepted then
-      -- TODO: We should return the serialization format
-      Right ()
-    else
-      Left $ concat [
-          "Unexpected content-type "
-        , BS.Strict.C8.unpack value
-        , "; expected one of "
-        , mconcat . intersperse ", " . map BS.Strict.C8.unpack $ accepted
-        , "'"
-        ]
-  where
-    accepted :: [Strict.ByteString]
-    accepted = [
+  -> HTTP.Header
+  -> m ()
+parseContentType rpc hdr =
+    expectHeaderValue hdr $ [
         "application/grpc"
       , "application/grpc+" <> serializationFormat rpc
       ]
@@ -93,13 +66,15 @@ parseContentType rpc value =
 buildMessageEncoding :: CompressionId -> HTTP.Header
 buildMessageEncoding compr = (
       "grpc-encoding"
-    , Compression.serializeId compr
+    , Compr.serializeId compr
     )
 
 parseMessageEncoding ::
-     HeaderValue
-  -> Either String CompressionId
-parseMessageEncoding = Right . Compression.deserializeId
+     MonadError String m
+  => HTTP.Header
+  -> m CompressionId
+parseMessageEncoding (_name, value) =
+    return $ Compr.deserializeId value
 
 {-------------------------------------------------------------------------------
   > Message-Accept-Encoding →
@@ -109,16 +84,15 @@ parseMessageEncoding = Right . Compression.deserializeId
 buildMessageAcceptEncoding :: NonEmpty CompressionId -> HTTP.Header
 buildMessageAcceptEncoding compr = (
       "grpc-accept-encoding"
-    , mconcat . intersperse "," . map Compression.serializeId $ toList compr
+    , mconcat . intersperse "," . map Compr.serializeId $ toList compr
     )
 
 parseMessageAcceptEncoding ::
-     HeaderValue
-  -> Either String (NonEmpty CompressionId)
-parseMessageAcceptEncoding =
-      checkAtLeastOne
-    . map (Compression.deserializeId . strip)
+     MonadError String m
+  => HTTP.Header
+  -> m (NonEmpty CompressionId)
+parseMessageAcceptEncoding (_name, value) =
+      expectAtLeastOne
+    . map (Compr.deserializeId . strip)
     . BS.Strict.splitWith (== ascii ',')
-
-
-
+    $ value

@@ -27,8 +27,8 @@ import Data.List.NonEmpty (NonEmpty)
 import Data.Text (Text)
 import Generics.SOP qualified as SOP
 import GHC.Generics qualified as GHC
+import GHC.Show
 
-import Network.GRPC.Common.Compression (Compression)
 import Network.GRPC.Spec.Compression (CompressionId)
 import Network.GRPC.Spec.CustomMetadata
 
@@ -52,7 +52,7 @@ data CallParams = CallParams {
       -- 'trailerMetadatda'.)
     , callRequestMetadata :: [CustomMetadata]
     }
-  deriving stock (Show)
+  deriving stock (Show, Eq)
 
 -- | Default 'CallParams'
 instance Default CallParams where
@@ -66,13 +66,19 @@ instance Default CallParams where
 -------------------------------------------------------------------------------}
 
 data Timeout = Timeout TimeoutUnit TimeoutValue
-  deriving stock (Show)
+  deriving stock (Show, Eq)
 
 -- | Positive integer with ASCII representation of at most 8 digits
 newtype TimeoutValue = UnsafeTimeoutValue {
       getTimeoutValue :: Word
     }
-  deriving newtype (Show) -- relies on the Num instance
+  deriving newtype (Eq)
+
+-- | 'Show' instance relies on the 'TimeoutValue' pattern synonym
+instance Show TimeoutValue where
+  showsPrec p (UnsafeTimeoutValue val) = showParen (p >= appPrec1) $
+        showString "TimeoutValue "
+      . showsPrec appPrec1 val
 
 pattern TimeoutValue :: Word -> TimeoutValue
 pattern TimeoutValue t <- UnsafeTimeoutValue t
@@ -93,7 +99,7 @@ data TimeoutUnit =
   | Millisecond
   | Microsecond
   | Nanosecond
-  deriving stock (Show)
+  deriving stock (Show, Eq)
 
 {-------------------------------------------------------------------------------
   Inputs (message sent to the peer)
@@ -103,15 +109,25 @@ data TimeoutUnit =
 --
 -- This is constructed internally; it is not part of the public API.
 data RequestHeaders = RequestHeaders {
-      -- | Parameters set on a per-call basis
-      requestParams :: CallParams
+      -- | Timeout
+      requestTimeout :: Maybe Timeout
+
+      -- | Custom metadata
+    , requestMetadata :: [CustomMetadata]
 
       -- | Compression used for outgoing messages
-    , requestCompression :: Compression
+    , requestCompression :: Maybe CompressionId
 
       -- | Accepted compression algorithms for incoming messages
-    , requestAcceptCompression :: NonEmpty CompressionId
+      --
+      -- @Maybe (NonEmpty ..)@ is perhaps a bit strange (why not just @[]@), but
+      -- it emphasizes the specification: /if/ the header is present, it must be
+      -- a non-empty list.
+    , requestAcceptCompression :: Maybe (NonEmpty CompressionId)
     }
+  deriving stock (Show, Eq)
+  deriving stock (GHC.Generic)
+  deriving anyclass (SOP.Generic, SOP.HasDatatypeInfo)
 
 -- | Mark a input sent as final
 data IsFinal = Final | NotFinal

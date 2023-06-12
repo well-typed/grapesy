@@ -8,13 +8,12 @@ module Network.GRPC.Client.Connection (
     -- * Definition
     Connection -- opaque
   , withConnection
-  , send
+  , connectionToServer
   , params
     -- * Configuration
   , ConnParams(..)
   , PeerDebugMsg(..)
-    -- * Information about the connection
-  , Meta(..)
+    -- * Meta-information
   , currentMeta
   , updateMeta
   ) where
@@ -23,17 +22,18 @@ import Control.Concurrent
 import Control.Monad.Catch
 import Control.Tracer
 import Data.Default
-import Data.List.NonEmpty (NonEmpty)
 import Network.HPACK qualified as HPACK
 import Network.HTTP2.Client qualified as Client
 import Network.Run.TCP (runTCPClient)
 
-import Network.GRPC.Common.Compression (Compression)
-import Network.GRPC.Common.Compression qualified as Compression
-import Network.GRPC.Common.Peer qualified as Peer
+import Network.GRPC.Client.Meta (Meta)
+import Network.GRPC.Client.Meta qualified as Meta
+import Network.GRPC.Client.Session
+import Network.GRPC.Common.Compression qualified as Compr
 import Network.GRPC.Spec
 import Network.GRPC.Spec.PseudoHeaders
 import Network.GRPC.Spec.RPC
+import Network.GRPC.Util.Session qualified as Session
 
 {-------------------------------------------------------------------------------
   Connection API
@@ -54,6 +54,8 @@ import Network.GRPC.Spec.RPC
 -- RPC requests over that one connection as we wish. 'Connection' abstracts over
 -- this connection, and also maintains some information about the server.
 --
+-- We can make many RPC calls over the same connection.
+--
 -- TODO: Discuss and implement auto reconnect.
 -- TODO: (Related:) wait-for-ready semantics
 --       See <https://github.com/grpc/grpc/blob/master/doc/wait-for-ready.md>
@@ -65,13 +67,8 @@ data Connection = Connection {
       -- | Information about the open connection
     , metaVar :: MVar Meta
 
-      -- | Send request
-      --
-      -- This is the function we get from @http2@.
-    , send :: forall a.
-           Client.Request
-        -> (Client.Response -> IO a)
-        -> IO a
+      -- | The actual connection to the server (from @http2@)
+    , connectionToServer :: Session.ConnectionToServer
     }
 
 {-------------------------------------------------------------------------------
@@ -87,7 +84,7 @@ data ConnParams = ConnParams {
       connTracer :: Tracer IO (SomeRPC PeerDebugMsg)
 
       -- | Compression negotation
-    , connCompression :: Compression.Negotation
+    , connCompression :: Compr.Negotation
 
       -- | Default timeout
       --
@@ -102,7 +99,7 @@ instance Default ConnParams where
       , connDefaultTimeout = Nothing
       }
 
-newtype PeerDebugMsg rpc = PeerDebugMsg (Peer.DebugMsg (Input rpc) (Output rpc))
+newtype PeerDebugMsg rpc = PeerDebugMsg (Session.DebugMsg (ClientSession rpc))
 
 deriving instance IsRPC rpc => Show (PeerDebugMsg rpc)
 
@@ -117,13 +114,17 @@ withConnection ::
   -> (Connection -> IO a)
   -> IO a
 withConnection params scheme auth k = do
-    metaVar <- newMVar $ initMeta
+    metaVar <- newMVar $ Meta.init
     runTCPClient (authorityHost auth) (show $ authorityPort auth) $ \sock ->
       bracket
           (Client.allocSimpleConfig sock bufferSize)
           Client.freeSimpleConfig $ \conf ->
-        Client.run clientConfig conf $ \send ->
-          k Connection{params, metaVar, send}
+        Client.run clientConfig conf $ \sendRequest ->
+          k Connection{
+              params
+            , metaVar
+            , connectionToServer = Session.ConnectionToServer sendRequest
+            }
   where
     -- See docs of 'confBufferSize', but importantly: "this value is announced
     -- via SETTINGS_MAX_FRAME_SIZE to the peer."
@@ -147,62 +148,12 @@ withConnection params scheme auth k = do
         }
 
 {-------------------------------------------------------------------------------
-  Information about an open connection
--------------------------------------------------------------------------------}
-
--- | Information about on open connection
-data Meta = Meta {
-      -- | Compression algorithm used for sending messages to the server
-      --
-      -- Nothing if the compression negotation has not yet happened.
-      serverCompression :: Maybe Compression
-    }
-  deriving stock (Show)
-
--- | Initial connection state
-initMeta :: Meta
-initMeta = Meta {
-      serverCompression = Nothing
-    }
-
-{-------------------------------------------------------------------------------
   Access and update meta information
 -------------------------------------------------------------------------------}
 
 currentMeta :: Connection -> IO Meta
 currentMeta Connection{metaVar} = readMVar metaVar
 
--- | Update 'Meta' given response headers
---
--- Returns the updated 'Meta'.
-updateMeta :: Connection -> ResponseHeaders -> IO Meta
+updateMeta :: Connection -> ResponseHeaders -> IO ()
 updateMeta Connection{params, metaVar} hdrs =
-    modifyMVar metaVar $ \meta -> do
-      meta' <-
-         Meta
-           <$> updateCompression params
-                 (responseAcceptCompression hdrs)
-                 (serverCompression meta)
-      return (meta', meta')
-
--- Update choice compression, if necessary
---
--- We have four possibilities:
---
--- a. Compression algorithms have already been set
--- b. We chose from the list of server reported supported algorithms
--- c. We rejected all of the server reported supported algorithms
--- d. The server didn't report which algorithms are supported
-updateCompression ::
-     MonadThrow m
-  => ConnParams
-  -> Maybe (NonEmpty Compression.CompressionId)
-  -> Maybe Compression -> m (Maybe Compression)
-updateCompression params accepted = go
-  where
-    go (Just compr) = return $ Just compr              -- (a)
-    go Nothing      =
-        case Compression.choose (connCompression params) <$> accepted of
-          Just (Right compr) -> return $ Just compr    -- (b)
-          Just (Left err)    -> throwM err             -- (c)
-          Nothing            -> return Nothing         -- (d)
+    modifyMVar_ metaVar $ Meta.update (connCompression params) hdrs

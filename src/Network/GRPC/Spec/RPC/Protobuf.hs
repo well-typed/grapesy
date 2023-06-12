@@ -5,7 +5,7 @@ module Network.GRPC.Spec.RPC.Protobuf (
     RPC(..)
   ) where
 
-import Data.ByteString.Builder qualified as BS.Builder
+import Data.ByteString.Builder qualified as Builder
 import Data.ByteString.Lazy qualified as BS.Lazy
 import Data.Kind
 import Data.ProtoLens qualified as Protobuf
@@ -56,8 +56,8 @@ instance ( Typeable           serv
   methodName          _ = Text.pack $
                               symbolVal $ Proxy @(MethodName serv meth)
   messageType         _ = Protobuf.messageName $ Proxy @(MethodInput serv meth)
-  serializeInput      _ = BS.Builder.toLazyByteString . Protobuf.buildMessage
-  serializeOutput     _ = BS.Builder.toLazyByteString . Protobuf.buildMessage
+  serializeInput      _ = Builder.toLazyByteString . Protobuf.buildMessage
+  serializeOutput     _ = Builder.toLazyByteString . Protobuf.buildMessage
   deserializeInput    _ = Protobuf.runParser parseMessage . BS.Lazy.toStrict
   deserializeOutput   _ = Protobuf.runParser parseMessage . BS.Lazy.toStrict
 

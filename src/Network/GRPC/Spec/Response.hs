@@ -2,9 +2,9 @@
 
 -- | Deal with HTTP2 responses
 --
--- Intended for unqualified import.
+-- Intended for qualified import.
 --
--- > import Network.GRPC.Spec.Response qualified as Response
+-- > import Network.GRPC.Spec.Response qualified as Resp
 module Network.GRPC.Spec.Response (
     -- * Construction
     buildHeaders
@@ -16,12 +16,14 @@ module Network.GRPC.Spec.Response (
 
 import Control.Monad.Except
 import Data.ByteString.Char8 qualified as BS.Strict.C8
+import Data.List.NonEmpty (NonEmpty)
 import Data.SOP
 import Network.HTTP.Types qualified as HTTP
 import Text.Read (readMaybe)
 
 import Network.GRPC.Spec
 import Network.GRPC.Spec.Common
+import Network.GRPC.Spec.Compression (CompressionId)
 import Network.GRPC.Spec.CustomMetadata
 import Network.GRPC.Spec.PercentEncoding qualified as PercentEncoding
 import Network.GRPC.Spec.RPC
@@ -79,26 +81,33 @@ parseHeaders rpc =
     parseHeader ::
          HTTP.Header
       -> PartialParser ResponseHeaders (Either String) ()
-    parseHeader hdr@(name, value)
+    parseHeader hdr@(name, _value)
       | name == "content-type"
-      = liftEither $ parseContentType rpc value
+      = parseContentType rpc hdr
 
       | name == "grpc-encoding"
       = update updCompression $ \_ ->
-          Just <$> parseMessageEncoding value
+          Just <$> parseMessageEncoding hdr
 
       | name == "grpc-accept-encoding"
       = update updAcceptCompression $ \_ ->
-          Just <$> parseMessageAcceptEncoding value
+          Just <$> parseMessageAcceptEncoding hdr
+
+      -- Trailers-Only case
+
+      | name == "grpc-status"  = return ()
+      | name == "grpc-message" = return ()
+
+      -- Custom metadata
 
       | otherwise
       = parseCustomMetadata hdr >>= update updCustom . fmap . (:)
 
     uninitResponseHeaders :: Partial (Either String) ResponseHeaders
     uninitResponseHeaders =
-           return Nothing  -- headerCompression
-        :* return Nothing  -- headerAcceptCompression
-        :* return []       -- headerCustom
+           return (Nothing :: Maybe CompressionId)
+        :* return (Nothing :: Maybe (NonEmpty CompressionId))
+        :* return ([]      :: [CustomMetadata])
         :* Nil
 
     (    updCompression
@@ -131,25 +140,45 @@ buildTrailers Trailers{ trailerGrpcStatus
 
 -- | Parse response trailers
 --
--- This can be used for either @Trailers@ or @Trailers-Only@:
+-- === The @Trailers-Only@ case
 --
--- > Trailers → Status [Status-Message] *Custom-Metadata
--- > Trailers-Only → HTTP-Status Content-Type Trailers
+-- The gRPC spec defines:
 --
--- We can use one function for both, because
+-- > Response-Headers → HTTP-Status
+-- >                    [Message-Encoding]
+-- >                    [Message-Accept-Encoding]
+-- >                    Content-Type
+-- >                    *Custom-Metadata
+-- > Trailers         → Status
+-- >                    [Status-Message]
+-- >                    *Custom-Metadata
+-- > Trailers-Only    → HTTP-Status
+-- >                    Content-Type
+-- >                    Trailers
 --
--- 1. We do not deal with @HTTP-Status@ at all in this module (the HTTP status
---    is reported separately by @http2@)
--- 2. We do not report a value for @Content-Type@, but merely check that its
---    value matches what we expect, if it's set.
+-- We treat this case in a somewhat coarse-grained manner (see also
+-- 'parseTrailers' in "Network.GRPC.Util.Session.API"): in the case of
+-- @Trailers-Only@, we parse the same set of headers twice, once using
+-- 'parseHeaders' and once using 'parseTrailers'. Both parsers are designed to
+-- ignore each other's headers. We can only do this because:
 --
--- If in future updates to the gRPC spec @Trailers-Only@ starts to diverge more
--- from @Trailers@, we will need to split this into two functions.
-parseTrailers ::
-     IsRPC rpc
-  => rpc
-  -> [HTTP.Header] -> Either String Trailers
-parseTrailers rpc =
+-- * The @Trailers-Only@ case does not carry any information that is not present
+--   in the combination of @Response-Headers@ and @Trailers@.
+-- * The only headers that are /required/ by @Response-Headers@ are also present
+--   in @Trailers-Only@.
+--
+-- These two properties of the spec do not feel accidental; nonetheless, should
+-- they no longer hold in future versions of the spec, we will need to do this
+-- differently (starting by introducing a new types in
+-- "Network.GRPC.Util.Session.API", corresponding to the @Trailers-Only@ case).
+--
+-- One consequence of this approach is that if there is custom metadata present,
+-- we will record that metadata both as 'responseMetadata' and as
+-- 'trailerMetadata'; this is perhaps not unreasonable. Client code can
+-- distinguish between the two cases simply by keeping track how many outputs
+-- have been sent.
+parseTrailers :: [HTTP.Header] -> Either String Trailers
+parseTrailers =
     runPartialParser uninitTrailers . mapM_ parseHeader
   where
     parseHeader :: HTTP.Header -> PartialParser Trailers (Either String) ()
@@ -164,8 +193,13 @@ parseTrailers rpc =
           Left  err -> throwError $ show err
           Right msg -> update updGrpcMessage $ \_ -> return (Just msg)
 
-      | name == "content-type" -- only relevant in the Trailers-Only case
-      = liftEither $ parseContentType rpc value
+      -- Trailers-Only case
+
+      | name == "content-type"         = return ()
+      | name == "grpc-encoding"        = return ()
+      | name == "grpc-accept-encoding" = return ()
+
+      -- Custom metadata
 
       | otherwise
       = parseCustomMetadata hdr >>= update updCustom . fmap . (:)

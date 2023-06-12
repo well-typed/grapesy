@@ -4,23 +4,27 @@
 --
 -- Intended for qualified import.
 --
--- > import Network.GRPC.Spec.Request qualified as Request
+-- > import Network.GRPC.Spec.Request qualified as Req
 module Network.GRPC.Spec.Request (
     buildHeaders
+  , parseHeaders
   ) where
 
 import Data.ByteString.Char8 qualified as BS.Strict.C8
 import Data.List (intersperse)
+import Data.List.NonEmpty (NonEmpty)
 import Data.Maybe (catMaybes)
+import Data.SOP
 import Data.Version
 import Network.HTTP.Types qualified as HTTP
 
 import Network.GRPC.Spec
 import Network.GRPC.Spec.Common
-import Network.GRPC.Spec.Compression (compressionId)
+import Network.GRPC.Spec.Compression (CompressionId)
 import Network.GRPC.Spec.CustomMetadata
 import Network.GRPC.Spec.PercentEncoding qualified as PercentEncoding
 import Network.GRPC.Spec.RPC
+import Network.GRPC.Util.Partial
 
 import PackageInfo_grapesy qualified as PackageInfo
 
@@ -33,10 +37,10 @@ import PackageInfo_grapesy qualified as PackageInfo
 -- > Request-Headers →
 -- >   Call-Definition
 -- >   *Custom-Metadata
-buildHeaders :: IsRPC rpc => RequestHeaders -> rpc -> [HTTP.Header]
-buildHeaders callParams@RequestHeaders{requestParams} rpc = concat [
+buildHeaders :: IsRPC rpc => rpc -> RequestHeaders -> [HTTP.Header]
+buildHeaders rpc callParams@RequestHeaders{requestMetadata} = concat [
       callDefinition callParams rpc
-    , map buildCustomMetadata $ callRequestMetadata requestParams
+    , map buildCustomMetadata requestMetadata
     ]
 
 -- | Call definition
@@ -67,13 +71,13 @@ buildHeaders callParams@RequestHeaders{requestParams} rpc = concat [
 -- the reserved headers here /at all/, as they are automatically added by
 -- `http2`.
 callDefinition :: IsRPC rpc => RequestHeaders -> rpc -> [HTTP.Header]
-callDefinition = \callParams@RequestHeaders{requestParams} rpc -> catMaybes [
-      hdrTimeout <$> callTimeout requestParams
+callDefinition = \hdrs rpc -> catMaybes [
+      hdrTimeout <$> requestTimeout hdrs
     , Just $ buildTe
     , Just $ buildContentType rpc
     , Just $ buildMessageType rpc
-    , Just $ buildMessageEncoding (compressionId $ requestCompression callParams)
-    , Just $ buildMessageAcceptEncoding (requestAcceptCompression callParams)
+    , buildMessageEncoding       <$> requestCompression       hdrs
+    , buildMessageAcceptEncoding <$> requestAcceptCompression hdrs
     , Just $ buildUserAgent
     ]
   where
@@ -113,7 +117,6 @@ callDefinition = \callParams@RequestHeaders{requestParams} rpc -> catMaybes [
         , PercentEncoding.encode $ messageType rpc
         )
 
-
     -- > User-Agent → "user-agent" {structured user-agent string}
     --
     -- The spec says:
@@ -144,3 +147,75 @@ callDefinition = \callParams@RequestHeaders{requestParams} rpc -> catMaybes [
                   versionBranch PackageInfo.version
             ]
         )
+
+{-------------------------------------------------------------------------------
+  Parsing
+-------------------------------------------------------------------------------}
+
+-- | Parse request headers
+parseHeaders ::
+     IsRPC rpc
+  => rpc
+  -> [HTTP.Header] -> Either String RequestHeaders
+parseHeaders rpc =
+      runPartialParser uninitRequestHeaders
+    . mapM_ parseHeader
+  where
+    parseHeader ::
+         HTTP.Header
+      -> PartialParser RequestHeaders (Either String) ()
+    parseHeader hdr@(name, _value)
+      | name == "user-agent"
+      = return () -- TODO
+
+      | name == "grpc-timeout"
+      = return () -- TODO
+
+      | name == "grpc-encoding"
+      = update updCompression $ \_ ->
+          Just <$> parseMessageEncoding hdr
+
+      | name == "grpc-accept-encoding"
+      = update updAcceptCompression $ \_ ->
+          Just <$> parseMessageAcceptEncoding hdr
+
+      -- /If/ the @te@ header is present we check its value, but we do not
+      -- insist that it is present (technically this is not conform spec).
+      | name == "te"
+      = expectHeaderValue hdr ["trailers"]
+
+      -- Dealing with 'content-type' and 'grpc-message-type' is a bit subtle.
+      -- In /principle/ the headers should /tell/ us what kind of RPC we are
+      -- dealing with (Protobuf or otherwise) and what its message type is.
+      -- However, we assume that, for a given server, the path (parsed
+      -- previously) determines these values, and so we merely need to check
+      -- that they match the values we expect.
+      --
+      -- TODO: For content types that aren't application/grpc (with or without
+      -- a subtype), we should throw HTTP 415 Unsupported Media Type response
+      --
+      -- TODO: We should throw an error if these headers are not present.
+      | name == "content-type"
+      = parseContentType rpc hdr
+      | name == "grpc-message-type"
+      = expectHeaderValue hdr [PercentEncoding.encode (messageType rpc)]
+
+      -- Everything else we parse as custom metadata
+      | otherwise
+      = parseCustomMetadata hdr >>= update updCustom . fmap . (:)
+
+    -- All of these headers are optional
+    uninitRequestHeaders :: Partial (Either String) RequestHeaders
+    uninitRequestHeaders =
+           Right (Nothing :: Maybe Timeout)
+        :* Right ([]      :: [CustomMetadata])
+        :* Right (Nothing :: Maybe CompressionId)
+        :* Right (Nothing :: Maybe (NonEmpty CompressionId))
+        :* Nil
+
+    (    _updTimeout
+      :* updCustom
+      :* updCompression
+      :* updAcceptCompression
+      :* Nil ) = partialUpdates (Proxy @RequestHeaders)
+

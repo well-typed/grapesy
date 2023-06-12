@@ -26,7 +26,7 @@ import Options.Applicative
 
 import Network.GRPC.Client (Authority(..))
 import Network.GRPC.Common.Compression (Compression)
-import Network.GRPC.Common.Compression qualified as Compression
+import Network.GRPC.Common.Compression qualified as Compr
 
 import Proto.Helloworld
 import Proto.RouteGuide
@@ -122,7 +122,7 @@ parseAuthority =
 
 parseCompression :: Parser Compression
 parseCompression = asum [
-      flag' Compression.gzip $ mconcat [
+      flag' Compr.gzip $ mconcat [
           long "gzip"
         , help "Use GZip compression for all messages"
         ]

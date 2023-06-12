@@ -29,9 +29,9 @@ module Network.GRPC.Client (
     -- $openRequest
   , StreamElem(..)
   , CustomMetadata(..)
-  , callResponseMetadata
   , sendInput
   , recvOutput
+  , recvResponseMetadata
 
     -- ** Protocol specific wrappers
   , sendOnlyInput
