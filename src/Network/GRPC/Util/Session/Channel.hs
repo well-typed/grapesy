@@ -33,7 +33,6 @@ import Control.Exception
 import Control.Monad
 import Control.Tracer
 import Data.ByteString qualified as BS.Strict
-import Data.ByteString qualified as Strict (ByteString)
 import Data.ByteString.Builder (Builder)
 import Data.ByteString.Lazy qualified as BS.Lazy
 import GHC.Stack
@@ -45,6 +44,7 @@ import Network.GRPC.Common.StreamElem qualified as StreamElem
 import Network.GRPC.Util.Parser
 import Network.GRPC.Util.Session.API
 import Network.GRPC.Util.Thread
+import Network.GRPC.Util.HTTP2
 
 {-------------------------------------------------------------------------------
   Definitions
@@ -273,42 +273,34 @@ sendMessageLoop :: forall sess.
   => sess
   -> Tracer IO (DebugMsg sess)
   -> OutboundState sess
-  -> (Builder -> IO ())  -- ^ Write chunk
-  -> IO ()               -- ^ Flush
+  -> OutputStream
   -> IO ()
-sendMessageLoop sess tracer st write flush = do
+sendMessageLoop sess tracer st stream = do
     outboundHeaders <- atomically $ readTMVar (channelOutboundHeaders st)
     go $ buildMsg sess outboundHeaders
   where
     go :: (OutboundMsg sess -> Builder) -> IO ()
-    go build = loop False
+    go build = loop
       where
-        loop ::
-             Bool -- Have we called 'write' at any stage?
-          -> IO ()
-        loop didWrite = do
+        loop :: IO ()
+        loop = do
             traceWith tracer $ NodeSendAwaitMsg
             msg <- atomically $ takeTMVar (channelOutboundElem st)
             traceWith tracer $ NodeSendMsg msg
 
             case msg of
               StreamElem x -> do
-                write $ build x
-                flush
-                loop True
+                writeChunk stream $ build x
+                flush stream
+                loop
               FinalElem x trailers -> do
                 -- We don't flush the last message, so that http2 can mark the
                 -- stream as END_STREAM (rather than having to send a separate
                 -- empty data frame).
-                write $ build x
+                writeChunk stream $ build x
                 atomically $ putTMVar (channelOutboundTrailers st) trailers
               NoMoreElems trailers -> do
-                -- @http2@ will block on sending a request until 'write' has
-                -- been called at least once.
-                --
-                -- TODO: This does result in an unnecessary empty data frame;
-                -- perhaps we should patch http2.
-                unless didWrite $ write mempty
+                closeOutputStream stream
                 atomically $ putTMVar (channelOutboundTrailers st) trailers
 
 -- | Receive all messages sent by the node's peer
@@ -320,10 +312,9 @@ recvMessageLoop :: forall sess.
   => sess
   -> Tracer IO (DebugMsg sess)
   -> InboundState sess
-  -> IO Strict.ByteString
-  -> IO [HTTP.Header]
+  -> InputStream
   -> IO ()
-recvMessageLoop sess tracer st getChunk getTrailers = do
+recvMessageLoop sess tracer st stream = do
     inboundHeaders <- atomically $ readTMVar (channelInboundHeaders st)
     go $ parseMsg sess inboundHeaders
   where
@@ -339,7 +330,7 @@ recvMessageLoop sess tracer st getChunk getTrailers = do
             loop p'
         loop (ParserNeedsData acc p') = do
             traceWith tracer $ NodeNeedsData acc
-            bs <- getChunk
+            bs <- getChunk stream
 
             if | not (BS.Strict.null bs) ->
                    loop $ p' bs
@@ -348,7 +339,7 @@ recvMessageLoop sess tracer st getChunk getTrailers = do
                    throwIO PeerSentIncompleteMessage
 
                | otherwise -> do
-                   processInboundTrailers sess tracer st =<< getTrailers
+                   processInboundTrailers sess tracer st =<< getTrailers stream
 
 
 processInboundTrailers :: forall sess.

@@ -57,14 +57,13 @@ initiateResponse sess tracer conn mkOutboundHeaders = do
         atomically $ putTMVar (channelInboundHeaders st) inboundHeaders
         if Server.requestBodySize (request conn)  == Just 0 then
           processInboundTrailers sess tracer st requestHeaders
-        else
+        else do
+          stream <- serverInputStream (request conn)
           recvMessageLoop
             sess
             tracer
             st
-            (Server.getRequestBodyChunk (request conn))
-            (maybe [] fromHeaderTable <$>
-              Server.getRequestTrailers (request conn))
+            stream
 
     outboundHeaders <- mkOutboundHeaders inboundHeaders
     responseInfo    <- buildResponseInfo sess outboundHeaders
@@ -74,8 +73,9 @@ initiateResponse sess tracer conn mkOutboundHeaders = do
           Server.responseStreaming
                         (responseStatus  responseInfo)
                         (responseHeaders responseInfo)
-                      $ \write flush ->
-            sendMessageLoop sess tracer st write flush
+                      $ \write flush -> do
+            stream <- serverOutputStream write flush
+            sendMessageLoop sess tracer st stream
 
     void $ forkIO $
       threadBody (channelOutbound channel) initOutbound $ \st -> do

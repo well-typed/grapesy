@@ -83,10 +83,11 @@ initiateRequest sess tracer ConnectionToServer{sendRequest} outboundHeaders = do
                 (requestMethod  requestInfo)
                 (requestPath    requestInfo)
                 (requestHeaders requestInfo)
-              $ \write flush ->
+              $ \write flush -> do
+            stream <- clientOutputStream write flush
             threadBody (channelOutbound channel) initOutbound $ \st -> do
               atomically $ putTMVar (channelOutboundHeaders st) outboundHeaders
-              sendMessageLoop sess tracer st write flush
+              sendMessageLoop sess tracer st stream
 
     void $ forkIO $ threadBody (channelInbound channel) initInbound $ \st -> do
       setup <- try $ sendRequest req $ \resp -> do
@@ -123,13 +124,13 @@ initiateRequest sess tracer ConnectionToServer{sendRequest} outboundHeaders = do
           -- independent from any content-length header (which gRPC does not in
           -- fact allow for).
           processInboundTrailers sess tracer st responseHeaders
-        else
+        else do
+          stream <- clientInputStream resp
           recvMessageLoop
             sess
             tracer
             st
-            (Client.getResponseBodyChunk resp)
-            (maybe [] fromHeaderTable <$> Client.getResponseTrailers resp)
+            stream
       case setup of
         Right ()                 -> return ()
         Left (e :: SomeException)-> close channel e
