@@ -44,7 +44,7 @@ import Network.GRPC.Common.StreamElem qualified as StreamElem
 import Network.GRPC.Util.Parser
 import Network.GRPC.Util.Session.API
 import Network.GRPC.Util.Thread
-import Network.GRPC.Util.HTTP2
+import Network.GRPC.Util.HTTP2.Stream
 
 {-------------------------------------------------------------------------------
   Definitions

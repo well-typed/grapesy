@@ -11,7 +11,8 @@ import Control.Monad
 import Control.Tracer
 import Network.HTTP2.Client qualified as Client
 
-import Network.GRPC.Util.HTTP2
+import Network.GRPC.Util.HTTP2 (fromHeaderTable)
+import Network.GRPC.Util.HTTP2.Stream
 import Network.GRPC.Util.Session.API
 import Network.GRPC.Util.Session.Channel
 import Network.GRPC.Util.Thread

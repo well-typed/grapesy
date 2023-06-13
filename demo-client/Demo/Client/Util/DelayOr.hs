@@ -1,4 +1,4 @@
-module Demo.Client.Driver.DelayOr (
+module Demo.Client.Util.DelayOr (
     DelayOr(..)
   , execAll
   , yieldAll

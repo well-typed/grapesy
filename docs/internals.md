@@ -29,18 +29,3 @@ Summary:
 * Optional: `[A]`
 
 In addition (not conform ABNF), the gRPC spec also uses `?A` to mean optional.
-
-## Debugging
-
-### Wireshark
-
-Wireshark supports `gRPC` and can decode Protobuf; see
-https://grpc.io/blog/wireshark/.
-
-Relevant Wireshark options:
-
-* `Protocols/HTTP2/TCP port(s)`: add 50051 here (the port used by the
-  example servers).
-* `Protocols/Protobuf/Protobuf search paths`: make sure that the directory
-  containing the `.proto` definitions for the examples is listed here.
-

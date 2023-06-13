@@ -1,14 +1,31 @@
 # Demo server
 
-The demo server implements the `Greeter` (`helloworld.proto`) and
-`RouteGuide` (`route_guide.proto`) examples from the gRPC repo.
+The demo server implements the `Greeter` (`helloworld.proto`) and `RouteGuide`
+(`route_guide.proto`) examples from the gRPC repo.
 
 ## Running the server
 
 Start the server with
 
 ```
-cabal run demo-server
+cabal run demo-server -- \
+  --port-insecure 50051 \
+  --port-secure   50052 \
+  --tls-pub  data/grpc-demo.cert \
+  --tls-priv data/grpc-demo.priv
+```
+
+It is occassionally useful to run the server without `cabal` (for example, when
+you want to use a priviliged port). To do this (without installing the server
+with `cabal install`), you can run:
+
+```
+sudo grapesy_datadir=data \
+  `find dist-newstyle/ -name demo-server -type f` \
+  --disable-insecure \
+  --port-secure 443 \
+  --tls-pub  data/grpc-demo.cert \
+  --tls-priv data/grpc-demo.priv
 ```
 
 ## Testing the server
