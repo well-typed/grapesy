@@ -80,11 +80,14 @@ handleRequest handlers conn = do
             -- TODO: We need to think hard about error handling.
             --
             -- o It should be possible to throw a specific gRPC non-OK status
-            --   (i.e., we should catch GrpcException and give it special treatment)
+            --   (i.e., we should catch GrpcException and treat it special)
             -- o We need to think about how streaming works with trailers, if
             --   streaming goes wrong halfway
             -- o We need to consider security concerns here, too
             --   (exceptions can leak sensitive data)
+            --
+            -- gRPC error responses must make use of the gRPC Trailers-Only case
+            -- according to the spec.
             putStrLn $ "Uncaught exception: " ++ show err
             putStrLn "(TODO: We need a proper handler here.)"
       Left err -> do
