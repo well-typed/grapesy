@@ -26,7 +26,7 @@ import Control.Exception
 import Control.Monad.Catch
 import Data.Default
 import Data.Foldable (toList)
-import Data.List.NonEmpty (NonEmpty)
+import Data.List.NonEmpty (NonEmpty(..))
 import Data.List.NonEmpty qualified as NE
 import Data.Map (Map)
 import Data.Map qualified as Map
@@ -91,7 +91,7 @@ chooseFirst ourSupported = Negotation {
 
 -- | Insist on the specified algorithm
 require :: Compression -> Negotation
-require = chooseFirst . NE.singleton
+require = chooseFirst . (:| [])
 
 {-------------------------------------------------------------------------------
   Exceptions

@@ -21,11 +21,11 @@ module Network.GRPC.Client.Call (
   , recvAllOutputs
   ) where
 
-import Control.Applicative
 import Control.Concurrent.STM
 import Control.Exception
 import Control.Monad.IO.Class
 import Control.Tracer
+import Data.Foldable (asum)
 import Data.Maybe (fromMaybe)
 import GHC.Stack
 

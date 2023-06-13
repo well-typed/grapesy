@@ -10,6 +10,10 @@ build-type:         Simple
 extra-doc-files:    CHANGELOG.md
 data-dir:           data
 data-files:         route_guide_db.json
+tested-with:        GHC==8.10.7
+                  , GHC==9.2.8
+                  , GHC==9.4.5
+                  , GHC==9.6.2
 
 common lang
   ghc-options:
@@ -17,7 +21,7 @@ common lang
       -Wredundant-constraints
       -Wno-unticked-promoted-constructors
   build-depends:
-      base >= 4.14
+      base >= 4.14 && < 4.19
   default-language:
       Haskell2010
   default-extensions:
@@ -113,30 +117,33 @@ library
   hs-source-dirs:
       src
   build-depends:
-    , async
-    , base64-bytestring
-    , binary
-    , bytestring
-    , case-insensitive
-    , containers
-    , contra-tracer
-    , data-default
-    , exceptions
-    , generics-sop
-    , hashable
-    , http-types
+    , async                >= 2.2  && < 2.3
+    , base64-bytestring    >= 1.2  && < 1.3
+    , binary               >= 0.8  && < 0.9
+    , bytestring           >= 0.10 && < 0.12
+    , case-insensitive     >= 1.2  && < 1.3
+    , containers           >= 0.6  && < 0.7
+    , contra-tracer        >= 0.2  && < 0.3
+    , data-default         >= 0.7  && < 0.8
+    , exceptions           >= 0.10 && < 0.11
+    , generics-sop         >= 0.5  && < 0.6
+    , hashable             >= 1.3  && < 1.5
+    , http-types           >= 0.12 && < 0.13
+    , mtl                  >= 2.2  && < 2.4
+    , network-run          >= 0.2  && < 0.3
+    , pipes                >= 4.3  && < 4.4
+    , pipes-safe           >= 2.3  && < 2.4
+    , proto-lens           >= 0.7  && < 0.8
+    , sop-core             >= 0.5  && < 0.6
+    , stm                  >= 2.5  && < 2.6
+    , text                 >= 1.2  && < 2.1
+    , transformers         >= 0.5  && < 0.7
+    , unordered-containers >= 0.2  && < 0.3
+    , utf8-string          >= 1.0  && < 1.1
+    , zlib                 >= 0.6  && < 0.7
+
+    -- We need an unreleased version of http2 right now
     , http2
-    , mtl
-    , network-run
-    , pipes
-    , pipes-safe >= 2.0
-    , proto-lens
-    , sop-core
-    , stm
-    , text
-    , unordered-containers
-    , utf8-string
-    , zlib
 
 test-suite test-grapesy
   import:
@@ -179,18 +186,21 @@ executable demo-client
       Proto.RouteGuide
       Proto.RouteGuide_Fields
   build-depends:
-    , async
-    , contra-tracer
-    , data-default
+      -- Internal dependencies
     , grapesy
-    , lens
-    , optparse-applicative
-    , pipes
-    , pipes-safe
-    , proto-lens
-    , proto-lens-runtime
-    , stm
-    , text
+  build-depends:
+      -- External dependencies
+    , async                >= 2.2  && < 2.3
+    , contra-tracer        >= 0.2  && < 0.3
+    , data-default         >= 0.7  && < 0.8
+    , lens                 >= 5.0  && < 5.3
+    , optparse-applicative >= 0.16 && < 0.19
+    , pipes                >= 4.3  && < 4.4
+    , pipes-safe           >= 2.3  && < 2.4
+    , proto-lens           >= 0.7  && < 0.8
+    , proto-lens-runtime   >= 0.7  && < 0.8
+    , stm                  >= 2.5  && < 2.6
+    , text                 >= 1.2  && < 2.1
 
   if !flag(build-demo)
     buildable:
@@ -218,23 +228,25 @@ executable demo-server
       Proto.RouteGuide
       Proto.RouteGuide_Fields
   build-depends:
-    , aeson
-    , containers
-    , contra-tracer
-    , data-default
+      -- Internal dependencies
     , grapesy
-    , http2
-    , lens
-    , mtl
-    , network-run
-    , proto-lens
-    , proto-lens-runtime
-    , text
-    , time
+  build-depends:
+      -- External dependencies
+    , aeson              >= 1.5 && < 2.2
+    , containers         >= 0.6 && < 0.7
+    , contra-tracer      >= 0.2 && < 0.3
+    , data-default       >= 0.7 && < 0.8
+    , lens               >= 5.0 && < 5.3
+    , mtl                >= 2.2 && < 2.4
+    , network-run        >= 0.2 && < 0.3
+    , proto-lens         >= 0.7 && < 0.8
+    , proto-lens-runtime >= 0.7 && < 0.8
+    , text               >= 1.2 && < 2.1
+    , time               >= 1.9 && < 1.13
+    , transformers       >= 0.5 && < 0.7
 
-      -- This is a very recent version but it's only for the demo
-      -- (introduces modifyM)
-    , transformers >= 0.6.1
+    -- We need an unreleased version of http2 right now
+    , http2
 
   if !flag(build-demo)
     buildable:
