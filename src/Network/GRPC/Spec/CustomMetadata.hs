@@ -31,7 +31,7 @@ import Data.Word
 import GHC.Show
 import Network.HTTP.Types qualified as HTTP
 
-import Network.GRPC.Util.ByteString (strip, ascii)
+import Network.GRPC.Util.ByteString (strip, ascii, dropEnd)
 
 {-------------------------------------------------------------------------------
   Definition
@@ -197,7 +197,7 @@ parseCustomMetadata (name, value)
   = throwError $ "Reserved header: " ++ show (name, value)
 
   | "-bin" `BS.Strict.isSuffixOf` CI.foldedCase name
-  = case safeHeaderName (BS.Strict.dropEnd 4 $ CI.foldedCase name) of
+  = case safeHeaderName (dropEnd 4 $ CI.foldedCase name) of
       Just name' ->
         return $ BinaryHeader name' value
       _otherwise ->

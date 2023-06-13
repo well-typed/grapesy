@@ -14,7 +14,10 @@ module Demo.Client.Driver.Cmdline (
   , getCmdline
   ) where
 
+import Prelude
+
 import Control.Lens ((.~))
+import Data.Foldable (asum)
 import Data.Function ((&))
 import Data.Int
 import Data.Kind
@@ -22,7 +25,7 @@ import Data.ProtoLens
 import Data.ProtoLens.Labels ()
 import Data.Text (Text)
 import GHC.TypeLits (Symbol)
-import Options.Applicative
+import Options.Applicative qualified as Opt
 
 import Network.GRPC.Client (Authority(..))
 import Network.GRPC.Common.Compression (Compression)
@@ -84,67 +87,68 @@ deriving stock instance Show (SMethod s m)
 -------------------------------------------------------------------------------}
 
 getCmdline :: IO Cmdline
-getCmdline = execParser $ info (parseCmdline <**> helper) fullDesc
+getCmdline = Opt.execParser $
+    Opt.info (parseCmdline Opt.<**> Opt.helper) Opt.fullDesc
 
-parseCmdline :: Parser Cmdline
+parseCmdline :: Opt.Parser Cmdline
 parseCmdline =
     Cmdline
       <$> parseAuthority
-      <*> (switch $ mconcat [
-               long "debug"
-             , help "Enable debug output"
+      <*> (Opt.switch $ mconcat [
+               Opt.long "debug"
+             , Opt.help "Enable debug output"
              ])
-      <*> (optional $ option auto $ mconcat [
-               long "timeout"
-             , metavar "SECONDS"
+      <*> (Opt.optional $ Opt.option Opt.auto $ mconcat [
+               Opt.long "timeout"
+             , Opt.metavar "SECONDS"
              ])
       <*> parseAPI
-      <*> optional parseCompression
+      <*> Opt.optional parseCompression
       <*> parseSomeMethod
 
 {-------------------------------------------------------------------------------
   Options
 -------------------------------------------------------------------------------}
 
-parseAuthority :: Parser Authority
+parseAuthority :: Opt.Parser Authority
 parseAuthority =
     Authority
-      <$> (option str $ mconcat [
-              long "host"
-            , showDefault
-            , value "127.0.0.1"
+      <$> (Opt.option Opt.str $ mconcat [
+              Opt.long "host"
+            , Opt.showDefault
+            , Opt.value "127.0.0.1"
             ])
-      <*> (option auto $ mconcat [
-              long "port"
-            , showDefault
-            , value 50051
+      <*> (Opt.option Opt.auto $ mconcat [
+              Opt.long "port"
+            , Opt.showDefault
+            , Opt.value 50051
             ])
 
-parseCompression :: Parser Compression
+parseCompression :: Opt.Parser Compression
 parseCompression = asum [
-      flag' Compr.gzip $ mconcat [
-          long "gzip"
-        , help "Use GZip compression for all messages"
+      Opt.flag' Compr.gzip $ mconcat [
+          Opt.long "gzip"
+        , Opt.help "Use GZip compression for all messages"
         ]
     ]
 
-parseAPI :: Parser API
+parseAPI :: Opt.Parser API
 parseAPI = asum [
-      flag' Protobuf $ mconcat [
-          long "protobuf"
-        , help "Use the Protobuf API (if applicable)"
+      Opt.flag' Protobuf $ mconcat [
+          Opt.long "protobuf"
+        , Opt.help "Use the Protobuf API (if applicable)"
         ]
-    , flag' ProtobufPipes $ mconcat [
-          long "protobuf-pipes"
-        , help "Use the Protobuf pipes API (if applicable)"
+    , Opt.flag' ProtobufPipes $ mconcat [
+          Opt.long "protobuf-pipes"
+        , Opt.help "Use the Protobuf pipes API (if applicable)"
         ]
-    , flag' Core $ mconcat [
-          long "core"
-        , help "Use the core API"
+    , Opt.flag' Core $ mconcat [
+          Opt.long "core"
+        , Opt.help "Use the core API"
         ]
-    , flag' CoreNoFinal $ mconcat [
-          long "core-dont-mark-final"
-        , help "Use the core API; don't mark the last message as final"
+    , Opt.flag' CoreNoFinal $ mconcat [
+          Opt.long "core-dont-mark-final"
+        , Opt.help "Use the core API; don't mark the last message as final"
         ]
     , pure Protobuf
     ]
@@ -153,11 +157,11 @@ parseAPI = asum [
   Select method
 -------------------------------------------------------------------------------}
 
-parseSomeMethod :: Parser SomeMethod
-parseSomeMethod = subparser $ mconcat [
+parseSomeMethod :: Opt.Parser SomeMethod
+parseSomeMethod = Opt.subparser $ mconcat [
       sub "sayHello" "helloworld.Greeter.SayHello" $
         SomeMethod SGreeter . SSayHello <$>
-          many parseHelloRequest
+          Opt.many parseHelloRequest
     , sub "sayHelloStreamReply" "helloworld.Greeter.SayHelloStreamReply" $
         SomeMethod SGreeter . SSayHelloStreamReply <$>
           parseHelloRequest
@@ -169,49 +173,49 @@ parseSomeMethod = subparser $ mconcat [
           parseRectangle
     , sub "recordRoute" "routeguide.RouteGuide.RecordRoute" $
         SomeMethod SRouteGuide . SRecordRoute <$>
-          many (parseDelayOr $ parsePoint "")
+          Opt.many (parseDelayOr $ parsePoint "")
     , sub "routeChat" "routeguide.RouteGuide.RouteChat" $
         SomeMethod SRouteGuide . SRouteChat <$>
-          many (parseDelayOr parseRouteNote)
+          Opt.many (parseDelayOr parseRouteNote)
     ]
 
 {-------------------------------------------------------------------------------
   Method arguments
 -------------------------------------------------------------------------------}
 
-parseDelayOr :: Parser a -> Parser (DelayOr a)
+parseDelayOr :: Opt.Parser a -> Opt.Parser (DelayOr a)
 parseDelayOr p = asum [
       Exec <$> p
-    , Delay <$> (option auto $ mconcat [
-          long "delay"
-        , help "Delay by specified length in seconds"
-        , metavar "DOUBLE"
+    , Delay <$> (Opt.option Opt.auto $ mconcat [
+          Opt.long "delay"
+        , Opt.help "Delay by specified length in seconds"
+        , Opt.metavar "DOUBLE"
         ])
     ]
 
-parseHelloRequest :: Parser HelloRequest
+parseHelloRequest :: Opt.Parser HelloRequest
 parseHelloRequest =
-    mkHelloRequest <$> option str (mconcat [
-        long "name"
-      , metavar "NAME"
+    mkHelloRequest <$> Opt.option Opt.str (mconcat [
+        Opt.long "name"
+      , Opt.metavar "NAME"
       ])
   where
     mkHelloRequest :: Text -> HelloRequest
     mkHelloRequest name = (defMessage & #name .~ name)
 
-parseLatitude :: String -> Parser Int32
+parseLatitude :: String -> Opt.Parser Int32
 parseLatitude prefix =
-    option auto $ mconcat [
-        long $ prefix ++ "latitude"
+    Opt.option Opt.auto $ mconcat [
+        Opt.long $ prefix ++ "latitude"
       ]
 
-parseLongitude :: String -> Parser Int32
+parseLongitude :: String -> Opt.Parser Int32
 parseLongitude prefix =
-    option auto $ mconcat [
-        long $ prefix ++ "longitude"
+    Opt.option Opt.auto $ mconcat [
+        Opt.long $ prefix ++ "longitude"
       ]
 
-parsePoint :: String -> Parser Point
+parsePoint :: String -> Opt.Parser Point
 parsePoint prefix =
     mkPoint
       <$> parseLatitude  prefix
@@ -223,7 +227,7 @@ parsePoint prefix =
           & #latitude  .~ latitude
           & #longitude .~ longitude
 
-parseRectangle :: Parser Rectangle
+parseRectangle :: Opt.Parser Rectangle
 parseRectangle =
     mkRectangle
       <$> parsePoint "lo-"
@@ -234,11 +238,11 @@ parseRectangle =
           & #lo .~ lo
           & #hi .~ hi
 
-parseRouteNote :: Parser RouteNote
+parseRouteNote :: Opt.Parser RouteNote
 parseRouteNote =
     mkRouteNote
       <$> parsePoint ""
-      <*> argument str (metavar "MSG")
+      <*> Opt.argument Opt.str (Opt.metavar "MSG")
   where
     mkRouteNote :: Point -> Text -> RouteNote
     mkRouteNote location message =
@@ -250,7 +254,7 @@ parseRouteNote =
   Internal auxiliary
 -------------------------------------------------------------------------------}
 
-sub :: String -> String -> Parser a -> Mod CommandFields a
+sub :: String -> String -> Opt.Parser a -> Opt.Mod Opt.CommandFields a
 sub cmd desc parser =
-    command cmd $
-      info (parser <**> helper) (progDesc desc)
+    Opt.command cmd $
+      Opt.info (parser Opt.<**> Opt.helper) (Opt.progDesc desc)

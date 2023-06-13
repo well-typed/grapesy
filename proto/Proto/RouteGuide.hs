@@ -1,3 +1,9 @@
+-- proto-lens-0.7.1 introduces 'packedServiceDescriptor' to 'Service'.
+-- For backwards compatibility with proto-lens-0.7.0, we use proto-lens-protoc
+-- and disable the warning that these methods are missing (grapesy does not
+-- depend on them).
+{-# OPTIONS_GHC -Wno-missing-methods #-}
+
 {- This file was auto-generated from route_guide.proto by the proto-lens-protoc program. -}
 {-# LANGUAGE ScopedTypeVariables, DataKinds, TypeFamilies, UndecidableInstances, GeneralizedNewtypeDeriving, MultiParamTypeClasses, FlexibleContexts, FlexibleInstances, PatternSynonyms, MagicHash, NoImplicitPrelude, DataKinds, BangPatterns, TypeApplications, OverloadedStrings, DerivingStrategies#-}
 {-# OPTIONS_GHC -Wno-unused-imports#-}
@@ -921,15 +927,6 @@ instance Data.ProtoLens.Service.Types.Service RouteGuide where
                                      "listFeatures",
                                      "recordRoute",
                                      "routeChat"]
-  packedServiceDescriptor _
-    = "\n\
-      \\n\
-      \RouteGuide\DC26\n\
-      \\n\
-      \GetFeature\DC2\DC1.routeguide.Point\SUB\DC3.routeguide.Feature\"\NUL\DC2>\n\
-      \\fListFeatures\DC2\NAK.routeguide.Rectangle\SUB\DC3.routeguide.Feature\"\NUL0\SOH\DC2>\n\
-      \\vRecordRoute\DC2\DC1.routeguide.Point\SUB\CAN.routeguide.RouteSummary\"\NUL(\SOH\DC2?\n\
-      \\tRouteChat\DC2\NAK.routeguide.RouteNote\SUB\NAK.routeguide.RouteNote\"\NUL(\SOH0\SOH"
 instance Data.ProtoLens.Service.Types.HasMethodImpl RouteGuide "getFeature" where
   type MethodName RouteGuide "getFeature" = "GetFeature"
   type MethodInput RouteGuide "getFeature" = Point

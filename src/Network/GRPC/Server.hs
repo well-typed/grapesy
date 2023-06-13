@@ -79,11 +79,11 @@ handleRequest handlers conn = do
           Left err -> do
             -- TODO: We need to think hard about error handling.
             --
-            -- * It should be possible to throw a specific gRPC non-OK status
+            -- o It should be possible to throw a specific gRPC non-OK status
             --   (i.e., we should catch GrpcException and give it special treatment)
-            -- * We need to think about how streaming works with trailers, if
+            -- o We need to think about how streaming works with trailers, if
             --   streaming goes wrong halfway
-            -- * We need to consider security concerns here, too
+            -- o We need to consider security concerns here, too
             --   (exceptions can leak sensitive data)
             putStrLn $ "Uncaught exception: " ++ show err
             putStrLn "(TODO: We need a proper handler here.)"

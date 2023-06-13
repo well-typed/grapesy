@@ -1,3 +1,9 @@
+-- proto-lens-0.7.1 introduces 'packedServiceDescriptor' to 'Service'.
+-- For backwards compatibility with proto-lens-0.7.0, we use proto-lens-protoc
+-- and disable the warning that these methods are missing (grapesy does not
+-- depend on them).
+{-# OPTIONS_GHC -Wno-missing-methods #-}
+
 {- This file was auto-generated from helloworld.proto by the proto-lens-protoc program. -}
 {-# LANGUAGE ScopedTypeVariables, DataKinds, TypeFamilies, UndecidableInstances, GeneralizedNewtypeDeriving, MultiParamTypeClasses, FlexibleContexts, FlexibleInstances, PatternSynonyms, MagicHash, NoImplicitPrelude, DataKinds, BangPatterns, TypeApplications, OverloadedStrings, DerivingStrategies#-}
 {-# OPTIONS_GHC -Wno-unused-imports#-}
@@ -267,11 +273,6 @@ instance Data.ProtoLens.Service.Types.Service Greeter where
   type ServiceName Greeter = "Greeter"
   type ServicePackage Greeter = "helloworld"
   type ServiceMethods Greeter = '["sayHello", "sayHelloStreamReply"]
-  packedServiceDescriptor _
-    = "\n\
-      \\aGreeter\DC2>\n\
-      \\bSayHello\DC2\CAN.helloworld.HelloRequest\SUB\SYN.helloworld.HelloReply\"\NUL\DC2K\n\
-      \\DC3SayHelloStreamReply\DC2\CAN.helloworld.HelloRequest\SUB\SYN.helloworld.HelloReply\"\NUL0\SOH"
 instance Data.ProtoLens.Service.Types.HasMethodImpl Greeter "sayHello" where
   type MethodName Greeter "sayHello" = "SayHello"
   type MethodInput Greeter "sayHello" = HelloRequest

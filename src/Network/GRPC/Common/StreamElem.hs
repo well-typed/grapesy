@@ -13,7 +13,8 @@ module Network.GRPC.Common.StreamElem (
 
 import Prelude hiding (mapM_)
 
-import Control.Monad.State
+import Control.Monad.State (StateT, execStateT, modify)
+import Control.Monad.Trans.Class
 import Data.Bifoldable
 import Data.Bifunctor
 import Data.Bitraversable
