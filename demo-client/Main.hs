@@ -12,8 +12,8 @@ import System.Mem (performMajorGC)
 import Network.GRPC.Client
 import Network.GRPC.Common.Compression qualified as Compr
 
-import Demo.Client.Driver.Cmdline
-import Demo.Client.Driver.DelayOr
+import Demo.Client.Cmdline
+import Demo.Client.Util.DelayOr
 import Demo.Common.Logging
 
 import Demo.Client.API.Core.Greeter              qualified as Core.Greeter

@@ -43,10 +43,13 @@ import Network.GRPC.Spec.PseudoHeaders
 
 {-------------------------------------------------------------------------------
   Server proper
-
-  TODO: Deal with https.
 -------------------------------------------------------------------------------}
 
+-- | Construct server
+--
+-- The server can be run using the standard infrastructure offered by the
+-- @http2@ package, but "Network.GRPC.Server.Run" provides some convenience
+-- functions.
 withServer :: ServerParams -> [RpcHandler IO] -> (HTTP2.Server -> IO a) -> IO a
 withServer params handlers k = do
     Context.withContext params $ \ctxt ->

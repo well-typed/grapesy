@@ -1,21 +1,20 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module Main (main) where
 
-import Control.Exception
 import Control.Tracer
 import Data.Aeson
 import Data.Default
-import Data.ProtoLens.Labels ()
-import Network.HTTP2.Server qualified as HTTP2
-import Network.Run.TCP
 
 import Network.GRPC.Server
 import Network.GRPC.Server.Protobuf
+import Network.GRPC.Server.Run
 
 import Demo.Common.Logging
-import Demo.Server.Aux.RouteGuide ()
 
 import Demo.Server.API.Protobuf.Greeter    qualified as Greeter
 import Demo.Server.API.Protobuf.RouteGuide qualified as RouteGuide
+import Demo.Server.Cmdline
 
 import Proto.Helloworld
 import Proto.RouteGuide
@@ -38,12 +37,18 @@ services db =
 
 main :: IO ()
 main = do
-    db <- getRouteGuideDb
-    runTCPServer Nothing "50051" $ \s ->
-      bracket (HTTP2.allocSimpleConfig s 4096)
-              HTTP2.freeSimpleConfig $ \config ->
-        withServer serverParams (protobufServices (services db)) $ \server ->
-          HTTP2.run config server
+    cmdline <- getCmdline
+    db      <- getRouteGuideDb
+
+    let serverConfig :: ServerConfig
+        serverConfig = ServerConfig {
+            serverTracer   = contramap show threadSafeTracer
+          , serverInsecure = cmdInsecure cmdline
+          , serverSecure   = cmdSecure   cmdline
+          }
+
+    withServer serverParams (protobufServices (services db)) $
+      runServer serverConfig
 
 getRouteGuideDb :: IO [Feature]
 getRouteGuideDb = do
@@ -58,5 +63,4 @@ serverParams = ServerParams {
       serverTracer      = contramap show threadSafeTracer
     , serverCompression = def
     }
-
 
