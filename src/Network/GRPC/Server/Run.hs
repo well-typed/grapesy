@@ -1,5 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
-
 -- | Convenience functions for running a HTTP2 server
 --
 -- Intended for unqualified import.
@@ -26,13 +24,13 @@ import Control.Tracer
 import Data.ByteString qualified as Strict (ByteString)
 import Data.Default
 import Network.ByteOrder (BufferSize)
-import Network.GRPC.Util.HTTP2.TLS
 import Network.HTTP2.Server qualified as HTTP2
 import Network.Run.TCP (runTCPServer)
 import Network.Socket (Socket, HostName, ServiceName)
 import Network.TLS qualified as TLS
-import Network.TLS.Extra qualified as TLS
-import System.Environment (lookupEnv)
+
+import Network.GRPC.Util.HTTP2.TLS
+import Network.GRPC.Util.TLS qualified as Util.TLS
 
 {-------------------------------------------------------------------------------
   Configuration
@@ -137,33 +135,13 @@ runSecure tracer server cfg = do
 
 newTlsContext :: Socket -> TLS.Credentials -> IO TLS.Context
 newTlsContext s creds = do
-    keyLogFile <- lookupEnv "SSLKEYLOGFILE"
-    TLS.contextNew s $ params keyLogFile
-  where
-    params :: Maybe FilePath -> TLS.ServerParams
-    params keyLogFile = def {
-          TLS.serverShared = def {
-              TLS.sharedCredentials = creds
-            }
-        , TLS.serverDebug = def {
-              TLS.debugKeyLogger =
-                case keyLogFile of
-                  Nothing -> \_   -> return ()
-                  Just fp -> \str -> appendFile fp (str ++ "\n")
-            }
-        , TLS.serverSupported = def {
-              TLS.supportedCiphers = TLS.ciphersuite_default
-            }
-        , TLS.serverHooks = def {
-              TLS.onALPNClientSuggest = Just alpn
-            }
-        }
-
-    -- Application level protocol negotation
-    alpn :: [Strict.ByteString] -> IO Strict.ByteString
-    alpn protocols
-      | "h2" `elem` protocols = return "h2"
-      | otherwise = throwIO $ ProtocolNegotationFailed protocols
+    debugParams <- Util.TLS.debugParams
+    TLS.contextNew s def {
+        TLS.serverShared    = Util.TLS.serverShared creds
+      , TLS.serverDebug     = debugParams
+      , TLS.serverSupported = Util.TLS.supported
+      , TLS.serverHooks     = Util.TLS.serverHooks
+      }
 
 {-------------------------------------------------------------------------------
   Constants
@@ -199,10 +177,3 @@ data CouldNotLoadCredentials =
   deriving stock (Show)
   deriving anyclass (Exception)
 
-data ProtocolNegotationFailed =
-    -- | The only protocol we support is HTTP2.
-    --
-    -- We list which protocols the client listed as supported.
-    ProtocolNegotationFailed [Strict.ByteString]
-  deriving stock (Show)
-  deriving anyclass (Exception)

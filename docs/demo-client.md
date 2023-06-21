@@ -33,6 +33,46 @@ get verbose debug logs of the communication between the client and the server.
 cabal run demo-client -- --debug sayHello --name 'John'
 ```
 
+
+## TLS
+
+See https://grpc.io/docs/guides/auth/#python for the changes required to the
+Python code to enable TLS.
+
+To connect over TLS, run the client with `--secure`:
+
+```
+cabal run demo-client -- sayHello --name 'John' --secure
+```
+
+This will use the systems's standard certificate store to validate the server's
+TLS certificate. For example, if this is run against the demo server, which uses
+a self-signed certificate, the above will result in
+
+```
+demo-client: HandshakeFailed (Error_Protocol ("certificate has unknown CA",True,UnknownCa))
+```
+
+There are two ways to address this. We can disable certificate validation
+altogether:
+
+```
+cabal run demo-client -- sayHello \
+  --name 'John' \
+  --secure \
+  --no-server-validation
+```
+
+or we can define our own roots; for example, we can declare the demo server's
+own certificate as a root:
+
+```
+cabal run demo-client -- sayHello \
+  --name 'John' \
+  --secure \
+  --cert-store-from-path data/grpc-demo.cert
+```
+
 ## Quick start
 
 ### `helloworld.Greeter.SayHello`

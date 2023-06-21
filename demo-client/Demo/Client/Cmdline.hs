@@ -21,13 +21,14 @@ import Data.Foldable (asum)
 import Data.Function ((&))
 import Data.Int
 import Data.Kind
+import Data.Maybe (fromMaybe)
 import Data.ProtoLens
 import Data.ProtoLens.Labels ()
 import Data.Text (Text)
 import GHC.TypeLits (Symbol)
 import Options.Applicative qualified as Opt
 
-import Network.GRPC.Client (Authority(..))
+import Network.GRPC.Client qualified as Client
 import Network.GRPC.Common.Compression (Compression)
 import Network.GRPC.Common.Compression qualified as Compr
 
@@ -41,7 +42,7 @@ import Demo.Client.Util.DelayOr
 -------------------------------------------------------------------------------}
 
 data Cmdline = Cmdline {
-      cmdAuthority   :: Authority
+      cmdServer      :: Client.Server
     , cmdDebug       :: Bool
     , cmdTimeout     :: Maybe Word
     , cmdAPI         :: API
@@ -93,7 +94,7 @@ getCmdline = Opt.execParser $
 parseCmdline :: Opt.Parser Cmdline
 parseCmdline =
     Cmdline
-      <$> parseAuthority
+      <$> parseServer
       <*> (Opt.switch $ mconcat [
                Opt.long "debug"
              , Opt.help "Enable debug output"
@@ -110,19 +111,62 @@ parseCmdline =
   Options
 -------------------------------------------------------------------------------}
 
-parseAuthority :: Opt.Parser Authority
-parseAuthority =
-    Authority
+parseServer :: Opt.Parser Client.Server
+parseServer =
+   mkServer
       <$> (Opt.option Opt.str $ mconcat [
               Opt.long "host"
             , Opt.showDefault
-            , Opt.value "127.0.0.1"
+            , Opt.value "localhost"
             ])
-      <*> (Opt.option Opt.auto $ mconcat [
+      <*> (Opt.optional $ Opt.option Opt.auto $ mconcat [
               Opt.long "port"
-            , Opt.showDefault
-            , Opt.value 50051
             ])
+      <*> (Opt.optional $
+                 Opt.flag' () (mconcat [
+                     Opt.long "secure"
+                   , Opt.help "Connect over TLS"
+                   ])
+              *> parseServerValidation)
+  where
+    mkServer ::
+         String                          -- Host
+      -> Maybe Word                      -- Port
+      -> Maybe Client.ServerValidation   -- Secure?
+      -> Client.Server
+    mkServer host mPort Nothing =
+        Client.ServerInsecure $
+          Client.Authority host (fromMaybe 50051 mPort)
+    mkServer host mPort (Just validation) =
+        Client.ServerSecure validation $
+          Client.Authority host (fromMaybe 50052 mPort)
+
+parseServerValidation :: Opt.Parser Client.ServerValidation
+parseServerValidation = asum [
+      Opt.flag' Client.NoServerValidation $
+        mconcat [
+            Opt.long "no-server-validation"
+          , Opt.help "Skip server (certificate) validation"
+          ]
+    , Client.ValidateServer <$> parseCertificateStore
+    ]
+
+parseCertificateStore :: Opt.Parser Client.CertificateStoreSpec
+parseCertificateStore = fmap aux $ Opt.many $ asum [
+      Opt.flag' Client.certStoreFromSystem (mconcat [
+          Opt.long "cert-store-from-system"
+        , Opt.help "Load system certificate store (this is the default)"
+        ])
+    , Client.certStoreFromPath <$> Opt.option Opt.str (mconcat [
+          Opt.long "cert-store-from-path"
+        , Opt.help "Load certificate store from file or directory (can be used multiple times, and/or in conjunction with --cert-store-from-system)"
+        , Opt.metavar "PATH"
+        ])
+    ]
+  where
+    aux :: [Client.CertificateStoreSpec] -> Client.CertificateStoreSpec
+    aux [] = Client.certStoreFromSystem
+    aux cs = mconcat cs
 
 parseCompression :: Opt.Parser Compression
 parseCompression = asum [
