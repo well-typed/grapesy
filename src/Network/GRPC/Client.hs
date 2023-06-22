@@ -3,12 +3,20 @@
 module Network.GRPC.Client (
     -- * Connecting to the server
     Connection -- opaque
+  , Server(..)
   , ConnParams(..)
   , withConnection
 
     -- ** Connection parameters
   , Scheme(..)
   , Authority(..)
+
+    -- ** Secure connection (TLS)
+  , ServerValidation(..)
+  , Util.TLS.CertificateStoreSpec
+  , Util.TLS.certStoreFromSystem
+  , Util.TLS.certStoreFromCerts
+  , Util.TLS.certStoreFromPath
 
     -- * Make RPCs
   , Call -- opaque
@@ -51,6 +59,7 @@ import Network.GRPC.Spec
 import Network.GRPC.Spec.CustomMetadata
 import Network.GRPC.Spec.PseudoHeaders (Scheme(..), Authority(..))
 import Network.GRPC.Spec.RPC
+import Network.GRPC.Util.TLS qualified as Util.TLS
 
 {-------------------------------------------------------------------------------
   Make RPCs

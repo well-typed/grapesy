@@ -30,10 +30,8 @@ import Demo.Client.API.Protobuf.RouteGuide       qualified as PBuf.RouteGuide
 main :: IO ()
 main = do
     cmd <- getCmdline
-
-    withConnection (connParams cmd) Http (cmdAuthority cmd) $ \conn ->
+    withConnection (connParams cmd) (cmdServer cmd) $ \conn ->
       dispatch cmd conn (cmdMethod cmd)
-
     performMajorGC
 
 dispatch :: Cmdline -> Connection -> SomeMethod -> IO ()

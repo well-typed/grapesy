@@ -118,6 +118,7 @@ library
       Network.GRPC.Util.Session.Client
       Network.GRPC.Util.Session.Server
       Network.GRPC.Util.Thread
+      Network.GRPC.Util.TLS
 
       PackageInfo_grapesy
   hs-source-dirs:
@@ -155,7 +156,6 @@ library
     , stm                  >= 2.5  && < 2.6
     , text                 >= 1.2  && < 2.1
     , time-manager         >= 0.0  && < 0.1
-    , tls                  >= 1.5  && < 1.8
     , transformers         >= 0.5  && < 0.7
     , unordered-containers >= 0.2  && < 0.3
     , utf8-string          >= 1.0  && < 1.1
@@ -163,6 +163,26 @@ library
 
     -- We need an unreleased version of http2 right now
     , http2
+
+  -- tls 1.7 starts using Kazu's forked versions of x509-* packages
+  if flag(crypton)
+    -- Lower bounds are the first version of these packages after forking.
+    -- Upper bounds as discussed above.
+    build-depends:
+      , tls                     >= 1.7 && < 1.8
+      , crypton-x509            >= 1.7 && < 1.8
+      , crypton-x509-store      >= 1.6 && < 1.7
+      , crypton-x509-system     >= 1.6 && < 1.7
+      , crypton-x509-validation >= 1.6 && < 1.7
+  else
+    -- Lower bounds set as discussed above.
+    -- Upper bounds are the final version of these packages before forking.
+    build-depends:
+      , tls             >= 1.5 && < 1.7
+      , x509            >= 1.7 && < 1.8
+      , x509-store      >= 1.6 && < 1.7
+      , x509-system     >= 1.6 && < 1.7
+      , x509-validation >= 1.6 && < 1.7
 
 test-suite test-grapesy
   import:
@@ -274,3 +294,8 @@ Flag build-demo
   description: Build the demo
   default: False
   manual: True
+
+Flag crypton
+  description: Use the crypton-x509-* package family instead of x509-*
+  default: True
+  manual: False

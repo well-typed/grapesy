@@ -7,6 +7,8 @@
 module Network.GRPC.Client.Connection (
     -- * Definition
     Connection -- opaque
+  , Server(..)
+  , ServerValidation(..)
   , withConnection
   , connectionToServer
   , params
@@ -21,10 +23,13 @@ module Network.GRPC.Client.Connection (
 import Control.Concurrent
 import Control.Monad.Catch
 import Control.Tracer
+import Data.ByteString.Char8 qualified as BS.Strict.C8
 import Data.Default
 import Network.HPACK qualified as HPACK
 import Network.HTTP2.Client qualified as Client
-import Network.Run.TCP (runTCPClient)
+import Network.Run.TCP qualified as Run
+import Network.Socket
+import Network.TLS qualified as TLS
 
 import Network.GRPC.Client.Meta (Meta)
 import Network.GRPC.Client.Meta qualified as Meta
@@ -33,7 +38,10 @@ import Network.GRPC.Common.Compression qualified as Compr
 import Network.GRPC.Spec
 import Network.GRPC.Spec.PseudoHeaders
 import Network.GRPC.Spec.RPC
+import Network.GRPC.Util.HTTP2.TLS
 import Network.GRPC.Util.Session qualified as Session
+import Network.GRPC.Util.TLS (ServerValidation(..))
+import Network.GRPC.Util.TLS qualified as Util.TLS
 
 {-------------------------------------------------------------------------------
   Connection API
@@ -104,47 +112,90 @@ newtype PeerDebugMsg rpc = PeerDebugMsg (Session.DebugMsg (ClientSession rpc))
 deriving instance IsRPC rpc => Show (PeerDebugMsg rpc)
 
 {-------------------------------------------------------------------------------
+  Server address
+-------------------------------------------------------------------------------}
+
+data Server =
+    -- | Make insecure connection (without TLS) to the given server
+    ServerInsecure Authority
+
+    -- | Make secure connection (with TLS) to the given server
+  | ServerSecure ServerValidation Authority
+  deriving stock (Show)
+
+{-------------------------------------------------------------------------------
   Open a new connection
 -------------------------------------------------------------------------------}
 
-withConnection ::
-     ConnParams
-  -> Scheme
-  -> Authority
-  -> (Connection -> IO a)
-  -> IO a
-withConnection params scheme auth k = do
+withConnection :: ConnParams -> Server -> (Connection -> IO a) -> IO a
+withConnection params server k = do
     metaVar <- newMVar $ Meta.init
-    runTCPClient (authorityHost auth) (show $ authorityPort auth) $ \sock ->
-      bracket
-          (Client.allocSimpleConfig sock bufferSize)
-          Client.freeSimpleConfig $ \conf ->
-        Client.run clientConfig conf $ \sendRequest ->
-          k Connection{
-              params
-            , metaVar
-            , connectionToServer = Session.ConnectionToServer sendRequest
-            }
+    case server of
+      ServerInsecure auth ->
+        runTCPClient auth $ \sock ->
+          bracket (Client.allocSimpleConfig sock writeBufferSize)
+                  Client.freeSimpleConfig $ \conf ->
+            Client.run (clientConfig auth Http) conf $ \sendRequest ->
+              k Connection{
+                  params
+                , metaVar
+                , connectionToServer = Session.ConnectionToServer sendRequest
+                }
+      ServerSecure validation auth ->
+        runTCPClient auth $ \sock -> do
+          tlsContext <- newTlsContext auth sock validation
+          TLS.handshake tlsContext
+          bracket (allocTlsConfig tlsContext writeBufferSize)
+                  (freeTlsConfig tlsContext) $ \conf ->
+             Client.run (clientConfig auth Https) conf $ \sendRequest ->
+               k Connection{
+                   params
+                 , metaVar
+                 , connectionToServer = Session.ConnectionToServer sendRequest
+                 }
   where
     -- See docs of 'confBufferSize', but importantly: "this value is announced
     -- via SETTINGS_MAX_FRAME_SIZE to the peer."
     --
     -- Value of 4kB is taken from the example code.
-    bufferSize :: HPACK.BufferSize
-    bufferSize = 4096
+    writeBufferSize :: HPACK.BufferSize
+    writeBufferSize = 4096
 
-    serverPseudoHeaders :: RawServerHeaders
-    serverPseudoHeaders = buildServerHeaders $ ServerHeaders scheme auth
-
-    clientConfig :: Client.ClientConfig
-    clientConfig = Client.ClientConfig {
+    clientConfig :: Authority -> Scheme -> Client.ClientConfig
+    clientConfig auth scheme = Client.ClientConfig {
           scheme    = rawScheme serverPseudoHeaders
         , authority = rawAuthority serverPseudoHeaders
 
           -- Docs describe this as "How many pushed responses are contained in
-          -- the cache". I don't think I really know what this means. Value of
-          -- 20 is from the example code.
-        , cacheLimit = 20
+          -- the cache". Since gRPC does not make use of HTTP2 server push, we
+          -- set it to 0.
+        , cacheLimit = 0
+        }
+      where
+        serverPseudoHeaders :: RawServerHeaders
+        serverPseudoHeaders = buildServerHeaders $ ServerHeaders scheme auth
+
+    runTCPClient :: Authority -> (Socket -> IO a) -> IO a
+    runTCPClient auth =
+        Run.runTCPClient (authorityHost auth) (show $ authorityPort auth)
+
+{-------------------------------------------------------------------------------
+  Auxiliary: construct TLS context
+-------------------------------------------------------------------------------}
+
+newTlsContext :: Authority -> Socket -> ServerValidation -> IO TLS.Context
+newTlsContext auth sock validation = do
+    debugParams <- Util.TLS.debugParams
+    shared      <- Util.TLS.clientShared validation
+    TLS.contextNew sock $
+      (TLS.defaultParamsClient
+         (authorityHost auth)
+         (BS.Strict.C8.pack . show $ authorityPort auth)
+      ) {
+          TLS.clientShared    = shared
+        , TLS.clientDebug     = debugParams
+        , TLS.clientSupported = Util.TLS.supported
+        , TLS.clientHooks     = Util.TLS.clientHooks validation
         }
 
 {-------------------------------------------------------------------------------

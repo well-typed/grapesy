@@ -30,6 +30,9 @@ sudo grapesy_datadir=data \
 
 ## Testing the server
 
+See https://grpc.io/docs/guides/auth/#python for the changes required to the
+Python code to enable TLS.
+
 ### `Greeter`
 
 To test the server against a `Greeter` client, can run the Python one:
