@@ -1,9 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | gRPC with Protobuf
-module Network.GRPC.Spec.RPC.Protobuf (
-    RPC(..)
-  ) where
+module Network.GRPC.Spec.RPC.Protobuf (Protobuf) where
 
 import Data.ByteString.Builder qualified as Builder
 import Data.ByteString.Lazy qualified as BS.Lazy
@@ -15,9 +13,9 @@ import Data.ProtoLens.Service.Types as Protobuf
 import Data.Proxy
 import Data.Text qualified as Text
 import Data.Typeable
-import GHC.Show
 import GHC.TypeLits
 
+import Network.GRPC.Common.StreamType
 import Network.GRPC.Spec.RPC
 
 {-------------------------------------------------------------------------------
@@ -28,24 +26,18 @@ import Network.GRPC.Spec.RPC
   > Content-Type → "application/grpc+proto"
 -------------------------------------------------------------------------------}
 
-data RPC (serv :: Type) (meth :: Symbol) = RPC
-
-instance ( Typeable serv
-         , HasMethodImpl serv meth
-         ) => Show (RPC serv meth) where
-  showsPrec p RPC = showParen (p >= appPrec1) $
-        showString "RPC @"
-      . showsPrec appPrec1 (typeRep (Proxy @serv))
-      . showSpace
-      . showsPrec appPrec1 (symbolVal (Proxy @meth))
+-- | Protobuf RPC
+--
+-- This exists only as a type-level marker
+data Protobuf (serv :: Type) (meth :: Symbol)
 
 instance ( Typeable           serv
          , HasMethodImpl      serv meth
          , Show (MethodInput  serv meth)
          , Show (MethodOutput serv meth)
-         ) => IsRPC (RPC serv meth) where
-  type Input  (RPC serv meth) = MethodInput  serv meth
-  type Output (RPC serv meth) = MethodOutput serv meth
+         ) => IsRPC (Protobuf serv meth) where
+  type Input  (Protobuf serv meth) = MethodInput  serv meth
+  type Output (Protobuf serv meth) = MethodOutput serv meth
 
   serializationFormat _ = "proto"
   serviceName         _ = Text.pack $ concat [
@@ -60,6 +52,12 @@ instance ( Typeable           serv
   serializeOutput     _ = Builder.toLazyByteString . Protobuf.buildMessage
   deserializeInput    _ = Protobuf.runParser parseMessage . BS.Lazy.toStrict
   deserializeOutput   _ = Protobuf.runParser parseMessage . BS.Lazy.toStrict
+
+instance styp ~ MethodStreamingType serv meth
+      => SupportsStreamingType (Protobuf serv meth) styp
+
+instance HasStreamingType (Protobuf serv meth) where
+  type RpcStreamingType (Protobuf serv meth) = MethodStreamingType serv meth
 
 parseMessage :: forall msg. Protobuf.Message msg => Parser msg
 parseMessage = do

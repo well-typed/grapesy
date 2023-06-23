@@ -29,6 +29,7 @@ import Network.GRPC.Spec.Compression (Compression)
 import Network.GRPC.Spec.Compression qualified as Compr
 import Network.GRPC.Spec.RPC
 import Network.GRPC.Util.Parser (Parser(..))
+import Data.Proxy
 
 {-------------------------------------------------------------------------------
   Message prefix
@@ -72,11 +73,11 @@ getMessagePrefix = do
 -- > Message-Length  → {length of Message}
 -- >                     # encoded as 4 byte unsigned integer (big endian)
 -- > Message         → *{binary octet}
-buildInput :: IsRPC rpc => rpc -> Compression -> Input rpc -> Builder
+buildInput :: IsRPC rpc => Proxy rpc -> Compression -> Input rpc -> Builder
 buildInput = buildMsg . serializeInput
 
 -- | Serialize RPC output
-buildOutput :: IsRPC rpc => rpc -> Compression -> Output rpc -> Builder
+buildOutput :: IsRPC rpc => Proxy rpc -> Compression -> Output rpc -> Builder
 buildOutput = buildMsg . serializeOutput
 
 -- | Generalization of 'buildInput' and 'buildOutput'
@@ -103,10 +104,10 @@ buildMsg build compr x = mconcat [
   larger library, testing 'Network.GRPC.Call.Peer.receiveMessages'.
 -------------------------------------------------------------------------------}
 
-parseInput :: IsRPC rpc => rpc -> Compression -> Parser (Input rpc)
+parseInput :: IsRPC rpc => Proxy rpc -> Compression -> Parser (Input rpc)
 parseInput = parseMsg . deserializeInput
 
-parseOutput :: IsRPC rpc => rpc -> Compression -> Parser (Output rpc)
+parseOutput :: IsRPC rpc => Proxy rpc -> Compression -> Parser (Output rpc)
 parseOutput = parseMsg . deserializeOutput
 
 parseMsg :: forall x.

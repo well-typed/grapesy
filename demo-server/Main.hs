@@ -9,6 +9,7 @@ import Data.Default
 import Network.GRPC.Server
 import Network.GRPC.Server.Protobuf
 import Network.GRPC.Server.Run
+import Network.GRPC.Server.StreamType
 
 import Demo.Common.Logging
 
@@ -25,7 +26,7 @@ import Paths_grapesy
   All services
 -------------------------------------------------------------------------------}
 
-services :: [Feature] -> Services IO '[Greeter, RouteGuide]
+services :: [Feature] -> Services IO (ProtobufServices '[Greeter, RouteGuide])
 services db =
       Service Greeter.handlers
     $ Service (RouteGuide.handlers db)
@@ -47,7 +48,7 @@ main = do
           , serverSecure   = cmdSecure   cmdline
           }
 
-    withServer serverParams (protobufServices (services db)) $
+    withServer serverParams (fromServices (services db)) $
       runServer serverConfig
 
 getRouteGuideDb :: IO [Feature]

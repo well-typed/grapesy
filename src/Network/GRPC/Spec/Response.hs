@@ -50,13 +50,13 @@ import Network.GRPC.Util.Partial
 -------------------------------------------------------------------------------}
 
 -- | Build response headers
-buildHeaders :: IsRPC rpc => rpc -> ResponseHeaders -> [HTTP.Header]
-buildHeaders rpc
+buildHeaders :: IsRPC rpc => Proxy rpc -> ResponseHeaders -> [HTTP.Header]
+buildHeaders proxy
              ResponseHeaders{ responseCompression
                             , responseAcceptCompression
                             , responseMetadata
                             } = concat [
-      [ buildContentType rpc ]
+      [ buildContentType proxy ]
     , [ buildMessageEncoding x
       | Just x <- [responseCompression]
       ]
@@ -71,8 +71,8 @@ buildHeaders rpc
 -- | Parse response headers
 parseHeaders ::
      IsRPC rpc
-  => rpc -> [HTTP.Header] -> Either String ResponseHeaders
-parseHeaders rpc =
+  => Proxy rpc -> [HTTP.Header] -> Either String ResponseHeaders
+parseHeaders proxy =
       runPartialParser uninitResponseHeaders
     . mapM_ parseHeader
   where
@@ -83,7 +83,7 @@ parseHeaders rpc =
       -> PartialParser ResponseHeaders (Either String) ()
     parseHeader hdr@(name, _value)
       | name == "content-type"
-      = parseContentType rpc hdr
+      = parseContentType proxy hdr
 
       | name == "grpc-encoding"
       = update updCompression $ \_ ->

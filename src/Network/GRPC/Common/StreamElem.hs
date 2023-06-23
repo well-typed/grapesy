@@ -6,6 +6,7 @@
 -- > import Network.GRPC.Common.StreamElem qualified as StreamElem
 module Network.GRPC.Common.StreamElem (
     StreamElem(..)
+  , value
   , definitelyFinal
   , mapM_
   , collect
@@ -72,6 +73,18 @@ instance Bitraversable StreamElem where
   bitraverse g f (FinalElem   a b) = FinalElem   <$> f a <*> g b
   bitraverse g _ (NoMoreElems   b) = NoMoreElems <$>         g b
   bitraverse _ f (StreamElem  a  ) = StreamElem  <$> f a
+
+-- | Value of the element, if one is present
+--
+-- Returns 'Nothing' in case of 'NoMoreElems'
+--
+-- Using this function loses the information whether the item was the final
+-- item; this information can be recovered using 'definitelyFinal'.
+value :: StreamElem b a -> Maybe a
+value = \case
+    StreamElem a   -> Just a
+    FinalElem  a _ -> Just a
+    NoMoreElems  _ -> Nothing
 
 -- | Do we have evidence that this element is the final one?
 --

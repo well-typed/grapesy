@@ -6,6 +6,7 @@ module Network.GRPC.Server.Session (
 
 import Control.Exception
 import Data.List.NonEmpty (NonEmpty)
+import Data.Proxy
 import Network.HTTP.Types qualified as HTTP
 
 import Network.GRPC.Common.Compression (Compression, CompressionId)
@@ -22,8 +23,7 @@ import Network.GRPC.Util.Session
 -------------------------------------------------------------------------------}
 
 data ServerSession rpc = ServerSession {
-      serverRPC         :: rpc
-    , serverCompression :: Compr.Negotation
+      serverCompression :: Compr.Negotation
     }
 
 {-------------------------------------------------------------------------------
@@ -51,13 +51,13 @@ instance IsRPC rpc => IsSession (ServerSession rpc) where
   parseTrailers _ = \_ -> return ()
   buildTrailers _ = return . Resp.buildTrailers
 
-  parseMsg ServerSession{serverRPC} = LP.parseInput  serverRPC . inbCompression
-  buildMsg ServerSession{serverRPC} = LP.buildOutput serverRPC . outCompression
+  parseMsg _ = LP.parseInput  (Proxy @rpc) . inbCompression
+  buildMsg _ = LP.buildOutput (Proxy @rpc) . outCompression
 
 instance IsRPC rpc => AcceptSession (ServerSession rpc) where
-  parseRequestInfo server@ServerSession{serverRPC} info = do
+  parseRequestInfo server info = do
       requestHeaders :: RequestHeaders <-
-        case Req.parseHeaders serverRPC (requestHeaders info) of
+        case Req.parseHeaders (Proxy @rpc) (requestHeaders info) of
           Left  err  -> throwIO $ RequestInvalidHeaders err
           Right hdrs -> return hdrs
 
@@ -70,10 +70,10 @@ instance IsRPC rpc => AcceptSession (ServerSession rpc) where
         , inbCompression = cIn
         }
 
-  buildResponseInfo ServerSession{serverRPC} outbound =
+  buildResponseInfo _ outbound =
       return ResponseInfo {
           responseStatus  = HTTP.ok200
-        , responseHeaders = Resp.buildHeaders serverRPC $ outHeaders outbound
+        , responseHeaders = Resp.buildHeaders (Proxy @rpc) $ outHeaders outbound
         }
 
 {-------------------------------------------------------------------------------

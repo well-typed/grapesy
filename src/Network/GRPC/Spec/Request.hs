@@ -37,9 +37,9 @@ import PackageInfo_grapesy qualified as PackageInfo
 -- > Request-Headers →
 -- >   Call-Definition
 -- >   *Custom-Metadata
-buildHeaders :: IsRPC rpc => rpc -> RequestHeaders -> [HTTP.Header]
-buildHeaders rpc callParams@RequestHeaders{requestMetadata} = concat [
-      callDefinition callParams rpc
+buildHeaders :: IsRPC rpc => Proxy rpc -> RequestHeaders -> [HTTP.Header]
+buildHeaders proxy callParams@RequestHeaders{requestMetadata} = concat [
+      callDefinition proxy callParams
     , map buildCustomMetadata requestMetadata
     ]
 
@@ -70,12 +70,12 @@ buildHeaders rpc callParams@RequestHeaders{requestMetadata} = concat [
 -- @TE@ should come /after/ @Authority@ (if using). However, we will not include
 -- the reserved headers here /at all/, as they are automatically added by
 -- `http2`.
-callDefinition :: IsRPC rpc => RequestHeaders -> rpc -> [HTTP.Header]
-callDefinition = \hdrs rpc -> catMaybes [
+callDefinition :: IsRPC rpc => Proxy rpc -> RequestHeaders -> [HTTP.Header]
+callDefinition proxy = \hdrs -> catMaybes [
       hdrTimeout <$> requestTimeout hdrs
     , Just $ buildTe
-    , Just $ buildContentType rpc
-    , Just $ buildMessageType rpc
+    , Just $ buildContentType proxy
+    , Just $ buildMessageType
     , buildMessageEncoding       <$> requestCompression       hdrs
     , buildMessageAcceptEncoding <$> requestAcceptCompression hdrs
     , Just $ buildUserAgent
@@ -111,10 +111,10 @@ callDefinition = \hdrs rpc -> catMaybes [
     buildTe  = ("te", "trailers")
 
     -- > Message-Type → "grpc-message-type" {type name for message schema}
-    buildMessageType :: IsRPC rpc => rpc -> HTTP.Header
-    buildMessageType rpc = (
+    buildMessageType :: HTTP.Header
+    buildMessageType = (
           "grpc-message-type"
-        , PercentEncoding.encode $ messageType rpc
+        , PercentEncoding.encode $ messageType proxy
         )
 
     -- > User-Agent → "user-agent" {structured user-agent string}
@@ -155,9 +155,9 @@ callDefinition = \hdrs rpc -> catMaybes [
 -- | Parse request headers
 parseHeaders ::
      IsRPC rpc
-  => rpc
+  => Proxy rpc
   -> [HTTP.Header] -> Either String RequestHeaders
-parseHeaders rpc =
+parseHeaders proxy =
       runPartialParser uninitRequestHeaders
     . mapM_ parseHeader
   where
@@ -196,9 +196,9 @@ parseHeaders rpc =
       --
       -- TODO: We should throw an error if these headers are not present.
       | name == "content-type"
-      = parseContentType rpc hdr
+      = parseContentType proxy hdr
       | name == "grpc-message-type"
-      = expectHeaderValue hdr [PercentEncoding.encode (messageType rpc)]
+      = expectHeaderValue hdr [PercentEncoding.encode (messageType proxy)]
 
       -- Everything else we parse as custom metadata
       | otherwise

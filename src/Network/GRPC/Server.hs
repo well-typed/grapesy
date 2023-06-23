@@ -18,18 +18,21 @@ module Network.GRPC.Server (
   , sendOutput
 
     -- ** Protocol specific wrappers
-  , recvOnlyInput
+  , recvFinalInput
   , recvNextInput
-  , sendOnlyOutput
+  , sendFinalOutput
   , sendNextOutput
   , sendTrailers
+
+    -- * Common serialization formats
+  , Protobuf
   ) where
 
 import Control.Exception
 import Network.HTTP2.Server qualified as HTTP2
 
-import Network.GRPC.Common.StreamElem (StreamElem(..))
 import Network.GRPC.Common.Exceptions
+import Network.GRPC.Common.StreamElem (StreamElem(..))
 import Network.GRPC.Server.Call
 import Network.GRPC.Server.Connection (Connection, withConnection)
 import Network.GRPC.Server.Connection qualified as Connection
@@ -40,6 +43,7 @@ import Network.GRPC.Server.Handler qualified as Handler
 import Network.GRPC.Spec
 import Network.GRPC.Spec.CustomMetadata
 import Network.GRPC.Spec.PseudoHeaders
+import Network.GRPC.Spec.RPC.Protobuf (Protobuf)
 
 {-------------------------------------------------------------------------------
   Server proper
@@ -62,12 +66,11 @@ handleRequest handlers conn = do
     print path
 
     RpcHandler{
-        handlerRPC
-      , handlerMetadata
+        handlerMetadata
       , handlerRun
       } <- getHandler handlers path
     mCall :: Either SomeException (Call rpc) <-
-      try $ acceptCall conn handlerRPC handlerMetadata
+      try $ acceptCall conn handlerMetadata
 
     case mCall of
       Right call -> do

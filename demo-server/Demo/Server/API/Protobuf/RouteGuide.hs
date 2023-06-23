@@ -14,7 +14,9 @@ import Data.ProtoLens.Labels ()
 import Data.Time
 
 import Network.GRPC.Common.StreamElem qualified as StreamElem
+import Network.GRPC.Common.StreamType
 import Network.GRPC.Server.Protobuf
+import Network.GRPC.Server.StreamType
 
 import Proto.RouteGuide
 
@@ -24,38 +26,41 @@ import Demo.Server.Aux.RouteGuide
   Top-level
 -------------------------------------------------------------------------------}
 
-handlers :: [Feature] -> MethodsOf IO RouteGuide
+handlers :: [Feature] -> Methods IO (ProtobufMethodsOf RouteGuide)
 handlers db =
-     Method (getFeature   db)
-   $ Method (listFeatures db)
-   $ Method (recordRoute  db)
-   $ Method (routeChat    db)
-   $ NoMoreMethods
+      Method (mkNonStreaming    $ getFeature   db)
+    $ Method (mkServerStreaming $ listFeatures db)
+    $ Method (mkClientStreaming $ recordRoute  db)
+    $ Method (mkBiDiStreaming   $ routeChat    db)
+    $ NoMoreMethods
 
 {-------------------------------------------------------------------------------
   Handlers
 -------------------------------------------------------------------------------}
 
-getFeature :: [Feature] -> NonStreamingHandler IO RouteGuide "getFeature"
-getFeature db = nonStreaming $ \p ->
-    return $ fromMaybe defMessage $ featureAt db p
+getFeature :: [Feature] -> Point -> IO Feature
+getFeature db p = return $ fromMaybe defMessage $ featureAt db p
 
-listFeatures :: [Feature] -> ServerStreamingHandler IO RouteGuide "listFeatures"
-listFeatures db = serverStreaming $ \r send -> do
-    mapM_ send $ filter (inRectangle r . view #location) db
+listFeatures :: [Feature] -> Rectangle -> (Feature -> IO ()) -> IO ()
+listFeatures db r send = mapM_ send $ filter (inRectangle r . view #location) db
 
-recordRoute :: [Feature] -> ClientStreamingHandler IO RouteGuide "recordRoute"
-recordRoute db = clientStreaming $ \recv -> do
+recordRoute :: [Feature] -> IO (StreamElem.StreamElem () Point) -> IO RouteSummary
+recordRoute db recv = do
     start <- getCurrentTime
     ps    <- StreamElem.collect recv
     stop  <- getCurrentTime
     return $ summary db (stop `diffUTCTime` start) ps
 
-routeChat :: [Feature] -> BiDiStreamingHandler IO RouteGuide "routeChat"
-routeChat _db = biDiStreaming $ \recv send -> flip State.evalStateT Map.empty $
-    StreamElem.mapM_ (lift recv) $ \n -> modifyM $ \acc -> do
-      mapM_ send $ reverse $ Map.findWithDefault [] (n ^. #location) acc
-      return $ Map.alter (Just . (n:) . fromMaybe []) (n ^. #location) acc
+routeChat ::
+     [Feature]
+  -> IO (StreamElem.StreamElem () RouteNote)
+  -> (RouteNote -> IO ())
+  -> IO ()
+routeChat _db recv send = do
+    flip State.evalStateT Map.empty $
+      StreamElem.mapM_ (lift recv) $ \n -> modifyM $ \acc -> do
+        mapM_ send $ reverse $ Map.findWithDefault [] (n ^. #location) acc
+        return $ Map.alter (Just . (n:) . fromMaybe []) (n ^. #location) acc
 
 {-------------------------------------------------------------------------------
   Auxiliary

@@ -14,9 +14,9 @@ module Network.GRPC.Server.Call (
   , sendOutput
 
     -- ** Protocol specific wrappers
-  , recvOnlyInput
+  , recvFinalInput
   , recvNextInput
-  , sendOnlyOutput
+  , sendFinalOutput
   , sendNextOutput
   , sendTrailers
   ) where
@@ -57,22 +57,21 @@ data Call rpc = IsRPC rpc => Call {
 acceptCall :: forall rpc.
      IsRPC rpc
   => Connection
-  -> rpc
   -> ([CustomMetadata] -> IO [CustomMetadata])
   -> IO (Call rpc)
-acceptCall conn rpc mkResponseMetadata =
-    Call callSession <$>
+acceptCall conn mkResponseMetadata = do
+    callChannel <-
       Session.initiateResponse
         callSession
         tracer
         (Connection.connectionToClient conn)
         mkOutboundHeaders
+    return Call{callSession, callChannel}
   where
     callSession :: ServerSession rpc
     callSession = ServerSession {
-        serverRPC         = rpc
-      , serverCompression = compr
-      }
+          serverCompression = compr
+        }
 
     compr :: Compr.Negotation
     compr = Context.serverCompression $ Context.params $ Connection.context conn
@@ -135,27 +134,30 @@ sendOutput Call{callChannel} = Session.send callChannel . first mkTrailers
   Protocol specific wrappers
 -------------------------------------------------------------------------------}
 
--- | Receive input, which we expect to be the /only/ input
+-- | Receive input, which we expect to be the /final/ input
 --
--- Throws 'ProtocolException' if the client does not send precisely one input.
-recvOnlyInput :: Call rpc -> IO (Input rpc)
-recvOnlyInput call@Call{callSession = ServerSession{serverRPC}} = do
+-- Throws 'ProtocolException' if the input we receive is not final.
+--
+-- NOTE: If the first input we receive from the client is not marked as final,
+-- we will block until we receive the end-of-stream indication.
+recvFinalInput :: forall rpc. Call rpc -> IO (Input rpc)
+recvFinalInput call@Call{} = do
     inp1 <- atomically $ recvInput call
     case inp1 of
-      NoMoreElems    () -> protocolException serverRPC TooFewInputs
+      NoMoreElems    () -> throwIO $ TooFewInputs @rpc
       FinalElem  inp () -> return inp
       StreamElem inp    -> do
         inp2 <- atomically $ recvInput call
         case inp2 of
           NoMoreElems ()    -> return inp
-          FinalElem  inp' _ -> protocolException serverRPC $ TooManyInputs inp'
-          StreamElem inp'   -> protocolException serverRPC $ TooManyInputs inp'
+          FinalElem  inp' _ -> throwIO $ TooManyInputs @rpc inp'
+          StreamElem inp'   -> throwIO $ TooManyInputs @rpc inp'
 
 recvNextInput :: Call rpc -> IO (StreamElem () (Input rpc))
 recvNextInput call = atomically $ recvInput call
 
-sendOnlyOutput :: Call rpc -> (Output rpc, [CustomMetadata]) -> IO ()
-sendOnlyOutput call = atomically . sendOutput call . uncurry FinalElem
+sendFinalOutput :: Call rpc -> (Output rpc, [CustomMetadata]) -> IO ()
+sendFinalOutput call = atomically . sendOutput call . uncurry FinalElem
 
 -- | Send the next output
 --

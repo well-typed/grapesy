@@ -42,23 +42,28 @@ module Network.GRPC.Client (
   , recvResponseMetadata
 
     -- ** Protocol specific wrappers
-  , sendOnlyInput
+  , sendFinalInput
   , sendAllInputs
-  , recvOnlyOutput
+  , recvFinalOutput
   , recvAllOutputs
+
+    -- * Common serialization formats
+  , Protobuf
   ) where
 
 import Control.Monad.Catch
 import Control.Monad.IO.Class
+import Data.Proxy
 import GHC.Stack
 
-import Network.GRPC.Common.StreamElem (StreamElem(..))
 import Network.GRPC.Client.Call
 import Network.GRPC.Client.Connection
+import Network.GRPC.Common.StreamElem (StreamElem(..))
 import Network.GRPC.Spec
 import Network.GRPC.Spec.CustomMetadata
 import Network.GRPC.Spec.PseudoHeaders (Scheme(..), Authority(..))
 import Network.GRPC.Spec.RPC
+import Network.GRPC.Spec.RPC.Protobuf (Protobuf)
 import Network.GRPC.Util.TLS qualified as Util.TLS
 
 {-------------------------------------------------------------------------------
@@ -73,7 +78,7 @@ import Network.GRPC.Util.TLS qualified as Util.TLS
 -- This non-blocking nature makes this safe to use in 'bracket' patterns.
 --
 -- This is a low-level API. Consider using 'withRPC' instead.
-startRPC :: IsRPC rpc => Connection -> CallParams -> rpc -> IO (Call rpc)
+startRPC :: IsRPC rpc => Connection -> CallParams -> IO (Call rpc)
 startRPC = initiateCall
 
 -- | Stop RPC call
@@ -99,10 +104,10 @@ abortRPC call = abortCall call $ CallAborted callStack
 -- * 'CallClosed' when attempting to send or receive data an a closed call.
 withRPC :: forall m rpc a.
      (MonadMask m, MonadIO m, IsRPC rpc)
-  => Connection -> CallParams -> rpc -> (Call rpc -> m a) -> m a
-withRPC conn params rpc = fmap aux .
+  => Connection -> CallParams -> Proxy rpc -> (Call rpc -> m a) -> m a
+withRPC conn params _ = fmap aux .
     generalBracket
-      (liftIO $ startRPC conn params rpc)
+      (liftIO $ startRPC conn params)
       (\call -> liftIO . \case
           ExitCaseSuccess   _ -> abortCall call $ CallAborted callStack
           ExitCaseException e -> abortCall call e
