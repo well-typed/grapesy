@@ -78,8 +78,8 @@ acceptCall conn mkResponseMetadata = do
 
     tracer :: Tracer IO (Session.DebugMsg (ServerSession rpc))
     tracer =
-        contramap (SomeRPC . Context.PeerDebugMsg @rpc) $
-          Context.serverTracer $ Context.params (Connection.context conn)
+        contramap (Context.PeerDebugMsg @rpc) $
+          Context.serverDebugTracer $ Context.params (Connection.context conn)
 
     mkOutboundHeaders ::
              Session.InboundHeaders  (ServerSession rpc)

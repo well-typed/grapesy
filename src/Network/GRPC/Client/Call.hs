@@ -100,8 +100,8 @@ initiateCall conn callParams = do
 
     tracer :: Tracer IO (Session.DebugMsg (ClientSession rpc))
     tracer =
-        contramap (SomeRPC . Connection.PeerDebugMsg @rpc) $
-          connTracer (Connection.params conn)
+        contramap (Connection.PeerDebugMsg @rpc) $
+          connDebugTracer (Connection.params conn)
 
 {-------------------------------------------------------------------------------
   Closing an open RPC

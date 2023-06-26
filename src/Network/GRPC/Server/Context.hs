@@ -11,7 +11,7 @@ module Network.GRPC.Server.Context (
   , params
     -- * Configuration
   , ServerParams(..)
-  , PeerDebugMsg(..)
+  , ServerDebugMsg(..)
   ) where
 
 import Control.Tracer
@@ -19,6 +19,7 @@ import Data.Default
 
 import Network.GRPC.Common.Compression qualified as Compr
 import Network.GRPC.Server.Session (ServerSession)
+import Network.GRPC.Spec.PseudoHeaders
 import Network.GRPC.Spec.RPC
 import Network.GRPC.Util.Session qualified as Session
 
@@ -40,17 +41,26 @@ withContext params k = k $ ServerContext{params}
 -------------------------------------------------------------------------------}
 
 data ServerParams = ServerParams {
-      serverTracer      :: Tracer IO (SomeRPC PeerDebugMsg)
+      serverDebugTracer :: Tracer IO ServerDebugMsg
     , serverCompression :: Compr.Negotation
     }
 
 instance Default ServerParams where
   def = ServerParams {
-        serverTracer      = nullTracer
+        serverDebugTracer = nullTracer
       , serverCompression = def
       }
 
-newtype PeerDebugMsg rpc = PeerDebugMsg (Session.DebugMsg (ServerSession rpc))
+{-------------------------------------------------------------------------------
+  Logging
+-------------------------------------------------------------------------------}
 
-deriving instance IsRPC rpc => Show (PeerDebugMsg rpc)
+data ServerDebugMsg =
+    NewRequest Path
+
+  | forall rpc.
+          IsRPC rpc
+       => PeerDebugMsg (Session.DebugMsg (ServerSession rpc))
+
+deriving instance Show ServerDebugMsg
 

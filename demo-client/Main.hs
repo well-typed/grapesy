@@ -101,10 +101,10 @@ dispatch cmd conn = \case
 
 connParams :: Cmdline -> ConnParams
 connParams cmd = def {
-      connTracer =
+      connDebugTracer =
         if cmdDebug cmd
           then contramap show threadSafeTracer
-          else connTracer def
+          else connDebugTracer def
     , connCompression =
         case cmdCompression cmd of
           Just alg -> Compr.require alg
