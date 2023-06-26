@@ -28,6 +28,10 @@ sudo grapesy_datadir=data \
   --tls-priv data/grpc-demo.priv
 ```
 
+## Debugging
+
+You can pass `--debug` to the server to get additional debugging output.
+
 ## Testing the server
 
 See https://grpc.io/docs/guides/auth/#python for the changes required to the

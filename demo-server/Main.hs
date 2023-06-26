@@ -38,17 +38,22 @@ services db =
 
 main :: IO ()
 main = do
-    cmdline <- getCmdline
+    cmd <- getCmdline
     db      <- getRouteGuideDb
 
     let serverConfig :: ServerConfig
         serverConfig = ServerConfig {
-            serverTracer   = contramap show threadSafeTracer
-          , serverInsecure = cmdInsecure cmdline
-          , serverSecure   = cmdSecure   cmdline
+            serverTracer =
+              if cmdDebug cmd
+                then contramap show threadSafeTracer
+                else nullTracer
+          , serverInsecure =
+              cmdInsecure cmd
+          , serverSecure   =
+              cmdSecure   cmd
           }
 
-    withServer serverParams (fromServices (services db)) $
+    withServer (serverParams cmd) (fromServices (services db)) $
       runServer serverConfig
 
 getRouteGuideDb :: IO [Feature]
@@ -59,9 +64,14 @@ getRouteGuideDb = do
       Just db -> return db
       Nothing -> error "Could not parse the route guide DB"
 
-serverParams :: ServerParams
-serverParams = ServerParams {
-      serverTracer      = contramap show threadSafeTracer
-    , serverCompression = def
+serverParams :: Cmdline -> ServerParams
+serverParams cmd = ServerParams {
+      serverDebugTracer =
+        if cmdDebug cmd
+          then contramap show threadSafeTracer
+          else serverDebugTracer def
+
+    , serverCompression =
+        def
     }
 

@@ -14,7 +14,7 @@ module Network.GRPC.Client.Connection (
   , params
     -- * Configuration
   , ConnParams(..)
-  , PeerDebugMsg(..)
+  , ClientDebugMsg(..)
     -- * Meta-information
   , currentMeta
   , updateMeta
@@ -89,7 +89,7 @@ data ConnParams = ConnParams {
       --
       -- Most applications will probably just set this to 'nullTracer' to
       -- disable logging.
-      connTracer :: Tracer IO (SomeRPC PeerDebugMsg)
+      connDebugTracer :: Tracer IO ClientDebugMsg
 
       -- | Compression negotation
     , connCompression :: Compr.Negotation
@@ -102,14 +102,21 @@ data ConnParams = ConnParams {
 
 instance Default ConnParams where
   def = ConnParams {
-        connTracer         = nullTracer
+        connDebugTracer    = nullTracer
       , connCompression    = def
       , connDefaultTimeout = Nothing
       }
 
-newtype PeerDebugMsg rpc = PeerDebugMsg (Session.DebugMsg (ClientSession rpc))
+{-------------------------------------------------------------------------------
+  Logging
+-------------------------------------------------------------------------------}
 
-deriving instance IsRPC rpc => Show (PeerDebugMsg rpc)
+data ClientDebugMsg =
+    forall rpc.
+         IsRPC rpc
+      => PeerDebugMsg (Session.DebugMsg (ClientSession rpc))
+
+deriving instance Show ClientDebugMsg
 
 {-------------------------------------------------------------------------------
   Server address

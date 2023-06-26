@@ -29,6 +29,7 @@ module Network.GRPC.Server (
   ) where
 
 import Control.Exception
+import Control.Tracer
 import Network.HTTP2.Server qualified as HTTP2
 
 import Network.GRPC.Common.Exceptions
@@ -63,7 +64,7 @@ withServer params handlers k = do
 handleRequest :: Handler.Map IO -> Connection -> IO ()
 handleRequest handlers conn = do
     -- TODO: Proper "Apache style" logging (in addition to the debug logging)
-    print path
+    traceWith tracer $ Context.NewRequest path
 
     RpcHandler{
         handlerMetadata
@@ -102,6 +103,12 @@ handleRequest handlers conn = do
   where
     path :: Path
     path = Connection.path conn
+
+    tracer :: Tracer IO Context.ServerDebugMsg
+    tracer =
+          Context.serverDebugTracer
+        $ Context.params
+        $ Connection.context conn
 
 {-------------------------------------------------------------------------------
   Get handler for the request

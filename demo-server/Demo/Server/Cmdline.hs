@@ -17,6 +17,7 @@ import Network.GRPC.Server.Run
 data Cmdline = Cmdline {
       cmdInsecure :: Maybe InsecureConfig
     , cmdSecure   :: Maybe SecureConfig
+    , cmdDebug    :: Bool
     }
   deriving (Show)
 
@@ -33,6 +34,10 @@ parseCmdline =
     Cmdline
       <$> parseInsecure
       <*> parseSecure
+      <*> (Opt.switch $ mconcat [
+               Opt.long "debug"
+             , Opt.help "Enable debug output"
+             ])
 
 parseInsecure :: Opt.Parser (Maybe InsecureConfig)
 parseInsecure = asum [

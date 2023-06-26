@@ -197,12 +197,24 @@ test-suite test-grapesy
   type:
       exitcode-stdio-1.0
   hs-source-dirs:
-      test
+      test-grapesy
+      test-common
   main-is:
       Main.hs
   other-modules:
+      Test.Sanity.StreamingType.NonStreaming
+      Test.Util.ClientServer
+      Paths_grapesy
   build-depends:
+      -- Internal dependencies
+    , grapesy
+  build-depends:
+      -- External dependencies
+    , async
+    , contra-tracer
+    , data-default
     , tasty
+    , tasty-hunit
 
 executable demo-client
   import:
@@ -267,11 +279,11 @@ executable demo-server
       Demo.Server.API.Protobuf.RouteGuide
       Demo.Server.Aux.RouteGuide
       Demo.Server.Cmdline
-      Paths_grapesy
       Proto.Helloworld
       Proto.Helloworld_Fields
       Proto.RouteGuide
       Proto.RouteGuide_Fields
+      Paths_grapesy
   build-depends:
       -- Internal dependencies
     , grapesy
@@ -295,22 +307,26 @@ executable demo-server
     buildable:
       False
 
-executable stress-test
+executable test-stress
   import:
       lang
   hs-source-dirs:
-      stress-test
+      test-stress
+      test-common
   main-is:
       Main.hs
   ghc-options:
       -threaded
   other-modules:
       Test.Stress.Cmdline
+      Test.Util.ClientServer
+      Paths_grapesy
   build-depends:
       -- Internal dependencies
     , grapesy
   build-depends:
       -- External dependencies
+    , async                >= 2.2  && < 2.3
     , contra-tracer        >= 0.2  && < 0.3
     , data-default         >= 0.7  && < 0.8
     , optparse-applicative >= 0.16 && < 0.19
