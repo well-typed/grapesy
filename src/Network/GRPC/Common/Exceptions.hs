@@ -8,16 +8,14 @@ module Network.GRPC.Common.Exceptions (
   , grpcExceptionToTrailers
     -- * Protocol exception
   , ProtocolException(..)
-  , protocolException
   ) where
 
-import Data.Text (Text)
 import Control.Exception
+import Data.Text (Text)
 
 import Network.GRPC.Spec
 import Network.GRPC.Spec.CustomMetadata
 import Network.GRPC.Spec.RPC
-import Control.Monad.Catch
 
 {-------------------------------------------------------------------------------
   gRPC exception
@@ -74,12 +72,3 @@ data ProtocolException rpc =
 
 deriving instance IsRPC rpc => Show      (ProtocolException rpc)
 deriving instance IsRPC rpc => Exception (ProtocolException rpc)
-
--- | Throw protocol exception
---
--- This is a convenience function, primarily to aid type inference.
-protocolException ::
-     (MonadThrow m, IsRPC rpc)
-  => rpc -> ProtocolException rpc -> m a
-protocolException _ = throwM
-

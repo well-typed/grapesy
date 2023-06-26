@@ -9,14 +9,16 @@ module Network.GRPC.Common.Compression (
     Compression(..)
   , CompressionId(..)
     -- * Standard compresion schemes
-  , allSupported
   , identity
   , gzip
+  , allSupported
     -- * Negotation
   , Negotation(..)
   , getSupported
-  , chooseFirst
+    -- ** Specific negotation strategies
+  , none
   , require
+  , chooseFirst
     -- ** Exceptions
   , UnsupportedCompression(..)
   , CompressionNegotationFailed(..)
@@ -70,6 +72,14 @@ getSupported compr (Just cid) =
 instance Default Negotation where
   def = chooseFirst allSupported
 
+-- | Disable all compression
+none :: Negotation
+none = require identity
+
+-- | Insist on the specified algorithm
+require :: Compression -> Negotation
+require = chooseFirst . (:| [])
+
 -- | Choose the first algorithm that appears in the list of client supported
 chooseFirst :: NonEmpty Compression -> Negotation
 chooseFirst ourSupported = Negotation {
@@ -88,10 +98,6 @@ chooseFirst ourSupported = Negotation {
     ourSupported' =
         Map.fromList $
           map (\c -> (compressionId c, c)) (toList ourSupported)
-
--- | Insist on the specified algorithm
-require :: Compression -> Negotation
-require = chooseFirst . (:| [])
 
 {-------------------------------------------------------------------------------
   Exceptions

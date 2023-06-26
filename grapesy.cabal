@@ -74,15 +74,19 @@ library
       -Wprepositive-qualified-module
   exposed-modules:
       Network.GRPC.Client
-      Network.GRPC.Client.Protobuf
-      Network.GRPC.Client.Protobuf.Pipes
+      Network.GRPC.Client.Binary
+      Network.GRPC.Client.StreamType
+      Network.GRPC.Client.StreamType.Pipes
+      Network.GRPC.Common.Binary
       Network.GRPC.Common.Compression
       Network.GRPC.Common.Exceptions
-      Network.GRPC.Common.Protobuf
       Network.GRPC.Common.StreamElem
+      Network.GRPC.Common.StreamType
       Network.GRPC.Server
+      Network.GRPC.Server.Binary
       Network.GRPC.Server.Protobuf
       Network.GRPC.Server.Run
+      Network.GRPC.Server.StreamType
   other-modules:
       Network.GRPC.Client.Call
       Network.GRPC.Client.Connection
@@ -103,6 +107,7 @@ library
       Network.GRPC.Spec.Request
       Network.GRPC.Spec.Response
       Network.GRPC.Spec.RPC
+      Network.GRPC.Spec.RPC.Binary
       Network.GRPC.Spec.RPC.Protobuf
       Network.GRPC.Util.AccumulatedByteString
       Network.GRPC.Util.ByteString
@@ -290,8 +295,37 @@ executable demo-server
     buildable:
       False
 
+executable stress-test
+  import:
+      lang
+  hs-source-dirs:
+      stress-test
+  main-is:
+      Main.hs
+  ghc-options:
+      -threaded
+  other-modules:
+      Test.Stress.Cmdline
+  build-depends:
+      -- Internal dependencies
+    , grapesy
+  build-depends:
+      -- External dependencies
+    , contra-tracer        >= 0.2  && < 0.3
+    , data-default         >= 0.7  && < 0.8
+    , optparse-applicative >= 0.16 && < 0.19
+
+  if !flag(build-stress-test)
+    buildable:
+      False
+
 Flag build-demo
   description: Build the demo
+  default: False
+  manual: True
+
+Flag build-stress-test
+  description: Build the stress test
   default: False
   manual: True
 

@@ -2,7 +2,7 @@ packages: .
 
 package grapesy
   tests: True
-  flags: +build-demo
+  flags: +build-demo +build-stress-test
   ghc-options: -Werror
 
 source-repository-package

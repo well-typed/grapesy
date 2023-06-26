@@ -21,11 +21,12 @@ module Network.GRPC.Spec.Common (
   , parseMessageAcceptEncoding
   ) where
 
-import Data.ByteString qualified as BS.Strict
 import Control.Monad.Except
+import Data.ByteString qualified as BS.Strict
 import Data.Foldable (toList)
 import Data.List (intersperse)
 import Data.List.NonEmpty (NonEmpty(..))
+import Data.Proxy
 import Network.HTTP.Types qualified as HTTP
 
 import Network.GRPC.Spec.Compression (CompressionId)
@@ -41,21 +42,21 @@ import Network.GRPC.Util.Partial
   >   [("+proto" / "+json" / {custom})]
 -------------------------------------------------------------------------------}
 
-buildContentType :: IsRPC rpc => rpc -> HTTP.Header
-buildContentType rpc = (
+buildContentType :: IsRPC rpc => Proxy rpc -> HTTP.Header
+buildContentType proxy = (
       "content-type"
-    , "application/grpc+" <> serializationFormat rpc
+    , "application/grpc+" <> serializationFormat proxy
     )
 
 parseContentType ::
      (MonadError String m, IsRPC rpc)
-  => rpc
+  => Proxy rpc
   -> HTTP.Header
   -> m ()
-parseContentType rpc hdr =
+parseContentType proxy hdr =
     expectHeaderValue hdr $ [
         "application/grpc"
-      , "application/grpc+" <> serializationFormat rpc
+      , "application/grpc+" <> serializationFormat proxy
       ]
 
 {-------------------------------------------------------------------------------

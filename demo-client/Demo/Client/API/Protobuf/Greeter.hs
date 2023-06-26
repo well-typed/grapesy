@@ -3,10 +3,9 @@ module Demo.Client.API.Protobuf.Greeter (
   , sayHelloStreamReply
   ) where
 
-import Prelude hiding (log)
-
 import Network.GRPC.Client
-import Network.GRPC.Client.Protobuf
+import Network.GRPC.Client.StreamType
+import Network.GRPC.Common.StreamType
 
 import Proto.Helloworld
 
@@ -18,9 +17,10 @@ import Demo.Common.Logging
 
 sayHello :: Connection -> HelloRequest -> IO ()
 sayHello conn name = do
-    reply <- nonStreaming @Greeter @"sayHello" (rpc conn) name
-    log reply
+    reply <- nonStreaming (rpc @(Protobuf Greeter "sayHello") conn) name
+    logMsg reply
 
 sayHelloStreamReply :: Connection -> HelloRequest -> IO ()
 sayHelloStreamReply conn name =
-    serverStreaming @Greeter @"sayHelloStreamReply" (rpc conn) name print
+    serverStreaming (rpc @(Protobuf Greeter "sayHelloStreamReply") conn) name $
+      logMsg

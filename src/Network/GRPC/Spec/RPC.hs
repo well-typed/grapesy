@@ -24,20 +24,19 @@ import Data.Typeable
 -- agree on this.
 class ( Typeable rpc -- for use in exceptions
 
-      , -- Debug constraints
+        -- Debug constraints
         --
         -- For debugging it is useful when we have 'Show' instances in scope.
         -- This is not that strong a requirement; after all, we must be able
         -- to serialize inputs and deserialize outputs, so they must also be
         -- 'Show'able.
-        Show rpc
       , Show (Input rpc)
       , Show (Output rpc)
-      ) => IsRPC rpc where
-  -- Messages from the client to the server
+      ) => IsRPC (rpc :: Type) where
+  -- | Messages from the client to the server
   type Input rpc :: Type
 
-  -- Messages from the server to the client
+  -- | Messages from the server to the client
   type Output rpc :: Type
 
   -- | Message format
@@ -59,22 +58,22 @@ class ( Typeable rpc -- for use in exceptions
   -- Note on terminology: throughout this codebase we avoid the terms "encoding"
   -- and "decoding", which can be ambiguous. Instead we use
   -- \"serialize\"/\"deserialize\" and \"compress\"/\"decompress\".
-  serializationFormat :: rpc -> Strict.ByteString
+  serializationFormat :: Proxy rpc -> Strict.ByteString
 
   -- | Service name
   --
   -- For Protobuf, this is the fully qualified service name.
-  serviceName :: rpc -> Text
+  serviceName :: Proxy rpc -> Text
 
   -- | Method name
   --
   -- For Protobuf, this is /just/ the method name (no qualifier required).
-  methodName :: rpc -> Text
+  methodName :: Proxy rpc -> Text
 
   -- | Message type
   --
   -- For Protobuf, this is the fully qualified message type.
-  messageType :: rpc -> Text
+  messageType :: Proxy rpc -> Text
 
   -- | Serialize RPC input
   --
@@ -86,22 +85,22 @@ class ( Typeable rpc -- for use in exceptions
   -- We use the terms \"serialize\" and \"deserialize\" here, and
   -- \"compress\"/\"decompress\" for compression here, rather than
   -- \"encode\"/\"decode\", which could refer to either process.
-  serializeInput :: rpc -> Input rpc -> Lazy.ByteString
+  serializeInput :: Proxy rpc -> Input rpc -> Lazy.ByteString
 
   -- | Serialize RPC output
-  serializeOutput :: rpc -> Output rpc -> Lazy.ByteString
+  serializeOutput :: Proxy rpc -> Output rpc -> Lazy.ByteString
 
   -- | Deserialize RPC input
   --
   -- This function does not have to deal with compression or length prefixes,
   -- and can assume fully consume the given bytestring (if there are unconsumed
   -- bytes, this should be considered a parse failure).
-  deserializeInput :: rpc -> Lazy.ByteString -> Either String (Input rpc)
+  deserializeInput :: Proxy rpc -> Lazy.ByteString -> Either String (Input rpc)
 
   -- | Deserialize RPC output
   --
   -- Discussion of 'deserializeInput' applies here, also.
-  deserializeOutput :: rpc -> Lazy.ByteString -> Either String (Output rpc)
+  deserializeOutput :: Proxy rpc -> Lazy.ByteString -> Either String (Output rpc)
 
 -- | Existential RPC
 data SomeRPC f where

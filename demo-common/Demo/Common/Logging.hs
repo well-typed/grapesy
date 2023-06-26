@@ -1,9 +1,7 @@
 module Demo.Common.Logging (
     threadSafeTracer
-  , log
+  , logMsg
   ) where
-
-import Prelude hiding (log)
 
 import Control.Concurrent
 import Control.Monad.IO.Class
@@ -18,5 +16,5 @@ threadSafeTracer :: Tracer IO String
 threadSafeTracer = arrow $ emit $ \msg ->
     withMVar tracingLock $ \() -> putStrLn msg
 
-log :: (MonadIO m, Show a) => a -> m ()
-log = liftIO . traceWith threadSafeTracer . show
+logMsg :: (MonadIO m, Show a) => a -> m ()
+logMsg = liftIO . traceWith threadSafeTracer . show

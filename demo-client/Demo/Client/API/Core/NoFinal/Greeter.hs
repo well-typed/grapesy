@@ -4,9 +4,9 @@ module Demo.Client.API.Core.NoFinal.Greeter (
 
 import Control.Concurrent.STM
 import Data.Default
+import Data.Proxy
 
 import Network.GRPC.Client
-import Network.GRPC.Client.Protobuf (RPC(..))
 
 import Proto.Helloworld
 
@@ -16,8 +16,9 @@ import Proto.Helloworld
 
 sayHello :: Connection -> HelloRequest -> IO ()
 sayHello conn n =
-    withRPC conn def (RPC @Greeter @"sayHello") $ \call -> do
+    withRPC conn def (Proxy @(Protobuf Greeter "sayHello")) $ \call -> do
       atomically $ sendInput call $ StreamElem n
       out      <- atomically $ recvOutput call
       trailers <- atomically $ recvOutput call
       print (out, trailers)
+

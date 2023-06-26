@@ -2,13 +2,11 @@ module Demo.Client.API.Core.RouteGuide (
     listFeatures
   ) where
 
-import Prelude hiding (log)
-
 import Control.Concurrent.STM
 import Data.Default
+import Data.Proxy
 
 import Network.GRPC.Client
-import Network.GRPC.Client.Protobuf (RPC(..))
 
 import Proto.RouteGuide
 
@@ -20,8 +18,8 @@ import Demo.Common.Logging
 
 listFeatures :: Connection -> Rectangle -> IO ()
 listFeatures conn r = do
-    withRPC conn def (RPC @RouteGuide @"listFeatures") $ \call -> do
-      sendOnlyInput call r
+    withRPC conn def (Proxy @(Protobuf RouteGuide "listFeatures")) $ \call -> do
+      sendFinalInput call r
 
       -- Show response custom metadata
       --
@@ -29,10 +27,10 @@ listFeatures conn r = do
       -- are zero features in the provided rectangle), this will also be the
       -- trailing custom metadata.
       initMetadata <- atomically $ recvResponseMetadata call
-      log initMetadata
+      logMsg initMetadata
 
-      finalMetadata <- recvAllOutputs call log
-      log finalMetadata
+      finalMetadata <- recvAllOutputs call $ logMsg
+      logMsg finalMetadata
 
 
 

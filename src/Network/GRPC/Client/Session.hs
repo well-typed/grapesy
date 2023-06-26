@@ -6,6 +6,7 @@ module Network.GRPC.Client.Session (
 
 import Control.Exception
 import Control.Monad
+import Data.Proxy
 import Network.HTTP.Types qualified as HTTP
 
 import Network.GRPC.Common.Compression qualified as Compr
@@ -25,8 +26,7 @@ import Network.GRPC.Util.Session
 -------------------------------------------------------------------------------}
 
 data ClientSession rpc = ClientSession {
-      clientRPC         :: rpc
-    , clientCompression :: Compr.Negotation
+      clientCompression :: Compr.Negotation
     , clientUpdateMeta  :: ResponseHeaders -> IO ()
     }
 
@@ -73,16 +73,16 @@ instance IsRPC rpc => IsSession (ClientSession rpc) where
                             Nothing  -> return $ trailerMetadata trailers
                             Just err -> throwIO err
 
-  parseMsg ClientSession{clientRPC} = LP.parseOutput clientRPC . inbCompression
-  buildMsg ClientSession{clientRPC} = LP.buildInput  clientRPC . outCompression
+  parseMsg _ = LP.parseOutput (Proxy @rpc) . inbCompression
+  buildMsg _ = LP.buildInput  (Proxy @rpc) . outCompression
 
 instance IsRPC rpc => InitiateSession (ClientSession rpc) where
-  parseResponseInfo client@ClientSession{clientRPC} info = do
+  parseResponseInfo client info = do
       unless (HTTP.statusCode (responseStatus info) == 200) $
         throwIO $ ResponseInvalidStatus (responseStatus info)
 
       responseHeaders :: ResponseHeaders <-
-        case Resp.parseHeaders clientRPC (responseHeaders info) of
+        case Resp.parseHeaders (Proxy @rpc) (responseHeaders info) of
           Left  err    -> throwIO $ ResponseInvalidHeaders err
           Right parsed -> return parsed
 
@@ -97,17 +97,17 @@ instance IsRPC rpc => InitiateSession (ClientSession rpc) where
         , inbCompression = cIn
         }
 
-  buildRequestInfo ClientSession{clientRPC} outbound = do
+  buildRequestInfo _ outbound = do
       return RequestInfo {
           requestMethod  = rawMethod resourceHeaders
         , requestPath    = rawPath resourceHeaders
-        , requestHeaders = Req.buildHeaders clientRPC $ outHeaders outbound
+        , requestHeaders = Req.buildHeaders (Proxy @rpc) $ outHeaders outbound
         }
     where
       resourceHeaders :: RawResourceHeaders
       resourceHeaders = buildResourceHeaders $ ResourceHeaders {
             resourceMethod = Post
-          , resourcePath   = rpcPath clientRPC
+          , resourcePath   = rpcPath (Proxy @rpc)
           }
 
 {-------------------------------------------------------------------------------

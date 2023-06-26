@@ -15,9 +15,9 @@ module Network.GRPC.Client.Call (
   , recvResponseMetadata
 
     -- ** Protocol specific wrappers
-  , sendOnlyInput
+  , sendFinalInput
   , sendAllInputs
-  , recvOnlyOutput
+  , recvFinalOutput
   , recvAllOutputs
   ) where
 
@@ -61,22 +61,24 @@ data Call rpc = IsRPC rpc => Call {
 
 initiateCall :: forall rpc.
      IsRPC rpc
-  => Connection -> CallParams -> rpc -> IO (Call rpc)
-initiateCall conn callParams rpc = do
-    cOut <- Meta.outboundCompression <$> Connection.currentMeta conn
-    Call callSession <$> Session.initiateRequest
-      callSession
-      tracer
-      (Connection.connectionToServer conn)
-      OutboundHeaders {
-          outHeaders     = requestHeaders cOut
-        , outCompression = fromMaybe Compression.identity cOut
-        }
+  => Connection -> CallParams -> IO (Call rpc)
+initiateCall conn callParams = do
+    cOut <-
+      Meta.outboundCompression <$> Connection.currentMeta conn
+    callChannel <-
+      Session.initiateRequest
+        callSession
+        tracer
+        (Connection.connectionToServer conn)
+        OutboundHeaders {
+            outHeaders     = requestHeaders cOut
+          , outCompression = fromMaybe Compression.identity cOut
+          }
+    return Call{callSession, callChannel}
   where
     callSession :: ClientSession rpc
     callSession = ClientSession {
-          clientRPC         = rpc
-        , clientCompression = connCompression $ Connection.params conn
+          clientCompression = connCompression $ Connection.params conn
         , clientUpdateMeta  = Connection.updateMeta conn
         }
 
@@ -164,12 +166,12 @@ recvResponseMetadata Call{callChannel} =
   Protocol specific wrappers
 -------------------------------------------------------------------------------}
 
-sendOnlyInput ::
+sendFinalInput ::
      MonadIO m
   => Call rpc
   -> Input rpc
   -> m ()
-sendOnlyInput call input = liftIO $
+sendFinalInput call input = liftIO $
     atomically $ sendInput call (FinalElem input ())
 
 sendAllInputs :: forall m rpc.
@@ -187,24 +189,27 @@ sendAllInputs call produceInput = loop
           Nothing -> loop
           Just _  -> return ()
 
--- | Receive output, which we expect to be the /only/ output
+-- | Receive output, which we expect to be the /final/ output
 --
--- Throws 'ProtocolException' if the server does not send precisely one output.
-recvOnlyOutput ::
+-- Throws 'ProtocolException' if the output we receive is not final.
+--
+-- NOTE: If the first output we receive from the server is not marked as final,
+-- we will block until we receive the end-of-stream indication.
+recvFinalOutput :: forall m rpc.
      MonadIO m
   => Call rpc
   -> m (Output rpc, [CustomMetadata])
-recvOnlyOutput call@Call{callSession = ClientSession{clientRPC}} = liftIO $ do
+recvFinalOutput call@Call{} = liftIO $ do
     out1 <- atomically $ recvOutput call
     case out1 of
-      NoMoreElems    ts -> protocolException clientRPC $ TooFewOutputs ts
+      NoMoreElems    ts -> throwIO $ TooFewOutputs @rpc ts
       FinalElem  out ts -> return (out, ts)
       StreamElem out    -> do
         out2 <- atomically $ recvOutput call
         case out2 of
           NoMoreElems ts    -> return (out, ts)
-          FinalElem  out' _ -> protocolException clientRPC $ TooManyOutputs out'
-          StreamElem out'   -> protocolException clientRPC $ TooManyOutputs out'
+          FinalElem  out' _ -> throwIO $ TooManyOutputs @rpc out'
+          StreamElem out'   -> throwIO $ TooManyOutputs @rpc out'
 
 recvAllOutputs :: forall m rpc.
      MonadIO m

@@ -32,6 +32,7 @@ import Data.ByteString qualified as Strict (ByteString)
 import Data.ByteString.Char8 qualified as BS.Strict.C8
 import Data.ByteString.UTF8 qualified as BS.Strict.UTF8
 import Data.Hashable (Hashable)
+import Data.Proxy
 import Data.Text (Text)
 import GHC.Generics qualified as GHC
 import Text.Read (readMaybe)
@@ -177,8 +178,8 @@ buildResourceHeaders ResourceHeaders{resourcePath, resourceMethod} =
                       ]
       }
 
-rpcPath :: IsRPC rpc => rpc -> Path
-rpcPath rpc = Path (serviceName rpc) (methodName rpc)
+rpcPath :: IsRPC rpc => Proxy rpc -> Path
+rpcPath proxy = Path (serviceName proxy) (methodName proxy)
 
 {-------------------------------------------------------------------------------
   Parsing
