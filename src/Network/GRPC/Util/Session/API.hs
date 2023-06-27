@@ -3,6 +3,7 @@ module Network.GRPC.Util.Session.API (
     RequestInfo(..)
   , ResponseInfo(..)
     -- * Main definitions
+  , DataFlow(..)
   , IsSession(..)
   , InitiateSession(..)
   , AcceptSession(..)
@@ -40,6 +41,17 @@ data ResponseInfo = ResponseInfo {
   Main definition
 -------------------------------------------------------------------------------}
 
+-- | Flow of data in a session
+--
+-- This describes the flow of data in /one/ direction.
+class ( Show (Headers  flow)
+      , Show (Msg      flow)
+      , Show (Trailers flow)
+      ) => DataFlow flow where
+  data Headers  flow :: Type
+  type Msg      flow :: Type
+  type Trailers flow :: Type
+
 -- | Session between two nodes in the network
 --
 -- The session is described from the point of view of /this/ node, who is
@@ -51,21 +63,11 @@ data ResponseInfo = ResponseInfo {
 -- \"inbound\" or \"outbound\". When we are dealing with gRPC, \"inputs\" are
 -- outbound for the client and inbound for the server, and \"outputs\" are
 -- inbound for the client and outbound for the server.
-class ( Show (InboundHeaders   sess)
-      , Show (InboundTrailers  sess)
-      , Show (InboundMsg       sess)
-      , Show (OutboundHeaders  sess)
-      , Show (OutboundTrailers sess)
-      , Show (OutboundMsg      sess)
+class ( DataFlow (Inbound  sess)
+      , DataFlow (Outbound sess)
       ) => IsSession sess where
-  data InboundHeaders  sess :: Type
-  data OutboundHeaders sess :: Type
-
-  type InboundTrailers  sess :: Type
-  type OutboundTrailers sess :: Type
-
-  type InboundMsg  sess :: Type
-  type OutboundMsg sess :: Type
+  type Inbound  sess :: Type
+  type Outbound sess :: Type
 
   -- | Parse trailers
   --
@@ -77,36 +79,36 @@ class ( Show (InboundHeaders   sess)
   --
   -- TODO: If it turns out that this is too coarse, we will need to introduce
   -- a separate type variable that describes this "trailers only" case.
-  parseTrailers :: sess -> [HTTP.Header] -> IO (InboundTrailers sess)
+  parseTrailers :: sess -> [HTTP.Header] -> IO (Trailers (Inbound sess))
 
   -- | Build trailers
-  buildTrailers :: sess -> OutboundTrailers sess -> IO [HTTP.Header]
+  buildTrailers :: sess -> Trailers (Outbound sess) -> IO [HTTP.Header]
 
   -- | Parse message
-  parseMsg :: sess -> InboundHeaders  sess -> Parser (InboundMsg sess)
+  parseMsg :: sess -> Headers (Inbound sess) -> Parser (Msg (Inbound sess))
 
   -- | Build message
-  buildMsg :: sess -> OutboundHeaders sess -> OutboundMsg sess -> Builder
+  buildMsg :: sess -> Headers (Outbound sess) -> Msg (Outbound sess) -> Builder
 
 -- | Initiate new session
 --
 -- A client node connects to a server, and initiates the request.
 class IsSession sess => InitiateSession sess where
   -- | Build 'RequestInfo' for the server
-  buildRequestInfo  :: sess -> OutboundHeaders sess -> IO RequestInfo
+  buildRequestInfo  :: sess -> Headers (Outbound sess) -> IO RequestInfo
 
   -- | Parse 'ResponseInfo' from the server
-  parseResponseInfo :: sess -> ResponseInfo -> IO (InboundHeaders sess)
+  parseResponseInfo :: sess -> ResponseInfo -> IO (Headers (Inbound sess))
 
 -- | Accept session
 --
 -- A server node listens and accepts incoming requests from client nodes.
 class IsSession sess => AcceptSession sess where
   -- | Parse 'RequestInfo' from the client
-  parseRequestInfo  :: sess -> RequestInfo -> IO (InboundHeaders sess)
+  parseRequestInfo  :: sess -> RequestInfo -> IO (Headers (Inbound sess))
 
   -- | Build 'ResponseInfo' for the client
-  buildResponseInfo :: sess -> OutboundHeaders sess -> IO ResponseInfo
+  buildResponseInfo :: sess -> Headers (Outbound sess) -> IO ResponseInfo
 
 {-------------------------------------------------------------------------------
   Exceptions

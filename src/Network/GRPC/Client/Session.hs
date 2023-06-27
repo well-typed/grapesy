@@ -1,7 +1,8 @@
 module Network.GRPC.Client.Session (
     ClientSession(..)
-  , InboundHeaders(..)
-  , OutboundHeaders(..)
+  , ClientInbound
+  , ClientOutbound
+  , Headers(..)
   ) where
 
 import Control.Exception
@@ -11,7 +12,7 @@ import Network.HTTP.Types qualified as HTTP
 
 import Network.GRPC.Common.Compression qualified as Compr
 import Network.GRPC.Common.Exceptions
-import Network.GRPC.Spec
+import Network.GRPC.Spec qualified as GRPC
 import Network.GRPC.Spec.Compression (Compression)
 import Network.GRPC.Spec.CustomMetadata
 import Network.GRPC.Spec.LengthPrefixed qualified as LP
@@ -27,30 +28,39 @@ import Network.GRPC.Util.Session
 
 data ClientSession rpc = ClientSession {
       clientCompression :: Compr.Negotation
-    , clientUpdateMeta  :: ResponseHeaders -> IO ()
+    , clientUpdateMeta  :: GRPC.ResponseHeaders -> IO ()
     }
 
 {-------------------------------------------------------------------------------
   Instances
 -------------------------------------------------------------------------------}
 
-instance IsRPC rpc => IsSession (ClientSession rpc) where
-  data InboundHeaders (ClientSession rpc) = InboundHeaders {
-        inbHeaders     :: ResponseHeaders
+data ClientInbound rpc
+data ClientOutbound rpc
+
+instance IsRPC rpc => DataFlow (ClientInbound rpc) where
+  data Headers (ClientInbound rpc) = InboundHeaders {
+        inbHeaders     :: GRPC.ResponseHeaders
       , inbCompression :: Compression
       }
     deriving (Show)
-  data OutboundHeaders (ClientSession rpc) = OutboundHeaders {
-        outHeaders     :: RequestHeaders
+
+  type Msg      (ClientInbound rpc) = Output rpc
+  type Trailers (ClientInbound rpc) = [CustomMetadata]
+
+instance IsRPC rpc => DataFlow (ClientOutbound rpc) where
+  data Headers (ClientOutbound rpc) = OutboundHeaders {
+        outHeaders     :: GRPC.RequestHeaders
       , outCompression :: Compression
       }
     deriving (Show)
 
-  type InboundTrailers  (ClientSession rpc) = [CustomMetadata]
-  type OutboundTrailers (ClientSession rpc) = ()
+  type Msg      (ClientOutbound rpc) = Input rpc
+  type Trailers (ClientOutbound rpc) = ()
 
-  type InboundMsg  (ClientSession rpc) = Output rpc
-  type OutboundMsg (ClientSession rpc) = Input  rpc
+instance IsRPC rpc => IsSession (ClientSession rpc) where
+  type Inbound  (ClientSession rpc) = ClientInbound  rpc
+  type Outbound (ClientSession rpc) = ClientOutbound rpc
 
   -- Request trailers are not supported by gRPC
   buildTrailers _client = \() -> return []
@@ -70,7 +80,7 @@ instance IsRPC rpc => IsSession (ClientSession rpc) where
       case Resp.parseTrailers raw of
         Left  err      -> throwIO $ ResponseInvalidTrailers err
         Right trailers -> case grpcExceptionFromTrailers trailers of
-                            Nothing  -> return $ trailerMetadata trailers
+                            Nothing  -> return $ GRPC.trailerMetadata trailers
                             Just err -> throwIO err
 
   parseMsg _ = LP.parseOutput (Proxy @rpc) . inbCompression
@@ -81,14 +91,14 @@ instance IsRPC rpc => InitiateSession (ClientSession rpc) where
       unless (HTTP.statusCode (responseStatus info) == 200) $
         throwIO $ ResponseInvalidStatus (responseStatus info)
 
-      responseHeaders :: ResponseHeaders <-
+      responseHeaders :: GRPC.ResponseHeaders <-
         case Resp.parseHeaders (Proxy @rpc) (responseHeaders info) of
           Left  err    -> throwIO $ ResponseInvalidHeaders err
           Right parsed -> return parsed
 
       cIn :: Compression <-
         Compr.getSupported (clientCompression client) $
-          responseCompression responseHeaders
+          GRPC.responseCompression responseHeaders
 
       clientUpdateMeta client responseHeaders
 

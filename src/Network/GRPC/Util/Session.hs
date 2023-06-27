@@ -14,7 +14,8 @@
 -- > import Network.GRPC.Util.Session qualified as Session
 module Network.GRPC.Util.Session (
     -- * Session API
-    IsSession(..)
+    DataFlow(..)
+  , IsSession(..)
   , InitiateSession(..)
   , AcceptSession(..)
     -- ** Raw request/response info

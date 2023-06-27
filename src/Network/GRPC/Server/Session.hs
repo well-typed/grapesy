@@ -1,7 +1,8 @@
 module Network.GRPC.Server.Session (
     ServerSession(..)
-  , InboundHeaders(..)
-  , OutboundHeaders(..)
+  , ServerInbound
+  , ServerOutbound
+  , Headers(..)
   ) where
 
 import Control.Exception
@@ -11,7 +12,7 @@ import Network.HTTP.Types qualified as HTTP
 
 import Network.GRPC.Common.Compression (Compression, CompressionId)
 import Network.GRPC.Common.Compression qualified as Compr
-import Network.GRPC.Spec
+import Network.GRPC.Spec qualified as GRPC
 import Network.GRPC.Spec.LengthPrefixed qualified as LP
 import Network.GRPC.Spec.Request qualified as Req
 import Network.GRPC.Spec.Response qualified as Resp
@@ -30,23 +31,32 @@ data ServerSession rpc = ServerSession {
   Instances
 -------------------------------------------------------------------------------}
 
-instance IsRPC rpc => IsSession (ServerSession rpc) where
-  data InboundHeaders (ServerSession rpc) = InboundHeaders {
-        inbHeaders     :: RequestHeaders
+data ServerInbound rpc
+data ServerOutbound rpc
+
+instance IsRPC rpc => DataFlow (ServerInbound rpc) where
+  data Headers (ServerInbound rpc) = InboundHeaders {
+        inbHeaders     :: GRPC.RequestHeaders
       , inbCompression :: Compression
       }
     deriving (Show)
-  data OutboundHeaders (ServerSession rpc) = OutboundHeaders {
-        outHeaders     :: ResponseHeaders
+
+  type Msg      (ServerInbound rpc) = Input rpc
+  type Trailers (ServerInbound rpc) = ()
+
+instance IsRPC rpc => DataFlow (ServerOutbound rpc) where
+  data Headers (ServerOutbound rpc) = OutboundHeaders {
+        outHeaders     :: GRPC.ResponseHeaders
       , outCompression :: Compression
       }
     deriving (Show)
 
-  type InboundTrailers  (ServerSession rpc) = ()
-  type OutboundTrailers (ServerSession rpc) = Trailers
+  type Msg      (ServerOutbound rpc) = Output rpc
+  type Trailers (ServerOutbound rpc) = GRPC.Trailers
 
-  type InboundMsg  (ServerSession rpc) = Input  rpc
-  type OutboundMsg (ServerSession rpc) = Output rpc
+instance IsRPC rpc => IsSession (ServerSession rpc) where
+  type Inbound  (ServerSession rpc) = ServerInbound rpc
+  type Outbound (ServerSession rpc) = ServerOutbound rpc
 
   parseTrailers _ = \_ -> return ()
   buildTrailers _ = return . Resp.buildTrailers
@@ -56,14 +66,14 @@ instance IsRPC rpc => IsSession (ServerSession rpc) where
 
 instance IsRPC rpc => AcceptSession (ServerSession rpc) where
   parseRequestInfo server info = do
-      requestHeaders :: RequestHeaders <-
+      requestHeaders :: GRPC.RequestHeaders <-
         case Req.parseHeaders (Proxy @rpc) (requestHeaders info) of
           Left  err  -> throwIO $ RequestInvalidHeaders err
           Right hdrs -> return hdrs
 
       cIn :: Compression <-
         Compr.getSupported (serverCompression server) $
-          requestCompression requestHeaders
+          GRPC.requestCompression requestHeaders
 
       return InboundHeaders {
           inbHeaders    = requestHeaders
