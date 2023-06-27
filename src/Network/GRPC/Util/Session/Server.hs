@@ -37,7 +37,7 @@ initiateResponse :: forall sess.
   => sess
   -> Tracer IO (DebugMsg sess)
   -> ConnectionToClient
-  -> (InboundHeaders sess -> IO (OutboundHeaders sess))
+  -> (Headers (Inbound sess) -> IO (Headers (Outbound sess)))
   -> IO (Channel sess)
 initiateResponse sess tracer conn mkOutboundHeaders = do
     channel <- initChannel
@@ -54,8 +54,8 @@ initiateResponse sess tracer conn mkOutboundHeaders = do
     inboundHeaders <- parseRequestInfo sess requestInfo
 
     void $ forkIO $
-      threadBody (channelInbound channel) initInbound $ \st -> do
-        atomically $ putTMVar (channelInboundHeaders st) inboundHeaders
+      threadBody (channelInbound channel) initFlowState $ \st -> do
+        atomically $ putTMVar (flowHeaders st) inboundHeaders
         if Server.requestBodySize (request conn)  == Just 0 then
           processInboundTrailers sess tracer st requestHeaders
         else do
@@ -69,7 +69,7 @@ initiateResponse sess tracer conn mkOutboundHeaders = do
     outboundHeaders <- mkOutboundHeaders inboundHeaders
     responseInfo    <- buildResponseInfo sess outboundHeaders
 
-    let resp :: OutboundState sess -> Server.Response
+    let resp :: FlowState (Outbound sess) -> Server.Response
         resp st = setResponseTrailers sess channel $
           Server.responseStreaming
                         (responseStatus  responseInfo)
@@ -79,8 +79,8 @@ initiateResponse sess tracer conn mkOutboundHeaders = do
             sendMessageLoop sess tracer st stream
 
     void $ forkIO $
-      threadBody (channelOutbound channel) initOutbound $ \st -> do
-        atomically $ putTMVar (channelOutboundHeaders st) outboundHeaders
+      threadBody (channelOutbound channel) initFlowState $ \st -> do
+        atomically $ putTMVar (flowHeaders st) outboundHeaders
         respond conn $ resp st
 
     return channel

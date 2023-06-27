@@ -82,8 +82,8 @@ acceptCall conn mkResponseMetadata = do
           Context.serverDebugTracer $ Context.params (Connection.context conn)
 
     mkOutboundHeaders ::
-             Session.InboundHeaders  (ServerSession rpc)
-      -> IO (Session.OutboundHeaders (ServerSession rpc))
+             Session.Headers (ServerInbound  rpc)
+      -> IO (Session.Headers (ServerOutbound rpc))
     mkOutboundHeaders InboundHeaders{inbHeaders} = do
         responseMetadata <- mkResponseMetadata $ requestMetadata inbHeaders
 

@@ -72,7 +72,7 @@ initiateRequest :: forall sess.
   => sess
   -> Tracer IO (DebugMsg sess)
   -> ConnectionToServer
-  -> OutboundHeaders sess
+  -> Headers (Outbound sess)
   -> IO (Channel sess)
 initiateRequest sess tracer ConnectionToServer{sendRequest} outboundHeaders = do
     channel     <- initChannel
@@ -86,11 +86,11 @@ initiateRequest sess tracer ConnectionToServer{sendRequest} outboundHeaders = do
                 (requestHeaders requestInfo)
               $ \write flush -> do
             stream <- clientOutputStream write flush
-            threadBody (channelOutbound channel) initOutbound $ \st -> do
-              atomically $ putTMVar (channelOutboundHeaders st) outboundHeaders
+            threadBody (channelOutbound channel) initFlowState $ \st -> do
+              atomically $ putTMVar (flowHeaders st) outboundHeaders
               sendMessageLoop sess tracer st stream
 
-    void $ forkIO $ threadBody (channelInbound channel) initInbound $ \st -> do
+    void $ forkIO $ threadBody (channelInbound channel) initFlowState $ \st -> do
       setup <- try $ sendRequest req $ \resp -> do
         responseStatus <- case Client.responseStatus resp of
                             Just x  -> return x
@@ -98,7 +98,7 @@ initiateRequest sess tracer ConnectionToServer{sendRequest} outboundHeaders = do
         let responseHeaders = fromHeaderTable $ Client.responseHeaders resp
             responseInfo    = ResponseInfo {responseHeaders, responseStatus}
         inboundHeaders <- parseResponseInfo sess responseInfo
-        atomically $ putTMVar (channelInboundHeaders st) inboundHeaders
+        atomically $ putTMVar (flowHeaders st) inboundHeaders
         if Client.responseBodySize resp == Just 0 then do
           -- The gRPC specification defines
           --
