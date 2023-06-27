@@ -3,9 +3,9 @@ module Network.GRPC.Util.Session.Channel (
     Channel(..)
   , initChannel
     -- ** Flow state
-  , StreamMsg
   , FlowState(..)
-  , initFlowState
+  , RegularFlowState(..)
+  , initFlowStateRegular
     -- * Working with an open channel
   , getInboundHeaders
   , send
@@ -28,6 +28,7 @@ import Control.Concurrent.STM
 import Control.Exception
 import Control.Monad
 import Control.Tracer
+import Data.Bifunctor
 import Data.ByteString qualified as BS.Strict
 import Data.ByteString.Builder (Builder)
 import Data.ByteString.Lazy qualified as BS.Lazy
@@ -70,10 +71,10 @@ import Network.GRPC.Util.HTTP2.Stream
 -- Each channel is constructed for a /single/ session (request/response).
 data Channel sess = Channel {
       -- | Thread state of the thread receiving messages from the sess's peer
-      channelInbound :: TVar (ThreadState (FlowState (Inbound sess)))
+      channelInbound :: TVar (ThreadState (TMVar (FlowState (Inbound sess))))
 
       -- | Thread state of the thread sending messages to the sess's peer
-    , channelOutbound :: TVar (ThreadState (FlowState (Outbound sess)))
+    , channelOutbound :: TVar (ThreadState (TMVar (FlowState (Outbound sess))))
 
       -- | 'CallStack' of the final call to 'send'
       --
@@ -87,8 +88,6 @@ data Channel sess = Channel {
       -- This is just to improve the user experience; see 'channelSentFinal'.
     , channelRecvFinal :: TMVar CallStack
     }
-
-type StreamMsg flow = StreamElem (Trailers flow) (Msg flow)
 
 -- | Data flow state
 --
@@ -116,10 +115,14 @@ type StreamMsg flow = StreamElem (Trailers flow) (Msg flow)
 -- 'flowTrailers' is set immediately upon receiving the trailers from the peer;
 -- 'channelRecvFinal' is set when the user does the final call to 'recv' to
 -- actually receive those trailers.
-data FlowState flow = FlowState {
-      flowHeaders  :: TMVar (Headers   flow)
-    , flowMsg      :: TMVar (StreamMsg flow)
-    , flowTrailers :: TMVar (Trailers  flow)
+data FlowState flow =
+    FlowStateRegular (RegularFlowState flow)
+  | FlowStateTrailersOnly (TrailersOnly flow)
+
+data RegularFlowState flow = RegularFlowState {
+      flowHeaders  :: Headers flow
+    , flowMsg      :: TMVar (StreamElem (ProperTrailers flow) (Message flow))
+    , flowTrailers :: TMVar (ProperTrailers flow)
     }
 
 {-------------------------------------------------------------------------------
@@ -134,11 +137,10 @@ initChannel =
       <*> newEmptyTMVarIO
       <*> newEmptyTMVarIO
 
-initFlowState :: IO (FlowState flow)
-initFlowState =
-    FlowState
+initFlowStateRegular :: Headers flow -> IO (RegularFlowState flow)
+initFlowStateRegular headers = do
+    RegularFlowState headers
       <$> newEmptyTMVarIO
-      <*> newEmptyTMVarIO
       <*> newEmptyTMVarIO
 
 {-------------------------------------------------------------------------------
@@ -148,17 +150,25 @@ initFlowState =
 -- | The inbound headers
 --
 -- Will block if the inbound headers have not yet been received.
-getInboundHeaders :: Channel sess -> STM (Headers (Inbound sess))
+getInboundHeaders ::
+     Channel sess
+  -> STM (Either (TrailersOnly (Inbound sess)) (Headers (Inbound sess)))
 getInboundHeaders Channel{channelInbound} = do
-    st <- getThreadInterface channelInbound
-    readTMVar $ flowHeaders st
+    st <- readTMVar =<< getThreadInterface channelInbound
+    return $ case st of
+      FlowStateRegular      regular  -> Right $ flowHeaders regular
+      FlowStateTrailersOnly trailers -> Left trailers
 
 -- | Send a message to the node's peer
 --
 -- It is a bug to call 'send' again after the final message (that is, a message
 -- which 'StreamElem.definitelyFinal' considers to be final). Doing so will
 -- result in a 'SendAfterFinal' exception.
-send :: HasCallStack => Channel sess -> StreamMsg (Outbound sess) -> STM ()
+send ::
+     HasCallStack
+  => Channel sess
+  -> StreamElem (ProperTrailers (Outbound sess)) (Message (Outbound sess))
+  -> STM ()
 send Channel{channelOutbound, channelSentFinal} msg = do
     -- By checking that we haven't sent the final message yet, we know that this
     -- call to 'putMVar' will not block indefinitely: the thread that sends
@@ -169,16 +179,29 @@ send Channel{channelOutbound, channelSentFinal} msg = do
     case sentFinal of
       Just cs -> throwSTM $ SendAfterFinal cs
       Nothing -> do
-        st <- getThreadInterface channelOutbound
-        forM_ (StreamElem.definitelyFinal msg) $ \_trailers ->
-          putTMVar channelSentFinal callStack
-        putTMVar (flowMsg st) msg
+        st <- readTMVar =<< getThreadInterface channelOutbound
+        case st of
+          FlowStateRegular regular -> do
+            forM_ (StreamElem.definitelyFinal msg) $ \_trailers ->
+              putTMVar channelSentFinal callStack
+            putTMVar (flowMsg regular) msg
+          FlowStateTrailersOnly _ ->
+            -- For outgoing messages, the caller decides to use Trailers-Only,
+            -- so if they then subsequently call 'send', we throw an exception.
+            -- This is different for /inbound/ messages; see 'recv', below.
+            throwSTM $ SendButTrailersOnly
 
 -- | Receive a message from the node's peer
 --
 -- It is a bug to call 'recv' again after receiving the final message; Doing so
 -- will result in a 'RecvAfterFinal' exception.
-recv :: HasCallStack => Channel sess -> STM (StreamMsg (Inbound sess))
+recv ::
+     HasCallStack
+  => Channel sess
+  -> STM ( StreamElem
+             (Either (TrailersOnly (Inbound sess)) (ProperTrailers (Inbound sess)))
+             (Message (Inbound sess))
+         )
 recv Channel{channelInbound, channelRecvFinal} = do
     -- By checking that we haven't received the final message yet, we know that
     -- this call to 'takeTMVar' will not block indefinitely: the thread that
@@ -189,13 +212,18 @@ recv Channel{channelInbound, channelRecvFinal} = do
     case readFinal of
       Just cs -> throwSTM $ RecvAfterFinal cs
       Nothing -> do
-        st  <- getThreadInterface channelInbound
-        msg <- takeTMVar (flowMsg st)
-        -- We update 'channelRecvFinal' in the same tx as the read, so that we
-        -- atomically change from "there is a value" to "all values read".
-        forM_ (StreamElem.definitelyFinal msg) $ \_trailers ->
-          putTMVar channelRecvFinal callStack
-        return msg
+        st  <- readTMVar =<< getThreadInterface channelInbound
+        case st of
+          FlowStateRegular regular -> do
+            msg <- takeTMVar (flowMsg regular)
+            -- We update 'channelRecvFinal' in the same tx as the read, to
+            -- atomically change from "there is a value" to "all values read".
+            forM_ (StreamElem.definitelyFinal msg) $ \_trailers ->
+              putTMVar channelRecvFinal callStack
+            return $ first Right msg
+          FlowStateTrailersOnly trailers -> do
+            putTMVar channelRecvFinal callStack
+            return $ NoMoreElems (Left trailers)
 
 -- | Close the channel
 --
@@ -221,7 +249,12 @@ close Channel{channelInbound, channelOutbound} e = do
 -- The 'CallStack' is the callstack of the final call to 'send'.
 --
 -- See 'send' for additional discussion.
-data SendAfterFinal = SendAfterFinal CallStack
+data SendAfterFinal =
+    -- | Call to 'send' after the final message was sent
+    SendAfterFinal CallStack
+
+    -- | Call to 'send', but we are in the Trailers-Only case
+  | SendButTrailersOnly
   deriving stock (Show)
   deriving anyclass (Exception)
 
@@ -230,7 +263,9 @@ data SendAfterFinal = SendAfterFinal CallStack
 -- The 'CallStack' is the callstack of the final call to 'recv'.
 --
 -- See 'recv' for additional discussion.
-data RecvAfterFinal = RecvAfterFinal CallStack
+data RecvAfterFinal =
+     -- | Call to 'recv' after the final message was already received
+     RecvAfterFinal CallStack
   deriving stock (Show)
   deriving anyclass (Exception)
 
@@ -251,14 +286,13 @@ sendMessageLoop :: forall sess.
      IsSession sess
   => sess
   -> Tracer IO (DebugMsg sess)
-  -> FlowState (Outbound sess)
+  -> RegularFlowState (Outbound sess)
   -> OutputStream
   -> IO ()
-sendMessageLoop sess tracer st stream = do
-    outboundHeaders <- atomically $ readTMVar (flowHeaders st)
-    go $ buildMsg sess outboundHeaders
+sendMessageLoop sess tracer st stream =
+    go $ buildMsg sess (flowHeaders st)
   where
-    go :: (Msg (Outbound sess) -> Builder) -> IO ()
+    go :: (Message (Outbound sess) -> Builder) -> IO ()
     go build = loop
       where
         loop :: IO ()
@@ -290,17 +324,16 @@ recvMessageLoop :: forall sess.
      IsSession sess
   => sess
   -> Tracer IO (DebugMsg sess)
-  -> FlowState (Inbound sess)
+  -> RegularFlowState (Inbound sess)
   -> InputStream
   -> IO ()
-recvMessageLoop sess tracer st stream = do
-    inboundHeaders <- atomically $ readTMVar (flowHeaders st)
-    go $ parseMsg sess inboundHeaders
+recvMessageLoop sess tracer st stream =
+    go $ parseMsg sess (flowHeaders st)
   where
-    go :: Parser (Msg (Inbound sess)) -> IO ()
+    go :: Parser (Message (Inbound sess)) -> IO ()
     go = loop
       where
-        loop :: Parser (Msg (Inbound sess)) -> IO ()
+        loop :: Parser (Message (Inbound sess)) -> IO ()
         loop (ParserError err) =
             throwIO $ PeerSentMalformedMessage err
         loop (ParserDone x p') = do
@@ -320,15 +353,14 @@ recvMessageLoop sess tracer st stream = do
                | otherwise -> do
                    processInboundTrailers sess tracer st =<< getTrailers stream
 
-
 processInboundTrailers :: forall sess.
      IsSession sess
   => sess
   -> Tracer IO (DebugMsg sess)
-  -> FlowState (Inbound sess)
+  -> RegularFlowState (Inbound sess)
   -> [HTTP.Header] -> IO ()
 processInboundTrailers sess tracer st trailers = do
-    inboundTrailers <- parseTrailers sess trailers
+    inboundTrailers <- parseProperTrailers sess trailers
     traceWith tracer $ NodeRecvFinal inboundTrailers
     atomically $ do
       putTMVar (flowMsg      st) $ NoMoreElems inboundTrailers
@@ -336,22 +368,27 @@ processInboundTrailers sess tracer st trailers = do
 
 processOutboundTrailers :: forall sess.
      IsSession sess
-  => sess -> Channel sess -> HTTP2.TrailersMaker
-processOutboundTrailers sess channel = go
+  => sess
+  -> RegularFlowState (Outbound sess)
+  -> HTTP2.TrailersMaker
+processOutboundTrailers sess st = go
   where
     go :: HTTP2.TrailersMaker
     go (Just _) = return $ HTTP2.NextTrailersMaker go
     go Nothing  = do
-        st <- atomically $ getThreadInterface (channelOutbound channel)
         outboundTrailers <- atomically $ readTMVar (flowTrailers st)
-        HTTP2.Trailers <$> buildTrailers sess outboundTrailers
+        HTTP2.Trailers <$> buildProperTrailers sess outboundTrailers
 
 data DebugMsg sess =
     -- | Thread sending messages is awaiting a message
     NodeSendAwaitMsg
 
     -- | Thread sending message will send a message
-  | NodeSendMsg (StreamMsg (Outbound sess))
+  | NodeSendMsg (
+        StreamElem
+          (ProperTrailers (Outbound sess))
+          (Message (Outbound sess))
+      )
 
     -- | Receive thread requires data
     --
@@ -359,9 +396,13 @@ data DebugMsg sess =
   | NodeNeedsData BS.Lazy.ByteString
 
     -- | Receive thread received a message
-  | NodeRecvMsg (StreamMsg (Inbound sess))
+  | NodeRecvMsg (
+        StreamElem
+          (Either (TrailersOnly (Inbound sess)) (ProperTrailers (Inbound sess)))
+          (Message (Inbound sess))
+      )
 
     -- | Receive thread received the trailers
-  | NodeRecvFinal (Trailers (Inbound sess))
+  | NodeRecvFinal (ProperTrailers (Inbound sess))
 
 deriving instance IsSession sess => Show (DebugMsg sess)

@@ -45,8 +45,9 @@ instance IsRPC rpc => DataFlow (ClientInbound rpc) where
       }
     deriving (Show)
 
-  type Msg      (ClientInbound rpc) = Output rpc
-  type Trailers (ClientInbound rpc) = [CustomMetadata]
+  type Message        (ClientInbound rpc) = Output rpc
+  type ProperTrailers (ClientInbound rpc) = [CustomMetadata]
+  type TrailersOnly   (ClientInbound rpc) = [CustomMetadata]
 
 instance IsRPC rpc => DataFlow (ClientOutbound rpc) where
   data Headers (ClientOutbound rpc) = OutboundHeaders {
@@ -55,39 +56,29 @@ instance IsRPC rpc => DataFlow (ClientOutbound rpc) where
       }
     deriving (Show)
 
-  type Msg      (ClientOutbound rpc) = Input rpc
-  type Trailers (ClientOutbound rpc) = ()
+  type Message        (ClientOutbound rpc) = Input rpc
+  type ProperTrailers (ClientOutbound rpc) = ()
+
+  -- gRPC does not support request trailers, but does not require that a request
+  -- has any messages at all. When it does not, the request can be terminated
+  -- immediately after the initial set of headers; this makes it essentially a
+  -- 'Trailers-Only' case, but the headers are just the normal headers.
+  type TrailersOnly (ClientOutbound rpc) = GRPC.RequestHeaders
 
 instance IsRPC rpc => IsSession (ClientSession rpc) where
   type Inbound  (ClientSession rpc) = ClientInbound  rpc
   type Outbound (ClientSession rpc) = ClientOutbound rpc
 
-  -- Request trailers are not supported by gRPC
-  buildTrailers _client = \() -> return []
-
-  -- Response trailers
-  --
-  -- The gRPC spec states that
-  --
-  -- > Trailers-Only is permitted for calls that produce an immediate error
-  --
-  -- However, in practice gRPC servers can also respond with @Trailers-Only@ in
-  -- non-error cases, simply indicating that the server considers the
-  -- conversation over. To distinguish, we look at 'trailerGrpcStatus': in case
-  -- of 'GrpcOk' we return the 'Trailers', and in the case of 'GrpcError' we
-  -- throw 'RpcImmediateError'.
-  parseTrailers _client raw =
-      case Resp.parseTrailers raw of
-        Left  err      -> throwIO $ ResponseInvalidTrailers err
-        Right trailers -> case grpcExceptionFromTrailers trailers of
-                            Nothing  -> return $ GRPC.trailerMetadata trailers
-                            Just err -> throwIO err
+  buildProperTrailers _client = \() ->
+      return [] -- Request trailers are not supported by gRPC
+  parseProperTrailers _client =
+      processResponseTrailers $ Resp.parseProperTrailers (Proxy @rpc)
 
   parseMsg _ = LP.parseOutput (Proxy @rpc) . inbCompression
   buildMsg _ = LP.buildInput  (Proxy @rpc) . outCompression
 
 instance IsRPC rpc => InitiateSession (ClientSession rpc) where
-  parseResponseInfo client info = do
+  parseResponseRegular client info = do
       unless (HTTP.statusCode (responseStatus info) == 200) $
         throwIO $ ResponseInvalidStatus (responseStatus info)
 
@@ -107,11 +98,21 @@ instance IsRPC rpc => InitiateSession (ClientSession rpc) where
         , inbCompression = cIn
         }
 
-  buildRequestInfo _ outbound = do
+  parseResponseTrailersOnly _ info = do
+      unless (HTTP.statusCode (responseStatus info) == 200) $
+        throwIO $ ResponseInvalidStatus (responseStatus info)
+      processResponseTrailers
+        (fmap GRPC.getTrailersOnly .  Resp.parseTrailersOnly (Proxy @rpc))
+        (responseHeaders info)
+
+  buildRequestInfo _ start = do
       return RequestInfo {
           requestMethod  = rawMethod resourceHeaders
         , requestPath    = rawPath resourceHeaders
-        , requestHeaders = Req.buildHeaders (Proxy @rpc) $ outHeaders outbound
+        , requestHeaders = Req.buildHeaders (Proxy @rpc) $
+              case start of
+                FlowStartRegular      headers -> outHeaders headers
+                FlowStartTrailersOnly headers ->            headers
         }
     where
       resourceHeaders :: RawResourceHeaders
@@ -119,6 +120,28 @@ instance IsRPC rpc => InitiateSession (ClientSession rpc) where
             resourceMethod = Post
           , resourcePath   = rpcPath (Proxy @rpc)
           }
+
+-- | Process response trailers
+--
+-- The gRPC spec states that
+--
+-- > Trailers-Only is permitted for calls that produce an immediate error
+--
+-- However, in practice gRPC servers can also respond with @Trailers-Only@ in
+-- non-error cases, simply indicating that the server considers the
+-- conversation over. To distinguish, we look at 'trailerGrpcStatus': in case
+-- of 'GrpcOk' we return the 'Trailers', and in the case of 'GrpcError' we
+-- throw 'RpcImmediateError'.
+processResponseTrailers ::
+     ([HTTP.Header] -> Either String GRPC.ProperTrailers)
+  -> [HTTP.Header]
+  -> IO [CustomMetadata]
+processResponseTrailers parse raw =
+    case parse raw of
+      Left  err      -> throwIO $ ResponseInvalidTrailers err
+      Right trailers -> case grpcExceptionFromTrailers trailers of
+                          Nothing  -> return $ GRPC.trailerMetadata trailers
+                          Just err -> throwIO err
 
 {-------------------------------------------------------------------------------
   Exceptions

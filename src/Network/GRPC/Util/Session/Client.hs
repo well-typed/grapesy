@@ -35,17 +35,18 @@ data ConnectionToServer = ConnectionToServer {
   Control flow and exception handling here is a little tricky.
 
   * 'sendRequest' (coming from @http2@) will itself spawn a separate thread to
-    deal with sending inputs to the server (here, that is 'sendMessages').
+    deal with sending inputs to the server (here, that is 'sendMessageLoop').
 
   * As the last thing it does, 'sendRequest' will then call its continuation
     argument in whatever thread it was called. Here, that continuation argument
-    is 'receiveMessages' (dealing with outputs sent by the server), which we
+    is 'recvMessageLoop' (dealing with outputs sent by the server), which we
     want to run in a separate thread also. We must therefore call 'sendRequest'
     in a newly forked thread.
 
-    (We /could/ spawn the thread inside the continuation to 'sendRequest', but
-    its signature suggests some kind of scoping, so spawning it on the outside
-    seems more forwards compatible.)
+    Note that 'sendRequest' will /only/ call its continuation once it receives
+    a response from the server. Some servers will not send the (start of the)
+    response until it has received (part of) the request, so it is important
+    that we do not wait on 'sendRequest' before we return control to the caller.
 
   * We need to decide what to do with any exceptions that might arise in these
     threads. One option might be to rethrow those exceptions to the parent
@@ -72,71 +73,69 @@ initiateRequest :: forall sess.
   => sess
   -> Tracer IO (DebugMsg sess)
   -> ConnectionToServer
-  -> Headers (Outbound sess)
+  -> FlowStart (Outbound sess)
   -> IO (Channel sess)
-initiateRequest sess tracer ConnectionToServer{sendRequest} outboundHeaders = do
+initiateRequest sess tracer ConnectionToServer{sendRequest} outboundStart = do
     channel     <- initChannel
-    requestInfo <- buildRequestInfo sess outboundHeaders
+    requestInfo <- buildRequestInfo sess outboundStart
 
-    let req :: Client.Request
-        req = setRequestTrailers sess channel $
-          Client.requestStreaming
-                (requestMethod  requestInfo)
-                (requestPath    requestInfo)
-                (requestHeaders requestInfo)
-              $ \write flush -> do
-            stream <- clientOutputStream write flush
-            threadBody (channelOutbound channel) initFlowState $ \st -> do
-              atomically $ putTMVar (flowHeaders st) outboundHeaders
-              sendMessageLoop sess tracer st stream
-
-    void $ forkIO $ threadBody (channelInbound channel) initFlowState $ \st -> do
-      setup <- try $ sendRequest req $ \resp -> do
-        responseStatus <- case Client.responseStatus resp of
-                            Just x  -> return x
-                            Nothing -> throwIO PeerMissingPseudoHeaderStatus
-        let responseHeaders = fromHeaderTable $ Client.responseHeaders resp
-            responseInfo    = ResponseInfo {responseHeaders, responseStatus}
-        inboundHeaders <- parseResponseInfo sess responseInfo
-        atomically $ putTMVar (flowHeaders st) inboundHeaders
-        if Client.responseBodySize resp == Just 0 then do
-          -- The gRPC specification defines
-          --
-          -- > Response → (Response-Headers *Length-Prefixed-Message Trailers)
-          -- >          / Trailers-Only
-          --
-          -- The spec states in prose that
-          --
-          -- 1. For responses end-of-stream is indicated by the presence of the
-          --    END_STREAM flag on the last received HEADERS frame that carries
-          --    Trailers.
-          -- 2. Implementations should expect broken deployments to send non-200
-          --    HTTP status codes in responses as well as a variety of non-GRPC
-          --    content-types and to omit Status & Status-Message.
-          --    Implementations must synthesize a Status & Status-Message to
-          --    propagate to the application layer when this occurs.
-          --
-          -- This means the only reliable way to determine if we're in the
-          -- @Trailers-Only@ case is to see if the stream is terminated after we
-          -- received the \"trailers\" (headers). We don't get direct access to
-          -- this information from @http2@, /but/ we are told indirectly: if the
-          -- stream is terminated, we are told that the body size is 0 (normally
-          -- we do not expect an indication of body size at all); this is
-          -- independent from any content-length header (which gRPC does not in
-          -- fact allow for).
-          processInboundTrailers sess tracer st responseHeaders
-        else do
-          stream <- clientInputStream resp
-          recvMessageLoop
-            sess
-            tracer
-            st
-            stream
-      case setup of
-        Right ()                 -> return ()
-        Left (e :: SomeException)-> close channel e
+    case outboundStart of
+      FlowStartRegular headers -> do
+        regular <- initFlowStateRegular headers
+        let req :: Client.Request
+            req = setRequestTrailers sess regular
+                $ Client.requestStreaming
+                    (requestMethod  requestInfo)
+                    (requestPath    requestInfo)
+                    (requestHeaders requestInfo)
+                $ \write flush -> do
+                     stream <- clientOutputStream write flush
+                     threadBody (channelOutbound channel)
+                                (newTMVarIO (FlowStateRegular regular))
+                              $ \_stVar -> do
+                       sendMessageLoop sess tracer regular stream
+        forkRequest channel req
+      FlowStartTrailersOnly trailers -> do
+        stVar <- newTMVarIO $ FlowStateTrailersOnly trailers
+        atomically $ writeTVar (channelOutbound channel) $ ThreadDone stVar
+        let req :: Client.Request
+            req = Client.requestNoBody
+                    (requestMethod  requestInfo)
+                    (requestPath    requestInfo)
+                    (requestHeaders requestInfo)
+        forkRequest channel req
 
     return channel
+  where
+    forkRequest :: Channel sess -> Client.Request -> IO ()
+    forkRequest channel req = void $ forkIO $
+        threadBody (channelInbound channel) newEmptyTMVarIO $ \stVar -> do
+          setup <- try $ sendRequest req $ \resp -> do
+            responseStatus <- case Client.responseStatus resp of
+                                Just x  -> return x
+                                Nothing -> throwIO PeerMissingPseudoHeaderStatus
+            let responseHeaders = fromHeaderTable $ Client.responseHeaders resp
+                responseInfo    = ResponseInfo {responseHeaders, responseStatus}
+
+            inboundStart <-
+              if Client.responseBodySize resp == Just 0
+                then FlowStartTrailersOnly <$>
+                       parseResponseTrailersOnly sess responseInfo
+                else FlowStartRegular <$>
+                       parseResponseRegular sess responseInfo
+
+            case inboundStart of
+              FlowStartRegular headers -> do
+                regular <- initFlowStateRegular headers
+                stream  <- clientInputStream resp
+                atomically $ putTMVar stVar $ FlowStateRegular regular
+                recvMessageLoop sess tracer regular stream
+              FlowStartTrailersOnly trailers ->
+                atomically $ putTMVar stVar $ FlowStateTrailersOnly trailers
+
+          case setup of
+            Right ()                 -> return ()
+            Left (e :: SomeException)-> close channel e
 
 {-------------------------------------------------------------------------------
    Auxiliary http2
@@ -144,7 +143,9 @@ initiateRequest sess tracer ConnectionToServer{sendRequest} outboundHeaders = do
 
 setRequestTrailers ::
      IsSession sess
-  => sess -> Channel sess -> Client.Request -> Client.Request
-setRequestTrailers sess channel req =
+  => sess
+  -> RegularFlowState (Outbound sess)
+  -> Client.Request -> Client.Request
+setRequestTrailers sess st req =
     Client.setRequestTrailersMaker req $
-      processOutboundTrailers sess channel
+      processOutboundTrailers sess st

@@ -41,8 +41,11 @@ instance IsRPC rpc => DataFlow (ServerInbound rpc) where
       }
     deriving (Show)
 
-  type Msg      (ServerInbound rpc) = Input rpc
-  type Trailers (ServerInbound rpc) = ()
+  type Message        (ServerInbound rpc) = Input rpc
+  type ProperTrailers (ServerInbound rpc) = ()
+
+  -- See discussion of 'TrailersOnly' in 'ClientOutbound'
+  type TrailersOnly (ServerInbound rpc) = GRPC.RequestHeaders
 
 instance IsRPC rpc => DataFlow (ServerOutbound rpc) where
   data Headers (ServerOutbound rpc) = OutboundHeaders {
@@ -51,21 +54,22 @@ instance IsRPC rpc => DataFlow (ServerOutbound rpc) where
       }
     deriving (Show)
 
-  type Msg      (ServerOutbound rpc) = Output rpc
-  type Trailers (ServerOutbound rpc) = GRPC.Trailers
+  type Message        (ServerOutbound rpc) = Output rpc
+  type ProperTrailers (ServerOutbound rpc) = GRPC.ProperTrailers
+  type TrailersOnly   (ServerOutbound rpc) = GRPC.TrailersOnly
 
 instance IsRPC rpc => IsSession (ServerSession rpc) where
   type Inbound  (ServerSession rpc) = ServerInbound rpc
   type Outbound (ServerSession rpc) = ServerOutbound rpc
 
-  parseTrailers _ = \_ -> return ()
-  buildTrailers _ = return . Resp.buildTrailers
+  parseProperTrailers _ = \_ -> return ()
+  buildProperTrailers _ = return . Resp.buildProperTrailers
 
   parseMsg _ = LP.parseInput  (Proxy @rpc) . inbCompression
   buildMsg _ = LP.buildOutput (Proxy @rpc) . outCompression
 
 instance IsRPC rpc => AcceptSession (ServerSession rpc) where
-  parseRequestInfo server info = do
+  parseRequestRegular server info = do
       requestHeaders :: GRPC.RequestHeaders <-
         case Req.parseHeaders (Proxy @rpc) (requestHeaders info) of
           Left  err  -> throwIO $ RequestInvalidHeaders err
@@ -80,10 +84,20 @@ instance IsRPC rpc => AcceptSession (ServerSession rpc) where
         , inbCompression = cIn
         }
 
-  buildResponseInfo _ outbound =
+  parseRequestTrailersOnly _ info =
+      case Req.parseHeaders (Proxy @rpc) (requestHeaders info) of
+        Left  err  -> throwIO $ RequestInvalidHeaders err
+        Right hdrs -> return hdrs
+
+  buildResponseInfo _ start =
       return ResponseInfo {
           responseStatus  = HTTP.ok200
-        , responseHeaders = Resp.buildHeaders (Proxy @rpc) $ outHeaders outbound
+        , responseHeaders =
+            case start of
+              FlowStartRegular headers ->
+                Resp.buildHeaders (Proxy @rpc) (outHeaders headers)
+              FlowStartTrailersOnly trailers ->
+                Resp.buildTrailersOnly trailers
         }
 
 {-------------------------------------------------------------------------------

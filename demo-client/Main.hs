@@ -7,6 +7,7 @@ import Control.Exception
 import Control.Monad
 import Control.Tracer
 import Data.Default
+import System.IO
 import System.Mem (performMajorGC)
 
 import Network.GRPC.Client
@@ -29,6 +30,7 @@ import Demo.Client.API.Protobuf.RouteGuide       qualified as PBuf.RouteGuide
 
 main :: IO ()
 main = do
+    hSetBuffering stdout NoBuffering -- For easier debugging
     cmd <- getCmdline
     withConnection (connParams cmd) (cmdServer cmd) $ \conn ->
       dispatch cmd conn (cmdMethod cmd)

@@ -25,6 +25,7 @@ import Control.Concurrent.STM
 import Control.Exception
 import Control.Monad.IO.Class
 import Control.Tracer
+import Data.Bifunctor
 import Data.Foldable (asum)
 import Data.Maybe (fromMaybe)
 import GHC.Stack
@@ -70,10 +71,10 @@ initiateCall conn callParams = do
         callSession
         tracer
         (Connection.connectionToServer conn)
-        OutboundHeaders {
+        (Session.FlowStartRegular $ OutboundHeaders {
             outHeaders     = requestHeaders cOut
           , outCompression = fromMaybe Compression.identity cOut
-          }
+          })
     return Call{callSession, callChannel}
   where
     callSession :: ClientSession rpc
@@ -143,7 +144,13 @@ sendInput = Session.send . callChannel
 -- status will result in a 'GrpcException'. Calling 'recvOutput' again after
 -- receiving the trailers is a bug and results in a 'RecvAfterFinal' exception.
 recvOutput :: Call rpc -> STM (StreamElem [CustomMetadata] (Output rpc))
-recvOutput = Session.recv . callChannel
+recvOutput = fmap (first collapseTrailers) . Session.recv . callChannel
+  where
+    -- No difference between 'ProperTrailers' and 'TrailersOnly'
+    collapseTrailers ::
+         Either [CustomMetadata] [CustomMetadata]
+      -> [CustomMetadata]
+    collapseTrailers = either id id
 
 -- | The initial metadata that was included in the response headers
 --
@@ -160,7 +167,13 @@ recvOutput = Session.recv . callChannel
 --   server, and may indeed be available /well/ before.
 recvResponseMetadata :: Call rpc -> STM [CustomMetadata]
 recvResponseMetadata Call{callChannel} =
-    responseMetadata . inbHeaders <$> Session.getInboundHeaders callChannel
+    aux <$> Session.getInboundHeaders callChannel
+  where
+    aux ::
+         Either [CustomMetadata] (Headers (ClientInbound rpc))
+      -> [CustomMetadata]
+    aux (Left trailersOnly) = trailersOnly
+    aux (Right headers)     = responseMetadata $ inbHeaders headers
 
 {-------------------------------------------------------------------------------
   Protocol specific wrappers
