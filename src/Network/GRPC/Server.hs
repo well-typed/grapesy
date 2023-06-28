@@ -30,6 +30,7 @@ module Network.GRPC.Server (
 
 import Control.Exception
 import Control.Tracer
+import Network.HTTP.Types qualified as HTTP
 import Network.HTTP2.Server qualified as HTTP2
 
 import Network.GRPC.Common.Exceptions
@@ -45,6 +46,9 @@ import Network.GRPC.Spec
 import Network.GRPC.Spec.CustomMetadata
 import Network.GRPC.Spec.PseudoHeaders
 import Network.GRPC.Spec.RPC.Protobuf (Protobuf)
+import Network.GRPC.Util.Session.Server qualified as Server
+import Network.GRPC.Spec.Response qualified as Resp
+import Data.Text qualified as Text
 
 {-------------------------------------------------------------------------------
   Server proper
@@ -98,8 +102,17 @@ handleRequest handlers conn = do
             putStrLn $ "Uncaught exception: " ++ show err
             putStrLn "(TODO: We need a proper handler here.)"
       Left err -> do
-        putStrLn $ "Uncaught exception during acceptCall: " ++ show err
-        putStrLn "(TODO: We need a proper handler here.)"
+        traceWith tracer $ Context.AcceptCallFailed err
+        Server.respond (Connection.connectionToClient conn) $
+          HTTP2.responseNoBody
+            HTTP.ok200 -- gRPC uses HTTP 200 even when there are gRPC errors
+            (Resp.buildTrailersOnly $ TrailersOnly $ ProperTrailers {
+                trailerGrpcStatus  = GrpcError GrpcUnknown
+                -- TODO: Potential security concern here
+                -- (showing the exception)?
+              , trailerGrpcMessage = Just $ Text.pack $ show err
+              , trailerMetadata    = []
+              })
   where
     path :: Path
     path = Connection.path conn

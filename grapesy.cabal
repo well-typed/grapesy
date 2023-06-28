@@ -211,10 +211,12 @@ test-suite test-grapesy
   build-depends:
       -- External dependencies
     , async         >= 2.2  && < 2.3
+    , containers    >= 0.6  && < 0.7
     , contra-tracer >= 0.2  && < 0.3
     , data-default  >= 0.7  && < 0.8
     , tasty         >= 1.4  && < 1.5
     , tasty-hunit   >= 0.10 && < 0.11
+    , text          >= 1.2  && < 2.1
     , tls           >= 1.5  && < 1.8
 
 executable demo-client
@@ -328,9 +330,11 @@ executable test-stress
   build-depends:
       -- External dependencies
     , async                >= 2.2  && < 2.3
+    , containers           >= 0.6  && < 0.7
     , contra-tracer        >= 0.2  && < 0.3
     , data-default         >= 0.7  && < 0.8
     , optparse-applicative >= 0.16 && < 0.19
+    , text                 >= 1.2  && < 2.1
     , tls                  >= 1.5  && < 1.8
 
   if !flag(build-stress-test)

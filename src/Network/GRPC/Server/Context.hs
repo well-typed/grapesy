@@ -14,6 +14,7 @@ module Network.GRPC.Server.Context (
   , ServerDebugMsg(..)
   ) where
 
+import Control.Exception
 import Control.Tracer
 import Data.Default
 
@@ -61,6 +62,8 @@ data ServerDebugMsg =
   | forall rpc.
           IsRPC rpc
        => PeerDebugMsg (Session.DebugMsg (ServerSession rpc))
+
+   | AcceptCallFailed SomeException
 
 deriving instance Show ServerDebugMsg
 

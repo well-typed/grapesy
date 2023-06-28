@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module Test.Util.ClientServer (
     -- * Configuraiton
     ClientServerConfig(..)
@@ -19,11 +21,16 @@ import Control.Concurrent.Async
 import Control.Exception
 import Control.Tracer
 import Data.Default
+import Data.Map qualified as Map
+import Data.Set qualified as Set
+import Data.Text qualified as Text
 import Data.Typeable
 import Network.TLS
 
 import Network.GRPC.Client qualified as Client
+import Network.GRPC.Common.Compression qualified as Compr
 import Network.GRPC.Common.Compression qualified as Compression
+import Network.GRPC.Common.Exceptions
 import Network.GRPC.Server qualified as Server
 import Network.GRPC.Server.Run qualified as Server
 
@@ -88,6 +95,9 @@ data TlsFail =
 
 type TestFailure = String
 
+-- | Check if a raised exception constitutes a test failure
+--
+-- If 'Nothing', then the exception is expected behaviour.
 isTestFailure :: ClientServerConfig -> SomeException -> Maybe TestFailure
 isTestFailure cfg err
     | Just (tlsException :: TLSException) <- fromException err
@@ -106,6 +116,24 @@ isTestFailure cfg err
            Nothing
         _otherwise ->
           unexpectedException
+
+    | Just (grpcException :: GrpcException) <- fromException err
+    = if | Set.disjoint (Map.keysSet (Compr.supported (clientCompr cfg)))
+                        (Map.keysSet (Compr.supported (serverCompr cfg)))
+         , GrpcUnknown <- grpcError grpcException
+         , Just msg <- grpcErrorMessage grpcException
+         , "CompressionNegotationFailed" `Text.isInfixOf` msg
+         -> Nothing
+
+         | otherwise
+         -> unexpectedException
+
+    | Just (threadCancelled :: ThreadCancelled) <- fromException err
+    = isTestFailure cfg (threadCancelledReason threadCancelled)
+
+    | Just (channelClosed :: ChannelClosed) <- fromException err
+    = isTestFailure cfg (channelClosedReason channelClosed)
+
     | otherwise
     = unexpectedException
   where
