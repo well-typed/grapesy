@@ -4,6 +4,7 @@ module Network.GRPC.Util.Session.API (
   , ResponseInfo(..)
     -- * Main definitions
   , DataFlow(..)
+  , FlowStart(..)
   , IsSession(..)
   , InitiateSession(..)
   , AcceptSession(..)
@@ -43,14 +44,41 @@ data ResponseInfo = ResponseInfo {
 
 -- | Flow of data in a session
 --
--- This describes the flow of data in /one/ direction.
-class ( Show (Headers  flow)
-      , Show (Msg      flow)
-      , Show (Trailers flow)
+-- This describes the flow of data in /one/ direction. The normal flow of data
+-- is as follows:
+--
+-- 1. (Proper) Headers
+-- 2. Messages
+-- 3. Trailers
+--
+-- However, in the case that there /are/ no messages, this whole thing collapses
+-- into a single 'TrailersOnly'. We need to treat this case separately, because
+--
+-- * It looks different on the wire: in the regular case, we will have /two/
+--   HTTP @Headers@ frames, but in the Trailers-Only case, we only have one.
+-- * Applications may in turn treat the Trailers-Only case special, using a
+--   different set of headers (specifically, this is the case for gRPC).
+--
+-- To avoid confusion, we refer to the trailers in the non-Trailers-Only case
+-- as "proper" trailers.
+class ( Show (Headers        flow)
+      , Show (Message        flow)
+      , Show (ProperTrailers flow)
+      , Show (TrailersOnly   flow)
       ) => DataFlow flow where
-  data Headers  flow :: Type
-  type Msg      flow :: Type
-  type Trailers flow :: Type
+  data Headers        flow :: Type
+  type Message        flow :: Type
+  type ProperTrailers flow :: Type
+  type TrailersOnly   flow :: Type
+
+-- | Start of data flow
+--
+-- See 'DataFlow' for discussion.
+data FlowStart flow =
+    FlowStartRegular      (Headers      flow)
+  | FlowStartTrailersOnly (TrailersOnly flow)
+
+deriving instance DataFlow flow => Show (FlowStart flow)
 
 -- | Session between two nodes in the network
 --
@@ -69,46 +97,72 @@ class ( DataFlow (Inbound  sess)
   type Inbound  sess :: Type
   type Outbound sess :: Type
 
-  -- | Parse trailers
-  --
-  -- NOTE: The a stream is determined after the initial set of headers, that
-  -- set of headers can be regarded as both \"headers\" or \"trailers\", and
-  -- we will accordingly parse them using /both/ 'parseTrailers' /and/
-  -- 'parseResponseInfo' or 'parseRequestInfo' (depending on whether we are
-  -- a client or a server).
-  --
-  -- TODO: If it turns out that this is too coarse, we will need to introduce
-  -- a separate type variable that describes this "trailers only" case.
-  parseTrailers :: sess -> [HTTP.Header] -> IO (Trailers (Inbound sess))
+  -- | Parse proper trailers
+  parseProperTrailers ::
+       sess
+    -> [HTTP.Header] -> IO (ProperTrailers (Inbound sess))
 
-  -- | Build trailers
-  buildTrailers :: sess -> Trailers (Outbound sess) -> IO [HTTP.Header]
+  -- | Build proper trailers
+  buildProperTrailers ::
+       sess
+    -> ProperTrailers (Outbound sess) -> IO [HTTP.Header]
 
   -- | Parse message
-  parseMsg :: sess -> Headers (Inbound sess) -> Parser (Msg (Inbound sess))
+  parseMsg ::
+       sess
+    -> Headers (Inbound sess)
+    -> Parser (Message (Inbound sess))
 
   -- | Build message
-  buildMsg :: sess -> Headers (Outbound sess) -> Msg (Outbound sess) -> Builder
+  buildMsg ::
+       sess
+    -> Headers (Outbound sess)
+    -> Message (Outbound sess) -> Builder
 
 -- | Initiate new session
 --
 -- A client node connects to a server, and initiates the request.
 class IsSession sess => InitiateSession sess where
   -- | Build 'RequestInfo' for the server
-  buildRequestInfo  :: sess -> Headers (Outbound sess) -> IO RequestInfo
+  buildRequestInfo ::
+       sess
+    -> FlowStart (Outbound sess) -> IO RequestInfo
 
-  -- | Parse 'ResponseInfo' from the server
-  parseResponseInfo :: sess -> ResponseInfo -> IO (Headers (Inbound sess))
+  -- | Parse 'ResponseInfo' from the server, regular case
+  --
+  -- See 'parseResponseTrailersOnly' for the Trailers-Only case.
+  parseResponseRegular ::
+       sess
+    -> ResponseInfo -> IO (Headers (Inbound sess))
+
+  -- | Parse 'ResponseInfo' from the server, Trailers-Only case
+  parseResponseTrailersOnly ::
+       sess
+    -> ResponseInfo -> IO (TrailersOnly (Inbound sess))
+
+  -- | Parse
 
 -- | Accept session
 --
 -- A server node listens and accepts incoming requests from client nodes.
 class IsSession sess => AcceptSession sess where
-  -- | Parse 'RequestInfo' from the client
-  parseRequestInfo  :: sess -> RequestInfo -> IO (Headers (Inbound sess))
+  -- | Parse 'RequestInfo' from the client, regular case
+  --
+  -- See 'parseRequestTrailersOnly' for the Trailers-Only case.
+  parseRequestRegular ::
+       sess
+    -> RequestInfo -> IO (Headers (Inbound sess))
+
+  --  | Parse 'RequestInfo' from the client, Trailers-Only case
+  parseRequestTrailersOnly ::
+       sess
+    -> RequestInfo -> IO (TrailersOnly (Inbound sess))
 
   -- | Build 'ResponseInfo' for the client
-  buildResponseInfo :: sess -> Headers (Outbound sess) -> IO ResponseInfo
+  buildResponseInfo ::
+       sess
+    -> FlowStart (Outbound sess)
+    -> IO ResponseInfo
 
 {-------------------------------------------------------------------------------
   Exceptions

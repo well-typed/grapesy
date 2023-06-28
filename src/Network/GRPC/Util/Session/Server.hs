@@ -37,9 +37,9 @@ initiateResponse :: forall sess.
   => sess
   -> Tracer IO (DebugMsg sess)
   -> ConnectionToClient
-  -> (Headers (Inbound sess) -> IO (Headers (Outbound sess)))
+  -> (FlowStart (Inbound sess) -> IO (FlowStart (Outbound sess)))
   -> IO (Channel sess)
-initiateResponse sess tracer conn mkOutboundHeaders = do
+initiateResponse sess tracer conn startOutbound = do
     channel <- initChannel
 
     let requestHeaders = fromHeaderTable $ Server.requestHeaders (request conn)
@@ -51,37 +51,47 @@ initiateResponse sess tracer conn mkOutboundHeaders = do
                        Nothing -> throwIO PeerMissingPseudoHeaderPath
     let requestInfo = RequestInfo {requestHeaders, requestMethod, requestPath}
 
-    inboundHeaders <- parseRequestInfo sess requestInfo
+    inboundStart <-
+      if Server.requestBodySize (request conn) == Just 0 then
+        FlowStartTrailersOnly <$> parseRequestTrailersOnly sess requestInfo
+      else
+        FlowStartRegular <$> parseRequestRegular sess requestInfo
+    outboundStart <- startOutbound inboundStart
+    responseInfo  <- buildResponseInfo sess outboundStart
 
     void $ forkIO $
-      threadBody (channelInbound channel) initFlowState $ \st -> do
-        atomically $ putTMVar (flowHeaders st) inboundHeaders
-        if Server.requestBodySize (request conn)  == Just 0 then
-          processInboundTrailers sess tracer st requestHeaders
-        else do
-          stream <- serverInputStream (request conn)
-          recvMessageLoop
-            sess
-            tracer
-            st
-            stream
-
-    outboundHeaders <- mkOutboundHeaders inboundHeaders
-    responseInfo    <- buildResponseInfo sess outboundHeaders
-
-    let resp :: FlowState (Outbound sess) -> Server.Response
-        resp st = setResponseTrailers sess channel $
-          Server.responseStreaming
-                        (responseStatus  responseInfo)
-                        (responseHeaders responseInfo)
-                      $ \write flush -> do
-            stream <- serverOutputStream write flush
-            sendMessageLoop sess tracer st stream
+      threadBody (channelInbound channel) newEmptyTMVarIO $ \stVar -> do
+        case inboundStart of
+          FlowStartRegular headers -> do
+            regular <- initFlowStateRegular headers
+            stream  <- serverInputStream (request conn)
+            atomically $ putTMVar stVar $ FlowStateRegular regular
+            recvMessageLoop sess tracer regular stream
+          FlowStartTrailersOnly trailers ->
+            atomically $ putTMVar stVar $ FlowStateTrailersOnly trailers
 
     void $ forkIO $
-      threadBody (channelOutbound channel) initFlowState $ \st -> do
-        atomically $ putTMVar (flowHeaders st) outboundHeaders
-        respond conn $ resp st
+      threadBody (channelOutbound channel) newEmptyTMVarIO $ \stVar -> do
+        case outboundStart of
+          FlowStartRegular headers -> do
+            regular <- initFlowStateRegular headers
+            atomically $ putTMVar stVar $ FlowStateRegular regular
+            let resp :: Server.Response
+                resp = setResponseTrailers sess regular
+                     $ Server.responseStreaming
+                             (responseStatus  responseInfo)
+                             (responseHeaders responseInfo)
+                     $ \write flush -> do
+                          stream <- serverOutputStream write flush
+                          sendMessageLoop sess tracer regular stream
+            respond conn resp
+          FlowStartTrailersOnly trailers -> do
+            atomically $ putTMVar stVar $ FlowStateTrailersOnly trailers
+            let resp :: Server.Response
+                resp = Server.responseNoBody
+                         (responseStatus  responseInfo)
+                         (responseHeaders responseInfo)
+            respond conn $ resp
 
     return channel
 
@@ -92,8 +102,8 @@ initiateResponse sess tracer conn mkOutboundHeaders = do
 setResponseTrailers ::
      IsSession sess
   => sess
-  -> Channel sess
+  -> RegularFlowState (Outbound sess)
   -> Server.Response -> Server.Response
-setResponseTrailers sess channel resp =
+setResponseTrailers sess st resp =
     Server.setResponseTrailersMaker resp $
-      processOutboundTrailers sess channel
+      processOutboundTrailers sess st

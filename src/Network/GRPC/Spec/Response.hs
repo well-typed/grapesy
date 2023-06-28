@@ -8,10 +8,12 @@
 module Network.GRPC.Spec.Response (
     -- * Construction
     buildHeaders
-  , buildTrailers
+  , buildProperTrailers
+  , buildTrailersOnly
     -- * Parsing
   , parseHeaders
-  , parseTrailers
+  , parseProperTrailers
+  , parseTrailersOnly
   ) where
 
 import Control.Monad.Except
@@ -93,13 +95,6 @@ parseHeaders proxy =
       = update updAcceptCompression $ \_ ->
           Just <$> parseMessageAcceptEncoding hdr
 
-      -- Trailers-Only case
-
-      | name == "grpc-status"  = return ()
-      | name == "grpc-message" = return ()
-
-      -- Custom metadata
-
       | otherwise
       = parseCustomMetadata hdr >>= update updCustom . fmap . (:)
 
@@ -119,11 +114,13 @@ parseHeaders proxy =
   > Trailers → Status [Status-Message] *Custom-Metadata
 -------------------------------------------------------------------------------}
 
--- | Build trailers
-buildTrailers :: Trailers -> [HTTP.Header]
-buildTrailers Trailers{ trailerGrpcStatus
+-- | Build trailers (see 'buildTrailersOnly' for the Trailers-Only case)
+buildProperTrailers :: ProperTrailers -> [HTTP.Header]
+buildProperTrailers ProperTrailers{
+                        trailerGrpcStatus
                       , trailerGrpcMessage
-                      , trailerMetadata } = concat [
+                      , trailerMetadata
+                      } = concat [
       [ ( "grpc-status"
         , BS.Strict.C8.pack $ show $ fromGrpcStatus trailerGrpcStatus
         )
@@ -138,50 +135,25 @@ buildTrailers Trailers{ trailerGrpcStatus
       ]
     ]
 
+-- | Build trailers for the Trailers-Only case
+buildTrailersOnly :: TrailersOnly -> [HTTP.Header]
+buildTrailersOnly (TrailersOnly trailers) =
+      ("content-type", "application/grpc")
+    : buildProperTrailers trailers
+
 -- | Parse response trailers
 --
--- === The @Trailers-Only@ case
---
--- The gRPC spec defines:
---
--- > Response-Headers → HTTP-Status
--- >                    [Message-Encoding]
--- >                    [Message-Accept-Encoding]
--- >                    Content-Type
--- >                    *Custom-Metadata
--- > Trailers         → Status
--- >                    [Status-Message]
--- >                    *Custom-Metadata
--- > Trailers-Only    → HTTP-Status
--- >                    Content-Type
--- >                    Trailers
---
--- We treat this case in a somewhat coarse-grained manner (see also
--- 'parseTrailers' in "Network.GRPC.Util.Session.API"): in the case of
--- @Trailers-Only@, we parse the same set of headers twice, once using
--- 'parseHeaders' and once using 'parseTrailers'. Both parsers are designed to
--- ignore each other's headers. We can only do this because:
---
--- * The @Trailers-Only@ case does not carry any information that is not present
---   in the combination of @Response-Headers@ and @Trailers@.
--- * The only headers that are /required/ by @Response-Headers@ are also present
---   in @Trailers-Only@.
---
--- These two properties of the spec do not feel accidental; nonetheless, should
--- they no longer hold in future versions of the spec, we will need to do this
--- differently (starting by introducing a new types in
--- "Network.GRPC.Util.Session.API", corresponding to the @Trailers-Only@ case).
---
--- One consequence of this approach is that if there is custom metadata present,
--- we will record that metadata both as 'responseMetadata' and as
--- 'trailerMetadata'; this is perhaps not unreasonable. Client code can
--- distinguish between the two cases simply by keeping track how many outputs
--- have been sent.
-parseTrailers :: [HTTP.Header] -> Either String Trailers
-parseTrailers =
+-- This also allows for the @Content-Type@ header; see 'parseTrailersOnly'
+-- for discussion.
+parseProperTrailers ::
+     IsRPC rpc
+  => Proxy rpc -> [HTTP.Header] -> Either String ProperTrailers
+parseProperTrailers proxy =
     runPartialParser uninitTrailers . mapM_ parseHeader
   where
-    parseHeader :: HTTP.Header -> PartialParser Trailers (Either String) ()
+    parseHeader ::
+         HTTP.Header
+      -> PartialParser ProperTrailers (Either String) ()
     parseHeader hdr@(name, value)
       | name == "grpc-status"
       = case toGrpcStatus =<< readMaybe (BS.Strict.C8.unpack value) of
@@ -193,18 +165,14 @@ parseTrailers =
           Left  err -> throwError $ show err
           Right msg -> update updGrpcMessage $ \_ -> return (Just msg)
 
-      -- Trailers-Only case
-
-      | name == "content-type"         = return ()
-      | name == "grpc-encoding"        = return ()
-      | name == "grpc-accept-encoding" = return ()
-
-      -- Custom metadata
+        -- For the Trailers-Only case
+      | name == "content-type"
+      = parseContentType proxy hdr
 
       | otherwise
       = parseCustomMetadata hdr >>= update updCustom . fmap . (:)
 
-    uninitTrailers :: Partial (Either String) Trailers
+    uninitTrailers :: Partial (Either String) ProperTrailers
     uninitTrailers =
            throwError "missing: grpc-status"  -- trailerGrpcStatus
         :* return Nothing                     -- trailerGrpcMessage
@@ -214,5 +182,20 @@ parseTrailers =
     (     updGrpcStatus
       :* updGrpcMessage
       :* updCustom
-      :* Nil ) = partialUpdates (Proxy @Trailers)
+      :* Nil ) = partialUpdates (Proxy @ProperTrailers)
 
+-- | Parse trailers in the gRPC @Trailers-Only@ case
+--
+-- The gRPC spec defines:
+--
+-- > Trailers      → Status [Status-Message] *Custom-Metadata
+-- > Trailers-Only → HTTP-Status Content-Type Trailers
+--
+-- This means that the only difference between the two is the precise of the
+-- @Content-Type@ header (@HTTP-Status@ is dealt with elsewhere). Since we don't
+-- actually extract any information from the @Content-Type@ header, we can just
+-- use one parser for both @Trailers@ and @Trailers-Only@.
+parseTrailersOnly ::
+     IsRPC rpc
+  => Proxy rpc -> [HTTP.Header] -> Either String TrailersOnly
+parseTrailersOnly proxy = fmap TrailersOnly . parseProperTrailers proxy

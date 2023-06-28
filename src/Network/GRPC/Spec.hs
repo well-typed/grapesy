@@ -13,7 +13,8 @@ module Network.GRPC.Spec (
   , IsFinal(..)
     -- * Outputs (messages received from the peer)
   , ResponseHeaders(..)
-  , Trailers(..)
+  , ProperTrailers(..)
+  , TrailersOnly(..)
     -- * GRPC status
   , GrpcStatus(..)
   , GrpcError(..)
@@ -154,7 +155,7 @@ data ResponseHeaders = ResponseHeaders {
 -- they are HTTP headers that are sent /after/ the content body. For example,
 -- imagine the server is streaming a file that it's reading from disk; it could
 -- use trailers to give the client an MD5 checksum when streaming is complete.
-data Trailers = Trailers {
+data ProperTrailers = ProperTrailers {
       trailerGrpcStatus  :: GrpcStatus
     , trailerGrpcMessage :: Maybe Text
     , trailerMetadata    :: [CustomMetadata]
@@ -162,6 +163,16 @@ data Trailers = Trailers {
   deriving stock (Show, Eq)
   deriving stock (GHC.Generic)
   deriving anyclass (SOP.Generic, SOP.HasDatatypeInfo)
+
+-- | Trailers sent in the gRPC Trailers-Only case
+--
+-- In the current version of the spec, the information in 'TrailersOnly' is
+-- identical to the 'ProperTrailers' case (but they do require a slightly
+-- different function to parse/unparse).
+newtype TrailersOnly = TrailersOnly {
+      getTrailersOnly :: ProperTrailers
+    }
+  deriving stock (Show, Eq)
 
 {-------------------------------------------------------------------------------
   gRPC status

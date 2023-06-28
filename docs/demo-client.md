@@ -21,7 +21,7 @@ here is that it turns the first letter of the method name to lowercase. For
 example, `helloworld.Greeter.SayHello` becomes
 
 ```haskell
-RPC @Greeter @"sayHello"
+Protobuf @Greeter @"sayHello"
 ```
 
 ## Debugging
@@ -32,7 +32,6 @@ get verbose debug logs of the communication between the client and the server.
 ```
 cabal run demo-client -- --debug sayHello --name 'John'
 ```
-
 
 ## TLS
 

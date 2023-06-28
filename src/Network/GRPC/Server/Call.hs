@@ -82,13 +82,13 @@ acceptCall conn mkResponseMetadata = do
           Context.serverDebugTracer $ Context.params (Connection.context conn)
 
     mkOutboundHeaders ::
-             Session.Headers (ServerInbound  rpc)
-      -> IO (Session.Headers (ServerOutbound rpc))
-    mkOutboundHeaders InboundHeaders{inbHeaders} = do
-        responseMetadata <- mkResponseMetadata $ requestMetadata inbHeaders
+             Session.FlowStart (ServerInbound  rpc)
+      -> IO (Session.FlowStart (ServerOutbound rpc))
+    mkOutboundHeaders start = do
+        responseMetadata <- mkResponseMetadata $ requestMetadata inboundHeaders
 
         cOut :: Compression <-
-          case requestAcceptCompression inbHeaders of
+          case requestAcceptCompression inboundHeaders of
              Nothing   -> return Compression.identity
              Just cids ->
                -- If the requests explicitly lists compression algorithms, and
@@ -100,7 +100,7 @@ acceptCall conn mkResponseMetadata = do
                  Right c   -> return c
                  Left  err -> throwIO err
 
-        return OutboundHeaders {
+        return $ Session.FlowStartRegular $ OutboundHeaders {
             outHeaders = ResponseHeaders {
                 responseCompression       = Just $ Compr.compressionId cOut
               , responseAcceptCompression = Just $ Compr.offer compr
@@ -108,6 +108,12 @@ acceptCall conn mkResponseMetadata = do
               }
           , outCompression = cOut
           }
+      where
+        inboundHeaders :: RequestHeaders
+        inboundHeaders =
+            case start of
+              Session.FlowStartRegular      headers -> inbHeaders headers
+              Session.FlowStartTrailersOnly headers ->            headers
 
 {-------------------------------------------------------------------------------
   Open (ongoing) call
@@ -118,13 +124,17 @@ acceptCall conn mkResponseMetadata = do
 -- We do not return trailers, since gRPC does not support sending trailers from
 -- the client to the server (only from the server to the client).
 recvInput :: forall rpc. Call rpc -> STM (StreamElem () (Input rpc))
-recvInput Call{callChannel} = Session.recv callChannel
+recvInput Call{callChannel} =
+    first ignoreTrailersOnly <$> Session.recv callChannel
+  where
+    ignoreTrailersOnly :: Either RequestHeaders () -> ()
+    ignoreTrailersOnly _ = ()
 
 sendOutput :: Call rpc -> StreamElem [CustomMetadata] (Output rpc) -> STM ()
 sendOutput Call{callChannel} = Session.send callChannel . first mkTrailers
   where
-    mkTrailers :: [CustomMetadata] -> Trailers
-    mkTrailers metadata = Trailers {
+    mkTrailers :: [CustomMetadata] -> ProperTrailers
+    mkTrailers metadata = ProperTrailers{
           trailerGrpcStatus  = GrpcOk
         , trailerGrpcMessage = Nothing
         , trailerMetadata    = metadata

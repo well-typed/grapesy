@@ -30,7 +30,7 @@ data GrpcException = GrpcException {
   deriving stock (Show)
   deriving anyclass (Exception)
 
-grpcExceptionFromTrailers :: Trailers -> Maybe GrpcException
+grpcExceptionFromTrailers :: ProperTrailers -> Maybe GrpcException
 grpcExceptionFromTrailers trailers =
     case trailerGrpcStatus trailers of
       GrpcOk        -> Nothing
@@ -40,8 +40,8 @@ grpcExceptionFromTrailers trailers =
         , grpcErrorMetadata = trailerMetadata    trailers
         }
 
-grpcExceptionToTrailers ::  GrpcException -> Trailers
-grpcExceptionToTrailers err = Trailers{
+grpcExceptionToTrailers ::  GrpcException -> ProperTrailers
+grpcExceptionToTrailers err = ProperTrailers{
       trailerGrpcStatus   = GrpcError (grpcError err)
     , trailerGrpcMessage  = grpcErrorMessage     err
     , trailerMetadata     = grpcErrorMetadata    err

@@ -15,6 +15,7 @@
 module Network.GRPC.Util.Session (
     -- * Session API
     DataFlow(..)
+  , FlowStart(..)
   , IsSession(..)
   , InitiateSession(..)
   , AcceptSession(..)
