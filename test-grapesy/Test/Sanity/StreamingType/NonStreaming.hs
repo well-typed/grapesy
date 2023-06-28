@@ -47,11 +47,23 @@ tests = testGroup "Test.Sanity.StreamingType.NonStreaming" [
                       }
                 ]
             ]
-        , testCaseInfo "gzip" $
-            test_increment def {
-                clientCompr = Compr.require Compr.gzip
-              , serverCompr = Compr.require Compr.gzip
-              }
+        , testGroup "compression" [
+              testCaseInfo "gzip" $
+                test_increment def {
+                    clientCompr = Compr.require Compr.gzip
+                  , serverCompr = Compr.require Compr.gzip
+                  }
+            , testCaseInfo "serverUnsupported" $
+                test_increment def {
+                    clientCompr = Compr.require Compr.gzip
+                  , serverCompr = Compr.none
+                  }
+            , testCaseInfo "clientUnsupported" $
+                test_increment def {
+                    clientCompr = Compr.none
+                  , serverCompr = Compr.require Compr.gzip
+                  }
+            ]
         ]
     ]
 

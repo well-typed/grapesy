@@ -54,7 +54,7 @@ data Negotation = Negotation {
         -> Either CompressionNegotationFailed Compression
 
       -- | All supported compression algorithms
-    , supported :: CompressionId -> Maybe Compression
+    , supported :: Map CompressionId Compression
     }
 
 -- | Map 'CompressionId' to 'Compression' for supported algorithms
@@ -65,7 +65,7 @@ getSupported ::
   => Negotation -> Maybe CompressionId -> m Compression
 getSupported _     Nothing    = return identity
 getSupported compr (Just cid) =
-    case supported compr cid of
+    case Map.lookup cid (supported compr) of
       Nothing -> throwM $ UnsupportedCompression cid
       Just c  -> return c
 
@@ -91,13 +91,10 @@ chooseFirst ourSupported = Negotation {
         in case NE.filter isSupported ourSupported of
              c:_ -> Right c
              []  -> Left $ CompressionNegotationFailed serverSupported
-    , supported = \cid -> Map.lookup cid ourSupported'
-    }
-  where
-    ourSupported' :: Map CompressionId Compression
-    ourSupported' =
+    , supported =
         Map.fromList $
           map (\c -> (compressionId c, c)) (toList ourSupported)
+    }
 
 {-------------------------------------------------------------------------------
   Exceptions

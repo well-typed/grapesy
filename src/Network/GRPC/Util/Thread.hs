@@ -6,6 +6,7 @@ module Network.GRPC.Util.Thread (
   , threadBody
   , cancelThread
   , getThreadInterface
+  , ThreadCancelled(..)
   ) where
 
 import Control.Concurrent
@@ -127,7 +128,7 @@ cancelThread state e = do
 
 -- | Exception thrown by 'cancelThread' to the thread to the cancelled
 newtype ThreadCancelled = ThreadCancelled {
-      reason :: SomeException
+      threadCancelledReason :: SomeException
     }
   deriving stock (Show)
   deriving anyclass (Exception)

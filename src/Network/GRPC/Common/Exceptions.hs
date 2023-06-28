@@ -4,10 +4,14 @@
 module Network.GRPC.Common.Exceptions (
     -- * gRPC exception
     GrpcException(..)
+  , GrpcError(..)
   , grpcExceptionFromTrailers
   , grpcExceptionToTrailers
     -- * Protocol exception
   , ProtocolException(..)
+    -- * Low-level exceptions
+  , ThreadCancelled(..)
+  , ChannelClosed(..)
   ) where
 
 import Control.Exception
@@ -16,6 +20,8 @@ import Data.Text (Text)
 import Network.GRPC.Spec
 import Network.GRPC.Spec.CustomMetadata
 import Network.GRPC.Spec.RPC
+import Network.GRPC.Util.Session.Channel (ChannelClosed(..))
+import Network.GRPC.Util.Thread (ThreadCancelled(..))
 
 {-------------------------------------------------------------------------------
   gRPC exception
