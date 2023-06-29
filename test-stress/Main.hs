@@ -40,7 +40,7 @@ main = do
 
 runClient :: Test -> IO ()
 runClient test =
-    testClient def $ \conn ->
+    runTestClient def $ \conn ->
       case test of
         ManyShortLived ->
           clientManyShortLived conn
@@ -52,7 +52,7 @@ runClient test =
 runServer :: IO ()
 runServer =
     -- Server.withServer params handlers $ Server.runServer config
-    testServer def [
+    runTestServer def [
         streamingRpcHandler (Proxy @ManyShortLived) $
           Binary.mkNonStreaming serverManyShortLived
       ]

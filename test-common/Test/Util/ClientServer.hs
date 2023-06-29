@@ -8,12 +8,12 @@ module Test.Util.ClientServer (
   , TlsOk(..)
   , TlsFail(..)
     -- ** Evaluation
-  , isTestFailure
+  , isExpectedException
     -- * Run
-  , testClientServer
+  , runTestClientServer
     -- ** Lower-level functionality
-  , testClient
-  , testServer
+  , runTestClient
+  , runTestServer
   ) where
 
 import Control.Concurrent
@@ -24,7 +24,6 @@ import Data.Default
 import Data.Map qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as Text
-import Data.Typeable
 import Network.TLS
 
 import Network.GRPC.Client qualified as Client
@@ -93,29 +92,25 @@ data TlsFail =
   Config evaluation (do we expect an error?)
 -------------------------------------------------------------------------------}
 
-type TestFailure = String
-
--- | Check if a raised exception constitutes a test failure
---
--- If 'Nothing', then the exception is expected behaviour.
-isTestFailure :: ClientServerConfig -> SomeException -> Maybe TestFailure
-isTestFailure cfg err
+-- | Check if the given configuration gives rise to expected exceptions
+isExpectedException :: ClientServerConfig -> SomeException -> Bool
+isExpectedException cfg err
     | Just (tlsException :: TLSException) <- fromException err
     = case (useTLS cfg, tlsException) of
         (   Just (TlsFail TlsFailValidation)
           , HandshakeFailed (Error_Protocol (_msg, _bool, UnknownCa))
           ) ->
-          Nothing
+          True
         (   Just (TlsFail TlsFailHostname)
           , HandshakeFailed (Error_Protocol (_msg, _bool, CertificateUnknown))
           ) ->
-           Nothing
+           True
         (   Just (TlsFail TlsFailUnsupported)
           , HandshakeFailed (Error_Packet_Parsing _)
           ) ->
-           Nothing
+           True
         _otherwise ->
-          unexpectedException
+          False
 
     | Just (grpcException :: GrpcException) <- fromException err
     = if | Set.disjoint (Map.keysSet (Compr.supported (clientCompr cfg)))
@@ -123,38 +118,29 @@ isTestFailure cfg err
          , GrpcUnknown <- grpcError grpcException
          , Just msg <- grpcErrorMessage grpcException
          , "CompressionNegotationFailed" `Text.isInfixOf` msg
-         -> Nothing
+         -> True
 
          | otherwise
-         -> unexpectedException
+         -> False
 
     | Just (threadCancelled :: ThreadCancelled) <- fromException err
-    = isTestFailure cfg (threadCancelledReason threadCancelled)
+    = isExpectedException cfg (threadCancelledReason threadCancelled)
 
     | Just (channelClosed :: ChannelClosed) <- fromException err
-    = isTestFailure cfg (channelClosedReason channelClosed)
+    = isExpectedException cfg (channelClosedReason channelClosed)
 
     | otherwise
-    = unexpectedException
-  where
-    unexpectedException :: Maybe TestFailure
-    unexpectedException = Just $ concat [
-          "Unexpected exception of type "
-        , case err of
-            SomeException e -> show (typeOf e)
-        , ": "
-        , show err
-        ]
+    = False
 
 {-------------------------------------------------------------------------------
   Server
 -------------------------------------------------------------------------------}
 
-testServer ::
+runTestServer ::
      ClientServerConfig
   -> [Server.RpcHandler IO]
   -> IO ()
-testServer cfg serverHandlers = do
+runTestServer cfg serverHandlers = do
     pubCert <- getDataFileName "grpc-demo.cert"
     privKey <- getDataFileName "grpc-demo.priv"
 
@@ -203,11 +189,11 @@ testServer cfg serverHandlers = do
   Client
 -------------------------------------------------------------------------------}
 
-testClient :: forall a.
+runTestClient :: forall a.
      ClientServerConfig
   -> (Client.Connection -> IO a)
   -> IO a
-testClient cfg clientRun = do
+runTestClient cfg clientRun = do
     pubCert <- getDataFileName "grpc-demo.cert"
 
     let clientParams :: Client.ConnParams
@@ -267,14 +253,14 @@ testClient cfg clientRun = do
   Main entry point: run server and client together
 -------------------------------------------------------------------------------}
 
-testClientServer :: forall a.
+runTestClientServer :: forall a.
      ClientServerConfig
   -> (Client.Connection -> IO a)
   -> [Server.RpcHandler IO]
   -> IO a
-testClientServer cfg clientRun serverHandlers = do
-    withAsync (testServer cfg serverHandlers) $ \_serverThread -> do
+runTestClientServer cfg clientRun serverHandlers = do
+    withAsync (runTestServer cfg serverHandlers) $ \_serverThread -> do
       -- TODO: This threadDelay is obviously awful. When we fix proper
       -- wait-for-ready semantics, we can avoid it.
       threadDelay 100_000
-      testClient cfg clientRun
+      runTestClient cfg clientRun

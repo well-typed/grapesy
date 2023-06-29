@@ -15,6 +15,7 @@ import Pipes.Safe
 
 import Network.GRPC.Client
 import Network.GRPC.Client.StreamType
+import Network.GRPC.Common.StreamElem (StreamElem)
 import Network.GRPC.Common.StreamType (SupportsStreamingType)
 import Network.GRPC.Common.StreamType qualified as StreamType
 import Network.GRPC.Spec.RPC

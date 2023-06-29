@@ -35,8 +35,6 @@ module Network.GRPC.Client (
     -- * Ongoing calls
     --
     -- $openRequest
-  , StreamElem(..)
-  , CustomMetadata(..)
   , sendInput
   , recvOutput
   , recvResponseMetadata
@@ -58,9 +56,7 @@ import GHC.Stack
 
 import Network.GRPC.Client.Call
 import Network.GRPC.Client.Connection
-import Network.GRPC.Common.StreamElem (StreamElem(..))
 import Network.GRPC.Spec
-import Network.GRPC.Spec.CustomMetadata
 import Network.GRPC.Spec.PseudoHeaders (Scheme(..), Authority(..))
 import Network.GRPC.Spec.RPC
 import Network.GRPC.Spec.RPC.Protobuf (Protobuf)
@@ -78,7 +74,9 @@ import Network.GRPC.Util.TLS qualified as Util.TLS
 -- This non-blocking nature makes this safe to use in 'bracket' patterns.
 --
 -- This is a low-level API. Consider using 'withRPC' instead.
-startRPC :: IsRPC rpc => Connection -> CallParams -> IO (Call rpc)
+startRPC ::
+     IsRPC rpc
+  => Connection -> CallParams -> Proxy rpc -> IO (Call rpc)
 startRPC = initiateCall
 
 -- | Stop RPC call
@@ -105,9 +103,9 @@ abortRPC call = abortCall call $ CallAborted callStack
 withRPC :: forall m rpc a.
      (MonadMask m, MonadIO m, IsRPC rpc)
   => Connection -> CallParams -> Proxy rpc -> (Call rpc -> m a) -> m a
-withRPC conn params _ = fmap aux .
+withRPC conn params proxy = fmap aux .
     generalBracket
-      (liftIO $ startRPC conn params)
+      (liftIO $ startRPC conn params proxy)
       (\call -> liftIO . \case
           ExitCaseSuccess   _ -> abortCall call $ CallAborted callStack
           ExitCaseException e -> abortCall call e

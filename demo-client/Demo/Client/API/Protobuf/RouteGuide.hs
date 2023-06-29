@@ -7,6 +7,7 @@ module Demo.Client.API.Protobuf.RouteGuide (
 
 import Network.GRPC.Client
 import Network.GRPC.Client.StreamType
+import Network.GRPC.Common.StreamElem (StreamElem(..))
 import Network.GRPC.Common.StreamType
 
 import Proto.RouteGuide
