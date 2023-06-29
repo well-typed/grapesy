@@ -27,9 +27,12 @@ import Network.GRPC.Common.Binary
   produces all inputs and/or a single IO action that handles all outputs, but
   the raw binary protocol allows message types to be different at each point in
   the communication.
+
+  These functions all have the type of the value sent or received as the
+  /first/ argument, to facilitate the use of type arguments.
 -------------------------------------------------------------------------------}
 
-sendInput ::
+sendInput :: forall inp serv meth.
      Binary inp
   => Call (BinaryRpc serv meth)
   -> StreamElem () inp
@@ -37,7 +40,7 @@ sendInput ::
 sendInput call inp = atomically $
     Client.sendInput call (encode <$> inp)
 
-sendFinalInput ::
+sendFinalInput :: forall inp serv meth.
      Binary inp
   => Call (BinaryRpc serv meth)
   -> inp
@@ -45,14 +48,14 @@ sendFinalInput ::
 sendFinalInput call inp =
    Client.sendFinalInput call (encode inp)
 
-recvOutput ::
+recvOutput :: forall out serv meth.
      Binary out
   => Call (BinaryRpc serv meth)
   -> IO (StreamElem [CustomMetadata] out)
 recvOutput call =
     atomically $ Client.recvOutput call >>= traverse decodeOrThrow
 
-recvFinalOutput ::
+recvFinalOutput :: forall out serv meth.
      Binary out
   => Call (BinaryRpc serv meth)
   -> IO (out, [CustomMetadata])

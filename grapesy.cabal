@@ -202,9 +202,10 @@ test-suite test-grapesy
   main-is:
       Main.hs
   other-modules:
+      Paths_grapesy
+      Test.Driver.ClientServer
       Test.Sanity.StreamingType.NonStreaming
       Test.Util.ClientServer
-      Paths_grapesy
   build-depends:
       -- Internal dependencies
     , grapesy
