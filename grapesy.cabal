@@ -79,6 +79,7 @@ library
       Network.GRPC.Client.StreamType.Pipes
       Network.GRPC.Common.Binary
       Network.GRPC.Common.Compression
+      Network.GRPC.Common.CustomMetadata
       Network.GRPC.Common.Exceptions
       Network.GRPC.Common.StreamElem
       Network.GRPC.Common.StreamType
@@ -206,6 +207,7 @@ test-suite test-grapesy
       Test.Driver.ClientServer
       Test.Sanity.StreamingType.NonStreaming
       Test.Util.ClientServer
+      Test.Util.SOP
   build-depends:
       -- Internal dependencies
     , grapesy
@@ -215,6 +217,7 @@ test-suite test-grapesy
     , containers    >= 0.6  && < 0.7
     , contra-tracer >= 0.2  && < 0.3
     , data-default  >= 0.7  && < 0.8
+    , sop-core      >= 0.5  && < 0.6
     , tasty         >= 1.4  && < 1.5
     , tasty-hunit   >= 0.10 && < 0.11
     , text          >= 1.2  && < 2.1

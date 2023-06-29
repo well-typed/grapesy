@@ -11,7 +11,7 @@ import Data.List.NonEmpty (NonEmpty(..))
 import Data.List.NonEmpty qualified as NE
 import Pipes
 
-import Network.GRPC.Client (StreamElem(..))
+import Network.GRPC.Common.StreamElem (StreamElem(..))
 
 import Demo.Common.Logging
 

@@ -13,6 +13,7 @@ import Pipes.Safe
 
 import Network.GRPC.Client
 import Network.GRPC.Client.StreamType.Pipes
+import Network.GRPC.Common.StreamElem (StreamElem(..))
 
 import Proto.RouteGuide
 

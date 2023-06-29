@@ -80,7 +80,7 @@ test_increment config = testClientServer $ def {
           Binary.sendFinalInput @Word8 call 1
           resp <- fst <$> Binary.recvFinalOutput @Word8 call
           assertEqual "" 2 $ resp
-    , server = [
+    , server = return [
           streamingRpcHandler (Proxy @BinaryIncrement) $
             Binary.mkNonStreaming $ \(n :: Word8) ->
               return (succ n)

@@ -11,6 +11,7 @@ import Data.ProtoLens.Labels ()
 import Data.Proxy
 import Data.Text (Text)
 
+import Network.GRPC.Common.CustomMetadata (CustomMetadata(..))
 import Network.GRPC.Common.StreamType
 import Network.GRPC.Server
 import Network.GRPC.Server.Protobuf

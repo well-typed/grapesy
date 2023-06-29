@@ -14,10 +14,11 @@ module Network.GRPC.Client.Binary (
 import Control.Concurrent.STM
 import Data.Binary
 
+import Network.GRPC.Client (Call)
 import Network.GRPC.Client qualified as Client
-import Network.GRPC.Client (Call, CustomMetadata)
-import Network.GRPC.Common.StreamElem
 import Network.GRPC.Common.Binary
+import Network.GRPC.Common.CustomMetadata
+import Network.GRPC.Common.StreamElem
 
 {-------------------------------------------------------------------------------
   Convenience wrappers using @binary@ for serialization/deserialization

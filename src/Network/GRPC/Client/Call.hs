@@ -28,6 +28,7 @@ import Control.Tracer
 import Data.Bifunctor
 import Data.Foldable (asum)
 import Data.Maybe (fromMaybe)
+import Data.Proxy
 import GHC.Stack
 
 import Network.GRPC.Client.Connection (Connection, ConnParams (..))
@@ -62,8 +63,8 @@ data Call rpc = IsRPC rpc => Call {
 
 initiateCall :: forall rpc.
      IsRPC rpc
-  => Connection -> CallParams -> IO (Call rpc)
-initiateCall conn callParams = do
+  => Connection -> CallParams -> Proxy rpc -> IO (Call rpc)
+initiateCall conn callParams _proxy = do
     cOut <-
       Meta.outboundCompression <$> Connection.currentMeta conn
     callChannel <-

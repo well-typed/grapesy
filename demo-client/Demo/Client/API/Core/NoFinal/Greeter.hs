@@ -7,6 +7,7 @@ import Data.Default
 import Data.Proxy
 
 import Network.GRPC.Client
+import Network.GRPC.Common.StreamElem (StreamElem(..))
 
 import Proto.Helloworld
 
