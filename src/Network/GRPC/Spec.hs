@@ -164,6 +164,14 @@ data ProperTrailers = ProperTrailers {
   deriving stock (GHC.Generic)
   deriving anyclass (SOP.Generic, SOP.HasDatatypeInfo)
 
+-- | The 'Default' corresponds to a successful response
+instance Default ProperTrailers where
+  def = ProperTrailers {
+        trailerGrpcStatus  = GrpcOk
+      , trailerGrpcMessage = Nothing
+      , trailerMetadata    = []
+      }
+
 -- | Trailers sent in the gRPC Trailers-Only case
 --
 -- In the current version of the spec, the information in 'TrailersOnly' is

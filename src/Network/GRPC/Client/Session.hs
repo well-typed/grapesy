@@ -70,7 +70,7 @@ instance IsRPC rpc => IsSession (ClientSession rpc) where
   type Outbound (ClientSession rpc) = ClientOutbound rpc
 
   buildProperTrailers _client = \() ->
-      return [] -- Request trailers are not supported by gRPC
+      [] -- Request trailers are not supported by gRPC
   parseProperTrailers _client =
       processResponseTrailers $ Resp.parseProperTrailers (Proxy @rpc)
 
@@ -105,15 +105,14 @@ instance IsRPC rpc => InitiateSession (ClientSession rpc) where
         (fmap GRPC.getTrailersOnly .  Resp.parseTrailersOnly (Proxy @rpc))
         (responseHeaders info)
 
-  buildRequestInfo _ start = do
-      return RequestInfo {
-          requestMethod  = rawMethod resourceHeaders
-        , requestPath    = rawPath resourceHeaders
-        , requestHeaders = Req.buildHeaders (Proxy @rpc) $
-              case start of
-                FlowStartRegular      headers -> outHeaders headers
-                FlowStartTrailersOnly headers ->            headers
-        }
+  buildRequestInfo _ start = RequestInfo {
+        requestMethod  = rawMethod resourceHeaders
+      , requestPath    = rawPath resourceHeaders
+      , requestHeaders = Req.buildHeaders (Proxy @rpc) $
+            case start of
+              FlowStartRegular      headers -> outHeaders headers
+              FlowStartTrailersOnly headers ->            headers
+      }
     where
       resourceHeaders :: RawResourceHeaders
       resourceHeaders = buildResourceHeaders $ ResourceHeaders {

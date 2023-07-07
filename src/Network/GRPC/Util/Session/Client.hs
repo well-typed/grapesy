@@ -76,8 +76,8 @@ initiateRequest :: forall sess.
   -> FlowStart (Outbound sess)
   -> IO (Channel sess)
 initiateRequest sess tracer ConnectionToServer{sendRequest} outboundStart = do
-    channel     <- initChannel
-    requestInfo <- buildRequestInfo sess outboundStart
+    channel <- initChannel
+    let requestInfo = buildRequestInfo sess outboundStart
 
     case outboundStart of
       FlowStartRegular headers -> do

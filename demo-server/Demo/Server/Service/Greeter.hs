@@ -1,10 +1,11 @@
 {-# LANGUAGE OverloadedLabels  #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module Demo.Server.API.Protobuf.Greeter (handlers) where
+module Demo.Server.Service.Greeter (handlers) where
 
 import Control.Lens ((.~), (^.))
 import Control.Monad
+import Data.Default
 import Data.Function ((&))
 import Data.ProtoLens
 import Data.ProtoLens.Labels ()
@@ -41,14 +42,15 @@ sayHello req = return $ defMessage & #message .~ msg
 
 sayHelloStreamReply :: RpcHandler IO
 sayHelloStreamReply =
-    (mkRpcHandler (Proxy @(Protobuf Greeter "sayHelloStreamReply")) go) {
-        handlerMetadata = \_reqMetadata -> return [
-            AsciiHeader "initial-md" "initial-md-value"
-          ]
-      }
+    mkRpcHandler (Proxy @(Protobuf Greeter "sayHelloStreamReply")) go
   where
     go :: Call (Protobuf Greeter "sayHelloStreamReply") -> IO ()
     go call = do
+        setResponseMetadata call [AsciiHeader "initial-md" "initial-md-value"]
+
+        -- The client expects the metadata well before the first output
+        _ <- initiateResponse call
+
         req <- recvFinalInput call
 
         let msg :: Text -> Text
@@ -57,4 +59,4 @@ sayHelloStreamReply =
         forM_ ["0", "1", "2"] $ \i ->
           sendNextOutput call $ defMessage & #message .~ msg i
 
-        sendTrailers call []
+        sendTrailers call def

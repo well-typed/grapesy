@@ -377,7 +377,7 @@ processOutboundTrailers sess st = go
     go (Just _) = return $ HTTP2.NextTrailersMaker go
     go Nothing  = do
         outboundTrailers <- atomically $ readTMVar (flowTrailers st)
-        HTTP2.Trailers <$> buildProperTrailers sess outboundTrailers
+        return $ HTTP2.Trailers $ buildProperTrailers sess outboundTrailers
 
 data DebugMsg sess =
     -- | Thread sending messages is awaiting a message

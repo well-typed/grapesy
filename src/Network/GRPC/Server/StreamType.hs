@@ -10,6 +10,7 @@ module Network.GRPC.Server.StreamType (
   ) where
 
 import Control.Monad.IO.Class
+import Data.Default
 import Data.Kind
 import Data.Proxy
 
@@ -45,27 +46,27 @@ instance StreamingRpcHandler NonStreamingHandler where
     mkRpcHandler proxy $ \call -> do
       inp <- liftIO $ recvFinalInput call
       out <- h inp
-      liftIO $ sendFinalOutput call (out, [])
+      liftIO $ sendFinalOutput call (out, def)
 
 instance StreamingRpcHandler ClientStreamingHandler where
   streamingRpcHandler proxy (UnsafeClientStreamingHandler h) =
     mkRpcHandler proxy $ \call -> do
       out <- h (liftIO $ recvNextInput call)
-      liftIO $ sendFinalOutput call (out, [])
+      liftIO $ sendFinalOutput call (out, def)
 
 instance StreamingRpcHandler ServerStreamingHandler where
   streamingRpcHandler proxy (UnsafeServerStreamingHandler h) =
     mkRpcHandler proxy $ \call -> do
       inp <- liftIO $ recvFinalInput call
       h inp (liftIO . sendNextOutput call)
-      liftIO $ sendTrailers call []
+      liftIO $ sendTrailers call def
 
 instance StreamingRpcHandler BiDiStreamingHandler where
   streamingRpcHandler proxy (UnsafeBiDiStreamingHandler h) =
     mkRpcHandler proxy $ \call -> do
       h (liftIO $ recvNextInput  call)
         (liftIO . sendNextOutput call)
-      liftIO $ sendTrailers call []
+      liftIO $ sendTrailers call def
 
 {-------------------------------------------------------------------------------
   Methods

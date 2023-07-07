@@ -13,9 +13,9 @@ import Network.GRPC.Server.StreamType
 
 import Demo.Common.Logging
 
-import Demo.Server.API.Protobuf.Greeter    qualified as Greeter
-import Demo.Server.API.Protobuf.RouteGuide qualified as RouteGuide
 import Demo.Server.Cmdline
+import Demo.Server.Service.Greeter    qualified as Greeter
+import Demo.Server.Service.RouteGuide qualified as RouteGuide
 
 import Proto.Helloworld
 import Proto.RouteGuide
@@ -26,10 +26,13 @@ import Paths_grapesy
   All services
 -------------------------------------------------------------------------------}
 
-services :: [Feature] -> Services IO (ProtobufServices '[Greeter, RouteGuide])
-services db =
+services ::
+     Cmdline
+  -> [Feature]
+  -> Services IO (ProtobufServices '[Greeter, RouteGuide])
+services cmdline db =
       Service Greeter.handlers
-    $ Service (RouteGuide.handlers db)
+    $ Service (RouteGuide.handlers cmdline db)
     $ NoMoreServices
 
 {-------------------------------------------------------------------------------
@@ -38,22 +41,22 @@ services db =
 
 main :: IO ()
 main = do
-    cmd <- getCmdline
+    cmdline <- getCmdline
     db      <- getRouteGuideDb
 
     let serverConfig :: ServerConfig
         serverConfig = ServerConfig {
             serverTracer =
-              if cmdDebug cmd
+              if cmdDebug cmdline
                 then contramap show threadSafeTracer
                 else nullTracer
           , serverInsecure =
-              cmdInsecure cmd
+              cmdInsecure cmdline
           , serverSecure   =
-              cmdSecure   cmd
+              cmdSecure cmdline
           }
 
-    withServer (serverParams cmd) (fromServices (services db)) $
+    withServer (serverParams cmdline) (fromServices $ services cmdline db) $
       runServer serverConfig
 
 getRouteGuideDb :: IO [Feature]

@@ -28,7 +28,6 @@ import Data.Proxy
 import Data.Typeable
 
 import Network.GRPC.Server.Call
-import Network.GRPC.Spec.CustomMetadata
 import Network.GRPC.Spec.PseudoHeaders
 import Network.GRPC.Spec.RPC
 
@@ -40,23 +39,12 @@ import Network.GRPC.Spec.RPC
 -------------------------------------------------------------------------------}
 
 data RpcHandler m = forall rpc. IsRPC rpc => RpcHandler {
-      -- | Response metadata
-      --
-      -- Since this metadata must be returned in the initial headers (before
-      -- communication with the client), the only context that is available is
-      -- the metadata that the client included in their request (and,
-      -- implicitly, the pseudo-headers, as they determine the handler).
-      --
-      -- The handler can return additional metadata in the trailers at the /end/
-      -- of the communication; see 'sendOutput'.
-      handlerMetadata :: [CustomMetadata] -> m [CustomMetadata]
-
       -- | Handler proper
-    , handlerRun :: Call rpc -> m ()
+      runRpcHandler :: Call rpc -> m ()
     }
 
 instance Show (RpcHandler m) where
-  show RpcHandler{handlerRun} = aux handlerRun
+  show RpcHandler{runRpcHandler} = aux runRpcHandler
     where
       aux :: forall rpc. IsRPC rpc => (Call rpc -> m ()) -> String
       aux _ = "<RpcHandler " ++ show (typeRep (Proxy @rpc)) ++ ">"
@@ -65,21 +53,16 @@ instance Show (RpcHandler m) where
   Construction
 -------------------------------------------------------------------------------}
 
--- | Default RPC handler
-mkRpcHandler ::
-     (Monad m, IsRPC rpc)
-  => Proxy rpc -> (Call rpc -> m ()) -> RpcHandler m
-mkRpcHandler _ handlerRun = RpcHandler{
-      handlerRun
-    , handlerMetadata = \_ -> return []
-    }
+-- | Constructor for 'RpcHandler'
+mkRpcHandler :: IsRPC rpc => Proxy rpc -> (Call rpc -> m ()) -> RpcHandler m
+mkRpcHandler _ = RpcHandler
 
 {-------------------------------------------------------------------------------
   Query
 -------------------------------------------------------------------------------}
 
 path :: forall m. RpcHandler m -> Path
-path RpcHandler{handlerRun} = aux handlerRun
+path RpcHandler{runRpcHandler} = aux runRpcHandler
   where
     aux :: forall rpc. IsRPC rpc => (Call rpc -> m ()) -> Path
     aux _ = rpcPath (Proxy @rpc)

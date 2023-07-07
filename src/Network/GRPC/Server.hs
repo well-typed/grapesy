@@ -9,11 +9,12 @@ module Network.GRPC.Server (
   , Call       -- opaque
   , RpcHandler -- opaque
   , Handler.mkRpcHandler
-  , Handler.handlerMetadata
 
-    -- * Ongoing calls
+    -- * Open (ongoing) call
   , recvInput
   , sendOutput
+  , getRequestMetadata
+  , setResponseMetadata
 
     -- ** Protocol specific wrappers
   , recvFinalInput
@@ -22,6 +23,14 @@ module Network.GRPC.Server (
   , sendNextOutput
   , sendTrailers
 
+    -- ** Low-level API
+  , ProperTrailers(..)
+  , TrailersOnly(..)
+  , recvInputSTM
+  , sendOutputSTM
+  , initiateResponse
+  , sendTrailersOnly
+
     -- * Common serialization formats
   , Protobuf
   ) where
@@ -29,7 +38,6 @@ module Network.GRPC.Server (
 import Control.Exception
 import Control.Tracer
 import Data.Text qualified as Text
-import Network.HTTP.Types qualified as HTTP
 import Network.HTTP2.Server qualified as HTTP2
 
 import Network.GRPC.Common.Exceptions
@@ -43,8 +51,6 @@ import Network.GRPC.Server.Handler qualified as Handler
 import Network.GRPC.Spec
 import Network.GRPC.Spec.PseudoHeaders
 import Network.GRPC.Spec.RPC.Protobuf (Protobuf)
-import Network.GRPC.Util.Session.Server qualified as Server
-import Network.GRPC.Spec.Response qualified as Resp
 
 {-------------------------------------------------------------------------------
   Server proper
@@ -66,49 +72,15 @@ handleRequest handlers conn = do
     -- TODO: Proper "Apache style" logging (in addition to the debug logging)
     traceWith tracer $ Context.NewRequest path
 
-    RpcHandler{
-        handlerMetadata
-      , handlerRun
-      } <- getHandler handlers path
-    mCall :: Either SomeException (Call rpc) <-
-      try $ acceptCall conn handlerMetadata
+    RpcHandler handler <- getHandler handlers path
+    call <- acceptCall conn
 
-    case mCall of
-      Right call -> do
-        -- TODO: Timeouts
-        --
-        -- Wait-for-ready semantics makes this more complicated, maybe.
-        -- See example in the grpc-repo (python/wait_for_ready).
+    -- TODO: Timeouts
+    --
+    -- Wait-for-ready semantics makes this more complicated, maybe.
+    -- See example in the grpc-repo (python/wait_for_ready).
 
-        mErr :: Either SomeException () <- try $ handlerRun call
-        case mErr of
-          Right () -> return ()
-          Left err -> do
-            -- TODO: We need to think hard about error handling.
-            --
-            -- o It should be possible to throw a specific gRPC non-OK status
-            --   (i.e., we should catch GrpcException and treat it special)
-            -- o We need to think about how streaming works with trailers, if
-            --   streaming goes wrong halfway
-            -- o We need to consider security concerns here, too
-            --   (exceptions can leak sensitive data)
-            --
-            -- gRPC error responses must make use of the gRPC Trailers-Only case
-            -- according to the spec.
-            putStrLn $ "Uncaught exception: " ++ show err
-            putStrLn "(TODO: We need a proper handler here.)"
-      Left err -> do
-        traceWith tracer $ Context.AcceptCallFailed err
-        Server.respond (Connection.connectionToClient conn) $
-          HTTP2.responseNoBody
-            HTTP.ok200 -- gRPC uses HTTP 200 even when there are gRPC errors
-            (Resp.buildTrailersOnly $ TrailersOnly $ ProperTrailers {
-                trailerGrpcStatus  = GrpcError GrpcUnknown
-                -- TODO: Potential security concern here
-                -- (showing the exception)?
-              , trailerGrpcMessage = Just $ Text.pack $ show err
-              , trailerMetadata    = []
-              })
+    handle (forwardException call) $ handler call
   where
     path :: Path
     path = Connection.path conn
@@ -118,6 +90,40 @@ handleRequest handlers conn = do
           Context.serverDebugTracer
         $ Context.params
         $ Connection.context conn
+
+-- | Forward exception to the client
+--
+-- If the handler throws an exception, attempt to forward it to the client so
+-- that it is notified something went wrong. This is a best-effort only:
+--
+-- * The nature of the exception might mean that we we cannot send anything to
+--   the client at all.
+-- * It is possible the exception was thrown /after/ the handler already send
+--   the trailers to the client.
+--
+-- We therefore catch and suppress all exceptions here.
+forwardException :: Call rpc -> SomeException -> IO ()
+forwardException call err =
+    handle ignoreExceptions $
+      sendTrailers call trailers
+  where
+    trailers :: ProperTrailers
+    trailers
+      | Just (err' :: GrpcException) <- fromException err
+      = grpcExceptionToTrailers err'
+
+      -- TODO: There might be a security concern here (server-side exceptions
+      -- could potentially leak some sensitive data).
+      | otherwise
+      = ProperTrailers {
+            trailerGrpcStatus  = GrpcError GrpcUnknown
+          , trailerGrpcMessage = Just $ Text.pack $ show err
+          , trailerMetadata    = []
+          }
+
+    -- See discussion above.
+    ignoreExceptions :: SomeException -> IO ()
+    ignoreExceptions _ = return ()
 
 {-------------------------------------------------------------------------------
   Get handler for the request

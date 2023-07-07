@@ -15,9 +15,10 @@ import Network.GRPC.Server.Run
 -------------------------------------------------------------------------------}
 
 data Cmdline = Cmdline {
-      cmdInsecure :: Maybe InsecureConfig
-    , cmdSecure   :: Maybe SecureConfig
-    , cmdDebug    :: Bool
+      cmdInsecure             :: Maybe InsecureConfig
+    , cmdSecure               :: Maybe SecureConfig
+    , cmdDebug                :: Bool
+    , cmdTrailersOnlyShortcut :: Bool
     }
   deriving (Show)
 
@@ -37,6 +38,10 @@ parseCmdline =
       <*> (Opt.switch $ mconcat [
                Opt.long "debug"
              , Opt.help "Enable debug output"
+             ])
+      <*> (Opt.switch $ mconcat [
+               Opt.long "trailers-only-shortcut"
+             , Opt.help "Use Trailers-Only even in non-error cases"
              ])
 
 parseInsecure :: Opt.Parser (Maybe InsecureConfig)
