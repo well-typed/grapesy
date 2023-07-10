@@ -205,6 +205,7 @@ test-suite test-grapesy
   other-modules:
       Paths_grapesy
       Test.Driver.ClientServer
+      Test.Driver.Dialogue
       Test.Sanity.StreamingType.NonStreaming
       Test.Util.ClientServer
       Test.Util.SOP
@@ -282,10 +283,10 @@ executable demo-server
       -threaded
   other-modules:
       Demo.Common.Logging
-      Demo.Server.API.Protobuf.Greeter
-      Demo.Server.API.Protobuf.RouteGuide
       Demo.Server.Aux.RouteGuide
       Demo.Server.Cmdline
+      Demo.Server.Service.Greeter
+      Demo.Server.Service.RouteGuide
       Proto.Helloworld
       Proto.Helloworld_Fields
       Proto.RouteGuide

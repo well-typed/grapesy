@@ -38,6 +38,15 @@ initiateResponse :: forall sess.
   -> Tracer IO (DebugMsg sess)
   -> ConnectionToClient
   -> (FlowStart (Inbound sess) -> IO (FlowStart (Outbound sess)))
+  -- ^ Construct headers for the initial response
+  --
+  -- This function has quite a bit of control over how the outbound part of
+  -- the channel gets established:
+  --
+  -- * If it blocks, the response will not be initiated until it returns.
+  -- * If it throws an exception, no response will be attempted at all. This
+  --   allows the function to send a response of its own (typically, some kind
+  --   of error response).
   -> IO (Channel sess)
 initiateResponse sess tracer conn startOutbound = do
     channel <- initChannel
@@ -56,8 +65,6 @@ initiateResponse sess tracer conn startOutbound = do
         FlowStartTrailersOnly <$> parseRequestTrailersOnly sess requestInfo
       else
         FlowStartRegular <$> parseRequestRegular sess requestInfo
-    outboundStart <- startOutbound inboundStart
-    responseInfo  <- buildResponseInfo sess outboundStart
 
     void $ forkIO $
       threadBody (channelInbound channel) newEmptyTMVarIO $ \stVar -> do
@@ -72,6 +79,8 @@ initiateResponse sess tracer conn startOutbound = do
 
     void $ forkIO $
       threadBody (channelOutbound channel) newEmptyTMVarIO $ \stVar -> do
+        outboundStart <- startOutbound inboundStart
+        let responseInfo = buildResponseInfo sess outboundStart
         case outboundStart of
           FlowStartRegular headers -> do
             regular <- initFlowStateRegular headers

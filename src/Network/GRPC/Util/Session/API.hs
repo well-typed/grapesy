@@ -105,7 +105,7 @@ class ( DataFlow (Inbound  sess)
   -- | Build proper trailers
   buildProperTrailers ::
        sess
-    -> ProperTrailers (Outbound sess) -> IO [HTTP.Header]
+    -> ProperTrailers (Outbound sess) -> [HTTP.Header]
 
   -- | Parse message
   parseMsg ::
@@ -126,7 +126,7 @@ class IsSession sess => InitiateSession sess where
   -- | Build 'RequestInfo' for the server
   buildRequestInfo ::
        sess
-    -> FlowStart (Outbound sess) -> IO RequestInfo
+    -> FlowStart (Outbound sess) -> RequestInfo
 
   -- | Parse 'ResponseInfo' from the server, regular case
   --
@@ -139,8 +139,6 @@ class IsSession sess => InitiateSession sess where
   parseResponseTrailersOnly ::
        sess
     -> ResponseInfo -> IO (TrailersOnly (Inbound sess))
-
-  -- | Parse
 
 -- | Accept session
 --
@@ -162,7 +160,7 @@ class IsSession sess => AcceptSession sess where
   buildResponseInfo ::
        sess
     -> FlowStart (Outbound sess)
-    -> IO ResponseInfo
+    -> ResponseInfo
 
 {-------------------------------------------------------------------------------
   Exceptions

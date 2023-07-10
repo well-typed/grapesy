@@ -63,7 +63,7 @@ instance IsRPC rpc => IsSession (ServerSession rpc) where
   type Outbound (ServerSession rpc) = ServerOutbound rpc
 
   parseProperTrailers _ = \_ -> return ()
-  buildProperTrailers _ = return . Resp.buildProperTrailers
+  buildProperTrailers _ = Resp.buildProperTrailers
 
   parseMsg _ = LP.parseInput  (Proxy @rpc) . inbCompression
   buildMsg _ = LP.buildOutput (Proxy @rpc) . outCompression
@@ -89,16 +89,15 @@ instance IsRPC rpc => AcceptSession (ServerSession rpc) where
         Left  err  -> throwIO $ RequestInvalidHeaders err
         Right hdrs -> return hdrs
 
-  buildResponseInfo _ start =
-      return ResponseInfo {
-          responseStatus  = HTTP.ok200
-        , responseHeaders =
-            case start of
-              FlowStartRegular headers ->
-                Resp.buildHeaders (Proxy @rpc) (outHeaders headers)
-              FlowStartTrailersOnly trailers ->
-                Resp.buildTrailersOnly trailers
-        }
+  buildResponseInfo _ start = ResponseInfo {
+        responseStatus  = HTTP.ok200
+      , responseHeaders =
+          case start of
+            FlowStartRegular headers ->
+              Resp.buildHeaders (Proxy @rpc) (outHeaders headers)
+            FlowStartTrailersOnly trailers ->
+              Resp.buildTrailersOnly trailers
+      }
 
 {-------------------------------------------------------------------------------
   Exceptions
