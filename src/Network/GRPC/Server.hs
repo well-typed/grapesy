@@ -18,14 +18,11 @@ module Network.GRPC.Server (
 
     -- ** Protocol specific wrappers
   , recvFinalInput
-  , recvNextInput
   , sendFinalOutput
   , sendNextOutput
   , sendTrailers
 
     -- ** Low-level API
-  , ProperTrailers(..)
-  , TrailersOnly(..)
   , recvInputSTM
   , sendOutputSTM
   , initiateResponse
@@ -105,7 +102,7 @@ handleRequest handlers conn = do
 forwardException :: Call rpc -> SomeException -> IO ()
 forwardException call err =
     handle ignoreExceptions $
-      sendTrailers call trailers
+      sendProperTrailers call trailers
   where
     trailers :: ProperTrailers
     trailers

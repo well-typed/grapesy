@@ -73,14 +73,14 @@ tests = testGroup "Test.Sanity.StreamingType.NonStreaming" [
 type BinaryIncrement = BinaryRpc "binary" "increment"
 
 test_increment :: ClientServerConfig -> IO String
-test_increment config = testClientServer $ def {
+test_increment config = testClientServer $ return def {
       config
     , client = \conn -> do
         Client.withRPC conn def (Proxy @BinaryIncrement) $ \call -> do
           Binary.sendFinalInput @Word8 call 1
           resp <- fst <$> Binary.recvFinalOutput @Word8 call
           assertEqual "" 2 $ resp
-    , server = return [
+    , server = [
           streamingRpcHandler (Proxy @BinaryIncrement) $
             Binary.mkNonStreaming $ \(n :: Word8) ->
               return (succ n)

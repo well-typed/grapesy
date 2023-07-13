@@ -4,8 +4,13 @@
 --
 -- import Network.GRPC.Server.Binary qualified as Binary
 module Network.GRPC.Server.Binary (
+    -- | Convenience wrappers using @binary@ for serialization/deserialization
+    sendOutput
+  , sendFinalOutput
+  , recvInput
+  , recvFinalInput
     -- * Streaming types
-    mkNonStreaming
+  , mkNonStreaming
   , mkClientStreaming
   , mkServerStreaming
   , mkBiDiStreaming
@@ -14,9 +19,46 @@ module Network.GRPC.Server.Binary (
 import Control.Monad.Catch
 import Data.Binary
 
-import Network.GRPC.Common.StreamType qualified as StreamType
 import Network.GRPC.Common.Binary
+import Network.GRPC.Common.CustomMetadata (CustomMetadata)
 import Network.GRPC.Common.StreamElem
+import Network.GRPC.Common.StreamType qualified as StreamType
+import Network.GRPC.Server (Call)
+import Network.GRPC.Server qualified as Server
+
+{-------------------------------------------------------------------------------
+  Convenience wrapers using @binary@ for serialization/deserialization
+-------------------------------------------------------------------------------}
+
+sendOutput ::
+     Binary a
+  => Call (BinaryRpc serv meth)
+  -> StreamElem [CustomMetadata] a
+  -> IO ()
+sendOutput call out =
+    Server.sendOutput call (encode <$> out)
+
+sendFinalOutput ::
+     Binary a
+  => Call (BinaryRpc serv meth)
+  -> (a, [CustomMetadata])
+  -> IO ()
+sendFinalOutput call (out, trailers) =
+    Server.sendFinalOutput call (encode out, trailers)
+
+recvInput ::
+     Binary a
+  => Call (BinaryRpc serv meth)
+  -> IO (StreamElem () a)
+recvInput call = do
+    Server.recvInput call >>= traverse decodeOrThrow
+
+recvFinalInput ::
+     Binary a
+  => Call (BinaryRpc serv meth)
+  -> IO a
+recvFinalInput call =
+     Server.recvFinalInput call >>= decodeOrThrow
 
 {-------------------------------------------------------------------------------
   Handlers for specific streaming types
@@ -62,3 +104,4 @@ mkBiDiStreaming :: forall m serv meth.
   -> StreamType.BiDiStreamingHandler m (BinaryRpc serv meth)
 mkBiDiStreaming f = StreamType.mkBiDiStreaming $ \recv send ->
     f (recv >>= traverse decodeOrThrow) (send . encode)
+

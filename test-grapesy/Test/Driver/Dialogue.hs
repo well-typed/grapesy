@@ -1,129 +1,220 @@
 module Test.Driver.Dialogue (
-    RequestState(..)
-  , ResponseState(..)
-  , ClientState
-  , ServerState
-  , Interaction(..)
-  , Interactions(..)
-  , Dialogue(..)
-  , execDialogue
+    execGlobalSteps
   ) where
 
 import Control.Concurrent
+import Control.Concurrent.STM
+import Control.Concurrent.Thread.Delay
+import Control.Exception
+import Control.Monad
 import Data.Default
-import Data.Kind
-import Data.SOP
+import Data.Proxy
 
+import Network.GRPC.Client (Timeout, timeoutToMicro)
 import Network.GRPC.Client qualified as Client
-import Network.GRPC.Common.CustomMetadata (CustomMetadata)
-import Network.GRPC.Server qualified as Server
+import Network.GRPC.Client.Binary qualified as Client.Binary
 import Network.GRPC.Common.Binary
+import Network.GRPC.Common.CustomMetadata (CustomMetadata)
+import Network.GRPC.Common.StreamElem (StreamElem)
+import Network.GRPC.Server qualified as Server
+import Network.GRPC.Server.Binary qualified as Server.Binary
 
 import Test.Driver.ClientServer
-import Test.Util.SOP
 
 {-------------------------------------------------------------------------------
-  Dialogue
+  RPC
 -------------------------------------------------------------------------------}
 
-type DialogueRpc = BinaryRpc "binary" "dialogue"
+type TestRpc = BinaryRpc "binary" "test"
 
-data RequestState =
-    RequestStarted
-  | RequestEnded
+{-------------------------------------------------------------------------------
+  Barrier
 
-type ClientState = [RequestState]
+  These are concurrent tests, but it can be difficult to pinpoint bugs if the
+  ordering of actions is not determistic. We therefore add specific "barrier"
+  points, which allow to shrink tests towards more deterministic.
+-------------------------------------------------------------------------------}
 
-data RequestData :: RequestState -> Type where
-  RequestOpen   :: Client.Call DialogueRpc -> RequestData RequestStarted
-  RequestClosed :: RequestData RequestEnded
+newtype Barrier = Barrier Int
+  deriving stock (Show, Eq, Ord)
 
-data ResponseState =
-    ResponseStarted
-  | ResponseEnded
+newBarrier :: IO (TVar Barrier)
+newBarrier = newTVarIO (Barrier 0)
 
-type ServerState = [ResponseState]
+waitForBarrier :: TVar Barrier -> Barrier -> IO ()
+waitForBarrier var target = atomically $ do
+    actual <- readTVar var
+    when (actual < target) retry
 
-data Interaction :: (ClientState, ServerState) -> (ClientState, ServerState) -> Type where
-  StartRequest ::
-       Maybe Client.Timeout
-    -> [CustomMetadata]
-    -> Interaction '(reqs, resps) '(RequestStarted ': reqs, resps)
-  CloseRequest ::
-       Update RequestData RequestStarted RequestEnded reqs reqs'
-    -> Interaction '(reqs, resps) '(reqs', resps)
+{-------------------------------------------------------------------------------
+  Test failures
+-------------------------------------------------------------------------------}
 
-deriving stock instance Show (Interaction st st')
+data TestFailure =
+    -- | Thrown by the server when an unexpected new RPC is initiated
+    UnexpectedRequest
 
-data Interactions :: (ClientState, ServerState) -> (ClientState, ServerState) -> Type where
-  Done :: Interactions '(client0, server0) '(client0, server0)
-  Step :: Interaction  '(client0, server0) '(client1, server1)
-       -> Interactions '(client1, server1) '(client2, server2)
-       -> Interactions '(client0, server0) '(client2, server2)
+    -- | Server received an unexpected value
+  | ServerUnexpected ReceivedUnexpected
 
-deriving stock instance Show (Interactions st st')
+    -- | Client received an unexpected value
+  | ClientUnexpected ReceivedUnexpected
+  deriving stock (Show)
+  deriving anyclass (Exception)
 
-data Dialogue :: Type where
-  Dialogue :: Interactions '( '[] , '[] ) '(reqs , resps) -> Dialogue
-
-deriving instance Show Dialogue
-
-execDialogue :: Dialogue -> ClientServerTest
-execDialogue (Dialogue interactions) = def {
-      client = \conn ->
-        clientSide conn interactions
-    , server = do
-        interactionsVar <- newMVar interactions
-        return [serverSide interactionsVar]
+data ReceivedUnexpected = forall a. Show a => ReceivedUnexpected {
+      expected :: a
+    , received :: a
     }
+
+deriving stock instance Show ReceivedUnexpected
+
+{-------------------------------------------------------------------------------
+  Single channel
+
+  TODO: Exceptions (both GrpcException and general other exceptions).
+
+  TODO: We should test that the Trailers-Only case gets triggered if no messages
+  were exchanged before the exception (not sure this is observable without
+  Wireshark..?).
+-------------------------------------------------------------------------------}
+
+data LocalStep =
+    StartResponse [CustomMetadata]
+  | LocalBarrier Barrier
+  | ServerSleep Timeout
+  | ClientToServer (StreamElem () Int)
+  | ServerToClient (StreamElem [CustomMetadata] Int)
+  deriving stock (Show)
+
+type LocalSteps = [LocalStep]
+
+{-------------------------------------------------------------------------------
+  Many channels (birds-eye view)
+-------------------------------------------------------------------------------}
+
+data GlobalStep =
+    Spawn (Maybe Timeout) [CustomMetadata] LocalSteps
+  | GlobalBarrier Barrier
+  deriving stock (Show)
+
+type GlobalSteps = [GlobalStep]
+
+{-------------------------------------------------------------------------------
+  Client-side interpretation
+-------------------------------------------------------------------------------}
+
+clientGlobal :: TVar Barrier -> Client.Connection -> GlobalSteps -> IO ()
+clientGlobal barrierVar conn =
+    mapM_ go
   where
-    clientSide ::
-         Client.Connection
-      -> Interactions '( '[], '[] ) '(reqs, resps)
-      -> IO ()
-    clientSide conn = go Nil
+    go :: GlobalStep -> IO ()
+    go (GlobalBarrier b) = do
+        waitForBarrier barrierVar b
+    go (Spawn timeout metadata localSteps) =
+        void $ forkIO $ do
+          call <- Client.startRPC conn params (Proxy @TestRpc)
+          clientLocal barrierVar call localSteps
       where
-        go :: NP RequestData reqs -> Interactions '(reqs, a) '(reqs', b) -> IO ()
-        go _ Done =
-            return ()
-        go reqs (Step (StartRequest timeout metadata) is) = do
-            req <- aux
-            go (req :* reqs) is
-          where
-            aux :: IO (RequestData 'RequestStarted)
-            aux =
-                RequestOpen <$>
-                  Client.startRPC conn params (Proxy @DialogueRpc)
+        params :: Client.CallParams
+        params = Client.CallParams {
+              callTimeout         = timeout
+            , callRequestMetadata = metadata
+            }
 
-            params :: Client.CallParams
-            params = Client.CallParams {
-                  callTimeout         = timeout
-                , callRequestMetadata = metadata
-                }
-        go reqs (Step (CloseRequest ix) is) = do
-            reqs' <- updateAtM aux ix reqs
-            go reqs' is
-          where
-            aux :: RequestData 'RequestStarted -> IO (RequestData 'RequestEnded)
-            aux (RequestOpen call) = do
-                Client.abortRPC call
-                return $ RequestClosed
+clientLocal :: TVar Barrier -> Client.Call TestRpc -> LocalSteps -> IO ()
+clientLocal barrierVar call localSteps = do
+    mapM_ go localSteps
+    Client.abortRPC call
+  where
+    go :: LocalStep -> IO ()
+    go (LocalBarrier barrier) =
+        waitForBarrier barrierVar barrier
+    go (StartResponse expectedMetadata) = do
+        receivedMetadata <- atomically $ Client.recvResponseMetadata call
+        unless (receivedMetadata == expectedMetadata) $
+          throwIO $ ClientUnexpected $ ReceivedUnexpected {
+              expected = expectedMetadata
+            , received = receivedMetadata
+            }
+    go (ServerSleep _) =
+        -- Server delays are not (directly) observable in the client. The only
+        -- things we should be able to observe is if the client-specified
+        -- timeout is exceeded.
+        return ()
+    go (ClientToServer x) =
+        Client.Binary.sendInput call x
+    go (ServerToClient expectedElem) = do
+        receivedElem <- Client.Binary.recvOutput call
+        unless (receivedElem == expectedElem) $
+          throwIO $ ClientUnexpected $ ReceivedUnexpected {
+              expected = expectedElem
+            , received = receivedElem
+            }
 
-    serverSide ::
-         MVar (Interactions '( '[], '[] ) '(reqs, resps))
-      -> Server.RpcHandler IO
-    serverSide _interactionsVar = undefined {- (Server.mkRpcHandler (Proxy @DialogueRpc) go) {
-          Server.handlerMetadata = \_requestMetadata ->
-            -- TODO: Hmm this is weird. we don't get to control /when/ the
-            -- response is sent back; what if we want the response metadata
-            -- to depend on some input /messages/ and not just the input
-            -- metadata? This is a problem with the API
-            undefined
-        }
-      where
-        go :: Server.Call DialogueRpc -> IO ()
-        go _call = undefined
+{-------------------------------------------------------------------------------
+  Server-side interpretation
 
-     -}
+  The server-side is slightly different, since the infrastructure spawns
+  threads on our behalf (one for each incoming RPC).
+-------------------------------------------------------------------------------}
 
+serverGlobal :: TVar Barrier -> MVar GlobalSteps -> Server.Call TestRpc -> IO ()
+serverGlobal barrierVar globalStepsVar call = do
+    -- The client will only start new calls from a /single/ thread, so the order
+    -- that these come in is determinstic. Here we peel off the next
+    -- 'LocalSteps', pending barriers perhaps, whilst holding the lock, to
+    -- ensure the same determinism server-side.
+    mapM_ go =<< modifyMVar globalStepsVar getNextSteps
+  where
+    getNextSteps :: GlobalSteps -> IO (GlobalSteps, LocalSteps)
+    getNextSteps [] =
+        throwIO $ UnexpectedRequest
+    getNextSteps (GlobalBarrier barrier : global') = do
+        waitForBarrier barrierVar barrier
+        getNextSteps global'
+    getNextSteps (Spawn _timeout expectedMetadata localSteps : global') = do
+        -- We don't care about the timeout the client sets; if the server takes
+        -- too long (see 'ServerSleep'), the framework should kill the server
+        -- and the /client/ will check that it gets the expected exception.
+        receivedMetadata <- Server.getRequestMetadata call
+        unless (receivedMetadata == expectedMetadata) $
+          throwIO $ ServerUnexpected $ ReceivedUnexpected {
+              expected = expectedMetadata
+            , received = receivedMetadata
+            }
+        return (global', localSteps)
+
+    go :: LocalStep -> IO ()
+    go (LocalBarrier barrier) =
+        waitForBarrier barrierVar barrier
+    go (StartResponse metadata) = do
+        Server.setResponseMetadata call metadata
+        void $ Server.initiateResponse call
+    go (ServerSleep timeout) = do
+        delay $ timeoutToMicro timeout
+    go (ClientToServer expectedElem) = do
+        receivedElem <- Server.Binary.recvInput call
+        unless (expectedElem == receivedElem) $
+          throwIO $ ServerUnexpected $ ReceivedUnexpected {
+              expected = expectedElem
+            , received = receivedElem
+            }
+    go (ServerToClient x) = do
+        Server.Binary.sendOutput call x
+
+{-------------------------------------------------------------------------------
+  Top-level
+-------------------------------------------------------------------------------}
+
+execGlobalSteps :: GlobalSteps -> IO ClientServerTest
+execGlobalSteps steps = do
+    barrierVar     <- newBarrier
+    globalStepsVar <- newMVar steps
+    return $ def {
+        client = \conn -> clientGlobal barrierVar conn steps
+      , server = [ Server.mkRpcHandler (Proxy @TestRpc) $
+                     serverGlobal barrierVar globalStepsVar
+                 ]
+      }
 

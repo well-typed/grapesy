@@ -31,6 +31,7 @@ module Network.GRPC.Client (
   , Timeout(..)
   , TimeoutValue(TimeoutValue, getTimeoutValue)
   , TimeoutUnit(..)
+  , timeoutToMicro
 
     -- * Ongoing calls
     --

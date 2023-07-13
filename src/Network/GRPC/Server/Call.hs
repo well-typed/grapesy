@@ -17,7 +17,6 @@ module Network.GRPC.Server.Call (
 
     -- ** Protocol specific wrappers
   , recvFinalInput
-  , recvNextInput
   , sendFinalOutput
   , sendNextOutput
   , sendTrailers
@@ -27,6 +26,9 @@ module Network.GRPC.Server.Call (
   , sendOutputSTM
   , initiateResponse
   , sendTrailersOnly
+
+    -- ** Internal API
+  , sendProperTrailers
   ) where
 
 import Control.Concurrent.STM
@@ -227,7 +229,12 @@ recvInput :: forall rpc. Call rpc -> IO (StreamElem () (Input rpc))
 recvInput = atomically . recvInputSTM
 
 -- | Send RPC output to the client
-sendOutput :: Call rpc -> StreamElem ProperTrailers (Output rpc) -> IO ()
+--
+-- This will send a @grpc-status@ of @0@ to the client; for anything else (i.e.,
+-- to indicate something went wrong), the server handler should throw a
+-- 'GrpcException' (the @grapesy@ client API treats this the same way: a
+-- @grpc-status@ other than @0@ will be raised as a 'GrpcException').
+sendOutput :: Call rpc -> StreamElem [CustomMetadata] (Output rpc) -> IO ()
 sendOutput call msg = do
     _updated <- initiateResponse call
     atomically $ sendOutputSTM call msg
@@ -287,12 +294,19 @@ recvInputSTM Call{callChannel} =
 -- You /MUST/ call 'initiateResponse' before calling 'sendOutputSTM'; throws
 -- 'ResponseNotInitiated' otherwise. This is a low-level API; most users can use
 -- 'sendOutput' instead.
-sendOutputSTM :: Call rpc -> StreamElem ProperTrailers (Output rpc) -> STM ()
+sendOutputSTM :: Call rpc -> StreamElem [CustomMetadata] (Output rpc) -> STM ()
 sendOutputSTM Call{callChannel, callResponseKickoff} msg = do
     mKickoff <- tryReadTMVar callResponseKickoff
     case mKickoff of
-      Just _  -> Session.send callChannel msg
+      Just _  -> Session.send callChannel (first mkTrailers msg)
       Nothing -> throwSTM $ ResponseNotInitiated
+  where
+    mkTrailers :: [CustomMetadata] -> ProperTrailers
+    mkTrailers metadata = ProperTrailers {
+          trailerGrpcStatus  = GrpcOk
+        , trailerGrpcMessage = Nothing
+        , trailerMetadata    = metadata
+        }
 
 -- | Initiate the response
 --
@@ -303,14 +317,40 @@ initiateResponse :: Call rpc -> IO Bool
 initiateResponse Call{callResponseKickoff} =
     atomically $ tryPutTMVar callResponseKickoff KickoffRegular
 
--- | TODO: Docs and test
+-- | Use the gRPC @Trailers-Only@ case for non-error responses
+--
+-- Under normal circumstances a gRPC server will respond to the client with
+-- an initial set of headers, than zero or more messages, and finally a set of
+-- trailers. When there /are/ no messages, this /can/ be collapsed into a single
+-- set of trailers (or headers, depending on your point of view); the gRPC
+-- specification refers to this as the @Trailers-Only@ case. It mandates:
+--
+-- > Most responses are expected to have both headers and trailers but
+-- > Trailers-Only is permitted for calls that produce an immediate error.
+--
+-- In @grapesy@, if a server handler throws a 'GrpcException', we will make use
+-- of this @Trailers-Only@ case if applicable, as per the specification.
+--
+-- /However/, some servers make use of @Trailers-Only@ also in non-error cases.
+-- For example, the @listFeatures@ handler in the official Python route guide
+-- example server will use @Trailers-Only@ if there are no features to report.
+-- Since this is not conform the gRPC specification, we do not do this in
+-- @grapesy@ by default, but we make the option available through
+-- 'sendTrailersOnly'.
 --
 -- Throws 'ResponseAlreadyInitiated' if the response has already been initiated.
-sendTrailersOnly :: Call rpc -> TrailersOnly -> IO ()
-sendTrailersOnly Call{callResponseKickoff} trailers = do
+sendTrailersOnly :: Call rpc -> [CustomMetadata] -> IO ()
+sendTrailersOnly Call{callResponseKickoff} metadata = do
     updated <- atomically $ tryPutTMVar callResponseKickoff $
                  KickoffTrailersOnly trailers
     unless updated $ throwIO ResponseAlreadyInitiated
+  where
+    trailers :: TrailersOnly
+    trailers = TrailersOnly $ ProperTrailers {
+          trailerGrpcStatus  = GrpcOk
+        , trailerGrpcMessage = Nothing
+        , trailerMetadata    = metadata
+        }
 
 data ResponseKickoffException =
     ResponseAlreadyInitiated
@@ -341,13 +381,10 @@ recvFinalInput call@Call{} = do
           FinalElem  inp' _ -> throwIO $ TooManyInputs @rpc inp'
           StreamElem inp'   -> throwIO $ TooManyInputs @rpc inp'
 
-recvNextInput :: Call rpc -> IO (StreamElem () (Input rpc))
-recvNextInput call = recvInput call
-
 -- | Send final output
 --
 -- See also 'sendTrailers'.
-sendFinalOutput :: Call rpc -> (Output rpc, ProperTrailers) -> IO ()
+sendFinalOutput :: Call rpc -> (Output rpc, [CustomMetadata]) -> IO ()
 sendFinalOutput call = sendOutput call . uncurry FinalElem
 
 -- | Send the next output
@@ -362,5 +399,25 @@ sendNextOutput call = sendOutput call . StreamElem
 -- this (or 'sendFinalOutput') even when there is no special information to be
 -- included in the trailers (in this case, you can use the 'Default' instance
 -- for 'ProperTrailers').
-sendTrailers :: Call rpc -> ProperTrailers -> IO ()
+sendTrailers :: Call rpc -> [CustomMetadata] -> IO ()
 sendTrailers call = sendOutput call . NoMoreElems
+
+{-------------------------------------------------------------------------------
+  Internal API
+-------------------------------------------------------------------------------}
+
+-- | Send 'ProperTrailers'
+--
+-- This function is not part of the public API: we use it the top-level
+-- exception handler in "Network.GRPC.Server" to forward exceptions in server
+-- handlers to the client.
+--
+-- If no messages have been sent yet, we make use of the @Trailers-Only@ case.
+sendProperTrailers :: Call rpc -> ProperTrailers -> IO ()
+sendProperTrailers Call{callResponseKickoff, callChannel} trailers = do
+    updated <- atomically $ tryPutTMVar callResponseKickoff $
+                 KickoffTrailersOnly (TrailersOnly trailers)
+    unless updated $
+      -- If we didn't update, then the response has already been initiated and
+      -- we cannot make use of the Trailers-Only case.
+      atomically $ Session.send callChannel (NoMoreElems trailers)
