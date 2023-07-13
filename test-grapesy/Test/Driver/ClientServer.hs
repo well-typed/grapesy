@@ -25,20 +25,20 @@ import Test.Util.ClientServer
 data ClientServerTest = ClientServerTest {
       config :: ClientServerConfig
     , client :: Client.Connection -> IO ()
-    , server :: IO [Server.RpcHandler IO]
+    , server :: [Server.RpcHandler IO]
     }
 
 instance Default ClientServerTest where
   def = ClientServerTest {
         config = def
       , client = \_ -> return ()
-      , server = return []
+      , server = []
       }
 
-testClientServer :: ClientServerTest -> IO String
-testClientServer ClientServerTest{config, client, server} = do
-    handlers <- server
-    mRes <- try $ runTestClientServer config client handlers
+testClientServer :: IO ClientServerTest -> IO String
+testClientServer mkTest = do
+    ClientServerTest{config, client, server} <- mkTest
+    mRes <- try $ runTestClientServer config client server
     case mRes of
       Left err
         | Just (testFailure :: HUnitFailure) <- fromException err

@@ -51,7 +51,7 @@ instance StreamingRpcHandler NonStreamingHandler where
 instance StreamingRpcHandler ClientStreamingHandler where
   streamingRpcHandler proxy (UnsafeClientStreamingHandler h) =
     mkRpcHandler proxy $ \call -> do
-      out <- h (liftIO $ recvNextInput call)
+      out <- h (liftIO $ recvInput call)
       liftIO $ sendFinalOutput call (out, def)
 
 instance StreamingRpcHandler ServerStreamingHandler where
@@ -64,7 +64,7 @@ instance StreamingRpcHandler ServerStreamingHandler where
 instance StreamingRpcHandler BiDiStreamingHandler where
   streamingRpcHandler proxy (UnsafeBiDiStreamingHandler h) =
     mkRpcHandler proxy $ \call -> do
-      h (liftIO $ recvNextInput  call)
+      h (liftIO $ recvInput call)
         (liftIO . sendNextOutput call)
       liftIO $ sendTrailers call def
 

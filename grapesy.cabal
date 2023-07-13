@@ -208,21 +208,21 @@ test-suite test-grapesy
       Test.Driver.Dialogue
       Test.Sanity.StreamingType.NonStreaming
       Test.Util.ClientServer
-      Test.Util.SOP
   build-depends:
       -- Internal dependencies
     , grapesy
   build-depends:
       -- External dependencies
-    , async         >= 2.2  && < 2.3
-    , containers    >= 0.6  && < 0.7
-    , contra-tracer >= 0.2  && < 0.3
-    , data-default  >= 0.7  && < 0.8
-    , sop-core      >= 0.5  && < 0.6
-    , tasty         >= 1.4  && < 1.5
-    , tasty-hunit   >= 0.10 && < 0.11
-    , text          >= 1.2  && < 2.1
-    , tls           >= 1.5  && < 1.8
+    , async            >= 2.2  && < 2.3
+    , containers       >= 0.6  && < 0.7
+    , contra-tracer    >= 0.2  && < 0.3
+    , data-default     >= 0.7  && < 0.8
+    , stm              >= 2.5  && < 2.6
+    , tasty            >= 1.4  && < 1.5
+    , tasty-hunit      >= 0.10 && < 0.11
+    , text             >= 1.2  && < 2.1
+    , tls              >= 1.5  && < 1.8
+    , unbounded-delays >= 0.1  && < 0.2
 
 executable demo-client
   import:

@@ -86,7 +86,7 @@ trailersOnlyShortcut db call = do
     r <- recvFinalInput call
     let features = filter (inRectangle r . view #location) db
     if null features then
-      sendTrailersOnly call  $ TrailersOnly def
+      sendTrailersOnly call []
     else do
       mapM_ (sendOutput call . StreamElem) features
       sendTrailers call def

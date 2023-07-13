@@ -23,14 +23,14 @@ import Network.GRPC.Common.StreamElem
 {-------------------------------------------------------------------------------
   Convenience wrappers using @binary@ for serialization/deserialization
 
-  We do /not/ wrap the client handlers here, because they are not a good match.
-  The standard client streaming handlers expect a /single/ IO action that
-  produces all inputs and/or a single IO action that handles all outputs, but
-  the raw binary protocol allows message types to be different at each point in
-  the communication.
+  Unlike for the server, we do /not/ wrap the client handlers here, because they
+  are not a good match. The standard client streaming handlers expect a /single/
+  IO action that produces all inputs and/or a single IO action that handles all
+  outputs, but the raw binary protocol allows message types to be different at
+  each point in the communication.
 
-  These functions all have the type of the value sent or received as the
-  /first/ argument, to facilitate the use of type arguments.
+  These functions all have the type of the value sent or received as the /first/
+  argument, to facilitate the use of type arguments.
 -------------------------------------------------------------------------------}
 
 sendInput :: forall inp serv meth.

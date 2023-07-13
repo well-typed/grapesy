@@ -8,6 +8,7 @@ module Network.GRPC.Spec (
   , Timeout(..)
   , TimeoutValue(TimeoutValue, getTimeoutValue)
   , TimeoutUnit(..)
+  , timeoutToMicro
     -- * Inputs (message sent to the peer)
   , RequestHeaders(..)
   , IsFinal(..)
@@ -102,6 +103,27 @@ data TimeoutUnit =
   | Nanosecond
   deriving stock (Show, Eq)
 
+-- | Translate 'Timeout' to microseconds
+--
+-- For 'Nanosecond' timeout we round up.
+timeoutToMicro :: Timeout -> Integer
+timeoutToMicro = \case
+    Timeout Hour        (TimeoutValue n) -> mult n $ 1 * 1_000 * 1_000 * 60 * 24
+    Timeout Minute      (TimeoutValue n) -> mult n $ 1 * 1_000 * 1_000 * 60
+    Timeout Second      (TimeoutValue n) -> mult n $ 1 * 1_000 * 1_000
+    Timeout Millisecond (TimeoutValue n) -> mult n $ 1 * 1_000
+    Timeout Microsecond (TimeoutValue n) -> mult n $ 1
+    Timeout Nanosecond  (TimeoutValue n) -> nano n
+  where
+    mult :: Word -> Integer -> Integer
+    mult n m = fromIntegral n * m
+
+    nano :: Word -> Integer
+    nano n = fromIntegral $
+        mu + if n' == 0 then 0 else 1
+      where
+        (mu, n') = divMod n 1_000
+
 {-------------------------------------------------------------------------------
   Inputs (message sent to the peer)
 -------------------------------------------------------------------------------}
@@ -163,14 +185,6 @@ data ProperTrailers = ProperTrailers {
   deriving stock (Show, Eq)
   deriving stock (GHC.Generic)
   deriving anyclass (SOP.Generic, SOP.HasDatatypeInfo)
-
--- | The 'Default' corresponds to a successful response
-instance Default ProperTrailers where
-  def = ProperTrailers {
-        trailerGrpcStatus  = GrpcOk
-      , trailerGrpcMessage = Nothing
-      , trailerMetadata    = []
-      }
 
 -- | Trailers sent in the gRPC Trailers-Only case
 --
