@@ -6,10 +6,12 @@
 --
 -- Intended for qualified import.
 --
--- > import Network.GRPC.Common.CustomMetadata (CustomMetadata(..))
+-- > import Network.GRPC.Common.CustomMetadata (CustomMetadata(..), HeaderName(..))
 -- > import Network.GRPC.Common.CustomMetadata qualified as Metadata
 module Network.GRPC.Common.CustomMetadata (
     CustomMetadata(..)
+  , HeaderName(HeaderName)
+  , AsciiValue(AsciiValue)
   ) where
 
 import Network.GRPC.Spec.CustomMetadata

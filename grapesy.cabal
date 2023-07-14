@@ -214,12 +214,17 @@ test-suite test-grapesy
   build-depends:
       -- External dependencies
     , async            >= 2.2  && < 2.3
+    , bytestring       >= 0.10 && < 0.12
     , containers       >= 0.6  && < 0.7
     , contra-tracer    >= 0.2  && < 0.3
     , data-default     >= 0.7  && < 0.8
+    , exceptions       >= 0.10 && < 0.11
+    , mtl              >= 2.2  && < 2.4
+    , QuickCheck       >= 2.14 && < 2.15
     , stm              >= 2.5  && < 2.6
     , tasty            >= 1.4  && < 1.5
     , tasty-hunit      >= 0.10 && < 0.11
+--    , tasty-quickcheck >= 0.10 && < 0.11
     , text             >= 1.2  && < 2.1
     , tls              >= 1.5  && < 1.8
     , unbounded-delays >= 0.1  && < 0.2
