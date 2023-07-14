@@ -81,7 +81,7 @@ data CustomMetadata =
 
 -- | Header name
 --
--- Header names cannot be empty, can must consist of digits (@0-9@), lowercase
+-- Header names cannot be empty, and must consist of digits (@0-9@), lowercase
 -- letters (@a-z@), underscore (@_@), hyphen (@-@), or period (@.@).
 --
 -- Header names should not start with @grpc-@ (these are reserved for future
