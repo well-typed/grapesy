@@ -35,26 +35,26 @@ instance Default ClientServerTest where
       , server = []
       }
 
-testClientServer :: IO ClientServerTest -> IO String
-testClientServer mkTest = do
-    ClientServerTest{config, client, server} <- mkTest
-    mRes <- try $ runTestClientServer config client server
-    case mRes of
-      Left err
-        | Just (testFailure :: HUnitFailure) <- fromException err
-        -> throwIO testFailure
+testClientServer :: (forall a. (ClientServerTest -> IO a) -> IO a) -> IO String
+testClientServer withTest =
+    withTest $ \ClientServerTest{config, client, server} -> do
+      mRes <- try $ runTestClientServer config client server
+      case mRes of
+        Left err
+          | Just (testFailure :: HUnitFailure) <- fromException err
+          -> throwIO testFailure
 
-        | isExpectedException config err
-        -> return $ "Got expected error: " ++ show err
+          | isExpectedException config err
+          -> return $ "Got expected error: " ++ show err
 
-        | otherwise
-        -> assertFailure $ concat [
-              "Unexpected exception of type "
-            , case err of
-                SomeException e -> show (typeOf e)
-            , ": "
-            , show err
-            ]
-      Right () ->
-        return ""
+          | otherwise
+          -> assertFailure $ concat [
+                "Unexpected exception of type "
+              , case err of
+                  SomeException e -> show (typeOf e)
+              , ": "
+              , show err
+              ]
+        Right () ->
+          return ""
 

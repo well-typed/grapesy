@@ -89,7 +89,7 @@ data CustomMetadata =
 newtype HeaderName = UnsafeHeaderName {
       getHeaderName :: Strict.ByteString
     }
-  deriving stock (Eq)
+  deriving stock (Eq, Ord)
 
 -- | 'Show' instance relies on the 'HeaderName' pattern synonym
 instance Show HeaderName where
@@ -145,7 +145,7 @@ isValidHeaderName bs = and [
 newtype AsciiValue = UnsafeAsciiValue {
       getAsciiValue :: Strict.ByteString
     }
-  deriving stock (Eq)
+  deriving stock (Eq, Ord)
 
 -- | 'Show' instance relies on the 'AsciiValue' pattern synonym
 instance Show AsciiValue where
