@@ -7,8 +7,8 @@ import Data.Proxy
 import Data.Text qualified as Text
 import GHC.TypeLits
 
-import Network.GRPC.Common.StreamType
 import Network.GRPC.Spec.RPC
+import Network.GRPC.Spec.RPC.StreamType
 
 {-------------------------------------------------------------------------------
   Binary format

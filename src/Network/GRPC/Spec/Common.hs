@@ -29,8 +29,7 @@ import Data.List.NonEmpty (NonEmpty(..))
 import Data.Proxy
 import Network.HTTP.Types qualified as HTTP
 
-import Network.GRPC.Spec.Compression (CompressionId)
-import Network.GRPC.Spec.Compression qualified as Compr
+import Network.GRPC.Spec.Compression
 import Network.GRPC.Spec.RPC
 import Network.GRPC.Util.ByteString
 import Network.GRPC.Util.Partial
@@ -67,7 +66,7 @@ parseContentType proxy hdr =
 buildMessageEncoding :: CompressionId -> HTTP.Header
 buildMessageEncoding compr = (
       "grpc-encoding"
-    , Compr.serializeId compr
+    , serializeCompressionId compr
     )
 
 parseMessageEncoding ::
@@ -75,7 +74,7 @@ parseMessageEncoding ::
   => HTTP.Header
   -> m CompressionId
 parseMessageEncoding (_name, value) =
-    return $ Compr.deserializeId value
+    return $ deserializeCompressionId value
 
 {-------------------------------------------------------------------------------
   > Message-Accept-Encoding →
@@ -85,7 +84,7 @@ parseMessageEncoding (_name, value) =
 buildMessageAcceptEncoding :: NonEmpty CompressionId -> HTTP.Header
 buildMessageAcceptEncoding compr = (
       "grpc-accept-encoding"
-    , mconcat . intersperse "," . map Compr.serializeId $ toList compr
+    , mconcat . intersperse "," . map serializeCompressionId $ toList compr
     )
 
 parseMessageAcceptEncoding ::
@@ -94,6 +93,6 @@ parseMessageAcceptEncoding ::
   -> m (NonEmpty CompressionId)
 parseMessageAcceptEncoding (_name, value) =
       expectAtLeastOne
-    . map (Compr.deserializeId . strip)
+    . map (deserializeCompressionId . strip)
     . BS.Strict.splitWith (== ascii ',')
     $ value

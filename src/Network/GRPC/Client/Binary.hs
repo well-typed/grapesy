@@ -11,14 +11,13 @@ module Network.GRPC.Client.Binary (
   , recvFinalOutput
   ) where
 
-import Control.Concurrent.STM
+import Control.Monad.IO.Class
 import Data.Binary
 
 import Network.GRPC.Client (Call)
 import Network.GRPC.Client qualified as Client
 import Network.GRPC.Common.Binary
-import Network.GRPC.Common.CustomMetadata
-import Network.GRPC.Common.StreamElem
+import Network.GRPC.Common
 
 {-------------------------------------------------------------------------------
   Convenience wrappers using @binary@ for serialization/deserialization
@@ -33,33 +32,32 @@ import Network.GRPC.Common.StreamElem
   argument, to facilitate the use of type arguments.
 -------------------------------------------------------------------------------}
 
-sendInput :: forall inp serv meth.
-     Binary inp
+sendInput :: forall inp serv meth m.
+     (Binary inp, MonadIO m)
   => Call (BinaryRpc serv meth)
-  -> StreamElem () inp
-  -> IO ()
-sendInput call inp = atomically $
-    Client.sendInput call (encode <$> inp)
+  -> StreamElem NoMetadata inp
+  -> m ()
+sendInput call inp = Client.sendInput call (encode <$> inp)
 
-sendFinalInput :: forall inp serv meth.
-     Binary inp
+sendFinalInput :: forall inp serv meth m.
+     (Binary inp, MonadIO m)
   => Call (BinaryRpc serv meth)
   -> inp
-  -> IO ()
+  -> m ()
 sendFinalInput call inp =
    Client.sendFinalInput call (encode inp)
 
-recvOutput :: forall out serv meth.
-     Binary out
+recvOutput :: forall out serv meth m.
+     (Binary out, MonadIO m)
   => Call (BinaryRpc serv meth)
-  -> IO (StreamElem [CustomMetadata] out)
-recvOutput call =
-    atomically $ Client.recvOutput call >>= traverse decodeOrThrow
+  -> m (StreamElem [CustomMetadata] out)
+recvOutput call = liftIO $
+     Client.recvOutput call >>= traverse decodeOrThrow
 
-recvFinalOutput :: forall out serv meth.
-     Binary out
+recvFinalOutput :: forall out serv meth m.
+     (Binary out, MonadIO m)
   => Call (BinaryRpc serv meth)
-  -> IO (out, [CustomMetadata])
-recvFinalOutput call = do
+  -> m (out, [CustomMetadata])
+recvFinalOutput call = liftIO $ do
     (out, md) <- Client.recvFinalOutput call
     (, md) <$> decodeOrThrow out

@@ -8,6 +8,7 @@ import Data.Foldable (asum)
 import Options.Applicative qualified as Opt
 import Network.Socket (ServiceName)
 
+import Network.GRPC.Common
 import Network.GRPC.Server.Run
 
 {-------------------------------------------------------------------------------
@@ -100,4 +101,5 @@ parseSecure = asum [
         , securePubCert    = pub
         , secureChainCerts = chain
         , securePrivKey    = priv
+        , secureSslKeyLog  = SslKeyLogNone
         }

@@ -21,8 +21,6 @@ module Network.GRPC.Client (
     -- * Make RPCs
   , Call -- opaque
   , withRPC
-  , startRPC
-  , abortRPC
 
     -- ** Call parameters
   , CallParams(..)
@@ -46,87 +44,23 @@ module Network.GRPC.Client (
   , recvFinalOutput
   , recvAllOutputs
 
+    -- ** Low-level API
+  , sendInputSTM
+  , recvOutputSTM
+  , startRPC
+  , closeRPC
+
     -- * Common serialization formats
   , Protobuf
-  ) where
 
-import Control.Monad.Catch
-import Control.Monad.IO.Class
-import Data.Proxy
-import GHC.Stack
+    -- * Debugging
+  , ClientDebugMsg(..)
+  ) where
 
 import Network.GRPC.Client.Call
 import Network.GRPC.Client.Connection
 import Network.GRPC.Spec
-import Network.GRPC.Spec.PseudoHeaders (Scheme(..), Authority(..))
-import Network.GRPC.Spec.RPC
-import Network.GRPC.Spec.RPC.Protobuf (Protobuf)
 import Network.GRPC.Util.TLS qualified as Util.TLS
-
-{-------------------------------------------------------------------------------
-  Make RPCs
--------------------------------------------------------------------------------}
-
--- | Start RPC call
---
--- This is a non-blocking call; the connection will be set up in a background
--- thread; if this takes time, then the first call to 'sendInput' or
--- 'recvOutput' will block, but the call to 'startRPC' itself will not block.
--- This non-blocking nature makes this safe to use in 'bracket' patterns.
---
--- This is a low-level API. Consider using 'withRPC' instead.
-startRPC ::
-     IsRPC rpc
-  => Connection -> CallParams -> Proxy rpc -> IO (Call rpc)
-startRPC = initiateCall
-
--- | Stop RPC call
---
--- This is a low-level API. Consider using 'withRPC' instead.
---
--- TODO: Say say something about why this is called abort.
---
--- NOTE: When an 'Call' is closed, it remembers the /reason/ why it was closed.
--- For example, if it is closed due to a network exception, then this network
--- exception is recorded as part of this reason. When the call is closed due to
--- call to 'stopRPC', we use the 'CallAborted' exception. /If/ the call to
--- 'stopRPC' /itself/ was due to an exception, this exception will not be
--- recorded; if that is undesirable, consider using 'withRPC' instead.
-abortRPC :: HasCallStack => Call rpc -> IO ()
-abortRPC call = abortCall call $ CallAborted callStack
-
--- | Scoped RPC call
---
--- May throw
---
--- * 'RpcImmediateError' when we fail to establish the call
--- * 'CallClosed' when attempting to send or receive data an a closed call.
-withRPC :: forall m rpc a.
-     (MonadMask m, MonadIO m, IsRPC rpc)
-  => Connection -> CallParams -> Proxy rpc -> (Call rpc -> m a) -> m a
-withRPC conn params proxy = fmap aux .
-    generalBracket
-      (liftIO $ startRPC conn params proxy)
-      (\call -> liftIO . \case
-          ExitCaseSuccess   _ -> abortCall call $ CallAborted callStack
-          ExitCaseException e -> abortCall call e
-          ExitCaseAbort       -> abortCall call UnknownException
-      )
-  where
-    aux :: (a, ()) -> a
-    aux = fst
-
--- | Exception corresponding to 'stopRPC'
---
--- We record the callstack to 'stopRPC'.
-data CallAborted = CallAborted CallStack
-  deriving stock (Show)
-  deriving anyclass (Exception)
-
--- | Exception corresponding to the 'ExitCaseAbort' case of 'ExitCase'
-data UnknownException = UnknownException
-  deriving stock (Show)
-  deriving anyclass (Exception)
 
 {-------------------------------------------------------------------------------
   Ongoing calls

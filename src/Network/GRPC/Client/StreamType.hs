@@ -12,7 +12,7 @@ import Data.Proxy
 
 import Network.GRPC.Client
 import Network.GRPC.Common.StreamType
-import Network.GRPC.Spec.RPC
+import Network.GRPC.Spec
 
 {-------------------------------------------------------------------------------
   Obtain handler for specific RPC call

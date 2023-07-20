@@ -17,6 +17,7 @@ module Network.GRPC.Util.TLS (
     -- ** Parameters
   , ServerValidation(..)
     -- ** Common to server and client
+  , SslKeyLog(..)
   , debugParams
   , supported
     -- ** Hooks (configured for HTTP2)
@@ -124,9 +125,32 @@ data ServerValidation =
   Configuration common to server and client
 -------------------------------------------------------------------------------}
 
-debugParams :: IO TLS.DebugParams
-debugParams = do
-    keyLogFile <- lookupEnv "SSLKEYLOGFILE"
+-- | SSL key log file
+--
+-- An SSL key log file can be used by tools such as Wireshark to decode TLS
+-- network traffic. It is used for debugging only.
+data SslKeyLog =
+    -- | Don't use a key log file
+    SslKeyLogNone
+
+    -- | Use the specified path
+  | SslKeyLogPath FilePath
+
+    -- | Use the @SSLKEYLOGFILE@ environment variable to determine the key log
+    --
+    -- This is the default.
+  | SslKeyLogFromEnv
+  deriving (Show, Eq)
+
+instance Default SslKeyLog where
+  def = SslKeyLogFromEnv
+
+debugParams :: SslKeyLog -> IO TLS.DebugParams
+debugParams sslKeyLog = do
+    keyLogFile <- case sslKeyLog of
+                    SslKeyLogNone    -> return $ Nothing
+                    SslKeyLogPath fp -> return $ Just fp
+                    SslKeyLogFromEnv -> lookupEnv "SSLKEYLOGFILE"
     return def {
           TLS.debugKeyLogger =
             case keyLogFile of

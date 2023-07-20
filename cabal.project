@@ -4,7 +4,12 @@ package grapesy
   tests: True
   flags: +build-demo +build-stress-test
 
+-- source-repository-package
+--   type: git
+--   location: https://github.com/kazu-yamamoto/http2.git
+--   tag: 3265a9b64eb32978f5dabf38504b9a7fce159c1e
+
 source-repository-package
   type: git
-  location: https://github.com/kazu-yamamoto/http2.git
-  tag: 059b24427ef33e7a0f8cb1a06dcf229590bd2d48
+  location: https://github.com/edsko/http2.git
+  tag: fe75d5de1a26f2ecb9d56394a9fb9d27fcc27085

@@ -4,12 +4,11 @@
 module Network.GRPC.Server.Run (
     -- * Configuration
     ServerConfig(..)
+  , ServerSetup(..)
   , InsecureConfig(..)
   , SecureConfig(..)
     -- * Run the server
   , runServer
-    -- * Logging
-  , LogMsg(..)
     -- * Low-level utilities
     --
     -- These are useful if the infrastructure provided in this module is not
@@ -20,8 +19,6 @@ module Network.GRPC.Server.Run (
 
 import Control.Concurrent.Async
 import Control.Exception
-import Control.Tracer
-import Data.ByteString qualified as Strict (ByteString)
 import Data.Default
 import Network.ByteOrder (BufferSize)
 import Network.HTTP2.Server qualified as HTTP2
@@ -30,6 +27,7 @@ import Network.Socket (Socket, HostName, ServiceName)
 import Network.TLS qualified as TLS
 
 import Network.GRPC.Util.HTTP2.TLS
+import Network.GRPC.Util.TLS (SslKeyLog(..))
 import Network.GRPC.Util.TLS qualified as Util.TLS
 
 {-------------------------------------------------------------------------------
@@ -37,7 +35,8 @@ import Network.GRPC.Util.TLS qualified as Util.TLS
 -------------------------------------------------------------------------------}
 
 data ServerConfig = ServerConfig {
-      serverTracer   :: Tracer IO LogMsg
+      -- | General settings
+      serverSetup :: ServerSetup
 
       -- | Configuration for insecure communication (without TLS)
       --
@@ -49,6 +48,21 @@ data ServerConfig = ServerConfig {
       -- Set to 'Nothing' to disable.
     , serverSecure   :: Maybe SecureConfig
     }
+
+data ServerSetup = ServerSetup {
+      -- | Low-level handler hook
+      --
+      -- This hook will be wrapped around each handler invocation, and can in
+      -- principle modify nearly every aspect of the handler execution.
+      --
+      -- Use with care.
+      serverHandlerHook :: HTTP2.Server -> HTTP2.Server
+    }
+
+instance Default ServerSetup where
+  def = ServerSetup {
+        serverHandlerHook = id
+      }
 
 data InsecureConfig = InsecureConfig {
       -- | Hostname
@@ -74,6 +88,9 @@ data SecureConfig = SecureConfig {
 
       -- | TLS private key
     , securePrivKey :: FilePath
+
+      -- | SSL key log
+    , secureSslKeyLog :: SslKeyLog
     }
   deriving (Show)
 
@@ -82,29 +99,28 @@ data SecureConfig = SecureConfig {
 -------------------------------------------------------------------------------}
 
 runServer :: ServerConfig -> HTTP2.Server -> IO ()
-runServer ServerConfig{serverTracer, serverInsecure, serverSecure} server =
+runServer ServerConfig{serverSetup, serverInsecure, serverSecure} server =
     concurrently_
-      (maybe (return ()) (runInsecure serverTracer server) serverInsecure)
-      (maybe (return ()) (runSecure   serverTracer server) serverSecure)
+      (maybe (return ()) (runInsecure serverSetup server) serverInsecure)
+      (maybe (return ()) (runSecure   serverSetup server) serverSecure)
 
 {-------------------------------------------------------------------------------
   Insecure
 -------------------------------------------------------------------------------}
 
-runInsecure :: Tracer IO LogMsg -> HTTP2.Server -> InsecureConfig -> IO ()
-runInsecure tracer server cfg =
+runInsecure :: ServerSetup -> HTTP2.Server -> InsecureConfig -> IO ()
+runInsecure ServerSetup{serverHandlerHook} server cfg =
     runTCPServer (insecureHost cfg) (insecurePort cfg) $ \sock -> do
-      traceWith tracer $ InsecureClientConnected
       bracket (HTTP2.allocSimpleConfig sock writeBufferSize)
               HTTP2.freeSimpleConfig $ \config ->
-        HTTP2.run config server
+        HTTP2.run config $ serverHandlerHook server
 
 {-------------------------------------------------------------------------------
   Secure (over TLS)
 -------------------------------------------------------------------------------}
 
-runSecure :: Tracer IO LogMsg -> HTTP2.Server -> SecureConfig -> IO ()
-runSecure tracer server cfg = do
+runSecure :: ServerSetup -> HTTP2.Server -> SecureConfig -> IO ()
+runSecure  ServerSetup{serverHandlerHook} server cfg = do
     cred :: TLS.Credential <-
           TLS.credentialLoadX509Chain
             (securePubCert    cfg)
@@ -115,27 +131,26 @@ runSecure tracer server cfg = do
             Right res -> return res
 
     runTCPServer (secureHost cfg) (securePort cfg) $ \sock -> do
-      -- New client connected
-      traceWith tracer $ SecureClientConnected
-
       -- TLS handshake
-      tlsContext :: TLS.Context <- newTlsContext sock $ TLS.Credentials [cred]
+      tlsContext :: TLS.Context <-
+        newTlsContext
+          (secureSslKeyLog cfg)
+          sock
+          (TLS.Credentials [cred])
       TLS.handshake tlsContext
-      protocol <- TLS.getNegotiatedProtocol tlsContext
-      traceWith tracer $ TlsHandshakeComplete protocol
 
       -- Run http2 over TLS
       bracket (allocTlsConfig tlsContext writeBufferSize)
               (freeTlsConfig tlsContext) $ \config ->
-        HTTP2.run config server
+        HTTP2.run config $ serverHandlerHook server
 
 {-------------------------------------------------------------------------------
   Auxiliary: construct TLS context
 -------------------------------------------------------------------------------}
 
-newTlsContext :: Socket -> TLS.Credentials -> IO TLS.Context
-newTlsContext s creds = do
-    debugParams <- Util.TLS.debugParams
+newTlsContext :: SslKeyLog -> Socket -> TLS.Credentials -> IO TLS.Context
+newTlsContext sslKeyLog s creds = do
+    debugParams <- Util.TLS.debugParams sslKeyLog
     TLS.contextNew s def {
         TLS.serverShared    = Util.TLS.serverShared creds
       , TLS.serverDebug     = debugParams
@@ -149,23 +164,6 @@ newTlsContext s creds = do
 
 writeBufferSize :: BufferSize
 writeBufferSize = 4096
-
-{-------------------------------------------------------------------------------
-  Logging
--------------------------------------------------------------------------------}
-
-data LogMsg =
-    -- | New client connected without TLS
-    InsecureClientConnected
-
-    -- | New client connected over TLS
-  | SecureClientConnected
-
-    -- | TLS handshake complete
-    --
-    -- We record the negotiated protocol (ALPN); we expect this to be "h2".
-   | TlsHandshakeComplete (Maybe Strict.ByteString)
-  deriving stock (Show)
 
 {-------------------------------------------------------------------------------
   Exceptions

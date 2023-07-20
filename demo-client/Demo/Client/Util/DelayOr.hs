@@ -11,7 +11,7 @@ import Data.List.NonEmpty (NonEmpty(..))
 import Data.List.NonEmpty qualified as NE
 import Pipes
 
-import Network.GRPC.Common.StreamElem (StreamElem(..))
+import Network.GRPC.Common
 
 import Demo.Common.Logging
 
@@ -24,13 +24,15 @@ isDelay :: DelayOr a -> Either Double a
 isDelay (Delay d) = Left d
 isDelay (Exec  a) = Right a
 
-execAll :: forall a. Show a => [DelayOr a] -> IO (IO (StreamElem () a))
+execAll :: forall a. Show a => [DelayOr a] -> IO (IO (StreamElem NoMetadata a))
 execAll =
     fmap (flip modifyMVar getNext) . newMVar . alternating . map isDelay
   where
-    getNext :: AltLists Double a -> IO (AltLists Double a, (StreamElem () a))
+    getNext ::
+         AltLists Double a
+      -> IO (AltLists Double a, (StreamElem NoMetadata a))
     getNext (Alternating Nil) =
-        return (Alternating Nil, NoMoreElems ())
+        return (Alternating Nil, NoMoreElems NoMetadata)
     getNext (Alternating (Lft ds xss)) = do
         let d = sum ds
         traceWith threadSafeTracer $ "Delay " ++ show d ++ "s"
@@ -48,14 +50,14 @@ execAll =
 
 yieldAll :: forall a m.
      (MonadIO m, Show a)
-  => [DelayOr a] -> Producer' (StreamElem () a) m ()
+  => [DelayOr a] -> Producer' (StreamElem NoMetadata a) m ()
 yieldAll = withAlternating go . alternating . map isDelay
   where
     go ::
          Alt d (NonEmpty Double) (NonEmpty a)
-      -> Producer' (StreamElem () a) m ()
+      -> Producer' (StreamElem NoMetadata a) m ()
     go Nil =
-        yield $ NoMoreElems ()
+        yield $ NoMoreElems NoMetadata
     go (Lft ds xss) = do
         let d = sum ds
         liftIO $ do
@@ -73,9 +75,9 @@ yieldAll = withAlternating go . alternating . map isDelay
 checkIsFinal ::
      NonEmpty a
   -> Alt L (NonEmpty Double) (NonEmpty a)
-  -> StreamElem () a
-checkIsFinal (a :| [])      Nil               = FinalElem  a ()
-checkIsFinal (a :| [])      (Lft _ Nil)       = FinalElem  a ()
+  -> StreamElem NoMetadata a
+checkIsFinal (a :| [])      Nil               = FinalElem  a NoMetadata
+checkIsFinal (a :| [])      (Lft _ Nil)       = FinalElem  a NoMetadata
 checkIsFinal (a :| [])      (Lft _ (Rgt _ _)) = StreamElem a
 checkIsFinal (a :| (_ : _))  _                = StreamElem a
 

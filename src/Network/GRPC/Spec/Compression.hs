@@ -2,21 +2,18 @@
 
 -- | Compression
 --
--- Intended for qualified import.
---
--- > import Network.GRPC.Spec.Compression (Compression)
--- > import Network.GRPC.Spec.Compression qualified as Compr
+-- Intended for unqualified import.
 module Network.GRPC.Spec.Compression (
     -- * Definition
     Compression(..)
-  , allSupported
-  , isIdentity
+  , allSupportedCompression
+  , compressionIsIdentity
     -- ** ID
   , CompressionId(..)
-  , serializeId
-  , deserializeId
+  , serializeCompressionId
+  , deserializeCompressionId
     -- * Specific coders
-  , identity
+  , noCompression
   , gzip
   ) where
 
@@ -50,8 +47,8 @@ instance Show Compression where
 --
 -- The order of this list is important: algorithms listed earlier are preferred
 -- over algorithms listed later.
-allSupported :: NonEmpty Compression
-allSupported = gzip :| [identity]
+allSupportedCompression :: NonEmpty Compression
+allSupportedCompression = gzip :| [noCompression]
 
 {-------------------------------------------------------------------------------
   Compression ID
@@ -70,35 +67,35 @@ data CompressionId =
   | Custom Strict.ByteString
   deriving (Eq, Ord)
 
-serializeId :: CompressionId -> Strict.ByteString
-serializeId Identity   = "identity"
-serializeId GZip       = "gzip"
-serializeId Deflate    = "deflate"
-serializeId Snappy     = "snappy"
-serializeId (Custom i) = i
+serializeCompressionId :: CompressionId -> Strict.ByteString
+serializeCompressionId Identity   = "identity"
+serializeCompressionId GZip       = "gzip"
+serializeCompressionId Deflate    = "deflate"
+serializeCompressionId Snappy     = "snappy"
+serializeCompressionId (Custom i) = i
 
-deserializeId :: Strict.ByteString -> CompressionId
-deserializeId "identity" = Identity
-deserializeId "gzip"     = GZip
-deserializeId "deflate"  = Deflate
-deserializeId "snappy"   = Snappy
-deserializeId i          = Custom i
+deserializeCompressionId :: Strict.ByteString -> CompressionId
+deserializeCompressionId "identity" = Identity
+deserializeCompressionId "gzip"     = GZip
+deserializeCompressionId "deflate"  = Deflate
+deserializeCompressionId "snappy"   = Snappy
+deserializeCompressionId i          = Custom i
 
 instance Show CompressionId where
-  show = BS.UTF8.toString . serializeId
+  show = BS.UTF8.toString . serializeCompressionId
 
 instance IsString CompressionId where
-  fromString = deserializeId . BS.UTF8.fromString
+  fromString = deserializeCompressionId . BS.UTF8.fromString
 
-isIdentity :: Compression -> Bool
-isIdentity = (== Identity) . compressionId
+compressionIsIdentity :: Compression -> Bool
+compressionIsIdentity = (== Identity) . compressionId
 
 {-------------------------------------------------------------------------------
   Compression algorithms
 -------------------------------------------------------------------------------}
 
-identity :: Compression
-identity = Compression {
+noCompression :: Compression
+noCompression = Compression {
       compressionId = Identity
     , compress      = id
     , decompress    = id

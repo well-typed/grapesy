@@ -28,8 +28,7 @@ import Data.Proxy
 import Data.Typeable
 
 import Network.GRPC.Server.Call
-import Network.GRPC.Spec.PseudoHeaders
-import Network.GRPC.Spec.RPC
+import Network.GRPC.Spec
 
 {-------------------------------------------------------------------------------
   Handlers

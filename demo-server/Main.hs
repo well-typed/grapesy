@@ -46,14 +46,9 @@ main = do
 
     let serverConfig :: ServerConfig
         serverConfig = ServerConfig {
-            serverTracer =
-              if cmdDebug cmdline
-                then contramap show threadSafeTracer
-                else nullTracer
-          , serverInsecure =
-              cmdInsecure cmdline
-          , serverSecure   =
-              cmdSecure cmdline
+            serverSetup    = def
+          , serverInsecure = cmdInsecure cmdline
+          , serverSecure   = cmdSecure cmdline
           }
 
     withServer (serverParams cmdline) (fromServices $ services cmdline db) $
@@ -68,13 +63,10 @@ getRouteGuideDb = do
       Nothing -> error "Could not parse the route guide DB"
 
 serverParams :: Cmdline -> ServerParams
-serverParams cmd = ServerParams {
+serverParams cmd = def {
       serverDebugTracer =
         if cmdDebug cmd
           then contramap show threadSafeTracer
           else serverDebugTracer def
-
-    , serverCompression =
-        def
     }
 

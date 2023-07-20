@@ -15,7 +15,7 @@ import Data.Binary.Get qualified as Binary
 import Data.ByteString.Lazy qualified as BS.Lazy
 import Data.ByteString.Lazy qualified as Lazy (ByteString)
 
-import Network.GRPC.Spec.RPC.Binary (BinaryRpc)
+import Network.GRPC.Spec
 
 {-------------------------------------------------------------------------------
   Decoding

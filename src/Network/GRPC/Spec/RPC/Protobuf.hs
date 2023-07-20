@@ -15,8 +15,8 @@ import Data.Text qualified as Text
 import Data.Typeable
 import GHC.TypeLits
 
-import Network.GRPC.Common.StreamType
 import Network.GRPC.Spec.RPC
+import Network.GRPC.Spec.RPC.StreamType
 
 {-------------------------------------------------------------------------------
   The spec defines the following in Appendix A, "GRPC for Protobuf":

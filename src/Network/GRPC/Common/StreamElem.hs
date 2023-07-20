@@ -2,12 +2,14 @@
 --
 -- Intended for qualified import.
 --
--- > import Network.GRPC.Common.StreamElem (StreamElem(..))
 -- > import Network.GRPC.Common.StreamElem qualified as StreamElem
+--
+-- "Network.GRPC.Common" (intended for unqualified import) exports 'StreamElem',
+-- but none of the operations on 'StreamElem'.
 module Network.GRPC.Common.StreamElem (
     StreamElem(..)
   , value
-  , definitelyFinal
+  , whenDefinitelyFinal
   , mapM_
   , collect
   ) where
@@ -19,6 +21,8 @@ import Control.Monad.Trans.Class
 import Data.Bifoldable
 import Data.Bifunctor
 import Data.Bitraversable
+import GHC.Generics qualified as GHC
+import Text.Show.Pretty
 
 -- | An element positioned in a stream
 data StreamElem b a =
@@ -57,7 +61,8 @@ data StreamElem b a =
     -- * The final element was not marked as final.
     --   See 'StreamElem' for detailed additional discussion.
   | NoMoreElems b
-  deriving stock (Show, Eq, Functor, Foldable, Traversable)
+  deriving stock (Show, Eq, Functor, Foldable, Traversable, GHC.Generic)
+  deriving anyclass (PrettyVal)
 
 instance Bifunctor StreamElem where
   bimap g f (FinalElem   a b) = FinalElem   (f a) (g b)
@@ -90,28 +95,29 @@ value = \case
 --
 -- A 'False' result does not mean the element is not final; see 'StreamElem' for
 -- detailed discussion.
-definitelyFinal :: StreamElem b a -> Maybe b
-definitelyFinal = \case
-    StreamElem  _   -> Nothing
-    FinalElem   _ b -> Just b
-    NoMoreElems   b -> Just b
+whenDefinitelyFinal :: Applicative m => StreamElem b a -> (b -> m ()) -> m ()
+whenDefinitelyFinal msg k =
+    case msg of
+      StreamElem  _   -> pure ()
+      FinalElem   _ b -> k b
+      NoMoreElems   b -> k b
 
 -- | Map over all elements
-mapM_ :: forall m a. Monad m => m (StreamElem () a) -> (a -> m ()) -> m ()
+mapM_ :: forall m a b. Monad m => m (StreamElem b a) -> (a -> m ()) -> m ()
 mapM_ recv f = loop
   where
     loop :: m ()
     loop = do
         x <- recv
         case x of
-          StreamElem a    -> f a >> loop
-          FinalElem  a () -> f a
-          NoMoreElems  () -> return ()
+          StreamElem a   -> f a >> loop
+          FinalElem  a _ -> f a
+          NoMoreElems  _ -> return ()
 
 -- | Collect all elements
 --
 -- Returns the elements in the order they were received.
-collect :: forall m a. Monad m => m (StreamElem () a) -> m [a]
+collect :: forall m a b. Monad m => m (StreamElem b a) -> m [a]
 collect recv =
     reverse <$> execStateT go []
   where

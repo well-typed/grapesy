@@ -15,10 +15,9 @@ import Pipes.Safe
 
 import Network.GRPC.Client
 import Network.GRPC.Client.StreamType
-import Network.GRPC.Common.StreamElem (StreamElem)
+import Network.GRPC.Common
 import Network.GRPC.Common.StreamType (SupportsStreamingType)
 import Network.GRPC.Common.StreamType qualified as StreamType
-import Network.GRPC.Spec.RPC
 import Network.GRPC.Util.RedundantConstraint
 
 {-------------------------------------------------------------------------------
@@ -31,7 +30,7 @@ clientStreaming :: forall rpc.
   => Connection
   -> CallParams
   -> Proxy rpc
-  -> Consumer' (StreamElem () (Input rpc)) (SafeT IO) (Output rpc)
+  -> Consumer' (StreamElem NoMetadata (Input rpc)) (SafeT IO) (Output rpc)
 clientStreaming conn params proxy =
     StreamType.clientStreaming
       (rpcWith conn params proxy)
@@ -68,7 +67,7 @@ biDiStreaming :: forall rpc a.
   => Connection
   -> CallParams
   -> Proxy rpc
-  -> (    Consumer' (StreamElem () (Input rpc)) IO ()
+  -> (    Consumer' (StreamElem NoMetadata (Input rpc)) IO ()
        -> Producer' (Output rpc) IO ()
        -> IO a
      )

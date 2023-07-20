@@ -7,7 +7,7 @@ module Demo.Client.API.Protobuf.RouteGuide (
 
 import Network.GRPC.Client
 import Network.GRPC.Client.StreamType
-import Network.GRPC.Common.StreamElem (StreamElem(..))
+import Network.GRPC.Common
 import Network.GRPC.Common.StreamType
 
 import Proto.RouteGuide
@@ -29,13 +29,13 @@ listFeatures conn rect = do
     serverStreaming (rpc @(Protobuf RouteGuide "listFeatures") conn) rect $
       logMsg
 
-recordRoute :: Connection -> IO (StreamElem () Point) -> IO ()
+recordRoute :: Connection -> IO (StreamElem NoMetadata Point) -> IO ()
 recordRoute conn getPoint = do
     summary <-
       clientStreaming (rpc @(Protobuf RouteGuide "recordRoute") conn) getPoint
     logMsg summary
 
-routeChat :: Connection -> IO (StreamElem () RouteNote) -> IO ()
+routeChat :: Connection -> IO (StreamElem NoMetadata RouteNote) -> IO ()
 routeChat conn getNote = do
     biDiStreaming (rpc @(Protobuf RouteGuide "routeChat") conn) getNote $
       logMsg

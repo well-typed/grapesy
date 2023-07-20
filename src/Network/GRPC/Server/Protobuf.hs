@@ -12,7 +12,7 @@ import Data.Kind
 import Data.ProtoLens.Service.Types
 import GHC.TypeLits
 
-import Network.GRPC.Spec.RPC.Protobuf
+import Network.GRPC.Spec
 
 {-------------------------------------------------------------------------------
   Compute full Protobuf API

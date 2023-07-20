@@ -16,7 +16,7 @@ import Data.Proxy
 
 import Network.GRPC.Common.StreamType
 import Network.GRPC.Server
-import Network.GRPC.Spec.RPC
+import Network.GRPC.Spec
 
 {-------------------------------------------------------------------------------
   Construct 'RpcHandler'

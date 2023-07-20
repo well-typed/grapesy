@@ -17,11 +17,11 @@ module Network.GRPC.Server.Context (
 import Control.Exception
 import Control.Tracer
 import Data.Default
+import Text.Show.Pretty
 
 import Network.GRPC.Common.Compression qualified as Compr
 import Network.GRPC.Server.Session (ServerSession)
-import Network.GRPC.Spec.PseudoHeaders
-import Network.GRPC.Spec.RPC
+import Network.GRPC.Spec
 import Network.GRPC.Util.Session qualified as Session
 
 {-------------------------------------------------------------------------------
@@ -42,14 +42,26 @@ withContext params k = k $ ServerContext{params}
 -------------------------------------------------------------------------------}
 
 data ServerParams = ServerParams {
-      serverDebugTracer :: Tracer IO ServerDebugMsg
-    , serverCompression :: Compr.Negotation
+      -- | Server compression preferences
+      serverCompression :: Compr.Negotation
+
+      -- | Tracer for exceptions thrown by handlers
+      --
+      -- The default uses 'stdoutTracer'.
+    , serverExceptionTracer :: Tracer IO SomeException
+
+      -- | Tracer for debug messages
+      --
+      -- This is prmarily for debugging @grapesy@ itself; most client code will
+      -- probably want to use 'nullTracer' here.
+    , serverDebugTracer :: Tracer IO ServerDebugMsg
     }
 
 instance Default ServerParams where
   def = ServerParams {
-        serverDebugTracer = nullTracer
-      , serverCompression = def
+        serverCompression     = def
+      , serverExceptionTracer = contramap show stdoutTracer
+      , serverDebugTracer     = nullTracer
       }
 
 {-------------------------------------------------------------------------------
@@ -67,3 +79,5 @@ data ServerDebugMsg =
 
 deriving instance Show ServerDebugMsg
 
+instance PrettyVal ServerDebugMsg where
+  prettyVal = String . show

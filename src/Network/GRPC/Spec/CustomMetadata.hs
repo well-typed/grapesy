@@ -8,14 +8,17 @@
 module Network.GRPC.Spec.CustomMetadata (
     -- * Definition
     CustomMetadata(..)
+  , customHeaderName
     -- * Header-Name
   , HeaderName(HeaderName)
   , getHeaderName
   , safeHeaderName
-    -- * ASCII-Value
+    -- * ASCII value
   , AsciiValue(AsciiValue)
   , getAsciiValue
   , safeAsciiValue
+    -- * Binary value
+  , BinaryValue(..)
     -- * To and from HTTP headers
   , buildCustomMetadata
   , parseCustomMetadata
@@ -28,10 +31,13 @@ import Data.ByteString.Base64 qualified as BS.Strict.B64
 import Data.CaseInsensitive qualified as CI
 import Data.String
 import Data.Word
+import GHC.Generics qualified as GHC
 import GHC.Show
 import Network.HTTP.Types qualified as HTTP
+import Text.Show.Pretty
 
 import Network.GRPC.Util.ByteString (strip, ascii, dropEnd)
+import Network.GRPC.Util.PrettyVal
 
 {-------------------------------------------------------------------------------
   Definition
@@ -58,7 +64,7 @@ data CustomMetadata =
     -- decoding as headers are sent and received).
     --
     -- Since these considered binary data, padding considerations do not apply.
-    BinaryHeader HeaderName Strict.ByteString
+    BinaryHeader HeaderName BinaryValue
 
     -- | ASCII header
     --
@@ -71,7 +77,12 @@ data CustomMetadata =
     -- as "space and horizontal tab"
     -- <https://www.rfc-editor.org/rfc/rfc5234#section-3.1>.
   | AsciiHeader HeaderName AsciiValue
-  deriving stock (Show, Eq)
+  deriving stock (Show, Eq, Ord, GHC.Generic)
+  deriving anyclass (PrettyVal)
+
+customHeaderName :: CustomMetadata -> HeaderName
+customHeaderName (BinaryHeader n _) = n
+customHeaderName (AsciiHeader  n _) = n
 
 {-------------------------------------------------------------------------------
   Header-Name
@@ -90,15 +101,14 @@ newtype HeaderName = UnsafeHeaderName {
       getHeaderName :: Strict.ByteString
     }
   deriving stock (Eq, Ord)
+  deriving newtype (IsString)
+  deriving (PrettyVal) via StrictByteString_IsString HeaderName
 
 -- | 'Show' instance relies on the 'HeaderName' pattern synonym
 instance Show HeaderName where
   showsPrec p (UnsafeHeaderName name) = showParen (p >= appPrec1) $
         showString "HeaderName "
       . showsPrec appPrec1 name
-
-instance IsString HeaderName where
-  fromString = HeaderName . fromString
 
 pattern HeaderName :: Strict.ByteString -> HeaderName
 pattern HeaderName n <- UnsafeHeaderName n
@@ -146,6 +156,7 @@ newtype AsciiValue = UnsafeAsciiValue {
       getAsciiValue :: Strict.ByteString
     }
   deriving stock (Eq, Ord)
+  deriving PrettyVal via StrictByteString_IsString AsciiValue
 
 -- | 'Show' instance relies on the 'AsciiValue' pattern synonym
 instance Show AsciiValue where
@@ -178,37 +189,53 @@ isValidAsciiValue bs = and [
     ]
 
 {-------------------------------------------------------------------------------
+  Binary value
+-------------------------------------------------------------------------------}
+
+newtype BinaryValue = BinaryValue {
+      getBinaryValue :: Strict.ByteString
+    }
+  deriving stock (Show, Eq, Ord)
+  deriving PrettyVal via StrictByteString_Binary "BinaryValue" BinaryValue
+
+{-------------------------------------------------------------------------------
   To/from HTTP2
 -------------------------------------------------------------------------------}
 
 buildCustomMetadata :: CustomMetadata -> HTTP.Header
 buildCustomMetadata (BinaryHeader name value) = (
       CI.mk $ getHeaderName name <> "-bin"
-    , BS.Strict.B64.encode value
+    , BS.Strict.B64.encode (getBinaryValue value)
     )
 buildCustomMetadata (AsciiHeader name value) = (
       CI.mk $ getHeaderName name
     , getAsciiValue value
     )
 
-parseCustomMetadata :: MonadError String m => HTTP.Header-> m CustomMetadata
+parseCustomMetadata :: MonadError String m => HTTP.Header -> m CustomMetadata
 parseCustomMetadata (name, value)
   | "grpc-" `BS.Strict.isPrefixOf` CI.foldedCase name
   = throwError $ "Reserved header: " ++ show (name, value)
 
   | "-bin" `BS.Strict.isSuffixOf` CI.foldedCase name
-  = case safeHeaderName (dropEnd 4 $ CI.foldedCase name) of
-      Just name' ->
-        return $ BinaryHeader name' value
-      _otherwise ->
-        throwError $ "Invalid custom binary header: " ++ show (name, value)
+  = case ( safeHeaderName (dropEnd 4 $ CI.foldedCase name)
+         , BS.Strict.B64.decode value
+         ) of
+      (Nothing, _) ->
+        throwError $ "Invalid header name: " ++ show (name, value)
+      (_, Left err) ->
+        throwError $ "Cannot decode binary header: " ++ err
+      (Just name', Right value') ->
+        return $ BinaryHeader name' (BinaryValue value')
 
   | otherwise
   = case ( safeHeaderName (CI.foldedCase name)
          , safeAsciiValue value
          ) of
+      (Nothing, _) ->
+        throwError $ "Invalid header name: " ++ show name
+      (_, Nothing) ->
+        throwError $ "Invalid ASCII header value: " ++ show value
       (Just name', Just value') ->
         return $ AsciiHeader name' value'
-      _otherwise ->
-        throwError $ "Invalid custom ASCII header: " ++ show (name, value)
 

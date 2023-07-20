@@ -17,6 +17,7 @@ module Demo.Client.Cmdline (
 import Prelude
 
 import Control.Lens ((.~))
+import Data.Default
 import Data.Foldable (asum)
 import Data.Function ((&))
 import Data.Int
@@ -138,7 +139,7 @@ parseServer =
         Client.ServerInsecure $
           Client.Authority host (fromMaybe 50051 mPort)
     mkServer host mPort (Just validation) =
-        Client.ServerSecure validation $
+        Client.ServerSecure validation def $
           Client.Authority host (fromMaybe 50052 mPort)
 
 parseServerValidation :: Opt.Parser Client.ServerValidation

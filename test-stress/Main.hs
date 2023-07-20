@@ -13,6 +13,7 @@ import Network.GRPC.Server.StreamType
 
 import Test.Stress.Cmdline
 import Test.Util.ClientServer
+import Control.Tracer
 
 {-------------------------------------------------------------------------------
   Barebones stress test
@@ -40,7 +41,7 @@ main = do
 
 runClient :: Test -> IO ()
 runClient test =
-    runTestClient def $ \conn ->
+    runTestClient def nullTracer $ \conn ->
       case test of
         ManyShortLived ->
           clientManyShortLived conn
@@ -50,9 +51,14 @@ runClient test =
 -------------------------------------------------------------------------------}
 
 runServer :: IO ()
-runServer =
-    -- Server.withServer params handlers $ Server.runServer config
-    runTestServer def [
+runServer = do
+    serverHandlerLock <- newServerHandlerLock
+    runTestServer
+      def
+      (contramap show stdoutTracer)
+      nullTracer
+      serverHandlerLock
+      [
         streamingRpcHandler (Proxy @ManyShortLived) $
           Binary.mkNonStreaming serverManyShortLived
       ]

@@ -1,3 +1,7 @@
+-- | Channel
+--
+-- You should not have to import this module directly; instead import
+-- "Network.GRPC.Util.Session".
 module Network.GRPC.Util.Session.Channel (
     -- * Main definition
     Channel(..)
@@ -10,23 +14,24 @@ module Network.GRPC.Util.Session.Channel (
   , getInboundHeaders
   , send
   , recv
-  , close
-    -- ** Exceptions
   , RecvAfterFinal(..)
   , SendAfterFinal(..)
+    -- * Closing
+  , waitForOutbound
+  , close
+  , ChannelUncleanClose(..)
   , ChannelClosed(..)
+    -- ** Exceptions
     -- * Constructing channels
   , sendMessageLoop
   , recvMessageLoop
-  , processInboundTrailers
-  , processOutboundTrailers
+  , outboundTrailersMaker
     -- ** Logging
   , DebugMsg(..)
   ) where
 
-import Control.Concurrent.STM
 import Control.Exception
-import Control.Monad
+import Control.Monad.Catch
 import Control.Tracer
 import Data.Bifunctor
 import Data.ByteString qualified as BS.Strict
@@ -36,12 +41,13 @@ import GHC.Stack
 import Network.HTTP.Types qualified as HTTP
 import Network.HTTP2.Internal qualified as HTTP2
 
-import Network.GRPC.Common.StreamElem (StreamElem (..))
+import Network.GRPC.Common.StreamElem (StreamElem(..))
 import Network.GRPC.Common.StreamElem qualified as StreamElem
 import Network.GRPC.Util.Parser
 import Network.GRPC.Util.Session.API
 import Network.GRPC.Util.Thread
 import Network.GRPC.Util.HTTP2.Stream
+import Network.GRPC.Util.STM
 
 {-------------------------------------------------------------------------------
   Definitions
@@ -70,10 +76,10 @@ import Network.GRPC.Util.HTTP2.Stream
 --
 -- Each channel is constructed for a /single/ session (request/response).
 data Channel sess = Channel {
-      -- | Thread state of the thread receiving messages from the sess's peer
+      -- | Thread state of the thread receiving messages from the peer
       channelInbound :: TVar (ThreadState (TMVar (FlowState (Inbound sess))))
 
-      -- | Thread state of the thread sending messages to the sess's peer
+      -- | Thread state of the thread sending messages to the peer
     , channelOutbound :: TVar (ThreadState (TMVar (FlowState (Outbound sess))))
 
       -- | 'CallStack' of the final call to 'send'
@@ -90,39 +96,66 @@ data Channel sess = Channel {
     }
 
 -- | Data flow state
---
--- We maintain three separate pieces of state:
---
--- 1. 'flowHeaders' is written to once, when we receive the inbound headers. It
---    is intended to support client code that wants to inspects these headers; a
---    'readTMVar' of this variable will block until the headers are received,
---    but will return /before/ the first message is received.
---
--- 2. 'flowMsg' is written to for every incoming message. This can be regarded
---    as a 1-place buffer, and it provides backpressure: we cannot receive
---    messages from the peer faster than the user is reading them.
---
---    TODO: It might make sense to generalize this to an @N@-place buffer, for
---    configurable @N@. This might provide for better latency masking.
---
--- 3. 'flowTrailers' is written to once, when we receive the trailers.
---
--- Invariant: when the trailers are written to 'flowTrailers', they will also
--- (atomically) be written to 'flowMsg'. We maintain both to allow the
--- 'HTTP2.TrailersMaker' to wait on 'flowTrailers'.
---
--- NOTE: 'flowTrailers' and 'channelRecvFinal' are set at different times:
--- 'flowTrailers' is set immediately upon receiving the trailers from the peer;
--- 'channelRecvFinal' is set when the user does the final call to 'recv' to
--- actually receive those trailers.
 data FlowState flow =
     FlowStateRegular (RegularFlowState flow)
-  | FlowStateTrailersOnly (TrailersOnly flow)
+  | FlowStateNoMessages (NoMessages flow)
 
+-- | Regular (streaming) flow state
 data RegularFlowState flow = RegularFlowState {
-      flowHeaders  :: Headers flow
-    , flowMsg      :: TMVar (StreamElem (ProperTrailers flow) (Message flow))
-    , flowTrailers :: TMVar (ProperTrailers flow)
+      -- | Headers
+      --
+      -- On the client side, the outbound headers are specified when the request
+      -- is made ('callRequestMetadata'), and the inbound headers are recorded
+      -- once the responds starts to come in; clients can block-and-wait for
+      -- these headers ('getInboundHeaders').
+      --
+      -- On the server side, the inbound headers are recorded when the request
+      -- comes in, and the outbound headers are specified
+      -- ('setResponseMetadata') before the response is initiated
+      -- ('initiateResponse'/'sendTrailersOnly').
+      flowHeaders :: Headers flow
+
+      -- | Messages
+      --
+      -- This TMVar is written to for incoming messages ('recvMessageLoop') and
+      -- read from for outgoing messages ('sendMessageLoop'). It acts as a
+      -- one-place buffer, providing backpressure in both directions.
+      --
+      -- TODO: It might make sense to generalize this to an @N@-place buffer,
+      -- for configurable @N@. This might result in better latency masking.
+    , flowMsg :: TMVar (StreamElem (Trailers flow) (Message flow))
+
+      -- | Trailers
+      --
+      -- Unlike 'flowMsg', which is /written/ to in 'recvMessageLoop' and /read/
+      -- from in 'sendMessageLoop', both loops /set/ 'flowTerminated', once,
+      -- just before they terminate.
+      --
+      -- * For 'sendMessageLoop', this means that the last message has been
+      --   written (that is, the last call to 'writeChunk' has happened).
+      --   This has two consequences:
+      --
+      --   1. @http2@ can now construct the trailers ('outboundTrailersMaker')
+      --   2. Higher layers can wait on 'flowTerminated' to be /sure/ that the
+      --      last message has been written.
+      --
+      -- * For 'recvMessageLoop', this means that the trailers have been
+      --   received from the peer. Higher layers can use this to check for, or
+      --   block-and-wait, to receive those trailers.
+      --
+      -- == Relation to 'channelSentFinal'/'channelRecvFinal'
+      --
+      -- 'flowTerminated' is set at different times than 'channelSentFinal' and
+      -- 'channelRecvFinal' are:
+      --
+      -- * 'channelSentFinal' is set on the last call to 'send', but /before/
+      --   the message is processed by 'sendMessageLoop'.
+      -- * 'channelRecvFinal', dually, is set on the last call to 'recv, which
+      --   must (necessarily) happen /before/ that message is actually made
+      --   available by 'recvMessageLoop'.
+      --
+      -- /Their/ sole purpose is to catch user errors, not capture data flow.
+    , flowTerminated :: TMVar (Trailers flow)
     }
 
 {-------------------------------------------------------------------------------
@@ -132,8 +165,8 @@ data RegularFlowState flow = RegularFlowState {
 initChannel :: IO (Channel sess)
 initChannel =
     Channel
-      <$> newTVarIO ThreadNotStarted
-      <*> newTVarIO ThreadNotStarted
+      <$> newThreadState
+      <*> newThreadState
       <*> newEmptyTMVarIO
       <*> newEmptyTMVarIO
 
@@ -152,12 +185,12 @@ initFlowStateRegular headers = do
 -- Will block if the inbound headers have not yet been received.
 getInboundHeaders ::
      Channel sess
-  -> STM (Either (TrailersOnly (Inbound sess)) (Headers (Inbound sess)))
+  -> STM (Either (NoMessages (Inbound sess)) (Headers (Inbound sess)))
 getInboundHeaders Channel{channelInbound} = do
     st <- readTMVar =<< getThreadInterface channelInbound
     return $ case st of
-      FlowStateRegular      regular  -> Right $ flowHeaders regular
-      FlowStateTrailersOnly trailers -> Left trailers
+      FlowStateRegular    regular  -> Right $ flowHeaders regular
+      FlowStateNoMessages trailers -> Left trailers
 
 -- | Send a message to the node's peer
 --
@@ -167,7 +200,7 @@ getInboundHeaders Channel{channelInbound} = do
 send ::
      HasCallStack
   => Channel sess
-  -> StreamElem (ProperTrailers (Outbound sess)) (Message (Outbound sess))
+  -> StreamElem (Trailers (Outbound sess)) (Message (Outbound sess))
   -> STM ()
 send Channel{channelOutbound, channelSentFinal} msg = do
     -- By checking that we haven't sent the final message yet, we know that this
@@ -182,10 +215,10 @@ send Channel{channelOutbound, channelSentFinal} msg = do
         st <- readTMVar =<< getThreadInterface channelOutbound
         case st of
           FlowStateRegular regular -> do
-            forM_ (StreamElem.definitelyFinal msg) $ \_trailers ->
+            StreamElem.whenDefinitelyFinal msg $ \_trailers ->
               putTMVar channelSentFinal callStack
             putTMVar (flowMsg regular) msg
-          FlowStateTrailersOnly _ ->
+          FlowStateNoMessages _ ->
             -- For outgoing messages, the caller decides to use Trailers-Only,
             -- so if they then subsequently call 'send', we throw an exception.
             -- This is different for /inbound/ messages; see 'recv', below.
@@ -199,7 +232,7 @@ recv ::
      HasCallStack
   => Channel sess
   -> STM ( StreamElem
-             (Either (TrailersOnly (Inbound sess)) (ProperTrailers (Inbound sess)))
+             (Either (NoMessages (Inbound sess)) (Trailers (Inbound sess)))
              (Message (Inbound sess))
          )
 recv Channel{channelInbound, channelRecvFinal} = do
@@ -218,31 +251,12 @@ recv Channel{channelInbound, channelRecvFinal} = do
             msg <- takeTMVar (flowMsg regular)
             -- We update 'channelRecvFinal' in the same tx as the read, to
             -- atomically change from "there is a value" to "all values read".
-            forM_ (StreamElem.definitelyFinal msg) $ \_trailers ->
+            StreamElem.whenDefinitelyFinal msg $ \_trailers ->
               putTMVar channelRecvFinal callStack
             return $ first Right msg
-          FlowStateTrailersOnly trailers -> do
+          FlowStateNoMessages trailers -> do
             putTMVar channelRecvFinal callStack
             return $ NoMoreElems (Left trailers)
-
--- | Close the channel
---
--- This should only be used under exceptional circumstances; the normal
--- way to terminate a connection is to
---
--- * Read until receiving the final message
--- * Write until sending the final message
---
--- At this point a call to 'close' is unnecessary though harmless: calling
--- 'close' on a channel that is terminated is a no-op.
---
--- TODO: @http2@ does not offer an API for indicating that we want to ignore
--- further output. We should check that this does not result in memory leak if
--- the server keeps sending data and we're not listening.)
-close :: (HasCallStack, Exception e) => Channel sess -> e -> IO ()
-close Channel{channelInbound, channelOutbound} e = do
-    cancelThread channelInbound  $ ChannelClosed callStack (toException e)
-    cancelThread channelOutbound $ ChannelClosed callStack (toException e)
 
 -- | Thrown by 'send'
 --
@@ -269,11 +283,84 @@ data RecvAfterFinal =
   deriving stock (Show)
   deriving anyclass (Exception)
 
--- | Channel was closed
-data ChannelClosed = ChannelClosed {
-      channelClosedAt     :: CallStack
-    , channelClosedReason :: SomeException
-    }
+{-------------------------------------------------------------------------------
+  Closing
+-------------------------------------------------------------------------------}
+
+-- | Wait for the outbound thread to terminate
+--
+-- See 'forceClose' for discussion.
+waitForOutbound :: Channel sess -> IO (FlowState (Outbound sess))
+waitForOutbound Channel{channelOutbound} = atomically $
+    readTMVar =<< waitForThread channelOutbound
+
+-- | Close the channel
+--
+-- Before a channel can be closed, you should 'send' the final outbound message
+-- and then 'waitForOutbound' until all outbound messages have been processed.
+-- Not doing so is considered a bug (it is not possible to do this implicitly,
+-- because the final call to 'send' involves a choice of trailers, and calling
+-- 'waitForOutbound' /without/ a final close to 'send' will result in deadlock).
+-- Typically code will also process all /incoming/ messages, but doing so of
+-- course not mandatory.
+--
+-- Calling 'close' will kill the outbound thread ('sendMessageLoop'), /if/ it is
+-- still running. If the thread was terminated with an exception, this could
+-- mean one of two things:
+--
+-- * The connection to the peer was lost
+-- * Proper procedure for outbound messages was not followed (see above)
+--
+-- In this case, 'close' will return a 'ChannelUncleanClose' exception.
+--
+-- TODO: @http2@ does not offer an API for indicating that we want to ignore
+-- further output. We should check that this does not result in memory leak (if
+-- the server keeps sending data and we're not listening.)
+close ::
+     HasCallStack
+  => Channel sess
+  -> ExitCase a    -- ^ The reason why the channel is being closed
+  -> IO (Maybe ChannelUncleanClose)
+close Channel{channelOutbound} reason = do
+    -- We leave the inbound thread running. Although the channel is closed,
+    -- there might still be unprocessed messages in the queue. The inbound
+    -- thread will terminate once it reaches the end of the queue
+    -- (this relies on nhttps://github.com/kazu-yamamoto/http2/pull/83).
+     outbound <- cancelThread channelOutbound $ toException channelClosed
+     case outbound of
+       Right _   -> return $ Nothing
+       Left  err -> return $ Just (ChannelUncleanClose err)
+  where
+    channelClosed :: ChannelClosed
+    channelClosed =
+        case reason of
+          ExitCaseSuccess _   -> ChannelDiscarded callStack
+          ExitCaseException e -> ChannelException callStack e
+          ExitCaseAbort       -> ChannelAborted   callStack
+
+-- | Thrown by 'close' if not all outbound messages have been processed
+--
+-- See 'close' for discussion.
+data ChannelUncleanClose = ChannelUncleanClose SomeException
+  deriving stock (Show)
+  deriving anyclass (Exception)
+
+-- | Thrown to the inbound and outbound threads by 'close'
+data ChannelClosed =
+    -- | Channel was closed because it was discarded
+    --
+    -- This typically corresponds to leaving the scope of 'acceptCall' or
+    -- 'withRPC' (without throwing an exception).
+    ChannelDiscarded CallStack
+
+    -- | Channel was closed with an exception
+  | ChannelException CallStack SomeException
+
+    -- | Channel was closed for an unknown reason
+    --
+    -- This will only be used in monad stacks that have error mechanisms other
+    -- than exceptions.
+  | ChannelAborted CallStack
   deriving stock (Show)
   deriving anyclass (Exception)
 
@@ -293,9 +380,11 @@ sendMessageLoop sess tracer st stream =
     go $ buildMsg sess (flowHeaders st)
   where
     go :: (Message (Outbound sess) -> Builder) -> IO ()
-    go build = loop
+    go build = do
+        trailers <- loop
+        atomically $ putTMVar (flowTerminated st) trailers
       where
-        loop :: IO ()
+        loop :: IO (Trailers (Outbound sess))
         loop = do
             traceWith tracer $ NodeSendAwaitMsg
             msg <- atomically $ takeTMVar (flowMsg st)
@@ -311,12 +400,13 @@ sendMessageLoop sess tracer st stream =
                 -- stream as END_STREAM (rather than having to send a separate
                 -- empty data frame).
                 writeChunk stream $ build x
-                atomically $ putTMVar (flowTrailers st) trailers
+                return trailers
               NoMoreElems trailers -> do
-                closeOutputStream stream
-                atomically $ putTMVar (flowTrailers st) trailers
+                return trailers
 
 -- | Receive all messages sent by the node's peer
+--
+-- Should be called with exceptions masked.
 --
 -- TODO: This is wrong, we are never marking the final element as final.
 -- (But fixing this requires a patch to http2.)
@@ -331,9 +421,13 @@ recvMessageLoop sess tracer st stream =
     go $ parseMsg sess (flowHeaders st)
   where
     go :: Parser (Message (Inbound sess)) -> IO ()
-    go = loop
+    go = \parser -> do
+        trailers <- loop parser >>= parseInboundTrailers sess
+        traceWith tracer $ NodeRecvFinal trailers
+        atomically $ putTMVar (flowTerminated st) $ trailers
+        atomically $ putTMVar (flowMsg        st) $ NoMoreElems trailers
       where
-        loop :: Parser (Message (Inbound sess)) -> IO ()
+        loop :: Parser (Message (Inbound sess)) -> IO [HTTP.Header]
         loop (ParserError err) =
             throwIO $ PeerSentMalformedMessage err
         loop (ParserDone x p') = do
@@ -350,34 +444,30 @@ recvMessageLoop sess tracer st stream =
                | not (BS.Lazy.null acc) ->
                    throwIO PeerSentIncompleteMessage
 
-               | otherwise -> do
-                   processInboundTrailers sess tracer st =<< getTrailers stream
+               | otherwise ->
+                   getTrailers stream
 
-processInboundTrailers :: forall sess.
+outboundTrailersMaker :: forall sess.
      IsSession sess
   => sess
-  -> Tracer IO (DebugMsg sess)
-  -> RegularFlowState (Inbound sess)
-  -> [HTTP.Header] -> IO ()
-processInboundTrailers sess tracer st trailers = do
-    inboundTrailers <- parseProperTrailers sess trailers
-    traceWith tracer $ NodeRecvFinal inboundTrailers
-    atomically $ do
-      putTMVar (flowMsg      st) $ NoMoreElems inboundTrailers
-      putTMVar (flowTrailers st) $ inboundTrailers
-
-processOutboundTrailers :: forall sess.
-     IsSession sess
-  => sess
-  -> RegularFlowState (Outbound sess)
+  -> Channel sess
   -> HTTP2.TrailersMaker
-processOutboundTrailers sess st = go
+outboundTrailersMaker sess channel = go
   where
     go :: HTTP2.TrailersMaker
     go (Just _) = return $ HTTP2.NextTrailersMaker go
     go Nothing  = do
-        outboundTrailers <- atomically $ readTMVar (flowTrailers st)
-        return $ HTTP2.Trailers $ buildProperTrailers sess outboundTrailers
+        -- Wait for the thread to terminate
+        --
+        -- If the thread was killed, this will throw an exception (which will
+        -- then result in @http2@ cancelling the corresponding stream).
+        flowState <- waitForOutbound channel
+        trailers  <- case flowState of
+                       FlowStateRegular regular ->
+                         atomically $ readTMVar $ flowTerminated regular
+                       FlowStateNoMessages _ ->
+                         error "unexpected FlowStateNoMessages"
+        return $ HTTP2.Trailers $ buildOutboundTrailers sess trailers
 
 data DebugMsg sess =
     -- | Thread sending messages is awaiting a message
@@ -386,8 +476,8 @@ data DebugMsg sess =
     -- | Thread sending message will send a message
   | NodeSendMsg (
         StreamElem
-          (ProperTrailers (Outbound sess))
-          (Message (Outbound sess))
+          (Trailers (Outbound sess))
+          (Message  (Outbound sess))
       )
 
     -- | Receive thread requires data
@@ -398,11 +488,11 @@ data DebugMsg sess =
     -- | Receive thread received a message
   | NodeRecvMsg (
         StreamElem
-          (Either (TrailersOnly (Inbound sess)) (ProperTrailers (Inbound sess)))
+          (Either (NoMessages (Inbound sess)) (Trailers (Inbound sess)))
           (Message (Inbound sess))
       )
 
     -- | Receive thread received the trailers
-  | NodeRecvFinal (ProperTrailers (Inbound sess))
+  | NodeRecvFinal (Trailers (Inbound sess))
 
 deriving instance IsSession sess => Show (DebugMsg sess)
