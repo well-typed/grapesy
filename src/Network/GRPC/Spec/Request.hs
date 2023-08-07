@@ -26,7 +26,7 @@ import Network.GRPC.Spec.PercentEncoding qualified as PercentEncoding
 import Network.GRPC.Spec.RPC
 import Network.GRPC.Util.Partial
 
-import PackageInfo_grapesy qualified as PackageInfo
+import Paths_grapesy qualified as Grapesy
 
 {-------------------------------------------------------------------------------
   Construction
@@ -138,13 +138,10 @@ callDefinition proxy = \hdrs -> catMaybes [
     buildUserAgent = (
           "user-agent"
         , mconcat [
-              "grpc-"
-            , "haskell"
-            , "-" <> BS.Strict.C8.pack (PackageInfo.name)
-            , "/"
+              "grpc-haskell-grapesy/"
             , mconcat . intersperse "." $
                 map (BS.Strict.C8.pack . show) $
-                  versionBranch PackageInfo.version
+                  versionBranch Grapesy.version
             ]
         )
 

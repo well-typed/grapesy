@@ -125,8 +125,7 @@ library
       Network.GRPC.Util.Session.Server
       Network.GRPC.Util.Thread
       Network.GRPC.Util.TLS
-
-      PackageInfo_grapesy
+      Paths_grapesy
   hs-source-dirs:
       src
   build-depends:
