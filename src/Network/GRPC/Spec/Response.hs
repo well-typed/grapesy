@@ -6,30 +6,116 @@
 --
 -- > import Network.GRPC.Spec.Response qualified as Resp
 module Network.GRPC.Spec.Response (
-    -- * Construction
-    buildHeaders
+    -- * Headers
+    ResponseHeaders(..)
+  , ProperTrailers(..)
+  , TrailersOnly(..)
+    -- * Distinguish betwen 'GrpcOk' and 'GrpcError'
+  , GrpcException(..)
+  , grpcExceptionFromTrailers
+  , grpcExceptionToTrailers
+    -- * Serialization
+    -- ** Construction
+  , buildResponseHeaders
   , buildProperTrailers
   , buildTrailersOnly
-    -- * Parsing
-  , parseHeaders
+    -- ** Parsing
+  , parseResponseHeaders
   , parseProperTrailers
   , parseTrailersOnly
   ) where
 
+import Control.Exception
 import Control.Monad.Except
 import Data.ByteString.Char8 qualified as BS.Strict.C8
 import Data.List.NonEmpty (NonEmpty)
 import Data.SOP
+import Data.Text (Text)
+import Generics.SOP qualified as SOP
+import GHC.Generics qualified as GHC
 import Network.HTTP.Types qualified as HTTP
 import Text.Read (readMaybe)
+import Text.Show.Pretty
 
-import Network.GRPC.Spec
 import Network.GRPC.Spec.Common
 import Network.GRPC.Spec.Compression (CompressionId)
 import Network.GRPC.Spec.CustomMetadata
 import Network.GRPC.Spec.PercentEncoding qualified as PercentEncoding
 import Network.GRPC.Spec.RPC
+import Network.GRPC.Spec.Status
 import Network.GRPC.Util.Partial
+
+{-------------------------------------------------------------------------------
+  Outputs (messages received from the peer)
+-------------------------------------------------------------------------------}
+
+-- | Response headers
+data ResponseHeaders = ResponseHeaders {
+      responseCompression       :: Maybe CompressionId
+    , responseAcceptCompression :: Maybe (NonEmpty CompressionId)
+    , responseMetadata          :: [CustomMetadata]
+    }
+  deriving stock (Show, Eq)
+  deriving stock (GHC.Generic)
+  deriving anyclass (SOP.Generic, SOP.HasDatatypeInfo)
+
+-- | Information sent by the peer after the final output
+--
+-- Response trailers are a
+-- [HTTP2 concept](https://datatracker.ietf.org/doc/html/rfc7540#section-8.1.3):
+-- they are HTTP headers that are sent /after/ the content body. For example,
+-- imagine the server is streaming a file that it's reading from disk; it could
+-- use trailers to give the client an MD5 checksum when streaming is complete.
+data ProperTrailers = ProperTrailers {
+      trailerGrpcStatus  :: GrpcStatus
+    , trailerGrpcMessage :: Maybe Text
+    , trailerMetadata    :: [CustomMetadata]
+    }
+  deriving stock (Show, Eq)
+  deriving stock (GHC.Generic)
+  deriving anyclass (SOP.Generic, SOP.HasDatatypeInfo)
+
+-- | Trailers sent in the gRPC Trailers-Only case
+--
+-- In the current version of the spec, the information in 'TrailersOnly' is
+-- identical to the 'ProperTrailers' case (but they do require a slightly
+-- different function to parse/unparse).
+newtype TrailersOnly = TrailersOnly {
+      getTrailersOnly :: ProperTrailers
+    }
+  deriving stock (Show, Eq)
+
+{-------------------------------------------------------------------------------
+  Distinguish betwen 'GrpcOk' and 'GrpcError'
+-------------------------------------------------------------------------------}
+
+-- | Server indicated a gRPC error
+data GrpcException = GrpcException {
+      grpcError         :: GrpcError
+    , grpcErrorMessage  :: Maybe Text
+    , grpcErrorMetadata :: [CustomMetadata]
+    }
+  deriving stock (Show, Eq, GHC.Generic)
+  deriving anyclass (Exception, PrettyVal)
+
+grpcExceptionFromTrailers ::
+     ProperTrailers
+  -> Either (Maybe Text, [CustomMetadata]) GrpcException
+grpcExceptionFromTrailers (ProperTrailers status msg metadata) =
+    case status of
+      GrpcOk        -> Left (msg, metadata)
+      GrpcError err -> Right GrpcException{
+          grpcError         = err
+        , grpcErrorMessage  = msg
+        , grpcErrorMetadata = metadata
+        }
+
+grpcExceptionToTrailers ::  GrpcException -> ProperTrailers
+grpcExceptionToTrailers err = ProperTrailers{
+      trailerGrpcStatus   = GrpcError (grpcError err)
+    , trailerGrpcMessage  = grpcErrorMessage     err
+    , trailerMetadata     = grpcErrorMetadata    err
+    }
 
 {-------------------------------------------------------------------------------
   > Response-Headers →
@@ -52,8 +138,8 @@ import Network.GRPC.Util.Partial
 -------------------------------------------------------------------------------}
 
 -- | Build response headers
-buildHeaders :: IsRPC rpc => Proxy rpc -> ResponseHeaders -> [HTTP.Header]
-buildHeaders proxy
+buildResponseHeaders :: IsRPC rpc => Proxy rpc -> ResponseHeaders -> [HTTP.Header]
+buildResponseHeaders proxy
              ResponseHeaders{ responseCompression
                             , responseAcceptCompression
                             , responseMetadata
@@ -71,10 +157,10 @@ buildHeaders proxy
     ]
 
 -- | Parse response headers
-parseHeaders ::
+parseResponseHeaders ::
      IsRPC rpc
   => Proxy rpc -> [HTTP.Header] -> Either String ResponseHeaders
-parseHeaders proxy =
+parseResponseHeaders proxy =
       runPartialParser uninitResponseHeaders
     . mapM_ parseHeader
   where

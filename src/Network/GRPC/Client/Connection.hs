@@ -9,6 +9,7 @@ module Network.GRPC.Client.Connection (
     Connection -- opaque
   , Server(..)
   , ServerValidation(..)
+  , SslKeyLog(..)
   , withConnection
   , connectionToServer
   , params
@@ -30,17 +31,16 @@ import Network.HTTP2.Client qualified as Client
 import Network.Run.TCP qualified as Run
 import Network.Socket
 import Network.TLS qualified as TLS
+import Text.Show.Pretty
 
 import Network.GRPC.Client.Meta (Meta)
 import Network.GRPC.Client.Meta qualified as Meta
 import Network.GRPC.Client.Session
 import Network.GRPC.Common.Compression qualified as Compr
 import Network.GRPC.Spec
-import Network.GRPC.Spec.PseudoHeaders
-import Network.GRPC.Spec.RPC
 import Network.GRPC.Util.HTTP2.TLS
 import Network.GRPC.Util.Session qualified as Session
-import Network.GRPC.Util.TLS (ServerValidation(..))
+import Network.GRPC.Util.TLS (ServerValidation(..), SslKeyLog(..))
 import Network.GRPC.Util.TLS qualified as Util.TLS
 
 {-------------------------------------------------------------------------------
@@ -118,6 +118,9 @@ data ClientDebugMsg =
 
 deriving instance Show ClientDebugMsg
 
+instance PrettyVal ClientDebugMsg where
+  prettyVal = String . show
+
 {-------------------------------------------------------------------------------
   Server address
 -------------------------------------------------------------------------------}
@@ -127,7 +130,7 @@ data Server =
     ServerInsecure Authority
 
     -- | Make secure connection (with TLS) to the given server
-  | ServerSecure ServerValidation Authority
+  | ServerSecure ServerValidation SslKeyLog Authority
   deriving stock (Show)
 
 {-------------------------------------------------------------------------------
@@ -148,9 +151,9 @@ withConnection params server k = do
                 , metaVar
                 , connectionToServer = Session.ConnectionToServer sendRequest
                 }
-      ServerSecure validation auth ->
+      ServerSecure validation sslKeyLog auth ->
         runTCPClient auth $ \sock -> do
-          tlsContext <- newTlsContext auth sock validation
+          tlsContext <- newTlsContext auth sock validation sslKeyLog
           TLS.handshake tlsContext
           bracket (allocTlsConfig tlsContext writeBufferSize)
                   (freeTlsConfig tlsContext) $ \conf ->
@@ -190,9 +193,14 @@ withConnection params server k = do
   Auxiliary: construct TLS context
 -------------------------------------------------------------------------------}
 
-newTlsContext :: Authority -> Socket -> ServerValidation -> IO TLS.Context
-newTlsContext auth sock validation = do
-    debugParams <- Util.TLS.debugParams
+newTlsContext ::
+     Authority
+  -> Socket
+  -> ServerValidation
+  -> SslKeyLog
+  -> IO TLS.Context
+newTlsContext auth sock validation sslKeyLog = do
+    debugParams <- Util.TLS.debugParams sslKeyLog
     shared      <- Util.TLS.clientShared validation
     TLS.contextNew sock $
       (TLS.defaultParamsClient

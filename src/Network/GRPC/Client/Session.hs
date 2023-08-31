@@ -10,16 +10,9 @@ import Control.Monad
 import Data.Proxy
 import Network.HTTP.Types qualified as HTTP
 
+import Network.GRPC.Common
 import Network.GRPC.Common.Compression qualified as Compr
-import Network.GRPC.Common.Exceptions
-import Network.GRPC.Spec qualified as GRPC
-import Network.GRPC.Spec.Compression (Compression)
-import Network.GRPC.Spec.CustomMetadata
-import Network.GRPC.Spec.LengthPrefixed qualified as LP
-import Network.GRPC.Spec.PseudoHeaders
-import Network.GRPC.Spec.Request qualified as Req
-import Network.GRPC.Spec.Response qualified as Resp
-import Network.GRPC.Spec.RPC
+import Network.GRPC.Spec
 import Network.GRPC.Util.Session
 
 {-------------------------------------------------------------------------------
@@ -28,7 +21,7 @@ import Network.GRPC.Util.Session
 
 data ClientSession rpc = ClientSession {
       clientCompression :: Compr.Negotation
-    , clientUpdateMeta  :: GRPC.ResponseHeaders -> IO ()
+    , clientUpdateMeta  :: ResponseHeaders -> IO ()
     }
 
 {-------------------------------------------------------------------------------
@@ -40,56 +33,55 @@ data ClientOutbound rpc
 
 instance IsRPC rpc => DataFlow (ClientInbound rpc) where
   data Headers (ClientInbound rpc) = InboundHeaders {
-        inbHeaders     :: GRPC.ResponseHeaders
+        inbHeaders     :: ResponseHeaders
       , inbCompression :: Compression
       }
     deriving (Show)
 
-  type Message        (ClientInbound rpc) = Output rpc
-  type ProperTrailers (ClientInbound rpc) = [CustomMetadata]
-  type TrailersOnly   (ClientInbound rpc) = [CustomMetadata]
+  type Message    (ClientInbound rpc) = Output rpc
+  type Trailers   (ClientInbound rpc) = [CustomMetadata]
+  type NoMessages (ClientInbound rpc) = [CustomMetadata]
 
 instance IsRPC rpc => DataFlow (ClientOutbound rpc) where
   data Headers (ClientOutbound rpc) = OutboundHeaders {
-        outHeaders     :: GRPC.RequestHeaders
+        outHeaders     :: RequestHeaders
       , outCompression :: Compression
       }
     deriving (Show)
 
-  type Message        (ClientOutbound rpc) = Input rpc
-  type ProperTrailers (ClientOutbound rpc) = ()
+  type Message  (ClientOutbound rpc) = Input rpc
+  type Trailers (ClientOutbound rpc) = NoMetadata
 
   -- gRPC does not support request trailers, but does not require that a request
   -- has any messages at all. When it does not, the request can be terminated
   -- immediately after the initial set of headers; this makes it essentially a
   -- 'Trailers-Only' case, but the headers are just the normal headers.
-  type TrailersOnly (ClientOutbound rpc) = GRPC.RequestHeaders
+  type NoMessages (ClientOutbound rpc) = RequestHeaders
 
 instance IsRPC rpc => IsSession (ClientSession rpc) where
   type Inbound  (ClientSession rpc) = ClientInbound  rpc
   type Outbound (ClientSession rpc) = ClientOutbound rpc
 
-  buildProperTrailers _client = \() ->
-      [] -- Request trailers are not supported by gRPC
-  parseProperTrailers _client =
-      processResponseTrailers $ Resp.parseProperTrailers (Proxy @rpc)
+  buildOutboundTrailers _client = \NoMetadata -> []
+  parseInboundTrailers _client =
+      processResponseTrailers $ parseProperTrailers (Proxy @rpc)
 
-  parseMsg _ = LP.parseOutput (Proxy @rpc) . inbCompression
-  buildMsg _ = LP.buildInput  (Proxy @rpc) . outCompression
+  parseMsg _ = parseOutput (Proxy @rpc) . inbCompression
+  buildMsg _ = buildInput  (Proxy @rpc) . outCompression
 
 instance IsRPC rpc => InitiateSession (ClientSession rpc) where
   parseResponseRegular client info = do
       unless (HTTP.statusCode (responseStatus info) == 200) $
         throwIO $ ResponseInvalidStatus (responseStatus info)
 
-      responseHeaders :: GRPC.ResponseHeaders <-
-        case Resp.parseHeaders (Proxy @rpc) (responseHeaders info) of
+      responseHeaders :: ResponseHeaders <-
+        case parseResponseHeaders (Proxy @rpc) (responseHeaders info) of
           Left  err    -> throwIO $ ResponseInvalidHeaders err
           Right parsed -> return parsed
 
       cIn :: Compression <-
         Compr.getSupported (clientCompression client) $
-          GRPC.responseCompression responseHeaders
+          responseCompression responseHeaders
 
       clientUpdateMeta client responseHeaders
 
@@ -98,20 +90,20 @@ instance IsRPC rpc => InitiateSession (ClientSession rpc) where
         , inbCompression = cIn
         }
 
-  parseResponseTrailersOnly _ info = do
+  parseResponseNoMessages _ info = do
       unless (HTTP.statusCode (responseStatus info) == 200) $
         throwIO $ ResponseInvalidStatus (responseStatus info)
       processResponseTrailers
-        (fmap GRPC.getTrailersOnly .  Resp.parseTrailersOnly (Proxy @rpc))
+        (fmap getTrailersOnly . parseTrailersOnly (Proxy @rpc))
         (responseHeaders info)
 
   buildRequestInfo _ start = RequestInfo {
         requestMethod  = rawMethod resourceHeaders
       , requestPath    = rawPath resourceHeaders
-      , requestHeaders = Req.buildHeaders (Proxy @rpc) $
+      , requestHeaders = buildRequestHeaders (Proxy @rpc) $
             case start of
-              FlowStartRegular      headers -> outHeaders headers
-              FlowStartTrailersOnly headers ->            headers
+              FlowStartRegular    headers -> outHeaders headers
+              FlowStartNoMessages headers ->            headers
       }
     where
       resourceHeaders :: RawResourceHeaders
@@ -128,19 +120,20 @@ instance IsRPC rpc => InitiateSession (ClientSession rpc) where
 --
 -- However, in practice gRPC servers can also respond with @Trailers-Only@ in
 -- non-error cases, simply indicating that the server considers the
--- conversation over. To distinguish, we look at 'trailerGrpcStatus': in case
--- of 'GrpcOk' we return the 'Trailers', and in the case of 'GrpcError' we
--- throw 'RpcImmediateError'.
+-- conversation over. To distinguish, we look at 'trailerGrpcStatus'.
+--
+-- TODO: We are throwing away 'trailerGrpcMessage' in case of 'GrpcOk'; not
+-- sure if that is problematic.
 processResponseTrailers ::
-     ([HTTP.Header] -> Either String GRPC.ProperTrailers)
+     ([HTTP.Header] -> Either String ProperTrailers)
   -> [HTTP.Header]
   -> IO [CustomMetadata]
 processResponseTrailers parse raw =
     case parse raw of
       Left  err      -> throwIO $ ResponseInvalidTrailers err
       Right trailers -> case grpcExceptionFromTrailers trailers of
-                          Nothing  -> return $ GRPC.trailerMetadata trailers
-                          Just err -> throwIO err
+                          Left (_msg, metadata) -> return metadata
+                          Right err -> throwIO err
 
 {-------------------------------------------------------------------------------
   Exceptions

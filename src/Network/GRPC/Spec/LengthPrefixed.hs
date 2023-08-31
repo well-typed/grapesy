@@ -1,11 +1,6 @@
 -- | Length-prefixed messages
 --
 -- These are used both for inputs and outputs.
---
--- Intended for qualified import.
---
--- > import Network.GRPC.Spec.LengthPrefixed (MessagePrefix)
--- > import Network.GRPC.Spec.LengthPrefixed qualified as LP
 module Network.GRPC.Spec.LengthPrefixed (
     -- * Message prefix
     MessagePrefix(..)
@@ -23,13 +18,12 @@ import Data.ByteString.Builder (Builder)
 import Data.ByteString.Builder qualified as Builder
 import Data.ByteString.Lazy qualified as BS.Lazy
 import Data.ByteString.Lazy qualified as Lazy (ByteString)
+import Data.Proxy
 import Data.Word
 
-import Network.GRPC.Spec.Compression (Compression)
-import Network.GRPC.Spec.Compression qualified as Compr
+import Network.GRPC.Spec.Compression
 import Network.GRPC.Spec.RPC
 import Network.GRPC.Util.Parser (Parser(..))
-import Data.Proxy
 
 {-------------------------------------------------------------------------------
   Message prefix
@@ -88,11 +82,11 @@ buildMsg build compr x = mconcat [
     ]
   where
     compressed :: Lazy.ByteString
-    compressed = Compr.compress compr $ build x
+    compressed = compress compr $ build x
 
     prefix :: MessagePrefix
     prefix = MessagePrefix {
-          msgIsCompressed = not $ Compr.isIdentity compr
+          msgIsCompressed = not $ compressionIsIdentity compr
         , msgLength       = fromIntegral $ BS.Lazy.length compressed
         }
 
@@ -137,7 +131,7 @@ parseMsg parse compr =
       | otherwise
       = let (msg, rest) = BS.Lazy.splitAt (fromIntegral $ msgLength prefix) acc
             serialized  = if msgIsCompressed prefix
-                            then Compr.decompress compr msg
+                            then decompress compr msg
                             else msg
         in case parse serialized of
              Left err -> ParserError err

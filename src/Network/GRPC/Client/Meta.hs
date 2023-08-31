@@ -16,7 +16,6 @@ import Prelude hiding (init)
 import Control.Monad.Catch
 import Data.List.NonEmpty (NonEmpty)
 
-import Network.GRPC.Common.Compression (Compression, CompressionId)
 import Network.GRPC.Common.Compression qualified as Compr
 import Network.GRPC.Spec
 

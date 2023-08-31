@@ -6,8 +6,13 @@
 --
 -- > import Network.GRPC.Spec.Request qualified as Req
 module Network.GRPC.Spec.Request (
-    buildHeaders
-  , parseHeaders
+    -- * Inputs (message sent to the peer)
+    RequestHeaders(..)
+  , IsFinal(..)
+  , NoMetadata(..)
+    -- * Serialization
+  , buildRequestHeaders
+  , parseRequestHeaders
   ) where
 
 import Data.ByteString.Char8 qualified as BS.Strict.C8
@@ -16,17 +21,57 @@ import Data.List.NonEmpty (NonEmpty)
 import Data.Maybe (catMaybes)
 import Data.SOP
 import Data.Version
+import Generics.SOP qualified as SOP
+import GHC.Generics qualified as GHC
 import Network.HTTP.Types qualified as HTTP
+import Text.Show.Pretty
 
-import Network.GRPC.Spec
 import Network.GRPC.Spec.Common
 import Network.GRPC.Spec.Compression (CompressionId)
 import Network.GRPC.Spec.CustomMetadata
 import Network.GRPC.Spec.PercentEncoding qualified as PercentEncoding
 import Network.GRPC.Spec.RPC
+import Network.GRPC.Spec.Timeout
 import Network.GRPC.Util.Partial
 
 import Paths_grapesy qualified as Grapesy
+
+{-------------------------------------------------------------------------------
+  Inputs (message sent to the peer)
+-------------------------------------------------------------------------------}
+
+-- | Full set of call parameters required to construct the RPC call
+--
+-- This is constructed internally; it is not part of the public API.
+data RequestHeaders = RequestHeaders {
+      -- | Timeout
+      requestTimeout :: Maybe Timeout
+
+      -- | Custom metadata
+    , requestMetadata :: [CustomMetadata]
+
+      -- | Compression used for outgoing messages
+    , requestCompression :: Maybe CompressionId
+
+      -- | Accepted compression algorithms for incoming messages
+      --
+      -- @Maybe (NonEmpty ..)@ is perhaps a bit strange (why not just @[]@), but
+      -- it emphasizes the specification: /if/ the header is present, it must be
+      -- a non-empty list.
+    , requestAcceptCompression :: Maybe (NonEmpty CompressionId)
+    }
+  deriving stock (Show, Eq)
+  deriving stock (GHC.Generic)
+  deriving anyclass (SOP.Generic, SOP.HasDatatypeInfo)
+
+-- | Mark a input sent as final
+data IsFinal = Final | NotFinal
+  deriving stock (Show, Eq)
+
+-- | gRPC does not support request trailers (only response trailers)
+data NoMetadata = NoMetadata
+  deriving stock (Show, Eq, GHC.Generic)
+  deriving anyclass (PrettyVal)
 
 {-------------------------------------------------------------------------------
   Construction
@@ -37,8 +82,8 @@ import Paths_grapesy qualified as Grapesy
 -- > Request-Headers →
 -- >   Call-Definition
 -- >   *Custom-Metadata
-buildHeaders :: IsRPC rpc => Proxy rpc -> RequestHeaders -> [HTTP.Header]
-buildHeaders proxy callParams@RequestHeaders{requestMetadata} = concat [
+buildRequestHeaders :: IsRPC rpc => Proxy rpc -> RequestHeaders -> [HTTP.Header]
+buildRequestHeaders proxy callParams@RequestHeaders{requestMetadata} = concat [
       callDefinition proxy callParams
     , map buildCustomMetadata requestMetadata
     ]
@@ -150,11 +195,11 @@ callDefinition proxy = \hdrs -> catMaybes [
 -------------------------------------------------------------------------------}
 
 -- | Parse request headers
-parseHeaders ::
+parseRequestHeaders ::
      IsRPC rpc
   => Proxy rpc
   -> [HTTP.Header] -> Either String RequestHeaders
-parseHeaders proxy =
+parseRequestHeaders proxy =
       runPartialParser uninitRequestHeaders
     . mapM_ parseHeader
   where

@@ -15,7 +15,7 @@ import Data.ProtoLens.Labels ()
 import Data.Proxy
 import Data.Time
 
-import Network.GRPC.Common.StreamElem (StreamElem(..))
+import Network.GRPC.Common
 import Network.GRPC.Common.StreamElem qualified as StreamElem
 import Network.GRPC.Common.StreamType
 import Network.GRPC.Server
@@ -54,7 +54,7 @@ getFeature db p = return $ fromMaybe defMessage $ featureAt db p
 listFeatures :: [Feature] -> Rectangle -> (Feature -> IO ()) -> IO ()
 listFeatures db r send = mapM_ send $ filter (inRectangle r . view #location) db
 
-recordRoute :: [Feature] -> IO (StreamElem () Point) -> IO RouteSummary
+recordRoute :: [Feature] -> IO (StreamElem NoMetadata Point) -> IO RouteSummary
 recordRoute db recv = do
     start <- getCurrentTime
     ps    <- StreamElem.collect recv
@@ -63,7 +63,7 @@ recordRoute db recv = do
 
 routeChat ::
      [Feature]
-  -> IO (StreamElem () RouteNote)
+  -> IO (StreamElem NoMetadata RouteNote)
   -> (RouteNote -> IO ())
   -> IO ()
 routeChat _db recv send = do

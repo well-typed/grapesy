@@ -23,7 +23,7 @@ import Network.HTTP.Types qualified as HTTP
 import Network.HTTP2.Server qualified as HTTP2
 
 import Network.GRPC.Server.Context
-import Network.GRPC.Spec.PseudoHeaders
+import Network.GRPC.Spec
 import Network.GRPC.Util.Session (ConnectionToClient(..))
 
 {-------------------------------------------------------------------------------

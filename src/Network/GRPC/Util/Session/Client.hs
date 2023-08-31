@@ -1,13 +1,11 @@
 -- | Node with client role (i.e., its peer is a server)
 module Network.GRPC.Util.Session.Client (
     ConnectionToServer(..)
-  , initiateRequest
+  , setupRequestChannel
   ) where
 
-import Control.Concurrent
-import Control.Concurrent.STM
-import Control.Exception
 import Control.Monad
+import Control.Monad.Catch
 import Control.Tracer
 import Network.HTTP2.Client qualified as Client
 
@@ -15,6 +13,7 @@ import Network.GRPC.Util.HTTP2 (fromHeaderTable)
 import Network.GRPC.Util.HTTP2.Stream
 import Network.GRPC.Util.Session.API
 import Network.GRPC.Util.Session.Channel
+import Network.GRPC.Util.STM
 import Network.GRPC.Util.Thread
 
 {-------------------------------------------------------------------------------
@@ -67,15 +66,17 @@ data ConnectionToServer = ConnectionToServer {
     threads (which will kill them or ensure they never get started).
 -------------------------------------------------------------------------------}
 
--- | Initiate new request
-initiateRequest :: forall sess.
+-- | Setup request channel
+--
+-- This initiate a new request.
+setupRequestChannel :: forall sess.
      InitiateSession sess
   => sess
   -> Tracer IO (DebugMsg sess)
   -> ConnectionToServer
   -> FlowStart (Outbound sess)
   -> IO (Channel sess)
-initiateRequest sess tracer ConnectionToServer{sendRequest} outboundStart = do
+setupRequestChannel sess tracer ConnectionToServer{sendRequest} outboundStart = do
     channel <- initChannel
     let requestInfo = buildRequestInfo sess outboundStart
 
@@ -83,20 +84,21 @@ initiateRequest sess tracer ConnectionToServer{sendRequest} outboundStart = do
       FlowStartRegular headers -> do
         regular <- initFlowStateRegular headers
         let req :: Client.Request
-            req = setRequestTrailers sess regular
-                $ Client.requestStreaming
+            req = setRequestTrailers sess channel
+                $ Client.requestStreamingUnmask
                     (requestMethod  requestInfo)
                     (requestPath    requestInfo)
                     (requestHeaders requestInfo)
-                $ \write flush -> do
-                     stream <- clientOutputStream write flush
+                $ \unmask write' flush' -> unmask $ do
                      threadBody (channelOutbound channel)
+                                unmask
                                 (newTMVarIO (FlowStateRegular regular))
                               $ \_stVar -> do
+                       stream <- clientOutputStream write' flush'
                        sendMessageLoop sess tracer regular stream
         forkRequest channel req
-      FlowStartTrailersOnly trailers -> do
-        stVar <- newTMVarIO $ FlowStateTrailersOnly trailers
+      FlowStartNoMessages trailers -> do
+        stVar <- newTMVarIO $ FlowStateNoMessages trailers
         atomically $ writeTVar (channelOutbound channel) $ ThreadDone stVar
         let req :: Client.Request
             req = Client.requestNoBody
@@ -108,19 +110,19 @@ initiateRequest sess tracer ConnectionToServer{sendRequest} outboundStart = do
     return channel
   where
     forkRequest :: Channel sess -> Client.Request -> IO ()
-    forkRequest channel req = void $ forkIO $
-        threadBody (channelInbound channel) newEmptyTMVarIO $ \stVar -> do
+    forkRequest channel req =
+        forkThread (channelInbound channel) newEmptyTMVarIO $ \stVar -> do
           setup <- try $ sendRequest req $ \resp -> do
             responseStatus <- case Client.responseStatus resp of
                                 Just x  -> return x
-                                Nothing -> throwIO PeerMissingPseudoHeaderStatus
+                                Nothing -> throwM PeerMissingPseudoHeaderStatus
             let responseHeaders = fromHeaderTable $ Client.responseHeaders resp
                 responseInfo    = ResponseInfo {responseHeaders, responseStatus}
 
             inboundStart <-
               if Client.responseBodySize resp == Just 0
-                then FlowStartTrailersOnly <$>
-                       parseResponseTrailersOnly sess responseInfo
+                then FlowStartNoMessages <$>
+                       parseResponseNoMessages sess responseInfo
                 else FlowStartRegular <$>
                        parseResponseRegular sess responseInfo
 
@@ -130,12 +132,14 @@ initiateRequest sess tracer ConnectionToServer{sendRequest} outboundStart = do
                 stream  <- clientInputStream resp
                 atomically $ putTMVar stVar $ FlowStateRegular regular
                 recvMessageLoop sess tracer regular stream
-              FlowStartTrailersOnly trailers ->
-                atomically $ putTMVar stVar $ FlowStateTrailersOnly trailers
+              FlowStartNoMessages trailers ->
+                atomically $ putTMVar stVar $ FlowStateNoMessages trailers
 
           case setup of
-            Right ()                 -> return ()
-            Left (e :: SomeException)-> close channel e
+            Right () -> return ()
+            Left  e  -> do
+              void $ cancelThread (channelOutbound channel) e
+              throwM e
 
 {-------------------------------------------------------------------------------
    Auxiliary http2
@@ -144,8 +148,8 @@ initiateRequest sess tracer ConnectionToServer{sendRequest} outboundStart = do
 setRequestTrailers ::
      IsSession sess
   => sess
-  -> RegularFlowState (Outbound sess)
+  -> Channel sess
   -> Client.Request -> Client.Request
-setRequestTrailers sess st req =
+setRequestTrailers sess channel req =
     Client.setRequestTrailersMaker req $
-      processOutboundTrailers sess st
+      outboundTrailersMaker sess channel

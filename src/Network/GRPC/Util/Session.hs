@@ -26,17 +26,24 @@ module Network.GRPC.Util.Session (
   , PeerException(..)
     -- * Channel
   , Channel -- opaque
+    -- ** Working with an open channel
   , getInboundHeaders
-  , recv
   , send
+  , recv
+  , RecvAfterFinal(..)
+  , SendAfterFinal(..)
+    -- ** Closing
+  , waitForOutbound
   , close
+  , ChannelUncleanClose(..)
+  , ChannelClosed(..)
     -- ** Construction
     -- *** Client
   , ConnectionToServer(..)
-  , initiateRequest
+  , setupRequestChannel
     -- *** Server
   , ConnectionToClient(..)
-  , initiateResponse
+  , setupResponseChannel
     -- ** Logging
   , DebugMsg(..)
   ) where

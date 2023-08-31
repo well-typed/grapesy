@@ -52,31 +52,29 @@ data ResponseInfo = ResponseInfo {
 -- 3. Trailers
 --
 -- However, in the case that there /are/ no messages, this whole thing collapses
--- into a single 'TrailersOnly'. We need to treat this case separately, because
+-- and we just have headers (in gRPC this is referred to as the Trailers-Only
+-- case, but we avoid that terminology here).
 --
 -- * It looks different on the wire: in the regular case, we will have /two/
---   HTTP @Headers@ frames, but in the Trailers-Only case, we only have one.
--- * Applications may in turn treat the Trailers-Only case special, using a
---   different set of headers (specifically, this is the case for gRPC).
---
--- To avoid confusion, we refer to the trailers in the non-Trailers-Only case
--- as "proper" trailers.
-class ( Show (Headers        flow)
-      , Show (Message        flow)
-      , Show (ProperTrailers flow)
-      , Show (TrailersOnly   flow)
+--   HTTP @Headers@ frames, but in the absence of messages we only have one.
+-- * Applications may in turn treat this case special, using a different set of
+--   headers (specifically, this is the case for gRPC).
+class ( Show (Headers    flow)
+      , Show (Message    flow)
+      , Show (Trailers   flow)
+      , Show (NoMessages flow)
       ) => DataFlow flow where
-  data Headers        flow :: Type
-  type Message        flow :: Type
-  type ProperTrailers flow :: Type
-  type TrailersOnly   flow :: Type
+  data Headers    flow :: Type
+  type Message    flow :: Type
+  type Trailers   flow :: Type
+  type NoMessages flow :: Type
 
 -- | Start of data flow
 --
 -- See 'DataFlow' for discussion.
 data FlowStart flow =
-    FlowStartRegular      (Headers      flow)
-  | FlowStartTrailersOnly (TrailersOnly flow)
+    FlowStartRegular    (Headers    flow)
+  | FlowStartNoMessages (NoMessages flow)
 
 deriving instance DataFlow flow => Show (FlowStart flow)
 
@@ -98,14 +96,16 @@ class ( DataFlow (Inbound  sess)
   type Outbound sess :: Type
 
   -- | Parse proper trailers
-  parseProperTrailers ::
+  parseInboundTrailers ::
        sess
-    -> [HTTP.Header] -> IO (ProperTrailers (Inbound sess))
+    -> [HTTP.Header]
+    -> IO (Trailers (Inbound sess))
 
   -- | Build proper trailers
-  buildProperTrailers ::
+  buildOutboundTrailers ::
        sess
-    -> ProperTrailers (Outbound sess) -> [HTTP.Header]
+    -> Trailers (Outbound sess)
+    -> [HTTP.Header]
 
   -- | Parse message
   parseMsg ::
@@ -117,7 +117,8 @@ class ( DataFlow (Inbound  sess)
   buildMsg ::
        sess
     -> Headers (Outbound sess)
-    -> Message (Outbound sess) -> Builder
+    -> Message (Outbound sess)
+    -> Builder
 
 -- | Initiate new session
 --
@@ -136,9 +137,9 @@ class IsSession sess => InitiateSession sess where
     -> ResponseInfo -> IO (Headers (Inbound sess))
 
   -- | Parse 'ResponseInfo' from the server, Trailers-Only case
-  parseResponseTrailersOnly ::
+  parseResponseNoMessages ::
        sess
-    -> ResponseInfo -> IO (TrailersOnly (Inbound sess))
+    -> ResponseInfo -> IO (NoMessages (Inbound sess))
 
 -- | Accept session
 --
@@ -152,9 +153,9 @@ class IsSession sess => AcceptSession sess where
     -> RequestInfo -> IO (Headers (Inbound sess))
 
   --  | Parse 'RequestInfo' from the client, Trailers-Only case
-  parseRequestTrailersOnly ::
+  parseRequestNoMessages ::
        sess
-    -> RequestInfo -> IO (TrailersOnly (Inbound sess))
+    -> RequestInfo -> IO (NoMessages (Inbound sess))
 
   -- | Build 'ResponseInfo' for the client
   buildResponseInfo ::

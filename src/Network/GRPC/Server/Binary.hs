@@ -18,10 +18,10 @@ module Network.GRPC.Server.Binary (
 
 import Control.Monad.Catch
 import Data.Binary
+import GHC.Stack
 
 import Network.GRPC.Common.Binary
-import Network.GRPC.Common.CustomMetadata (CustomMetadata)
-import Network.GRPC.Common.StreamElem
+import Network.GRPC.Common
 import Network.GRPC.Common.StreamType qualified as StreamType
 import Network.GRPC.Server (Call)
 import Network.GRPC.Server qualified as Server
@@ -47,14 +47,14 @@ sendFinalOutput call (out, trailers) =
     Server.sendFinalOutput call (encode out, trailers)
 
 recvInput ::
-     Binary a
+     (Binary a, HasCallStack)
   => Call (BinaryRpc serv meth)
-  -> IO (StreamElem () a)
+  -> IO (StreamElem NoMetadata a)
 recvInput call = do
     Server.recvInput call >>= traverse decodeOrThrow
 
 recvFinalInput ::
-     Binary a
+     (Binary a, HasCallStack)
   => Call (BinaryRpc serv meth)
   -> IO a
 recvFinalInput call =
@@ -76,7 +76,7 @@ mkNonStreaming f = StreamType.mkNonStreaming $ \inp -> do
 
 mkClientStreaming :: forall m out serv meth.
      (MonadThrow m, Binary out)
-  => (    (forall inp. Binary inp => m (StreamElem () inp))
+  => (    (forall inp. Binary inp => m (StreamElem NoMetadata inp))
        -> m out
      )
   -> StreamType.ClientStreamingHandler m (BinaryRpc serv meth)
@@ -97,7 +97,7 @@ mkServerStreaming f = StreamType.mkServerStreaming $ \inp send -> do
 
 mkBiDiStreaming :: forall m serv meth.
      MonadThrow m
-  => (    (forall inp. Binary inp => m (StreamElem () inp))
+  => (    (forall inp. Binary inp => m (StreamElem NoMetadata inp))
       -> (forall out. Binary out => out -> m ())
       -> m ()
     )

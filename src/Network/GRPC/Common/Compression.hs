@@ -1,6 +1,6 @@
 -- | Public 'Compression' API
 --
--- Intended for qualified import.
+-- Intended for unqualified import.
 --
 -- > import Network.GRPC.Common.Compression (Compression(..))
 -- > import Network.GRPC.Common.Compression qualified as Compr
@@ -9,9 +9,9 @@ module Network.GRPC.Common.Compression (
     Compression(..)
   , CompressionId(..)
     -- * Standard compresion schemes
-  , identity
+  , noCompression
   , gzip
-  , allSupported
+  , allSupportedCompression
     -- * Negotation
   , Negotation(..)
   , getSupported
@@ -33,7 +33,7 @@ import Data.List.NonEmpty qualified as NE
 import Data.Map (Map)
 import Data.Map qualified as Map
 
-import Network.GRPC.Spec.Compression
+import Network.GRPC.Spec
 
 {-------------------------------------------------------------------------------
   Negotation
@@ -63,18 +63,18 @@ data Negotation = Negotation {
 getSupported ::
      MonadThrow m
   => Negotation -> Maybe CompressionId -> m Compression
-getSupported _     Nothing    = return identity
+getSupported _     Nothing    = return noCompression
 getSupported compr (Just cid) =
     case Map.lookup cid (supported compr) of
       Nothing -> throwM $ UnsupportedCompression cid
       Just c  -> return c
 
 instance Default Negotation where
-  def = chooseFirst allSupported
+  def = chooseFirst allSupportedCompression
 
 -- | Disable all compression
 none :: Negotation
-none = require identity
+none = require noCompression
 
 -- | Insist on the specified algorithm
 require :: Compression -> Negotation

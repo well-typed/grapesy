@@ -10,13 +10,8 @@ import Data.List.NonEmpty (NonEmpty)
 import Data.Proxy
 import Network.HTTP.Types qualified as HTTP
 
-import Network.GRPC.Common.Compression (Compression, CompressionId)
 import Network.GRPC.Common.Compression qualified as Compr
-import Network.GRPC.Spec qualified as GRPC
-import Network.GRPC.Spec.LengthPrefixed qualified as LP
-import Network.GRPC.Spec.Request qualified as Req
-import Network.GRPC.Spec.Response qualified as Resp
-import Network.GRPC.Spec.RPC
+import Network.GRPC.Spec
 import Network.GRPC.Util.Session
 
 {-------------------------------------------------------------------------------
@@ -36,56 +31,56 @@ data ServerOutbound rpc
 
 instance IsRPC rpc => DataFlow (ServerInbound rpc) where
   data Headers (ServerInbound rpc) = InboundHeaders {
-        inbHeaders     :: GRPC.RequestHeaders
+        inbHeaders     :: RequestHeaders
       , inbCompression :: Compression
       }
     deriving (Show)
 
-  type Message        (ServerInbound rpc) = Input rpc
-  type ProperTrailers (ServerInbound rpc) = ()
+  type Message  (ServerInbound rpc) = Input rpc
+  type Trailers (ServerInbound rpc) = NoMetadata
 
   -- See discussion of 'TrailersOnly' in 'ClientOutbound'
-  type TrailersOnly (ServerInbound rpc) = GRPC.RequestHeaders
+  type NoMessages (ServerInbound rpc) = RequestHeaders
 
 instance IsRPC rpc => DataFlow (ServerOutbound rpc) where
   data Headers (ServerOutbound rpc) = OutboundHeaders {
-        outHeaders     :: GRPC.ResponseHeaders
+        outHeaders     :: ResponseHeaders
       , outCompression :: Compression
       }
     deriving (Show)
 
-  type Message        (ServerOutbound rpc) = Output rpc
-  type ProperTrailers (ServerOutbound rpc) = GRPC.ProperTrailers
-  type TrailersOnly   (ServerOutbound rpc) = GRPC.TrailersOnly
+  type Message    (ServerOutbound rpc) = Output rpc
+  type Trailers   (ServerOutbound rpc) = ProperTrailers
+  type NoMessages (ServerOutbound rpc) = TrailersOnly
 
 instance IsRPC rpc => IsSession (ServerSession rpc) where
   type Inbound  (ServerSession rpc) = ServerInbound rpc
   type Outbound (ServerSession rpc) = ServerOutbound rpc
 
-  parseProperTrailers _ = \_ -> return ()
-  buildProperTrailers _ = Resp.buildProperTrailers
+  parseInboundTrailers _ = \_ -> return NoMetadata
+  buildOutboundTrailers _ = buildProperTrailers
 
-  parseMsg _ = LP.parseInput  (Proxy @rpc) . inbCompression
-  buildMsg _ = LP.buildOutput (Proxy @rpc) . outCompression
+  parseMsg _ = parseInput  (Proxy @rpc) . inbCompression
+  buildMsg _ = buildOutput (Proxy @rpc) . outCompression
 
 instance IsRPC rpc => AcceptSession (ServerSession rpc) where
   parseRequestRegular server info = do
-      requestHeaders :: GRPC.RequestHeaders <-
-        case Req.parseHeaders (Proxy @rpc) (requestHeaders info) of
+      requestHeaders :: RequestHeaders <-
+        case parseRequestHeaders (Proxy @rpc) (requestHeaders info) of
           Left  err  -> throwIO $ RequestInvalidHeaders err
           Right hdrs -> return hdrs
 
       cIn :: Compression <-
         Compr.getSupported (serverCompression server) $
-          GRPC.requestCompression requestHeaders
+          requestCompression requestHeaders
 
       return InboundHeaders {
           inbHeaders    = requestHeaders
         , inbCompression = cIn
         }
 
-  parseRequestTrailersOnly _ info =
-      case Req.parseHeaders (Proxy @rpc) (requestHeaders info) of
+  parseRequestNoMessages _ info =
+      case parseRequestHeaders (Proxy @rpc) (requestHeaders info) of
         Left  err  -> throwIO $ RequestInvalidHeaders err
         Right hdrs -> return hdrs
 
@@ -94,9 +89,9 @@ instance IsRPC rpc => AcceptSession (ServerSession rpc) where
       , responseHeaders =
           case start of
             FlowStartRegular headers ->
-              Resp.buildHeaders (Proxy @rpc) (outHeaders headers)
-            FlowStartTrailersOnly trailers ->
-              Resp.buildTrailersOnly trailers
+              buildResponseHeaders (Proxy @rpc) (outHeaders headers)
+            FlowStartNoMessages trailers ->
+              buildTrailersOnly trailers
       }
 
 {-------------------------------------------------------------------------------
