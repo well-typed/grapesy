@@ -140,7 +140,7 @@ runSecure  ServerSetup{serverHandlerHook} server cfg = do
       TLS.handshake tlsContext
 
       -- Run http2 over TLS
-      bracket (allocTlsConfig tlsContext writeBufferSize)
+      bracket (allocTlsConfig sock tlsContext writeBufferSize)
               (freeTlsConfig tlsContext) $ \config ->
         HTTP2.run config $ serverHandlerHook server
 

@@ -9,6 +9,7 @@ import Data.ByteString.Lazy qualified as BS.Lazy
 import Data.IORef
 import Foreign (mallocBytes)
 import Network.HPACK qualified as HPACK
+import Network.Socket
 import Network.TLS qualified as TLS
 import System.TimeManager qualified as TimeManager
 
@@ -25,11 +26,13 @@ import Network.GRPC.Util.AccumulatedByteString qualified as AccBS
 -- | Make configuration for TLS (server or client)
 --
 -- Adapted from 'HTTP2.allocSimpleConfig'.
-allocTlsConfig :: TLS.Context -> HPACK.BufferSize -> IO HTTP2.Config
-allocTlsConfig tlsContext bufSize = do
+allocTlsConfig :: Socket -> TLS.Context -> HPACK.BufferSize -> IO HTTP2.Config
+allocTlsConfig sock tlsContext bufSize = do
     writeBuffer <- mallocBytes bufSize
     leftoverRef <- newIORef Nothing
     timeManager <- TimeManager.initialize 30_000_000
+    sockName    <- getSocketName sock
+    peerName    <- getPeerName sock
     return HTTP2.Config {
         confWriteBuffer       = writeBuffer
       , confBufferSize        = bufSize
@@ -37,6 +40,8 @@ allocTlsConfig tlsContext bufSize = do
       , confReadN             = tlsReadN tlsContext leftoverRef . fromIntegral
       , confPositionReadMaker = HTTP2.defaultPositionReadMaker
       , confTimeoutManager    = timeManager
+      , confMySockAddr        = sockName
+      , confPeerSockAddr      = peerName
       }
 
 freeTlsConfig :: TLS.Context -> HTTP2.Config -> IO ()
