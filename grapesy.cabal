@@ -118,7 +118,6 @@ library
       Network.GRPC.Util.ByteString
       Network.GRPC.Util.HTTP2
       Network.GRPC.Util.HTTP2.Stream
-      Network.GRPC.Util.HTTP2.TLS
       Network.GRPC.Util.Parser
       Network.GRPC.Util.Partial
       Network.GRPC.Util.PrettyVal
@@ -167,7 +166,6 @@ library
     , sop-core             >= 0.5  && < 0.6
     , stm                  >= 2.5  && < 2.6
     , text                 >= 1.2  && < 2.1
-    , time-manager         >= 0.0  && < 0.1
     , transformers         >= 0.5  && < 0.7
     , unordered-containers >= 0.2  && < 0.3
     , utf8-string          >= 1.0  && < 1.1
@@ -175,26 +173,25 @@ library
 
     -- We need an unreleased version of http2 right now
     , http2
+    , http2-tls
 
   -- tls 1.7 starts using Kazu's forked versions of x509-* packages
   if flag(crypton)
     -- Lower bounds are the first version of these packages after forking.
     -- Upper bounds as discussed above.
     build-depends:
-      , tls                     >= 1.7 && < 1.8
-      , crypton-x509            >= 1.7 && < 1.8
-      , crypton-x509-store      >= 1.6 && < 1.7
-      , crypton-x509-system     >= 1.6 && < 1.7
-      , crypton-x509-validation >= 1.6 && < 1.7
+      , tls                 >= 1.7 && < 1.8
+      , crypton-x509        >= 1.7 && < 1.8
+      , crypton-x509-store  >= 1.6 && < 1.7
+      , crypton-x509-system >= 1.6 && < 1.7
   else
     -- Lower bounds set as discussed above.
     -- Upper bounds are the final version of these packages before forking.
     build-depends:
-      , tls             >= 1.5 && < 1.7
-      , x509            >= 1.7 && < 1.8
-      , x509-store      >= 1.6 && < 1.7
-      , x509-system     >= 1.6 && < 1.7
-      , x509-validation >= 1.6 && < 1.7
+      , tls         >= 1.5 && < 1.7
+      , x509        >= 1.7 && < 1.8
+      , x509-store  >= 1.6 && < 1.7
+      , x509-system >= 1.6 && < 1.7
 
 test-suite test-grapesy
   import:

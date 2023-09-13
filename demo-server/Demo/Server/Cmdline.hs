@@ -6,7 +6,7 @@ module Demo.Server.Cmdline (
 
 import Data.Foldable (asum)
 import Options.Applicative qualified as Opt
-import Network.Socket (ServiceName)
+import Network.Socket (ServiceName, PortNumber)
 
 import Network.GRPC.Common
 import Network.GRPC.Server.Run
@@ -71,7 +71,7 @@ parseSecure = asum [
         , Opt.help "Disable secure server (over TLS)"
         ]
     , cfg
-        <$> Opt.option Opt.str (mconcat [
+        <$> Opt.option Opt.auto (mconcat [
                 Opt.long "port-secure"
               , Opt.help "Port number for the insecure server (over TLS)"
               ])
@@ -90,13 +90,13 @@ parseSecure = asum [
     ]
   where
     cfg ::
-         ServiceName
+         PortNumber
       -> FilePath
       -> [FilePath]
       -> FilePath
       -> Maybe SecureConfig
     cfg port pub chain priv = Just SecureConfig {
-          secureHost       = Nothing
+          secureHost       = "localhost"
         , securePort       = port
         , securePubCert    = pub
         , secureChainCerts = chain

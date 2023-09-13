@@ -16,26 +16,16 @@ module Network.GRPC.Util.TLS (
     -- * Configuration
     -- ** Parameters
   , ServerValidation(..)
+  , validationCAStore
     -- ** Common to server and client
   , SslKeyLog(..)
-  , debugParams
-  , supported
-    -- ** Hooks (configured for HTTP2)
-  , serverHooks
-  , clientHooks
-    -- ** Shared parameters
-  , serverShared
-  , clientShared
+  , keyLogger
   ) where
 
 import Control.Exception
-import Data.ByteString qualified as Strict (ByteString)
 import Data.Default
 import Data.X509 qualified as X509
 import Data.X509.CertificateStore qualified as X509
-import Data.X509.Validation qualified as X509
-import Network.TLS qualified as TLS
-import Network.TLS.Extra qualified as TLS
 import System.Environment
 import System.X509 qualified as X509
 
@@ -121,6 +111,10 @@ data ServerValidation =
   | NoServerValidation
   deriving (Show)
 
+validationCAStore :: ServerValidation -> IO X509.CertificateStore
+validationCAStore (ValidateServer storeSpec) = loadCertificateStore storeSpec
+validationCAStore NoServerValidation         = return mempty
+
 {-------------------------------------------------------------------------------
   Configuration common to server and client
 -------------------------------------------------------------------------------}
@@ -145,82 +139,13 @@ data SslKeyLog =
 instance Default SslKeyLog where
   def = SslKeyLogFromEnv
 
-debugParams :: SslKeyLog -> IO TLS.DebugParams
-debugParams sslKeyLog = do
+keyLogger :: SslKeyLog -> IO (String -> IO ())
+keyLogger sslKeyLog = do
     keyLogFile <- case sslKeyLog of
                     SslKeyLogNone    -> return $ Nothing
                     SslKeyLogPath fp -> return $ Just fp
                     SslKeyLogFromEnv -> lookupEnv "SSLKEYLOGFILE"
-    return def {
-          TLS.debugKeyLogger =
-            case keyLogFile of
-              Nothing -> \_   -> return ()
-              Just fp -> \str -> appendFile fp (str ++ "\n")
-        }
-
-supported :: TLS.Supported
-supported = def {
-      TLS.supportedCiphers = TLS.ciphersuite_default
-    }
-
-{-------------------------------------------------------------------------------
-  Hooks
-
-  We override these to do ALPN (application level protocol negotiation): the
-  server will choose only @h2@ (HTTP2), and the client will suggest only @h2@.
--------------------------------------------------------------------------------}
-
-serverHooks :: TLS.ServerHooks
-serverHooks = def {
-      TLS.onALPNClientSuggest = Just alpn
-    }
-  where
-    -- Application level protocol negotation
-    alpn :: [Strict.ByteString] -> IO Strict.ByteString
-    alpn protocols
-      | "h2" `elem` protocols = return "h2"
-      | otherwise = throwIO $ ProtocolNegotationFailed protocols
-
-clientHooks :: ServerValidation -> TLS.ClientHooks
-clientHooks validation = def {
-      TLS.onSuggestALPN       = alpn
-    , TLS.onServerCertificate =
-        case validation of
-          ValidateServer _   -> X509.validateDefault
-          NoServerValidation -> \_ _ _ _ -> return []
-    }
-  where
-    alpn :: IO (Maybe [Strict.ByteString])
-    alpn = return $ Just ["h2"]
-
-data ProtocolNegotationFailed =
-    -- | The only protocol we support is HTTP2.
-    --
-    -- We list which protocols the client listed as supported.
-    ProtocolNegotationFailed [Strict.ByteString]
-  deriving stock (Show)
-  deriving anyclass (Exception)
-
-{-------------------------------------------------------------------------------
-  Shared parameters
-
-  The server wants credentials, the client wants a means to validate those
-  credentials.
--------------------------------------------------------------------------------}
-
-serverShared :: TLS.Credentials -> TLS.Shared
-serverShared creds = def {
-      TLS.sharedCredentials = creds
-    }
-
-clientShared :: ServerValidation -> IO TLS.Shared
-clientShared validation = do
-    caStore <-
-      case validation of
-        ValidateServer storeSpec ->
-          loadCertificateStore storeSpec
-        NoServerValidation ->
-          return mempty
-    return def {
-        TLS.sharedCAStore = caStore
-      }
+    return $
+      case keyLogFile of
+        Nothing -> \_   -> return ()
+        Just fp -> \str -> appendFile fp (str ++ "\n")
