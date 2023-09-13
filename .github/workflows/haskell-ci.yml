@@ -162,8 +162,8 @@ jobs:
           cat >> cabal.project <<EOF
           source-repository-package
             type:     git
-            location: https://github.com/edsko/http2.git
-            tag:      fe75d5de1a26f2ecb9d56394a9fb9d27fcc27085
+            location: https://github.com/kazu-yamamoto/http2.git
+            tag:      560f26d4b7a87580e0c27c56db3f656f61569b03
 
           package grapesy
             tests:       True

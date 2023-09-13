@@ -155,7 +155,7 @@ withConnection params server k = do
         runTCPClient auth $ \sock -> do
           tlsContext <- newTlsContext auth sock validation sslKeyLog
           TLS.handshake tlsContext
-          bracket (allocTlsConfig tlsContext writeBufferSize)
+          bracket (allocTlsConfig sock tlsContext writeBufferSize)
                   (freeTlsConfig tlsContext) $ \conf ->
              Client.run (clientConfig auth Https) conf $ \sendRequest ->
                k Connection{
