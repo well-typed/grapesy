@@ -7,9 +7,9 @@ package grapesy
 source-repository-package
   type: git
   location: https://github.com/kazu-yamamoto/http2.git
-  tag: 809c898ea6bb923139c6bbe131b90cca137f9321
+  tag: 3e1e4cc62b3645849411092e986d6729de83eabf 
 
 source-repository-package
   type: git
   location: https://github.com/kazu-yamamoto/http2-tls.git
-  tag: 6188a4d0bb898f1a5f74311d3dcc83037de18c68
+  tag: c2cf2da4242da78330fd68d1fd210c4eb1c940bd 

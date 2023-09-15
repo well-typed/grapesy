@@ -332,7 +332,7 @@ runHandler setupResponseChannel handler = do
                Left  err -> do
                  -- Relies on https://github.com/kazu-yamamoto/http2/pull/82
                  case fromException err of
-                   Just (HTTP2.KilledByHttp2ThreadPoolManager mErr) -> do
+                   Just (HTTP2.KilledByHttp2ThreadManager mErr) -> do
                      let exitReason :: ExitCase ()
                          exitReason =
                            case mErr of
