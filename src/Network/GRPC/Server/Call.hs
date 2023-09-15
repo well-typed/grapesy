@@ -46,7 +46,7 @@ import Network.HTTP2.Internal qualified as HTTP2
 import Network.GRPC.Common
 import Network.GRPC.Common.Compression qualified as Compr
 import Network.GRPC.Common.StreamElem qualified as StreamElem
-import Network.GRPC.Server.Connection (Connection)
+import Network.GRPC.Server.Connection (Connection(..))
 import Network.GRPC.Server.Connection qualified as Connection
 import Network.GRPC.Server.Context qualified as Context
 import Network.GRPC.Server.Session
@@ -128,7 +128,7 @@ acceptCall params conn k = do
             Session.setupResponseChannel
               callSession
               (contramap (Context.PeerDebugMsg @rpc) tracer)
-              (Connection.connectionToClient conn)
+              (Connection.connectionClient conn)
               (   handle sendErrorResponse
                 . mkOutboundHeaders
                     callRequestMetadata
@@ -211,10 +211,10 @@ acceptCall params conn k = do
         }
 
     compr :: Compr.Negotation
-    compr = Context.serverCompression $ Context.params $ Connection.context conn
+    compr = Context.serverCompression $ Context.params $ connectionContext conn
 
     tracer :: Tracer IO Context.ServerDebugMsg
-    tracer = Context.serverDebugTracer $ Context.params (Connection.context conn)
+    tracer = Context.serverDebugTracer $ Context.params $ connectionContext conn
 
     mkOutboundHeaders ::
          TMVar [CustomMetadata]
@@ -275,7 +275,7 @@ acceptCall params conn k = do
     sendErrorResponse :: forall x. SomeException -> IO x
     sendErrorResponse err = do
         traceWith tracer $ Context.AcceptCallFailed err
-        Server.respond (Connection.connectionToClient conn) $
+        Server.respond (connectionClient conn) $
           HTTP2.responseNoBody
             HTTP.ok200 -- gRPC uses HTTP 200 even when there are gRPC errors
             (buildTrailersOnly $ TrailersOnly $ ProperTrailers {

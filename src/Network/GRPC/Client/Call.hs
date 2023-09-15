@@ -27,7 +27,6 @@ module Network.GRPC.Client.Call (
   , closeRPC
   ) where
 
-import Control.Concurrent
 import Control.Exception
 import Control.Monad
 import Control.Monad.Catch
@@ -249,10 +248,6 @@ recvOutputSTM = fmap (first collapseTrailers) . Session.recv . callChannel
 waitForOutbound :: Call rpc -> IO ()
 waitForOutbound call = do
     void $ Session.waitForOutbound (callChannel call)
-
-    -- TODO: This is a nasty workaround a race condition in http2
-    -- <https://github.com/kazu-yamamoto/http2/issues/87>
-    threadDelay 1_000
 
 {-------------------------------------------------------------------------------
   Protocol specific wrappers

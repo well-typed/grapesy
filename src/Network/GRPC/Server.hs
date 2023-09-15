@@ -43,7 +43,7 @@ import Network.HTTP2.Server qualified as HTTP2
 
 import Network.GRPC.Common
 import Network.GRPC.Server.Call
-import Network.GRPC.Server.Connection (Connection, withConnection)
+import Network.GRPC.Server.Connection (Connection(..), withConnection)
 import Network.GRPC.Server.Connection qualified as Connection
 import Network.GRPC.Server.Context (ServerParams)
 import Network.GRPC.Server.Context qualified as Context
@@ -97,7 +97,7 @@ handleRequest params handlers conn = do
     tracer =
           Context.serverDebugTracer
         $ Context.params
-        $ Connection.context conn
+        $ connectionContext conn
 
 {-------------------------------------------------------------------------------
   Get handler for the request
@@ -120,7 +120,7 @@ withHandler params handlers path conn k =
             (buildTrailersOnly trailers)
   where
     conn' :: Session.Server.ConnectionToClient
-    conn' = Connection.connectionToClient conn
+    conn' = connectionClient conn
 
     err :: GrpcException
     err = grpcUnimplemented path

@@ -9,12 +9,6 @@ module Network.GRPC.Server.Run (
   , SecureConfig(..)
     -- * Run the server
   , runServer
-    -- * Low-level utilities
-    --
-    -- These are useful if the infrastructure provided in this module is not
-    -- general enough.
-  , allocTlsConfig
-  , freeTlsConfig
   ) where
 
 import Control.Concurrent.Async
@@ -22,11 +16,11 @@ import Control.Exception
 import Data.Default
 import Network.ByteOrder (BufferSize)
 import Network.HTTP2.Server qualified as HTTP2
+import Network.HTTP2.TLS.Server qualified as HTTP2.TLS
 import Network.Run.TCP (runTCPServer)
-import Network.Socket (Socket, HostName, ServiceName)
+import Network.Socket (HostName, ServiceName, PortNumber)
 import Network.TLS qualified as TLS
 
-import Network.GRPC.Util.HTTP2.TLS
 import Network.GRPC.Util.TLS (SslKeyLog(..))
 import Network.GRPC.Util.TLS qualified as Util.TLS
 
@@ -46,7 +40,7 @@ data ServerConfig = ServerConfig {
       -- | Configuration for secure communication (over TLS)
       --
       -- Set to 'Nothing' to disable.
-    , serverSecure   :: Maybe SecureConfig
+    , serverSecure :: Maybe SecureConfig
     }
 
 data ServerSetup = ServerSetup {
@@ -75,10 +69,10 @@ data InsecureConfig = InsecureConfig {
 
 data SecureConfig = SecureConfig {
       -- | Hostname
-      secureHost :: Maybe HostName
+      secureHost :: HostName
 
       -- | Port number
-    , securePort :: ServiceName
+    , securePort :: PortNumber
 
       -- | TLS public certificate (X.509 format)
     , securePubCert :: FilePath
@@ -130,33 +124,18 @@ runSecure  ServerSetup{serverHandlerHook} server cfg = do
             Left  err -> throwIO $ CouldNotLoadCredentials err
             Right res -> return res
 
-    runTCPServer (secureHost cfg) (securePort cfg) $ \sock -> do
-      -- TLS handshake
-      tlsContext :: TLS.Context <-
-        newTlsContext
-          (secureSslKeyLog cfg)
-          sock
-          (TLS.Credentials [cred])
-      TLS.handshake tlsContext
+    keyLogger <- Util.TLS.keyLogger (secureSslKeyLog cfg)
+    let settings :: HTTP2.TLS.Settings
+        settings = HTTP2.TLS.defaultSettings {
+              HTTP2.TLS.settingsKeyLogger = keyLogger
+            }
 
-      -- Run http2 over TLS
-      bracket (allocTlsConfig sock tlsContext writeBufferSize)
-              (freeTlsConfig tlsContext) $ \config ->
-        HTTP2.run config $ serverHandlerHook server
-
-{-------------------------------------------------------------------------------
-  Auxiliary: construct TLS context
--------------------------------------------------------------------------------}
-
-newTlsContext :: SslKeyLog -> Socket -> TLS.Credentials -> IO TLS.Context
-newTlsContext sslKeyLog s creds = do
-    debugParams <- Util.TLS.debugParams sslKeyLog
-    TLS.contextNew s def {
-        TLS.serverShared    = Util.TLS.serverShared creds
-      , TLS.serverDebug     = debugParams
-      , TLS.serverSupported = Util.TLS.supported
-      , TLS.serverHooks     = Util.TLS.serverHooks
-      }
+    HTTP2.TLS.run
+      settings
+      (TLS.Credentials [cred])
+      (secureHost cfg)
+      (securePort cfg)
+      (serverHandlerHook server)
 
 {-------------------------------------------------------------------------------
   Constants

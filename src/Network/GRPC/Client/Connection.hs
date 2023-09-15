@@ -24,13 +24,12 @@ module Network.GRPC.Client.Connection (
 import Control.Concurrent
 import Control.Monad.Catch
 import Control.Tracer
-import Data.ByteString.Char8 qualified as BS.Strict.C8
 import Data.Default
 import Network.HPACK qualified as HPACK
-import Network.HTTP2.Client qualified as Client
+import Network.HTTP2.Client qualified as HTTP2.Client
+import Network.HTTP2.TLS.Client qualified as HTTP2.TLS.Client
 import Network.Run.TCP qualified as Run
 import Network.Socket
-import Network.TLS qualified as TLS
 import Text.Show.Pretty
 
 import Network.GRPC.Client.Meta (Meta)
@@ -38,7 +37,6 @@ import Network.GRPC.Client.Meta qualified as Meta
 import Network.GRPC.Client.Session
 import Network.GRPC.Common.Compression qualified as Compr
 import Network.GRPC.Spec
-import Network.GRPC.Util.HTTP2.TLS
 import Network.GRPC.Util.Session qualified as Session
 import Network.GRPC.Util.TLS (ServerValidation(..), SslKeyLog(..))
 import Network.GRPC.Util.TLS qualified as Util.TLS
@@ -143,26 +141,38 @@ withConnection params server k = do
     case server of
       ServerInsecure auth ->
         runTCPClient auth $ \sock ->
-          bracket (Client.allocSimpleConfig sock writeBufferSize)
-                  Client.freeSimpleConfig $ \conf ->
-            Client.run (clientConfig auth Http) conf $ \sendRequest ->
+          bracket (HTTP2.Client.allocSimpleConfig sock writeBufferSize)
+                  HTTP2.Client.freeSimpleConfig $ \conf ->
+            HTTP2.Client.run (clientConfig auth Http) conf $ \sendRequest ->
               k Connection{
                   params
                 , metaVar
                 , connectionToServer = Session.ConnectionToServer sendRequest
                 }
-      ServerSecure validation sslKeyLog auth ->
-        runTCPClient auth $ \sock -> do
-          tlsContext <- newTlsContext auth sock validation sslKeyLog
-          TLS.handshake tlsContext
-          bracket (allocTlsConfig sock tlsContext writeBufferSize)
-                  (freeTlsConfig tlsContext) $ \conf ->
-             Client.run (clientConfig auth Https) conf $ \sendRequest ->
-               k Connection{
-                   params
-                 , metaVar
-                 , connectionToServer = Session.ConnectionToServer sendRequest
-                 }
+      ServerSecure validation sslKeyLog auth -> do
+        keyLogger <- Util.TLS.keyLogger sslKeyLog
+        caStore   <- Util.TLS.validationCAStore validation
+        let settings :: HTTP2.TLS.Client.Settings
+            settings = HTTP2.TLS.Client.defaultSettings {
+                  HTTP2.TLS.Client.settingsValidateCert =
+                    case validation of
+                      ValidateServer _   -> True
+                      NoServerValidation -> False
+                , HTTP2.TLS.Client.settingsCAStore       = caStore
+                , HTTP2.TLS.Client.settingsKeyLogger     = keyLogger
+                , HTTP2.TLS.Client.settingsAddrInfoFlags = []
+                }
+
+        HTTP2.TLS.Client.run
+          settings
+          (authorityHost auth)
+          (fromIntegral $ authorityPort auth)
+          (\sendRequest -> k Connection{
+                params
+              , metaVar
+              , connectionToServer = Session.ConnectionToServer sendRequest
+              }
+          )
   where
     -- See docs of 'confBufferSize', but importantly: "this value is announced
     -- via SETTINGS_MAX_FRAME_SIZE to the peer."
@@ -171,8 +181,9 @@ withConnection params server k = do
     writeBufferSize :: HPACK.BufferSize
     writeBufferSize = 4096
 
-    clientConfig :: Authority -> Scheme -> Client.ClientConfig
-    clientConfig auth scheme = Client.ClientConfig {
+    -- TODO: This is currently only used for the HTTP case, not HTTPS
+    clientConfig :: Authority -> Scheme -> HTTP2.Client.ClientConfig
+    clientConfig auth scheme = HTTP2.Client.ClientConfig {
           scheme    = rawScheme serverPseudoHeaders
         , authority = rawAuthority serverPseudoHeaders
 
@@ -188,30 +199,6 @@ withConnection params server k = do
     runTCPClient :: Authority -> (Socket -> IO a) -> IO a
     runTCPClient auth =
         Run.runTCPClient (authorityHost auth) (show $ authorityPort auth)
-
-{-------------------------------------------------------------------------------
-  Auxiliary: construct TLS context
--------------------------------------------------------------------------------}
-
-newTlsContext ::
-     Authority
-  -> Socket
-  -> ServerValidation
-  -> SslKeyLog
-  -> IO TLS.Context
-newTlsContext auth sock validation sslKeyLog = do
-    debugParams <- Util.TLS.debugParams sslKeyLog
-    shared      <- Util.TLS.clientShared validation
-    TLS.contextNew sock $
-      (TLS.defaultParamsClient
-         (authorityHost auth)
-         (BS.Strict.C8.pack . show $ authorityPort auth)
-      ) {
-          TLS.clientShared    = shared
-        , TLS.clientDebug     = debugParams
-        , TLS.clientSupported = Util.TLS.supported
-        , TLS.clientHooks     = Util.TLS.clientHooks validation
-        }
 
 {-------------------------------------------------------------------------------
   Access and update meta information

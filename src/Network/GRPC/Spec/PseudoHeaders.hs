@@ -35,7 +35,6 @@ import Data.Hashable (Hashable)
 import Data.Proxy
 import Data.Text (Text)
 import GHC.Generics qualified as GHC
-import Text.Read (readMaybe)
 
 import Network.GRPC.Spec.PercentEncoding qualified as PercentEncoding
 import Network.GRPC.Spec.RPC
@@ -193,33 +192,15 @@ data InvalidPseudoHeaders =
 
 -- | Parse pseudo headers
 --
--- TODOs:
---
--- * Technically the Authority header is optional in gRPC, but we currently
---   require it.
--- * Even if an Authority header is present, it does not need to include a port
---   number, but we currently require it.
+-- We only parse the 'ResourceHeaders', ignoring the 'ServerHeaders'
+-- (we don't need it, and there are different formats in use; by simply not
+-- parsiing it altogether we avoid parse errors that don't affect us anyway.)
 parsePseudoHeaders ::
      RawPseudoHeaders
-  -> Either InvalidPseudoHeaders PseudoHeaders
+  -> Either InvalidPseudoHeaders ResourceHeaders
 parsePseudoHeaders RawPseudoHeaders{
-        rawServerHeaders   = RawServerHeaders{rawScheme, rawAuthority}
-      , rawResourceHeaders = RawResourceHeaders{rawMethod, rawPath}
+        rawResourceHeaders = RawResourceHeaders{rawMethod, rawPath}
       } = do
-    serverScheme <-
-      case rawScheme of
-        "http"     -> return Http
-        "https"    -> return Https
-        _otherwise -> throwError $ InvalidScheme rawScheme
-
-    serverAuthority <-
-      case BS.Strict.split (ascii ':') rawAuthority of
-        [host, port]
-            | Just port' <- readMaybe (BS.Strict.C8.unpack port) ->
-          return $ Authority (BS.Strict.UTF8.toString host) port'
-        _otherwise ->
-          throwError $ InvalidAuthority rawAuthority
-
     resourceMethod <-
       case rawMethod of
         "POST"     -> return Post
@@ -234,7 +215,4 @@ parsePseudoHeaders RawPseudoHeaders{
         _otherwise ->
           throwError $ InvalidPath rawPath
 
-    return PseudoHeaders{
-        serverHeaders   = ServerHeaders{serverScheme, serverAuthority}
-      , resourceHeaders = ResourceHeaders{resourceMethod, resourcePath}
-      }
+    return ResourceHeaders{resourceMethod, resourcePath}

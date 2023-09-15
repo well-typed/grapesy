@@ -6,7 +6,7 @@
 --
 -- Intended for qualified import.
 --
--- > import Network.GRPC.Server.Connection (Connection, withConnection)
+-- > import Network.GRPC.Server.Connection (Connection(..), withConnection)
 -- > import Network.GRPC.Server.Connection qualified as Connection
 module Network.GRPC.Server.Connection (
     Connection(..)
@@ -41,9 +41,9 @@ import Network.GRPC.Util.Session (ConnectionToClient(..))
 
 -- | Open connection to a client (for one specific request)
 data Connection = Connection {
-      context            :: ServerContext
-    , pseudoHeaders      :: PseudoHeaders
-    , connectionToClient :: ConnectionToClient
+      connectionContext  :: ServerContext
+    , connectionResource :: ResourceHeaders
+    , connectionClient   :: ConnectionToClient
     }
 
 {-------------------------------------------------------------------------------
@@ -52,17 +52,18 @@ data Connection = Connection {
 
 withConnection :: ServerContext -> (Connection -> IO ()) -> HTTP2.Server
 withConnection context k request _aux respond' = do
-  case getPseudoHeaders request of
-    Left  err           -> respond $ outOfSpecResponse err
-    Right pseudoHeaders -> do
-      let conn :: Connection
-          conn = Connection{
-              context
-            , pseudoHeaders
-            , connectionToClient
-            }
+    -- TODO: We should log these out-of-spec responses
+    case getResourceHeaders request of
+      Left  err             -> respond $ outOfSpecResponse err
+      Right resourceHeaders -> do
+        let conn :: Connection
+            conn = Connection{
+                connectionContext  = context
+              , connectionResource = resourceHeaders
+              , connectionClient   = connectionToClient
+              }
 
-      k conn
+        k conn
   where
     connectionToClient :: ConnectionToClient
     connectionToClient = ConnectionToClient{request, respond}
@@ -76,14 +77,15 @@ withConnection context k request _aux respond' = do
 -------------------------------------------------------------------------------}
 
 path :: Connection -> Path
-path = resourcePath . resourceHeaders . pseudoHeaders
+path = resourcePath . connectionResource
 
 {-------------------------------------------------------------------------------
   Pseudo headers
 -------------------------------------------------------------------------------}
 
-getPseudoHeaders :: HTTP2.Request -> Either OutOfSpecError PseudoHeaders
-getPseudoHeaders req =
+getResourceHeaders :: HTTP2.Request -> Either OutOfSpecError ResourceHeaders
+getResourceHeaders req =
+    -- TODO: We should not parse the full pseudo headers
     case parsePseudoHeaders (rawPseudoHeaders req) of
       Left (InvalidScheme    x) -> Left $ bad "invalid scheme"    x
       Left (InvalidAuthority x) -> Left $ bad "invalid authority" x
