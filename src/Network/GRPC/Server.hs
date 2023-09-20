@@ -27,9 +27,13 @@ module Network.GRPC.Server (
   , sendOutputSTM
   , initiateResponse
   , sendTrailersOnly
+  , isCallHealthy
 
     -- * Common serialization formats
   , Protobuf
+
+    -- * Exceptions
+  , ClientDisconnected(..)
 
     -- * Debugging
   , Context.ServerDebugMsg(..)
@@ -82,7 +86,7 @@ handleRequest ::
   -> Connection -> IO ()
 handleRequest params handlers conn = do
     -- TODO: Proper "Apache style" logging (in addition to the debug logging)
-    traceWith tracer $ Context.NewRequest path
+    traceWith tracer $ Context.ServerDebugRequest path
     withHandler params handlers path conn $ \(RpcHandler h) -> do
       -- TODO: Timeouts
       --

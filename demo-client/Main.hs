@@ -3,8 +3,8 @@
 -- See @docs/demo.md@ for documentation.
 module Main (main) where
 
+import Control.Concurrent
 import Control.Exception
-import Control.Monad
 import Control.Tracer
 import Data.Default
 import System.IO
@@ -33,13 +33,15 @@ main = do
     hSetBuffering stdout NoBuffering -- For easier debugging
     cmd <- getCmdline
     withConnection (connParams cmd) (cmdServer cmd) $ \conn ->
-      dispatch cmd conn (cmdMethod cmd)
+      mapM_ (dispatch cmd conn) $ cmdMethods cmd
     performMajorGC
 
-dispatch :: Cmdline -> Connection -> SomeMethod -> IO ()
-dispatch cmd conn = \case
-    SomeMethod SGreeter (SSayHello names) ->
-      forM_ names $ \name -> do
+dispatch :: Cmdline -> Connection -> DelayOr SomeMethod -> IO ()
+dispatch _ _ (Delay d) =
+    threadDelay $ round $ d * 1_000_000
+dispatch cmd conn (Exec method) =
+    case method of
+      SomeMethod SGreeter (SSayHello name) ->
         case cmdAPI cmd of
           Protobuf ->
             PBuf.Greeter.sayHello conn name
@@ -47,54 +49,53 @@ dispatch cmd conn = \case
             NoFinal.Greeter.sayHello conn name
           _otherwise ->
             unsupportedMode
-        performMajorGC
-    SomeMethod SGreeter (SSayHelloStreamReply name) ->
-      case cmdAPI cmd of
-        Core ->
-          Core.Greeter.sayHelloStreamReply conn name
-        Protobuf ->
-          PBuf.Greeter.sayHelloStreamReply conn name
-        _otherwise ->
-          unsupportedMode
-    SomeMethod SRouteGuide (SGetFeature p) ->
-      case cmdAPI cmd of
-        Protobuf ->
-          PBuf.RouteGuide.getFeature conn p
-        _otherwise ->
-          unsupportedMode
-    SomeMethod SRouteGuide (SListFeatures r) ->
-      case cmdAPI cmd of
-        ProtobufPipes ->
-          Pipes.RouteGuide.listFeatures conn r
-        Protobuf ->
-          PBuf.RouteGuide.listFeatures conn r
-        Core ->
-          Core.RouteGuide.listFeatures conn r
-        _otherwise ->
-          unsupportedMode
-    SomeMethod SRouteGuide (SRecordRoute ps) ->
-      case cmdAPI cmd of
-        ProtobufPipes ->
-          Pipes.RouteGuide.recordRoute conn $ yieldAll ps
-        Protobuf ->
-          PBuf.RouteGuide.recordRoute conn =<< execAll ps
-        _otherwise ->
-          unsupportedMode
-    SomeMethod SRouteGuide (SRouteChat notes) ->
-      case cmdAPI cmd of
-        ProtobufPipes ->
-          Pipes.RouteGuide.routeChat conn $ yieldAll notes
-        Protobuf ->
-          PBuf.RouteGuide.routeChat conn =<< execAll notes
-        _otherwise ->
-          unsupportedMode
+      SomeMethod SGreeter (SSayHelloStreamReply name) ->
+        case cmdAPI cmd of
+          Core ->
+            Core.Greeter.sayHelloStreamReply conn name
+          Protobuf ->
+            PBuf.Greeter.sayHelloStreamReply conn name
+          _otherwise ->
+            unsupportedMode
+      SomeMethod SRouteGuide (SGetFeature p) ->
+        case cmdAPI cmd of
+          Protobuf ->
+            PBuf.RouteGuide.getFeature conn p
+          _otherwise ->
+            unsupportedMode
+      SomeMethod SRouteGuide (SListFeatures r) ->
+        case cmdAPI cmd of
+          ProtobufPipes ->
+            Pipes.RouteGuide.listFeatures conn r
+          Protobuf ->
+            PBuf.RouteGuide.listFeatures conn r
+          Core ->
+            Core.RouteGuide.listFeatures conn r
+          _otherwise ->
+            unsupportedMode
+      SomeMethod SRouteGuide (SRecordRoute ps) ->
+        case cmdAPI cmd of
+          ProtobufPipes ->
+            Pipes.RouteGuide.recordRoute conn $ yieldAll ps
+          Protobuf ->
+            PBuf.RouteGuide.recordRoute conn =<< execAll ps
+          _otherwise ->
+            unsupportedMode
+      SomeMethod SRouteGuide (SRouteChat notes) ->
+        case cmdAPI cmd of
+          ProtobufPipes ->
+            Pipes.RouteGuide.routeChat conn $ yieldAll notes
+          Protobuf ->
+            PBuf.RouteGuide.routeChat conn =<< execAll notes
+          _otherwise ->
+            unsupportedMode
   where
     unsupportedMode :: IO a
     unsupportedMode = throwIO $ userError $ concat [
           "Mode "
         , show (cmdAPI cmd)
         , " not supported for "
-        , show (cmdMethod cmd)
+        , show method
         ]
 
 {-------------------------------------------------------------------------------
@@ -113,5 +114,7 @@ connParams cmd = def {
           Nothing  -> connCompression def
     , connDefaultTimeout =
         Timeout Second . TimeoutValue <$> cmdTimeout cmd
+    , connReconnectPolicy =
+        exponentialBackoff 1.5 (1, 2) 10
     }
 

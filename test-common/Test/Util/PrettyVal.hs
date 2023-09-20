@@ -13,7 +13,9 @@ import Control.Exception
 import Data.Bifunctor
 import Data.Set (Set)
 import Data.Set qualified as Set
+import Data.Void
 import GHC.Stack qualified as GHC
+import Network.TLS (TLSException)
 import Text.Show.Pretty
 
 {-------------------------------------------------------------------------------
@@ -59,3 +61,9 @@ instance PrettyVal a => PrettyVal (Set a) where
 
 instance PrettyVal SomeException where
   prettyVal = String . show
+
+instance PrettyVal TLSException where
+  prettyVal = String . show
+
+instance PrettyVal Void where
+  prettyVal = absurd

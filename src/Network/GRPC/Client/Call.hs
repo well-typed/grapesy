@@ -2,11 +2,8 @@
 --
 -- Intended for unqualified import.
 module Network.GRPC.Client.Call (
-    -- * Definition
-    Call -- opaque
-
     -- * Construction
-  , withRPC
+    withRPC
 
     -- * Open (ongoing) call
   , sendInput
@@ -23,27 +20,21 @@ module Network.GRPC.Client.Call (
   , sendInputSTM
   , recvOutputSTM
   , waitForOutbound
-  , startRPC
-  , closeRPC
+  , isCallHealthy
   ) where
 
 import Control.Exception
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
-import Control.Tracer
 import Data.Bifunctor
-import Data.Foldable (asum)
-import Data.Maybe (fromMaybe)
 import Data.Proxy
 import GHC.Stack
 
-import Network.GRPC.Client.Connection (Connection, ConnParams (..))
+import Network.GRPC.Client.Connection (Connection, Call(..))
 import Network.GRPC.Client.Connection qualified as Connection
-import Network.GRPC.Client.Meta qualified as Meta
 import Network.GRPC.Client.Session
 import Network.GRPC.Common
-import Network.GRPC.Common.Compression qualified as Compression
 import Network.GRPC.Common.StreamElem qualified as StreamElem
 import Network.GRPC.Spec
 import Network.GRPC.Util.Session qualified as Session
@@ -53,14 +44,6 @@ import Network.GRPC.Util.STM
   Definition
 -------------------------------------------------------------------------------}
 
--- | State of the call
---
--- This type is kept abstract (opaque) in the public facing API.
-data Call rpc = IsRPC rpc => Call {
-      callSession :: ClientSession rpc
-    , callChannel :: Session.Channel (ClientSession rpc)
-    }
-
 {-------------------------------------------------------------------------------
   Open a call
 -------------------------------------------------------------------------------}
@@ -68,72 +51,21 @@ data Call rpc = IsRPC rpc => Call {
 -- | Scoped RPC call
 --
 -- The call is setup in the background, and might not yet have been established
--- when the body is run. See also 'startPRC' for additional discussion.
+-- when the body is run. If you want to be sure that the call has been setup,
+-- you can call 'recvResponseMetadata'.
 withRPC :: forall m rpc a.
      (MonadMask m, MonadIO m, IsRPC rpc)
   => Connection -> CallParams -> Proxy rpc -> (Call rpc -> m a) -> m a
-withRPC conn params proxy k =
+withRPC conn callParams proxy k =
     (throwUnclean =<<) $
       generalBracket
-        (liftIO $ startRPC conn params proxy)
+        (liftIO $ Connection.startRPC conn proxy callParams)
         (\call -> liftIO . closeRPC call)
         k
   where
     throwUnclean :: (a, Maybe ChannelUncleanClose) -> m a
     throwUnclean (_, Just err) = throwM err
     throwUnclean (x, Nothing)  = return x
-
--- | Start RPC call
---
--- This is a non-blocking call; the connection will be set up in a background
--- thread; if this takes time, then the first call to 'sendInput' or
--- 'recvOutput' will block, but the call to 'startRPC' itself will not block.
--- This non-blocking nature makes this safe to use in 'bracket' patterns.
---
--- This is a low-level API. Consider using 'withRPC' instead.
-startRPC :: forall rpc.
-     IsRPC rpc
-  => Connection -> CallParams -> Proxy rpc -> IO (Call rpc)
-startRPC conn callParams _proxy = do
-    cOut <-
-      Meta.outboundCompression <$> Connection.currentMeta conn
-    callChannel <-
-      Session.setupRequestChannel
-        callSession
-        tracer
-        (Connection.connectionToServer conn)
-        (Session.FlowStartRegular $ OutboundHeaders {
-            outHeaders     = requestHeaders cOut
-          , outCompression = fromMaybe noCompression cOut
-          })
-    return Call{callSession, callChannel}
-  where
-    callSession :: ClientSession rpc
-    callSession = ClientSession {
-          clientCompression = connCompression $ Connection.params conn
-        , clientUpdateMeta  = Connection.updateMeta conn
-        }
-
-    requestHeaders :: Maybe Compression -> RequestHeaders
-    requestHeaders cOut = RequestHeaders{
-          requestTimeout =
-            asum [
-                callTimeout callParams
-              , connDefaultTimeout $ Connection.params conn
-              ]
-        , requestMetadata =
-            callRequestMetadata callParams
-        , requestCompression =
-            compressionId <$> cOut
-        , requestAcceptCompression = Just $
-            Compression.offer $
-              connCompression $ Connection.params conn
-        }
-
-    tracer :: Tracer IO (Session.DebugMsg (ClientSession rpc))
-    tracer =
-        contramap (Connection.PeerDebugMsg @rpc) $
-          connDebugTracer (Connection.params conn)
 
 -- | Close an open RPC call
 --
@@ -248,6 +180,14 @@ recvOutputSTM = fmap (first collapseTrailers) . Session.recv . callChannel
 waitForOutbound :: Call rpc -> IO ()
 waitForOutbound call = do
     void $ Session.waitForOutbound (callChannel call)
+
+-- | Check if the connection is still OK
+--
+-- This is inherently non-deterministic: the connection to the server could have
+-- been lost and we might not yet realize, it the connnection could be lost
+-- straight after 'isCallHealthy' returns. Use with caution.
+isCallHealthy :: Call rpc -> STM Bool
+isCallHealthy = Session.isChannelHealthy . callChannel
 
 {-------------------------------------------------------------------------------
   Protocol specific wrappers

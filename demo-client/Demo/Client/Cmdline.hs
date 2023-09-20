@@ -48,7 +48,7 @@ data Cmdline = Cmdline {
     , cmdTimeout     :: Maybe Word
     , cmdAPI         :: API
     , cmdCompression :: Maybe Compression
-    , cmdMethod      :: SomeMethod
+    , cmdMethods     :: [DelayOr SomeMethod]
     }
   deriving (Show)
 
@@ -74,8 +74,8 @@ deriving stock instance Show (SService s)
 
 -- | Select method
 data SMethod :: Type -> Symbol -> Type where
-  SSayHello            :: [HelloRequest] -> SMethod Greeter "sayHello"
-  SSayHelloStreamReply :: HelloRequest   -> SMethod Greeter "sayHelloStreamReply"
+  SSayHello            :: HelloRequest -> SMethod Greeter "sayHello"
+  SSayHelloStreamReply :: HelloRequest -> SMethod Greeter "sayHelloStreamReply"
 
   SGetFeature   :: Point               -> SMethod RouteGuide "getFeature"
   SListFeatures :: Rectangle           -> SMethod RouteGuide "listFeatures"
@@ -106,7 +106,7 @@ parseCmdline =
              ])
       <*> parseAPI
       <*> Opt.optional parseCompression
-      <*> parseSomeMethod
+      <*> Opt.many (parseDelayOr parseSomeMethod)
 
 {-------------------------------------------------------------------------------
   Options
@@ -206,7 +206,7 @@ parseSomeMethod :: Opt.Parser SomeMethod
 parseSomeMethod = Opt.subparser $ mconcat [
       sub "sayHello" "helloworld.Greeter.SayHello" $
         SomeMethod SGreeter . SSayHello <$>
-          Opt.many parseHelloRequest
+          parseHelloRequest
     , sub "sayHelloStreamReply" "helloworld.Greeter.SayHelloStreamReply" $
         SomeMethod SGreeter . SSayHelloStreamReply <$>
           parseHelloRequest
@@ -221,7 +221,7 @@ parseSomeMethod = Opt.subparser $ mconcat [
           Opt.many (parseDelayOr $ parsePoint "")
     , sub "routeChat" "routeguide.RouteGuide.RouteChat" $
         SomeMethod SRouteGuide . SRouteChat <$>
-          Opt.many (parseDelayOr parseRouteNote)
+          Opt.many (parseDelayOr $ parseRouteNote)
     ]
 
 {-------------------------------------------------------------------------------

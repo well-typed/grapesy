@@ -1,7 +1,9 @@
 module Test.Sanity.StreamingType.NonStreaming (tests) where
 
+import Control.Exception
 import Data.Default
 import Data.Proxy
+import Data.Void
 import Data.Word
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -73,7 +75,7 @@ tests = testGroup "Test.Sanity.StreamingType.NonStreaming" [
 type BinaryIncrement = BinaryRpc "binary" "increment"
 
 test_increment :: ClientServerConfig -> IO String
-test_increment config = testClientServer $ \k -> k def {
+test_increment config = testClientServer assessCustomException $ \k -> k def {
       config
     , client = \conn -> do
         Client.withRPC conn def (Proxy @BinaryIncrement) $ \call -> do
@@ -86,4 +88,11 @@ test_increment config = testClientServer $ \k -> k def {
               return (succ n)
         ]
     }
+
+{-------------------------------------------------------------------------------
+  Auxiliary
+-------------------------------------------------------------------------------}
+
+assessCustomException :: SomeException -> CustomException Void
+assessCustomException = const CustomExceptionUnexpected
 

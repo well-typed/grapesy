@@ -7,6 +7,10 @@ module Network.GRPC.Client (
   , ConnParams(..)
   , withConnection
 
+    -- ** Reconnection policy
+  , ReconnectPolicy(..)
+  , exponentialBackoff
+
     -- ** Connection parameters
   , Scheme(..)
   , Authority(..)
@@ -47,8 +51,7 @@ module Network.GRPC.Client (
     -- ** Low-level API
   , sendInputSTM
   , recvOutputSTM
-  , startRPC
-  , closeRPC
+  , isCallHealthy
 
     -- * Common serialization formats
   , Protobuf

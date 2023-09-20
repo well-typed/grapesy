@@ -27,9 +27,13 @@ module Network.GRPC.Server.Call (
   , initiateResponse
   , sendTrailersOnly
   , waitForOutbound
+  , isCallHealthy
 
     -- ** Internal API
   , sendProperTrailers
+
+    -- * Exceptions
+  , ClientDisconnected(..)
   ) where
 
 import Control.Concurrent.Async
@@ -40,8 +44,9 @@ import Data.Bifunctor
 import Data.Text qualified as Text
 import GHC.Stack
 import Network.HTTP.Types qualified as HTTP
-import Network.HTTP2.Server qualified as HTTP2
 import Network.HTTP2.Internal qualified as HTTP2
+import Network.HTTP2.Server qualified as HTTP2
+import Text.Show.Pretty
 
 import Network.GRPC.Common
 import Network.GRPC.Common.Compression qualified as Compr
@@ -127,7 +132,7 @@ acceptCall params conn k = do
         setupResponseChannel =
             Session.setupResponseChannel
               callSession
-              (contramap (Context.PeerDebugMsg @rpc) tracer)
+              (contramap (Context.ServerDebugMsg @rpc) tracer)
               (Connection.connectionClient conn)
               (   handle sendErrorResponse
                 . mkOutboundHeaders
@@ -274,7 +279,7 @@ acceptCall params conn k = do
     -- TODO: Some duplication with 'forwardException' (and 'withHandler').
     sendErrorResponse :: forall x. SomeException -> IO x
     sendErrorResponse err = do
-        traceWith tracer $ Context.AcceptCallFailed err
+        traceWith tracer $ Context.ServerDebugAcceptFailed err
         Server.respond (connectionClient conn) $
           HTTP2.responseNoBody
             HTTP.ok200 -- gRPC uses HTTP 200 even when there are gRPC errors
@@ -336,10 +341,10 @@ runHandler setupResponseChannel handler = do
                      let exitReason :: ExitCase ()
                          exitReason =
                            case mErr of
+                             Nothing -> ExitCaseSuccess ()
                              Just exitWithException ->
-                               ExitCaseException exitWithException
-                             Nothing ->
-                               ExitCaseSuccess ()
+                               ExitCaseException . toException $
+                                 ClientDisconnected exitWithException
                      _mAlreadyClosed <- Session.close callChannel exitReason
                      loop
                    Nothing -> do
@@ -387,6 +392,9 @@ forwardException call err = do
 data ClientDisconnected = ClientDisconnected SomeException
   deriving stock (Show)
   deriving anyclass (Exception)
+
+instance PrettyVal ClientDisconnected where
+  prettyVal = String . show
 
 {-------------------------------------------------------------------------------
   Open (ongoing) call
@@ -557,6 +565,13 @@ data ResponseKickoffException =
   | ResponseNotInitiated
   deriving stock (Show)
   deriving anyclass (Exception)
+
+-- | Check if the connection to the client is healthy
+--
+-- See 'Network.GRPC.Client.isCallHealthy' for considerations regarding the
+-- non-deterministic result of this function.
+isCallHealthy :: Call rpc -> STM Bool
+isCallHealthy = Session.isChannelHealthy . callChannel
 
 {-------------------------------------------------------------------------------
   Protocol specific wrappers

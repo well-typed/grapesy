@@ -3,13 +3,3 @@ packages: .
 package grapesy
   tests: True
   flags: +build-demo +build-stress-test
-
-source-repository-package
-  type: git
-  location: https://github.com/kazu-yamamoto/http2.git
-  tag: 3e1e4cc62b3645849411092e986d6729de83eabf 
-
-source-repository-package
-  type: git
-  location: https://github.com/kazu-yamamoto/http2-tls.git
-  tag: c2cf2da4242da78330fd68d1fd210c4eb1c940bd 

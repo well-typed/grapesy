@@ -19,6 +19,7 @@ import Network.GRPC.Client qualified as Client
 import Network.GRPC.Server qualified as Server
 
 import Test.Util.ClientServer
+import Text.Show.Pretty
 
 {-------------------------------------------------------------------------------
   Basic client-server test
@@ -38,25 +39,33 @@ instance Default ClientServerTest where
       }
 
 -- | Run client server test, and check for expected failures
-testClientServer ::
-    (forall a. Show a => (ClientServerTest -> IO a) -> IO a)
+testClientServer :: (Show e, PrettyVal e)
+  => (SomeException -> CustomException e)
+  -> (forall a. Show a => (ClientServerTest -> IO a) -> IO a)
   -> IO String
-testClientServer withTest =
+testClientServer assessCustomException withTest =
     withTest $ \ClientServerTest{config, client, server} -> do
       mRes <- try $ runTestClientServer config client server
       case mRes of
         Right () -> return ""
-        Left err -> case isExpectedException config err of
-                      Just err' -> return $ "Got expected error: " ++ show err'
-                      Nothing   -> throwIO err -- test failure
+        Left err ->
+          case isExpectedException config assessCustomException err of
+            Right err' -> return $ "Got expected error: " ++ show err'
+            Left  err' -> throwIO err' -- test failure
 
 -- | Turn client server test into property
---
--- This does /not/ test for expected failures: we're not testing invalid
--- configurations when doing property based testing.
 propClientServer ::
-    (forall a. Show a => (ClientServerTest -> IO a) -> IO a)
+     (SomeException -> CustomException e)
+  -> (forall a. Show a => (ClientServerTest -> IO a) -> IO a)
   -> QuickCheck.Property
-propClientServer withTest = QuickCheck.monadicIO $
-    liftIO $ withTest $ \ClientServerTest{config, client, server} ->
-      runTestClientServer config client server
+propClientServer assessCustomException withTest = QuickCheck.monadicIO $
+    liftIO $ withTest $ \ClientServerTest{config, client, server} -> do
+      mRes <- try $ runTestClientServer config client server
+      case mRes of
+        Right () -> return ()
+        Left err ->
+          -- We cannot report information about expected failures during
+          -- property based testing
+          case isExpectedException config assessCustomException err of
+            Right _    -> return ()
+            Left  err' -> throwIO err'

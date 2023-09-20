@@ -20,9 +20,9 @@ import Text.Show.Pretty
 
 import Network.GRPC.Common
 
-import Test.Util.PrettyVal
-import Test.Driver.Dialogue.TestClock
 import Test.Driver.Dialogue.Definition
+import Test.Driver.Dialogue.TestClock
+import Test.Util.PrettyVal
 
 {-------------------------------------------------------------------------------
   Metadata

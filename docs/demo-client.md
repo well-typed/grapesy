@@ -100,13 +100,26 @@ cabal run demo-client -- sayHello --name 'John'
 
 The output will be slightly different depending on which server you use.
 
-### Testing compression
+### Testing low-level details
 
-Unlike most demos, the `sayHello` example can also send _multiple_ messages:
+We can also send _multiple_ messages:
 
 ```
-cabal run demo-client -- sayHello --name 'John' --name 'Alice'
+cabal run demo-client -- \
+  sayHello --name 'John' \
+  sayHello --name 'Alice'
 ```
+
+optionally with pauses:
+
+```
+cabal run demo-client -- \
+  sayHello --name 'John' \
+  --delay 5 \
+  sayHello --name 'Alice'
+```
+
+#### Compression
 
 This can be interesting for example to verify that compression is working
 propertly (the first message will be sent without compression since it's not
@@ -131,6 +144,63 @@ cabal run demo-client -- --gzip sayHello \
 
 Of course, the compression is transparent to the user, but you can observe in
 in Wireshark.
+
+#### Automatic reconnect
+
+The `grapesy` implementation of `gRPC` supports
+[wait for ready](https://github.com/grpc/grpc/blob/master/doc/wait-for-ready.md)
+semantics, meaning that if the server cannot be reached, the connection will
+automatically be retried. This is disabled by default (as per the spec), but the
+demo client enables it, trying at most 10x to connect to a server, using
+exponential backoff as the reconnection policy.
+
+Closely related, the same reconnection policy then also enables transparent
+retries, which means the client will re-establish a connection to a server after
+it has lost it.
+
+We can observe both using the demo client and server. Start the client without
+the server:
+
+```
+cabal run demo-client -- --debug \
+  sayHello --name 'John' \
+  --delay 5 \
+  sayHello --name 'Alice'
+```
+
+It will start trying to connect:
+
+```
+ClientDebugConnecting
+ReconnectAfter (1.0,2.0) ...
+...
+```
+
+Then start the server; you should see the first `sayHello` method call happen:
+
+```
+...
+ClientDebugConnectedInsecure
+...
+{message: "Hello, John!"}
+```
+
+Now stop the server again, and you will see the client trying to reconnect again:
+
+```
+ReconnectAfter (1.0,2.0) ..`
+...
+```
+
+Finally, if you now start the server again, the client should be able to
+connect again:
+
+```
+...
+ClientDebugConnectedInsecure
+...
+{message: "Hello, Alice!"}
+```
 
 ### Dealing with unterminated streams
 
