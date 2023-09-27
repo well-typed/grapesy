@@ -230,6 +230,8 @@ isExpectedException cfg assessCustomException topLevel =
       = go err'
       | Just (ChannelException _stack err') <- fromException err
       = go err'
+      | Just (ChannelUncleanClose err') <- fromException err
+      = go err'
 
       --
       -- Custom exceptions

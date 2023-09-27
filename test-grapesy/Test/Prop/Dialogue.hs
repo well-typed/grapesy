@@ -21,15 +21,17 @@ import Test.Util.PrettyVal
 tests :: TestTree
 tests = testGroup "Test.Prop.Dialogue" [
       testGroup "Regression" [
-          testCaseInfo "trivial1"    $ regression trivial1
-        , testCaseInfo "trivial2"    $ regression trivial2
-        , testCaseInfo "trivial3"    $ regression trivial3
-        , testCaseInfo "concurrent1" $ regression concurrent1
-        , testCaseInfo "concurrent2" $ regression concurrent2
-        , testCaseInfo "concurrent3" $ regression concurrent3
-        , testCaseInfo "concurrent4" $ regression concurrent4
-        , testCaseInfo "exception1"  $ regression exception1
-        , testCaseInfo "exception2"  $ regression exception2
+          testCaseInfo "trivial1"          $ regression trivial1
+        , testCaseInfo "trivial2"          $ regression trivial2
+        , testCaseInfo "trivial3"          $ regression trivial3
+        , testCaseInfo "concurrent1"       $ regression concurrent1
+        , testCaseInfo "concurrent2"       $ regression concurrent2
+        , testCaseInfo "concurrent3"       $ regression concurrent3
+        , testCaseInfo "concurrent4"       $ regression concurrent4
+        , testCaseInfo "exception1"        $ regression exception1
+        , testCaseInfo "exception2"        $ regression exception2
+        , testCaseInfo "earlyTermination1" $ regression earlyTermination1
+        , testCaseInfo "earlyTermination2" $ regression earlyTermination2
         ]
     , testGroup "Setup" [
           testProperty "shrinkingWellFounded" prop_shrinkingWellFounded
@@ -61,7 +63,7 @@ arbitraryWithoutExceptions (DialogueWithoutExceptions dialogue) =
 
 _arbitraryWithExceptions :: DialogueWithExceptions -> Property
 _arbitraryWithExceptions (DialogueWithExceptions dialogue) =
-   propDialogue dialogue
+    propDialogue dialogue
 
 propDialogue :: Dialogue -> Property
 propDialogue dialogue =
@@ -96,6 +98,7 @@ data ExpectedUserException =
   | ExpectedServerException SomeServerException
   | ExpectedForwardedToClient GrpcException
   | ExpectedClientDisconnected SomeException
+  | ExpectedEarlyTermination
   deriving stock (Show, GHC.Generic)
   deriving anyclass (PrettyVal)
 
@@ -104,6 +107,9 @@ data ExpectedUserException =
 -- Technically we should only be expected custom user exceptions when we
 -- generate them, but we're not concerned about accidental throws of these
 -- custom exceptions.
+--
+-- TODO: However, it might be useful to be more precise about exactly which
+-- gRPC exceptions we expect and when.
 assessCustomException :: SomeException -> CustomException ExpectedUserException
 assessCustomException err
     --
@@ -128,6 +134,18 @@ assessCustomException err
     -- so we have no way of informing the server about what went wrong).
     | Just (ClientDisconnected e) <- fromException err
     = CustomExceptionExpected $ ExpectedClientDisconnected e
+
+    --
+    -- Early termination
+    --
+
+    | Just (ChannelDiscarded _) <- fromException err
+    = CustomExceptionExpected $ ExpectedEarlyTermination
+    | Just (grpc :: GrpcException) <- fromException err
+    , GrpcUnknown <- grpcError grpc
+    , Just msg <- grpcErrorMessage grpc
+    , "ChannelDiscarded" `Text.isInfixOf` msg
+    = CustomExceptionExpected $ ExpectedForwardedToClient grpc
 
     --
     -- Custom wrappers
@@ -244,5 +262,21 @@ exception2 :: Dialogue
 exception2 = Dialogue [
       (0, ClientAction $ Initiate (Set.fromList [], RPC1))
     , (0, ClientAction $ Terminate (Just (ExceptionId 0)))
+    , (0, ServerAction $ Send (NoMoreElems (Set.fromList [])))
+    ]
+
+-- | Server handler terminates before the client expects it
+earlyTermination1 :: Dialogue
+earlyTermination1 = Dialogue [
+      (0, ClientAction (Initiate (Set.fromList [], RPC1)))
+    , (0, ServerAction (Terminate Nothing))
+    , (0, ClientAction (Send (NoMoreElems NoMetadata)))
+    ]
+
+-- | Client terminates before the server handler expects it
+earlyTermination2 :: Dialogue
+earlyTermination2 = Dialogue [
+      (0, ClientAction $ Initiate (Set.fromList [], RPC1))
+    , (0, ClientAction $ Terminate Nothing)
     , (0, ServerAction $ Send (NoMoreElems (Set.fromList [])))
     ]

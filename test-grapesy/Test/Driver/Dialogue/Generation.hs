@@ -154,16 +154,6 @@ ensureCorrectUsage = go Map.empty []
         case s of
           ClientAction action ->
             case action of
-              -- After the client has terminated, it cannot execute any other
-              -- actions (this is not really about correct usage per se but
-              -- simply about sensible tests)
-
-              _ | clientTerminated st
-                -> go sts acc ss
-
-              Terminate _ ->
-                go (upd st{clientTerminated = True}) ((i, s) : acc) ss
-
               -- Request must be initiated before any messages can be sent
               --
               -- During generation we will generate this 'ClientInitiate' step
@@ -181,6 +171,16 @@ ensureCorrectUsage = go Map.empty []
                 go sts acc $ (i, ClientAction $ Initiate (Set.empty, RPC1))
                            : (i, s)
                            : ss
+
+              -- After the client has terminated, it cannot execute any other
+              -- actions (this is not really about correct usage per se but
+              -- simply about sensible tests)
+
+              _ | clientTerminated st
+                -> go sts acc ss
+
+              Terminate _ ->
+                go (upd st{clientTerminated = True}) ((i, s) : acc) ss
 
               -- Make sure no messages are sent after the final one
 
