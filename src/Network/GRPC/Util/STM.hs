@@ -14,7 +14,7 @@ import GHC.Stack
   Wrap exceptions with a callstack
 -------------------------------------------------------------------------------}
 
-data STMException = STMException SomeException CallStack
+data STMException = STMException CallStack SomeException
   deriving stock (Show)
   deriving anyclass (Exception)
 
@@ -26,5 +26,4 @@ data STMException = STMException SomeException CallStack
 -- handler /outside/ of the STM transaction.
 atomically :: HasCallStack => STM a -> IO a
 atomically action =
-    NotExported.atomically action `catch` \e ->
-      throwIO $ STMException e callStack
+    NotExported.atomically action `catch` (throwIO . STMException callStack )

@@ -3,13 +3,20 @@ module Test.Driver.Dialogue.Definition (
     LocalStep(..)
   , Action(..)
   , RPC(..)
-  , ExceptionId(..)
   , Metadata
     -- * Bird's-eye view
   , GlobalSteps(..)
   , LocalSteps(..)
+    -- * Exceptions
+    -- ** User exceptions
+  , SomeClientException(..)
+  , SomeServerException(..)
+  , ExceptionId(..)
+    -- ** Wrappers
+  , AnnotatedServerException(..)
   ) where
 
+import Control.Exception
 import Data.Set (Set)
 import GHC.Generics qualified as GHC
 import Text.Show.Pretty
@@ -66,11 +73,6 @@ data RPC = RPC1 | RPC2 | RPC3
   deriving stock (Show, Eq, GHC.Generic)
   deriving anyclass (PrettyVal)
 
--- | We distinguish exceptions from each other simply by a number
-newtype ExceptionId = ExceptionId Int
-  deriving stock (Show, Eq, GHC.Generic)
-  deriving anyclass (PrettyVal)
-
 -- | Metadata
 --
 -- We use 'Set' for 'CustomMetadata' rather than a list, because we do not
@@ -93,4 +95,42 @@ newtype GlobalSteps = GlobalSteps {
   deriving stock (GHC.Generic)
   deriving anyclass (PrettyVal)
   deriving Show via ShowAsPretty GlobalSteps
+
+{-------------------------------------------------------------------------------
+  User exceptions
+
+  When a test calls for the client or the server to throw an exception, we throw
+  one of these. Their sole purpose is to be "any" kind of exception (not a
+  specific one).
+-------------------------------------------------------------------------------}
+
+data SomeServerException = SomeServerException ExceptionId
+  deriving stock (Show, GHC.Generic)
+  deriving anyclass (Exception, PrettyVal)
+
+data SomeClientException = SomeClientException ExceptionId
+  deriving stock (Show, GHC.Generic)
+  deriving anyclass (Exception, PrettyVal)
+
+-- | We distinguish exceptions from each other simply by a number
+newtype ExceptionId = ExceptionId Int
+  deriving stock (Show, Eq, GHC.Generic)
+  deriving anyclass (PrettyVal)
+
+{-------------------------------------------------------------------------------
+  Exception wrappers
+-------------------------------------------------------------------------------}
+
+-- | Annotated server handler exception
+--
+-- When a server handler throws an exception, it is useful to know what that
+-- particular handler was executing.
+data AnnotatedServerException = AnnotatedServerException {
+       serverGlobalException          :: SomeException
+     , serverGlobalExceptionSteps     :: LocalSteps
+     , serverGlobalExceptionCallStack :: PrettyCallStack
+     }
+  deriving stock (GHC.Generic)
+  deriving anyclass (Exception, PrettyVal)
+  deriving Show via ShowAsPretty AnnotatedServerException
 

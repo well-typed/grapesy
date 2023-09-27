@@ -6,6 +6,7 @@ import Control.Tracer
 import Data.Aeson
 import Data.Default
 
+import Network.GRPC.Common.Compression qualified as Compression
 import Network.GRPC.Server
 import Network.GRPC.Server.Protobuf
 import Network.GRPC.Server.Run
@@ -64,7 +65,11 @@ getRouteGuideDb = do
 
 serverParams :: Cmdline -> ServerParams
 serverParams cmd = def {
-      serverDebugTracer =
+      serverCompression =
+        if cmdDisableCompression cmd
+          then Compression.none
+          else serverCompression def
+    , serverDebugTracer =
         if cmdDebug cmd
           then contramap show threadSafeTracer
           else serverDebugTracer def

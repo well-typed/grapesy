@@ -44,6 +44,11 @@ module Network.GRPC.Util.Session (
     -- *** Server
   , ConnectionToClient(..)
   , setupResponseChannel
+    -- ** Status
+  , ChannelStatus(..)
+  , FlowStatus(..)
+  , checkChannelStatus
+  , isChannelHealthy
     -- ** Logging
   , DebugMsg(..)
   ) where

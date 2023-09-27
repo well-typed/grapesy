@@ -18,6 +18,8 @@ import Data.Proxy
 import Data.Set qualified as Set
 import Data.Text qualified as Text
 import GHC.Generics qualified as GHC
+import System.IO.Unsafe (unsafePerformIO)
+import System.Timeout (timeout)
 import Text.Show.Pretty
 
 import Network.GRPC.Client qualified as Client
@@ -31,7 +33,6 @@ import Test.Driver.ClientServer
 import Test.Driver.Dialogue.Definition
 import Test.Driver.Dialogue.TestClock
 import Test.Util.PrettyVal
-import System.IO.Unsafe (unsafePerformIO)
 
 {-------------------------------------------------------------------------------
   Endpoints
@@ -71,31 +72,29 @@ data Failure =
   deriving anyclass (Exception, PrettyVal)
 
 data ReceivedUnexpected = forall a. (Show a, PrettyVal a) => ReceivedUnexpected {
-      expected :: a
-    , received :: a
+      received :: a
     }
 
 deriving stock instance Show ReceivedUnexpected
 
 instance PrettyVal ReceivedUnexpected where
-  prettyVal (ReceivedUnexpected{expected, received}) =
+  prettyVal (ReceivedUnexpected{received}) =
       Rec "ReceivedUnexpected" [
-          ("expected", prettyVal expected)
-        , ("received", prettyVal received)
+          ("received", prettyVal received)
         ]
 
 expect ::
-     (MonadThrow m, Eq a, Show a, PrettyVal a, HasCallStack)
-  => a  -- ^ Expected
-  -> a  -- ^ Actually received
+     (MonadThrow m, Show a, PrettyVal a, HasCallStack)
+  => (a -> Bool)  -- ^ Expected
+  -> a            -- ^ Actually received
   -> m ()
-expect expected received
-  | expected == received
+expect isExpected received
+  | isExpected received
   = return ()
 
   | otherwise
   = throwM $ TestFailure prettyCallStack $
-      Unexpected $ ReceivedUnexpected{expected, received}
+      Unexpected $ ReceivedUnexpected{received}
 
 {-------------------------------------------------------------------------------
   Health
@@ -109,6 +108,7 @@ expect expected received
 -- response from the client. Therefore, the client interpretation keeps track of
 -- the health of the server, and vice versa.
 data Health e a = Alive a | Failed e | Disappeared
+  deriving stock (Show)
 
 type ServerHealth = Health SomeServerException
 type ClientHealth = Health SomeClientException
@@ -126,22 +126,6 @@ instance Monad (Health e) where
 
 ifAlive :: (a -> Health e b) -> Health e a -> Health e b
 ifAlive = (=<<)
-
-{-------------------------------------------------------------------------------
-  Exceptions
-
-  When the dialogue calls for the client or the server to throw an exception,
-  we throw one of these. Their sole purpose is to be "any" kind of exception
-  (not a specific one).
--------------------------------------------------------------------------------}
-
-data SomeServerException = SomeServerException ExceptionId
-  deriving stock (Show)
-  deriving anyclass (Exception)
-
-data SomeClientException = SomeClientException ExceptionId
-  deriving stock (Show)
-  deriving anyclass (Exception)
 
 {-------------------------------------------------------------------------------
   Client-side interpretation
@@ -163,27 +147,27 @@ clientLocal testClock call = \(LocalSteps steps) ->
         case step of
           ClientAction action -> do
             liftIO $ waitForTestClockTick testClock tick
-            continue <-   goClient action
+            continue <-   clientAct action
                         `finally`
                           liftIO (advanceTestClock testClock)
             when continue $ go steps
           ServerAction action -> do
-            goServer action
+            reactToServer action
             go steps
 
     -- Client action
     --
     -- Returns 'True' if we should continue executing more actions, or
     -- exit (thereby closing the RPC call)
-    goClient ::
+    clientAct ::
          Action (Metadata, RPC) NoMetadata
       -> StateT (ServerHealth ()) IO Bool
-    goClient = \case
+    clientAct = \case
         Initiate _ ->
           error "clientLocal: unexpected Initiate"
         Send x -> do
-          expected <- adjustExpectation ()
-          expect expected =<< liftIO (try $ Client.Binary.sendInput call x)
+          isExpected <- adjustExpectation ()
+          expect isExpected =<< liftIO (try $ Client.Binary.sendInput call x)
 
           -- This is making a difference:  we see an extra frame, that is
           -- termating the stream. However, the server recvMessageLoop for some
@@ -204,63 +188,72 @@ clientLocal testClock call = \(LocalSteps steps) ->
           liftIO $ threadDelay (n * 1_000)
           return True
 
-    goServer ::
+    reactToServer ::
            Action Metadata Metadata
         -> StateT (ServerHealth ()) IO ()
-    goServer = \case
+    reactToServer = \case
         Initiate expectedMetadata -> liftIO $ do
           receivedMetadata <- atomically $ Client.recvResponseMetadata call
-          expect expectedMetadata $ Set.fromList receivedMetadata
+          expect (== expectedMetadata) $ Set.fromList receivedMetadata
         Send (FinalElem a b) -> do
           -- Known bug (limitation in http2). See recvMessageLoop.
-          goServer $ Send (StreamElem a)
-          goServer $ Send (NoMoreElems b)
+          reactToServer $ Send (StreamElem a)
+          reactToServer $ Send (NoMoreElems b)
         Send expectedElem -> do
           expected <- adjustExpectation expectedElem
           received <- liftIO . try $
                         fmap (first Set.fromList) $
                           Client.Binary.recvOutput call
           expect expected received
-        Terminate (Just exceptionId) -> do
-          previousServerFailure <- adjustExpectation ()
-          case previousServerFailure of
-            Left  _  -> return ()
-            Right () -> put $ Failed $ SomeServerException exceptionId
-        Terminate Nothing ->
-          -- The server disappearing won't be noticed in the client until we
-          -- try to send or receive a message
-          modify $ ifAlive $ \() -> Disappeared
+        Terminate mErr -> do
+          reactToServerTermination mErr
         SleepMilli _ ->
           return ()
+
+    -- See 'reactToClientTermination' for discussion.
+    reactToServerTermination ::
+         Maybe ExceptionId
+      -> StateT (ServerHealth ()) IO ()
+    reactToServerTermination mErr = do
+        liftIO $ void . timeout 5_000_000 $ atomically $ do
+          healthy <- Client.isCallHealthy call
+          when healthy $ retry
+        modify $ ifAlive $ \() ->
+          case mErr of
+            Just i  -> Failed $ SomeServerException i
+            Nothing -> Disappeared
 
     -- Adjust expectation when communicating with the server
     --
     -- If the server handler died for some reason, we won't get the regular
     -- result, but should instead see the exception reported to the client.
     adjustExpectation :: forall a.
-         a
-      -> StateT (ServerHealth ()) IO (Either GrpcException a)
+         Eq a
+      => a
+      -> StateT (ServerHealth ()) IO (Either GrpcException a -> Bool)
     adjustExpectation x =
         return . aux =<< get
      where
-       aux :: ServerHealth () -> Either GrpcException a
-       aux serverHealth =
+       aux :: ServerHealth () -> Either GrpcException a -> Bool
+       aux serverHealth result =
            case serverHealth of
              Failed err ->
-               Left GrpcException {
-                   grpcError         = GrpcUnknown
-                 , grpcErrorMessage  = Just $ Text.pack $ show err
-                 , grpcErrorMetadata = []
-                 }
+               case result of
+                 Left (GrpcException GrpcUnknown msg [])
+                   | msg == Just (Text.pack $ show err)
+                   -> True
+                 _otherwise -> False
              Disappeared ->
                -- TODO: Not really sure what exception we get here actually
-               Left GrpcException {
-                   grpcError         = GrpcUnknown
-                 , grpcErrorMessage  = Just "TODO"
-                 , grpcErrorMetadata = []
-                 }
+               case result of
+                 Left (GrpcException GrpcUnknown msg [])
+                   | msg == Just "TODO"
+                   -> True
+                 _otherwise -> False
              Alive () ->
-               Right x
+               case result of
+                 Right x'   -> x == x'
+                 _otherwise -> False
 
 clientGlobal :: TestClock -> Client.Connection -> GlobalSteps -> IO ()
 clientGlobal testClock conn = \(GlobalSteps globalSteps) ->
@@ -297,6 +290,13 @@ clientGlobal testClock conn = \(GlobalSteps globalSteps) ->
                 -- We wait for the /server/ to advance the test clock (so that
                 -- we are use the next step doesn't happen until the connection
                 -- is established).
+                --
+                -- NOTE: We could instead wait for the server to send the
+                -- initial metadata; this too would provide evidence that the
+                -- conneciton has been established. However, doing so precludes
+                -- a class of correct behaviour: the server might not respond
+                -- with that initial metadata until the client has sent some
+                -- messages.
                 clientLocal testClock call (LocalSteps steps')
 
           _otherwise ->
@@ -364,31 +364,31 @@ serverLocal testClock call = \(LocalSteps steps) -> do
         case step of
           ServerAction action -> do
             liftIO $ waitForTestClockTick testClock tick
-            continue <-   goServer action
+            continue <-   serverAct action
                         `finally`
                           liftIO (advanceTestClock testClock)
             when continue $ go steps
           ClientAction action -> do
-            goClient action
+            reactToClient action
             go steps
 
     -- Server action
     --
     -- Returns 'True' if we should continue executing the other actions, or
     -- terminate (thereby terminating the handler)
-    goServer ::
+    serverAct ::
          Action Metadata Metadata
       -> StateT (ClientHealth ()) IO Bool
-    goServer = \case
+    serverAct = \case
         Initiate metadata -> liftIO $ do
           Server.setResponseMetadata call (Set.toList metadata)
           void $ Server.initiateResponse call
           return True
         Send x -> do
-          expected <- adjustExpectation ()
-          received <- try . liftIO $
-                        Server.Binary.sendOutput call (first Set.toList x)
-          expect expected received
+          isExpected <- adjustExpectation ()
+          received   <- try . liftIO $
+                          Server.Binary.sendOutput call (first Set.toList x)
+          expect isExpected received
           return True
         Terminate (Just exceptionId) -> do
           throwM $ SomeServerException exceptionId
@@ -399,50 +399,66 @@ serverLocal testClock call = \(LocalSteps steps) -> do
           liftIO $ threadDelay (n * 1_000)
           return True
 
-    goClient ::
+    reactToClient ::
            Action (Metadata, RPC) NoMetadata
         -> StateT (ClientHealth ()) IO ()
-    goClient = \case
+    reactToClient = \case
         Initiate _ ->
           error "serverLocal: unexpected ClientInitiateRequest"
         Send (FinalElem a b) -> do
           -- Known bug (limitation in http2). See recvMessageLoop.
-          goClient $ Send (StreamElem a)
-          goClient $ Send (NoMoreElems b)
+          reactToClient $ Send (StreamElem a)
+          reactToClient $ Send (NoMoreElems b)
         Send expectedElem -> do
-          expected <- adjustExpectation expectedElem
-          expect expected =<< liftIO (try $ Server.Binary.recvInput call)
-        Terminate (Just exceptionId) -> do
-          previousClientFailure <- adjustExpectation ()
-          case previousClientFailure of
-            Left  _  -> return ()
-            Right () -> put $ Failed $ SomeClientException exceptionId
-        Terminate Nothing -> do
-          -- The server disappearing won't be noticed in the client until we
-          -- try to send or receive a message
-          modify $ ifAlive $ \() -> Disappeared
+          isExpected <- adjustExpectation expectedElem
+          expect isExpected =<< liftIO (try $ Server.Binary.recvInput call)
+        Terminate mErr -> do
+          reactToClientTermination mErr
         SleepMilli _ ->
           return ()
 
-    -- Adjust expectation when communicating with the server
-    --
-    -- If the server handler died for some reason, we won't get the regular
-    -- result, but should instead see the exception reported to the client.
+    reactToClientTermination ::
+         Maybe ExceptionId
+      -> StateT (ClientHealth ()) IO ()
+    reactToClientTermination mErr = do
+        -- Wait for the client-side exception to become noticable server-side.
+        -- Under normal circumstances the server will only notice this when
+        -- trying to communicate; by explicitly checking we avoid
+        -- non-determinism in the test (where the exception may or may not
+        -- already have been come visible server-side).
+        liftIO $ void . timeout 5_000_000 $ atomically $ do
+          healthy <- Server.isCallHealthy call
+          when healthy $ retry
+
+        -- Update client health, /if/ the client was alive at this point
+        modify $ ifAlive $ \() ->
+          case mErr of
+            Just i  -> Failed $ SomeClientException i
+            Nothing -> Disappeared
+
+    -- Adjust expectation when communicating with the client
     adjustExpectation :: forall a.
-         a
-      -> StateT (ClientHealth ()) IO (Either ClientDisconnected a)
+         Eq a
+      => a
+      -> StateT (ClientHealth ()) IO (Either Server.ClientDisconnected a -> Bool)
     adjustExpectation x =
         return . aux =<< get
      where
-       aux :: ClientHealth () -> Either ClientDisconnected a
-       aux clientHealth =
+       aux :: ClientHealth () -> Either Server.ClientDisconnected a -> Bool
+       aux clientHealth result =
            case clientHealth of
              Failed _err ->
-               Left ClientDisconnected
+               case result of
+                 Left (Server.ClientDisconnected _) -> True
+                 _otherwise                         -> False
              Disappeared ->
-               Left ClientDisconnected
+               case result of
+                 Left (Server.ClientDisconnected _) -> True
+                 _otherwise                         -> False
              Alive () ->
-               Right x
+               case result of
+                 Right x'   -> x == x'
+                 _otherwise -> False
 
 serverGlobal ::
      HasCallStack
@@ -470,7 +486,7 @@ serverGlobal testClock globalStepsVar call = do
          -- takes too long, the /client/ will check that it gets the expected
          -- exception.
          receivedMetadata <- Server.getRequestMetadata call
-         expect metadata $ Set.fromList receivedMetadata
+         expect (== metadata) $ Set.fromList receivedMetadata
          serverLocal testClock call $ LocalSteps steps'
        _otherwise ->
           error "serverGlobal: expected ClientInitiateRequest"
@@ -482,32 +498,11 @@ serverGlobal testClock globalStepsVar call = do
         return (GlobalSteps global', LocalSteps steps)
 
     annotate :: LocalSteps -> SomeException -> IO ()
-    annotate steps err = throwM $ ServerGlobalException {
+    annotate steps err = throwM $ AnnotatedServerException {
           serverGlobalException          = err
         , serverGlobalExceptionSteps     = steps
         , serverGlobalExceptionCallStack = prettyCallStack
         }
-
--- | Exception raised in a handler when the client disappeared
---
--- TODO: This is merely wishful thinking at the moment; this needs to move to
--- the main library and be implemented there.
-data ClientDisconnected = ClientDisconnected
-  deriving stock (Show, Eq, GHC.Generic)
-  deriving anyclass (Exception, PrettyVal)
-
--- | Annotated server handler exception
---
--- When a server handler throws an exception, it is useful to know what that
--- particular handler was executing.
-data ServerGlobalException = ServerGlobalException {
-       serverGlobalException          :: SomeException
-     , serverGlobalExceptionSteps     :: LocalSteps
-     , serverGlobalExceptionCallStack :: PrettyCallStack
-     }
-  deriving stock (GHC.Generic)
-  deriving anyclass (Exception, PrettyVal)
-  deriving Show via ShowAsPretty ServerGlobalException
 
 {-------------------------------------------------------------------------------
   Top-level

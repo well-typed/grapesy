@@ -1,9 +1,11 @@
 -- | Tests to go with <https://github.com/kazu-yamamoto/http2/pull/84>
 module Test.Sanity.HalfClosedLocal (tests) where
 
+import Control.Exception
 import Control.Monad
 import Data.Default
 import Data.Proxy
+import Data.Void
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -29,7 +31,7 @@ tests = testGroup "Test.Sanity.HalfClosedLocal" [
 type Simple = BinaryRpc "HalfClosedLocal" "simple"
 
 test_simple :: IO String
-test_simple = testClientServer $ \k -> k def {
+test_simple = testClientServer assessCustomException $ \k -> k def {
       client = \conn ->
           Client.withRPC conn def (Proxy @Simple) $ \call -> do
             [] <- Client.recvAllOutputs call $ \_ -> error "unexpected output"
@@ -69,7 +71,7 @@ test_simple = testClientServer $ \k -> k def {
 type TrailersOnly = BinaryRpc "HalfClosedLocal" "trailersOnly"
 
 test_trailersOnly :: IO String
-test_trailersOnly = testClientServer $ \k -> k def {
+test_trailersOnly = testClientServer assessCustomException $ \k -> k def {
       client = \conn ->
           Client.withRPC conn def (Proxy @TrailersOnly) $ \call -> do
             [] <- Client.recvAllOutputs call $ \_ -> error "unexpected output"
@@ -100,3 +102,9 @@ test_trailersOnly = testClientServer $ \k -> k def {
             NoMoreElems NoMetadata ->
               return ()
 
+{-------------------------------------------------------------------------------
+  Auxiliary
+-------------------------------------------------------------------------------}
+
+assessCustomException :: SomeException -> CustomException Void
+assessCustomException = const CustomExceptionUnexpected

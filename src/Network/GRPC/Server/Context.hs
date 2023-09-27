@@ -69,13 +69,16 @@ instance Default ServerParams where
 -------------------------------------------------------------------------------}
 
 data ServerDebugMsg =
-    NewRequest Path
+    -- | New request
+    ServerDebugRequest Path
 
+    -- | Message on existing connection
   | forall rpc.
           IsRPC rpc
-       => PeerDebugMsg (Session.DebugMsg (ServerSession rpc))
+       => ServerDebugMsg (Session.DebugMsg (ServerSession rpc))
 
-   | AcceptCallFailed SomeException
+     -- | Could not connect to the client
+  | ServerDebugAcceptFailed SomeException
 
 deriving instance Show ServerDebugMsg
 

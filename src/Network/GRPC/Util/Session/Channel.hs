@@ -26,6 +26,11 @@ module Network.GRPC.Util.Session.Channel (
   , sendMessageLoop
   , recvMessageLoop
   , outboundTrailersMaker
+    -- * Status
+  , ChannelStatus(..)
+  , FlowStatus(..)
+  , checkChannelStatus
+  , isChannelHealthy
     -- ** Logging
   , DebugMsg(..)
   ) where
@@ -84,15 +89,15 @@ data Channel sess = Channel {
 
       -- | 'CallStack' of the final call to 'send'
       --
-      -- The sole purpose of this 'TMVar' is catching user mistakes: if there is
+      -- The sole purpose of this 'TVar' is catching user mistakes: if there is
       -- another 'send' after the final message, we can throw an exception,
       -- rather than the message simply being lost or blockng indefinitely.
-    , channelSentFinal :: TMVar CallStack
+    , channelSentFinal :: TVar (Maybe CallStack)
 
       -- | 'CallStack' of the final call to 'recv'
       --
       -- This is just to improve the user experience; see 'channelSentFinal'.
-    , channelRecvFinal :: TMVar CallStack
+    , channelRecvFinal :: TVar (Maybe CallStack)
     }
 
 -- | Data flow state
@@ -167,14 +172,88 @@ initChannel =
     Channel
       <$> newThreadState
       <*> newThreadState
-      <*> newEmptyTMVarIO
-      <*> newEmptyTMVarIO
+      <*> newTVarIO Nothing
+      <*> newTVarIO Nothing
 
 initFlowStateRegular :: Headers flow -> IO (RegularFlowState flow)
 initFlowStateRegular headers = do
     RegularFlowState headers
       <$> newEmptyTMVarIO
       <*> newEmptyTMVarIO
+
+{-------------------------------------------------------------------------------
+  Status check
+-------------------------------------------------------------------------------}
+
+data ChannelStatus sess = ChannelStatus {
+      channelStatusInbound   :: FlowStatus (Inbound sess)
+    , channelStatusOutbound  :: FlowStatus (Outbound sess)
+    , channelStatusSentFinal :: Bool
+    , channelStatusRecvFinal :: Bool
+    }
+
+data FlowStatus flow =
+    FlowNotYetEstablished
+  | FlowEstablished (FlowState flow)
+  | FlowTerminated
+  | FlowFailed SomeException
+
+-- | Get channel status
+--
+-- This is inherently non-deterministic: it is entirely possible that the
+-- connection to the peer has already been broken but we haven't noticed yet,
+-- or that the connection will be broken immediately after this call and before
+-- whatever the next call is.
+checkChannelStatus :: Channel sess -> STM (ChannelStatus sess)
+checkChannelStatus Channel{ channelInbound
+                   , channelOutbound
+                   , channelSentFinal
+                   , channelRecvFinal
+                   } = do
+    stInbound  <- readTVar channelInbound
+    stOutbound <- readTVar channelOutbound
+    channelStatusInbound   <- go stInbound
+    channelStatusOutbound  <- go stOutbound
+    channelStatusSentFinal <- isFinal <$> readTVar channelSentFinal
+    channelStatusRecvFinal <- isFinal <$> readTVar channelRecvFinal
+    return ChannelStatus{
+        channelStatusInbound
+      , channelStatusOutbound
+      , channelStatusSentFinal
+      , channelStatusRecvFinal
+      }
+  where
+    go :: ThreadState (TMVar (FlowState flow)) -> STM (FlowStatus flow)
+    go ThreadNotStarted       = return FlowNotYetEstablished
+    go (ThreadInitializing _) = return FlowNotYetEstablished
+    go (ThreadRunning _ a)    = FlowEstablished <$> readTMVar a
+    go (ThreadDone _)         = return $ FlowTerminated
+    go (ThreadException e)    = return $ FlowFailed e
+
+    isFinal :: Maybe CallStack -> Bool
+    isFinal = maybe False (const True)
+
+-- | Check if the channel is healthy
+--
+-- This is a simplified API on top of 'getChannelStatus, which
+--
+-- * retries if the flow in either direction has not yet been established
+-- * returns 'False' if the flow in either direction has been terminated,
+--   or has failed
+-- * returns 'True' otherwise.
+isChannelHealthy :: Channel sess -> STM Bool
+isChannelHealthy channel = do
+    status <- checkChannelStatus channel
+    case (channelStatusInbound status, channelStatusOutbound status) of
+      (FlowNotYetEstablished , _                    ) -> retry
+      (_                     , FlowNotYetEstablished) -> retry
+
+      (FlowTerminated        , _                    ) -> return False
+      (_                     , FlowTerminated       ) -> return False
+      (FlowFailed _          , _                    ) -> return False
+      (_                     , FlowFailed _         ) -> return False
+
+      (FlowEstablished _     , FlowEstablished _    ) -> return True
 
 {-------------------------------------------------------------------------------
   Working with an open channel
@@ -208,7 +287,7 @@ send Channel{channelOutbound, channelSentFinal} msg = do
     -- messages to the peer will get to it eventually (unless it dies, in which
     -- case the thread status will change and the call to 'getThreadInterface'
     -- will be retried).
-    sentFinal <- tryReadTMVar channelSentFinal
+    sentFinal <- readTVar channelSentFinal
     case sentFinal of
       Just cs -> throwSTM $ SendAfterFinal cs
       Nothing -> do
@@ -216,7 +295,7 @@ send Channel{channelOutbound, channelSentFinal} msg = do
         case st of
           FlowStateRegular regular -> do
             StreamElem.whenDefinitelyFinal msg $ \_trailers ->
-              putTMVar channelSentFinal callStack
+              writeTVar channelSentFinal $ Just callStack
             putTMVar (flowMsg regular) msg
           FlowStateNoMessages _ ->
             -- For outgoing messages, the caller decides to use Trailers-Only,
@@ -241,7 +320,7 @@ recv Channel{channelInbound, channelRecvFinal} = do
     -- receives messages from the peer will get to it eventually (unless it
     -- dies, in which case the thread status will change and the call to
     -- 'getThreadInterface' will be retried).
-    readFinal <- tryReadTMVar channelRecvFinal
+    readFinal <- readTVar channelRecvFinal
     case readFinal of
       Just cs -> throwSTM $ RecvAfterFinal cs
       Nothing -> do
@@ -252,10 +331,10 @@ recv Channel{channelInbound, channelRecvFinal} = do
             -- We update 'channelRecvFinal' in the same tx as the read, to
             -- atomically change from "there is a value" to "all values read".
             StreamElem.whenDefinitelyFinal msg $ \_trailers ->
-              putTMVar channelRecvFinal callStack
+              writeTVar channelRecvFinal $ Just callStack
             return $ first Right msg
           FlowStateNoMessages trailers -> do
-            putTMVar channelRecvFinal callStack
+            writeTVar channelRecvFinal $ Just callStack
             return $ NoMoreElems (Left trailers)
 
 -- | Thrown by 'send'

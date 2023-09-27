@@ -20,6 +20,7 @@ data Cmdline = Cmdline {
     , cmdSecure               :: Maybe SecureConfig
     , cmdDebug                :: Bool
     , cmdTrailersOnlyShortcut :: Bool
+    , cmdDisableCompression   :: Bool
     }
   deriving (Show)
 
@@ -43,6 +44,10 @@ parseCmdline =
       <*> (Opt.switch $ mconcat [
                Opt.long "trailers-only-shortcut"
              , Opt.help "Use Trailers-Only even in non-error cases"
+             ])
+      <*> (Opt.switch $ mconcat [
+               Opt.long "disable-compression"
+             , Opt.help "Disable support for compression"
              ])
 
 parseInsecure :: Opt.Parser (Maybe InsecureConfig)

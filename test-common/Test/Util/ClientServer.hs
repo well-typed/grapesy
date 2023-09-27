@@ -8,6 +8,9 @@ module Test.Util.ClientServer (
   , TlsOk(..)
   , TlsFail(..)
     -- ** Evaluation
+  , ExpectedException(..)
+  , UnexpectedException(..)
+  , CustomException(..)
   , isExpectedException
     -- * Run
   , runTestClientServer
@@ -44,16 +47,20 @@ import Network.GRPC.Server.Run qualified as Server
 import Test.Util.PrettyVal
 
 import Paths_grapesy
-import Control.Applicative
 
 {-------------------------------------------------------------------------------
   Configuration
 -------------------------------------------------------------------------------}
 
 data ClientServerConfig = ClientServerConfig {
+      -- | Compression algorithms supported by the client
       clientCompr :: Compr.Negotation
+
+      -- | Compression algorithms supported the server
     , serverCompr :: Compr.Negotation
-    , useTLS      :: Maybe TlsSetup
+
+      -- | TLS setup (if using)
+    , useTLS :: Maybe TlsSetup
     }
 
 instance Default ClientServerConfig where
@@ -73,8 +80,11 @@ data LogMsg =
   deriving stock (Show, GHC.Generic)
   deriving anyclass (PrettyVal)
 
-collectLogMsgs :: MonadIO m => MVar [a] -> Tracer m a
-collectLogMsgs v = arrow $ emit $ \x -> liftIO $ modifyMVar_ v $ return . (x:)
+collectLogMsgs :: (MonadIO m) => MVar [a] -> Tracer m a
+collectLogMsgs v = arrow $ emit $ \x -> liftIO $
+    modifyMVar_ v $ \xs -> do
+      -- print x
+      return (x:xs)
 
 {-------------------------------------------------------------------------------
   Configuration: TLS
@@ -116,76 +126,124 @@ data TlsFail =
   Config evaluation (do we expect an error?)
 -------------------------------------------------------------------------------}
 
-data ExpectedException =
-    ExpectedTlsException TLSException
-  | ExpectedGrpcException GrpcException
-  | ExpectedCompressionNegotationFailed CompressionNegotationFailed
-  deriving (Show)
+data ExpectedException e =
+    ExpectedExceptionTls TLSException
+  | ExpectedExceptionGrpc GrpcException
+  | ExpectedExceptionCompressionNegotationFailed CompressionNegotationFailed
+  | ExpectedExceptionDouble (DoubleException (ExpectedException e))
+  | ExpectedExceptionCustom e
+  deriving stock (Show, GHC.Generic)
+  deriving anyclass (PrettyVal)
+
+data UnexpectedException = UnexpectedException {
+      -- | The top-level exception (including any wrapper exceptions)
+      unexpectedExceptionTopLevel :: SomeException
+
+      -- | The (possibly nested) exception that was actually unexpected
+    , unexpectedExceptionNested :: SomeException
+    }
+  deriving stock (Show)
+  deriving anyclass (Exception)
+
+data CustomException e =
+    CustomExceptionExpected e
+  | CustomExceptionUnexpected
+  | CustomExceptionNested SomeException
 
 -- | Check if the given configuration gives rise to expected exceptions
 --
--- Returns 'Just' the expected exception if any (with any wrapper exceptions
--- removed), 'Nothing' if the exception was unexpected.
-isExpectedException ::
+-- Returns 'Right' the expected exception if any (with any wrapper exceptions
+-- removed), 'Left' some (possibly nested) exception if the exception was
+-- unexpected.
+isExpectedException :: forall e.
      ClientServerConfig
+  -> (SomeException -> CustomException e)
+  -- ^ Assess custom exceptiosn
+  --
+  -- Can either return e nested exception, or an evaluation whether the
+  -- exception is expected or not.
   -> SomeException
-  -> Maybe ExpectedException
-isExpectedException cfg err
-
-    --
-    -- Expected exceptions
-    --
-
-    | Just (tls :: TLSException) <- fromException err
-    = case (useTLS cfg, tls) of
-        (   Just (TlsFail TlsFailValidation)
-          , HandshakeFailed (Error_Protocol (_msg, _bool, UnknownCa))
-          ) ->
-          Just $ ExpectedTlsException tls
-        (   Just (TlsFail TlsFailHostname)
-          , HandshakeFailed (Error_Protocol (_msg, _bool, CertificateUnknown))
-          ) ->
-           Just $ ExpectedTlsException tls
-        (   Just (TlsFail TlsFailUnsupported)
-          , HandshakeFailed (Error_Packet_Parsing _)
-          ) ->
-           Just $ ExpectedTlsException tls
-        _otherwise ->
-          Nothing
-
-    | Just (grpc :: GrpcException) <- fromException err
-    = if | compressionNegotationFailure
-         , GrpcUnknown <- grpcError grpc
-         , Just msg <- grpcErrorMessage grpc
-         , "CompressionNegotationFailed" `Text.isInfixOf` msg
-         -> Just $ ExpectedGrpcException grpc
-
-         | otherwise
-         -> Nothing
-
-    | Just (compr :: CompressionNegotationFailed) <- fromException err
-    , compressionNegotationFailure
-    = Just $ ExpectedCompressionNegotationFailed compr
-
-    --
-    -- Wrappers
-    --
-
-    | Just (ClientException err' _logs) <- fromException err
-    = isExpectedException cfg err'
-
-    | Just (DoubleException err'1 err'2 _logs) <- fromException err
-    = isExpectedException cfg err'1 <|> isExpectedException cfg err'2
-
-    | Just (STMException err' _stack) <- fromException err
-    = isExpectedException cfg err'
-
-    | Just (ThreadInterfaceUnavailable err' _stack) <- fromException err
-    = isExpectedException cfg err'
-
-    | otherwise
-    = Nothing
+  -> Either UnexpectedException (ExpectedException e)
+isExpectedException cfg assessCustomException topLevel =
+    go topLevel
   where
+    go :: SomeException -> Either UnexpectedException (ExpectedException e)
+    go err
+      --
+      -- Expected exceptions
+      --
+
+      | Just (tls :: TLSException) <- fromException err
+      = case (useTLS cfg, tls) of
+          (   Just (TlsFail TlsFailValidation)
+            , HandshakeFailed (Error_Protocol (_msg, _bool, UnknownCa))
+            ) ->
+            Right $ ExpectedExceptionTls tls
+          (   Just (TlsFail TlsFailHostname)
+            , HandshakeFailed (Error_Protocol (_msg, _bool, CertificateUnknown))
+            ) ->
+             Right $ ExpectedExceptionTls tls
+          (   Just (TlsFail TlsFailUnsupported)
+            , HandshakeFailed (Error_Packet_Parsing _)
+            ) ->
+             Right $ ExpectedExceptionTls tls
+          _otherwise ->
+            Left $ UnexpectedException topLevel err
+
+      | Just (grpc :: GrpcException) <- fromException err
+      , compressionNegotationFailure
+      , GrpcUnknown <- grpcError grpc
+      , Just msg <- grpcErrorMessage grpc
+      , "CompressionNegotationFailed" `Text.isInfixOf` msg
+      = Right $ ExpectedExceptionGrpc grpc
+
+      | Just (compr :: CompressionNegotationFailed) <- fromException err
+      , compressionNegotationFailure
+      = Right $ ExpectedExceptionCompressionNegotationFailed compr
+
+      --
+      -- Wrappers
+      --
+
+      | Just (ClientException err' _logs) <- fromException err
+      = go err'
+      | Just (ServerException err' _logs) <- fromException err
+      = go err'
+      | Just (DoubleException { doubleExceptionClient
+                              , doubleExceptionServer
+                              }) <- fromException err
+      = case (go doubleExceptionClient, go doubleExceptionServer) of
+          (Left unexpected, _) -> Left unexpected
+          (_, Left unexpected) -> Left unexpected
+          (Right expected, Right expected') ->
+            Right $ ExpectedExceptionDouble DoubleException {
+                doubleExceptionClient = expected
+              , doubleExceptionServer = expected'
+              , doubleExceptionAnnotation = ()
+              }
+
+      | Just (STMException _stack err' ) <- fromException err
+      = go err'
+      | Just (ThreadInterfaceUnavailable  _stack err') <- fromException err
+      = go err'
+      | Just (ThreadCancelled _stack err') <- fromException err
+      = go err'
+      | Just (ChannelException _stack err') <- fromException err
+      = go err'
+
+      --
+      -- Custom exceptions
+      --
+
+      | otherwise
+      = case assessCustomException err of
+          CustomExceptionExpected err' ->
+            Right $ ExpectedExceptionCustom err'
+          CustomExceptionUnexpected ->
+            Left $ UnexpectedException topLevel err
+          CustomExceptionNested err' ->
+            go err'
+
     compressionNegotationFailure :: Bool
     compressionNegotationFailure =
         Set.disjoint (Map.keysSet (Compr.supported (clientCompr cfg)))
@@ -262,9 +320,9 @@ runTestServer cfg serverExceptions serverTracer handlerLock serverHandlers = do
                   serverSetup    = serverSetup
                 , serverInsecure = Nothing
                 , serverSecure   = Just $ Server.SecureConfig {
-                          secureHost       = "localhost"
-                        , securePort       = 50052
-                        , securePubCert    = pubCert
+                      secureHost       = "localhost"
+                    , securePort       = 50052
+                    , securePubCert    = pubCert
                     , secureChainCerts = []
                     , securePrivKey    = privKey
                     , secureSslKeyLog  = SslKeyLogNone
@@ -296,9 +354,16 @@ runTestClient cfg clientTracer clientRun = do
 
     let clientParams :: Client.ConnParams
         clientParams = Client.ConnParams {
-              connDebugTracer    = clientTracer
-            , connCompression    = clientCompr cfg
-            , connDefaultTimeout = Nothing
+              connDebugTracer     = clientTracer
+            , connCompression     = clientCompr cfg
+            , connDefaultTimeout  = Nothing
+
+              -- We need a single reconnect, to enable wait-for-ready.
+              -- This avoids a race condition between the server starting first
+              -- and the client starting first.
+            , connReconnectPolicy =
+                  Client.ReconnectAfter (0.1, 0.2)
+                $ Client.DontReconnect
             }
 
         clientServer :: Client.Server
@@ -388,10 +453,7 @@ runTestClientServer cfg clientRun serverHandlers = do
     --
     -- We run this in its own thread, so we can catch its exceptions separately
     -- from the one from the server (see below)
-    client <- async $ do
-      -- TODO: This threadDelay is obviously awful. When we fix proper
-      -- wait-for-ready semantics, we can avoid it.
-      threadDelay 100_000
+    client <- async $
       runTestClient
         cfg
         (contramap ClientLogMsg logTracer)
@@ -429,9 +491,9 @@ runTestClientServer cfg clientRun serverHandlers = do
           }
       (Left serverErr, Left clientErr) ->
         throwIO $ DoubleException {
-            doubleExceptionServer = serverErr
-          , doubleExceptionClient = clientErr
-          , doubleExceptionLogs   = logMsgs
+            doubleExceptionServer     = serverErr
+          , doubleExceptionClient     = clientErr
+          , doubleExceptionAnnotation = logMsgs
           }
 
 data ServerException = ServerException {
@@ -450,13 +512,24 @@ data ClientException = ClientException {
   deriving anyclass (Exception, PrettyVal)
   deriving Show via ShowAsPretty ClientException
 
-data DoubleException = DoubleException {
-      doubleExceptionClient :: SomeException
-    , doubleExceptionServer :: SomeException
-    , doubleExceptionLogs   :: [LogMsg]
+data DoubleException e = forall a. (Show a, PrettyVal a) => DoubleException {
+      doubleExceptionClient     :: e
+    , doubleExceptionServer     :: e
+    , doubleExceptionAnnotation :: a
     }
-  deriving stock (GHC.Generic)
-  deriving anyclass (Exception, PrettyVal)
-  deriving Show via ShowAsPretty DoubleException
+  deriving anyclass (Exception)
+  deriving Show via ShowAsPretty (DoubleException e)
+
+instance PrettyVal e => PrettyVal (DoubleException e) where
+  prettyVal DoubleException{ doubleExceptionClient
+                           , doubleExceptionServer
+                           , doubleExceptionAnnotation
+                           } =
+     Rec "DoubleException" [
+         ("doubleExceptionClient", prettyVal doubleExceptionClient)
+       , ("doubleExceptionServer", prettyVal doubleExceptionServer)
+       , ("doubleExceptionAnnotation", prettyVal doubleExceptionAnnotation)
+       ]
+
 
 

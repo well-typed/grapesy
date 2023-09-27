@@ -142,16 +142,16 @@ cancelThread state e = join . atomically $ do
   where
     kill :: ThreadId -> IO (Either SomeException a)
     kill tid = do
-        throwTo tid $ ThreadCancelled e callStack
+        throwTo tid $ ThreadCancelled callStack e
         return $ Left e
 
 -- | Exception thrown by 'cancelThread' to the thread to the cancelled
 data ThreadCancelled = ThreadCancelled {
-      -- | Reason the thread was cancelled
-      threadCancelledReason :: SomeException
-
       -- | Callstack to the call to 'cancelThread'
-    , threadCancelledCallStack :: CallStack
+      threadCancelledCallStack :: CallStack
+
+      -- | Reason the thread was cancelled
+    , threadCancelledReason :: SomeException
     }
   deriving stock (Show)
   deriving anyclass (Exception)
@@ -180,7 +180,7 @@ getThreadInterface state = do
       ThreadInitializing _ -> retry
       ThreadRunning _ a    -> return a
       ThreadDone      a    -> return a
-      ThreadException e    -> throwSTM $ ThreadInterfaceUnavailable e callStack
+      ThreadException e    -> throwSTM $ ThreadInterfaceUnavailable callStack e
 
 -- | Wait for the thread to terminate
 --
@@ -194,17 +194,17 @@ waitForThread state = do
       ThreadInitializing _ -> retry
       ThreadRunning _ _    -> retry
       ThreadDone      a    -> return a
-      ThreadException e    -> throwSTM $ ThreadInterfaceUnavailable e callStack
+      ThreadException e    -> throwSTM $ ThreadInterfaceUnavailable callStack e
 
 -- | Thread interface unavailable
 --
 -- Thrown when we task for the thread interface but the thread has died.
 data ThreadInterfaceUnavailable = ThreadInterfaceUnavailable {
-      -- | The exception that killed the thread
-      threadInterfaceException :: SomeException
-
       -- | The 'CallStack' to the call requesting the thread interface
-    , threadInterfaceCallStack :: CallStack
+      threadInterfaceCallStack :: CallStack
+
+      -- | The exception that killed the thread
+    , threadInterfaceException :: SomeException
     }
   deriving stock (Show)
   deriving anyclass (Exception)

@@ -18,6 +18,7 @@ module Network.GRPC.Server.Handler (
   , Map -- opaque
   , constructMap
   , lookup
+  , keys
   ) where
 
 import Prelude hiding (lookup)
@@ -79,3 +80,6 @@ constructMap = Map . HashMap.fromList . map (\h -> (path h, h))
 
 lookup :: Path -> Map m -> Maybe (RpcHandler m)
 lookup p = HashMap.lookup p . getMap
+
+keys :: Map m -> [Path]
+keys = HashMap.keys . getMap

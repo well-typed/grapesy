@@ -4,6 +4,7 @@ module Test.Prop.Dialogue (tests) where
 
 import Control.Exception
 import Data.Set qualified as Set
+import Data.Text qualified as Text
 import GHC.Generics qualified as GHC
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -11,6 +12,7 @@ import Test.Tasty.QuickCheck
 import Text.Show.Pretty
 
 import Network.GRPC.Common
+import Network.GRPC.Server (ClientDisconnected(..))
 
 import Test.Driver.ClientServer
 import Test.Driver.Dialogue
@@ -26,13 +28,14 @@ tests = testGroup "Test.Prop.Dialogue" [
         , testCaseInfo "concurrent2" $ regression concurrent2
         , testCaseInfo "concurrent3" $ regression concurrent3
         , testCaseInfo "concurrent4" $ regression concurrent4
+        , testCaseInfo "exception1"  $ regression exception1
+        , testCaseInfo "exception2"  $ regression exception2
         ]
     , testGroup "Setup" [
           testProperty "shrinkingWellFounded" prop_shrinkingWellFounded
         ]
     , testGroup "Arbitrary" [
           testProperty "withoutExceptions" arbitraryWithoutExceptions
-          -- TODO: Enable:
 --        , testProperty "withExceptions"    arbitraryWithExceptions
         ]
     ]
@@ -58,12 +61,12 @@ arbitraryWithoutExceptions (DialogueWithoutExceptions dialogue) =
 
 _arbitraryWithExceptions :: DialogueWithExceptions -> Property
 _arbitraryWithExceptions (DialogueWithExceptions dialogue) =
-    propDialogue dialogue
+   propDialogue dialogue
 
 propDialogue :: Dialogue -> Property
 propDialogue dialogue =
     counterexample (show globalSteps) $
-      propClientServer $ execGlobalSteps globalSteps
+      propClientServer assessCustomException $ execGlobalSteps globalSteps
   where
     globalSteps :: GlobalSteps
     globalSteps = dialogueGlobalSteps dialogue
@@ -71,7 +74,7 @@ propDialogue dialogue =
 regression :: Dialogue -> IO String
 regression dialogue = do
     handle annotate $
-      testClientServer $
+      testClientServer assessCustomException $
         execGlobalSteps globalSteps
   where
     globalSteps :: GlobalSteps
@@ -87,6 +90,58 @@ data RegressionFailed = RegressionFailed {
   deriving stock (GHC.Generic)
   deriving anyclass (Exception, PrettyVal)
   deriving Show via ShowAsPretty RegressionFailed
+
+data ExpectedUserException =
+    ExpectedClientException SomeClientException
+  | ExpectedServerException SomeServerException
+  | ExpectedForwardedToClient GrpcException
+  | ExpectedClientDisconnected SomeException
+  deriving stock (Show, GHC.Generic)
+  deriving anyclass (PrettyVal)
+
+-- | Custom exceptions
+--
+-- Technically we should only be expected custom user exceptions when we
+-- generate them, but we're not concerned about accidental throws of these
+-- custom exceptions.
+assessCustomException :: SomeException -> CustomException ExpectedUserException
+assessCustomException err
+    --
+    -- Custom exceptions
+    --
+
+    | Just (userEx :: SomeServerException) <- fromException err
+    = CustomExceptionExpected $ ExpectedServerException userEx
+
+    | Just (userEx :: SomeClientException) <- fromException err
+    = CustomExceptionExpected $ ExpectedClientException userEx
+
+    -- Server-side exceptions are thrown as 'GrpcException' client-side
+    | Just (grpc :: GrpcException) <- fromException err
+    , GrpcUnknown <- grpcError grpc
+    , Just msg <- grpcErrorMessage grpc
+    , "SomeServerException" `Text.isInfixOf` msg
+    = CustomExceptionExpected $ ExpectedForwardedToClient grpc
+
+    -- Client-side exceptions are reported as 'ClientDisconnected', but without
+    -- additional information (gRPC does not support client-to-server trailers
+    -- so we have no way of informing the server about what went wrong).
+    | Just (ClientDisconnected e) <- fromException err
+    = CustomExceptionExpected $ ExpectedClientDisconnected e
+
+    --
+    -- Custom wrappers
+    --
+
+    | Just (AnnotatedServerException err' _ _) <- fromException err
+    = CustomExceptionNested err'
+
+    --
+    -- Catch-all
+    --
+
+    | otherwise
+    = CustomExceptionUnexpected
 
 {-------------------------------------------------------------------------------
   Regression tests
@@ -146,8 +201,8 @@ concurrent2 = Dialogue [
 
 concurrent3 :: Dialogue
 concurrent3 = Dialogue [
-      (1, ClientAction $ Initiate  (Set.fromList [AsciiHeader "md2" "b"], RPC1))
-    , (0, ClientAction $ Initiate  (Set.fromList [AsciiHeader "md1" "a"], RPC1))
+      (1, ClientAction $ Initiate (Set.fromList [AsciiHeader "md2" "b"], RPC1))
+    , (0, ClientAction $ Initiate (Set.fromList [AsciiHeader "md1" "a"], RPC1))
     ]
 
 -- | Test that the final is received
@@ -155,8 +210,39 @@ concurrent3 = Dialogue [
 -- See also <https://github.com/kazu-yamamoto/http2/issues/86>.
 concurrent4 :: Dialogue
 concurrent4 = Dialogue [
-      ( 1 , ClientAction (Send (FinalElem 1 NoMetadata)) )
-    , ( 0 , ServerAction (Send (FinalElem 2 (Set.fromList []))) )
-    , ( 1 , ServerAction (Send (FinalElem 3 (Set.fromList []))) )
-    , ( 0 , ClientAction (Send (FinalElem 4 NoMetadata)) )
+      (1 , ClientAction $ Send (FinalElem 1 NoMetadata))
+    , (0 , ServerAction $ Send (FinalElem 2 (Set.fromList [])))
+    , (1 , ServerAction $ Send (FinalElem 3 (Set.fromList [])))
+    , (0 , ClientAction $ Send (FinalElem 4 NoMetadata))
+    ]
+
+-- | Server-side exception
+--
+-- NOTE: Since the handler throws an exception without sending /anything/, the
+-- exception will be reported to the client using the gRPC trailers-only case.
+-- This test also verifies that the client can /receive/ this message (and not
+-- the exception thrown by the client API of the http2 library when the handler
+-- disappears) -- instead the grpc failure should be raised as a gRPC exception
+-- (this is different from when the server fails later).
+--
+-- TODO: I don't /think/ that behaviour is inconsistent: we cannot connect to
+-- the server, we get an exception immediately; if an exception happens later,
+-- we only get it during communication; the point being that we might not /need/
+-- to communicate any further, and so the exception should not interrupt us.
+--
+-- TODO: We should test having /multiple/ RPC to the server, on the /same/
+-- connection. (Here or as a sanity tests.)
+exception1 :: Dialogue
+exception1 = Dialogue [
+      (0, ClientAction $ Initiate (Set.fromList [], RPC1))
+    , (0, ServerAction $ Terminate (Just (ExceptionId 0)))
+    , (0, ClientAction $ Send (NoMoreElems NoMetadata))
+    ]
+
+-- | Client-side exception
+exception2 :: Dialogue
+exception2 = Dialogue [
+      (0, ClientAction $ Initiate (Set.fromList [], RPC1))
+    , (0, ClientAction $ Terminate (Just (ExceptionId 0)))
+    , (0, ServerAction $ Send (NoMoreElems (Set.fromList [])))
     ]
