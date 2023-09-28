@@ -48,11 +48,11 @@ import Network.HTTP2.Internal qualified as HTTP2
 
 import Network.GRPC.Common.StreamElem (StreamElem(..))
 import Network.GRPC.Common.StreamElem qualified as StreamElem
+import Network.GRPC.Util.Concurrency
+import Network.GRPC.Util.HTTP2.Stream
 import Network.GRPC.Util.Parser
 import Network.GRPC.Util.Session.API
 import Network.GRPC.Util.Thread
-import Network.GRPC.Util.HTTP2.Stream
-import Network.GRPC.Util.STM
 
 {-------------------------------------------------------------------------------
   Definitions

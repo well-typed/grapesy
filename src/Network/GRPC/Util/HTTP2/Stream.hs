@@ -14,6 +14,8 @@ module Network.GRPC.Util.HTTP2.Stream (
   , clientOutputStream
     -- * Exceptions
   , StreamException(..)
+  , ClientDisconnected(..)
+  , ServerDisconnected(..)
   ) where
 
 import Control.Exception
@@ -25,6 +27,7 @@ import Network.HTTP2.Client qualified as Client
 import Network.HTTP2.Server qualified as Server
 
 import Network.GRPC.Util.HTTP2 (fromHeaderTable)
+import Text.Show.Pretty
 
 {-------------------------------------------------------------------------------
   Streams
@@ -66,9 +69,9 @@ getTrailers = _getTrailers
 serverInputStream :: Server.Request -> IO InputStream
 serverInputStream req = do
     return InputStream {
-        _getChunk    = wrapStreamExceptions $
+        _getChunk    = wrapStreamExceptionsWith ClientDisconnected $
                          Server.getRequestBodyChunk req
-      , _getTrailers = wrapStreamExceptions $
+      , _getTrailers = wrapStreamExceptionsWith ClientDisconnected $
                          maybe [] fromHeaderTable <$>
                            Server.getRequestTrailers req
       }
@@ -114,8 +117,10 @@ serverOutputStream writeChunk' flush' = do
     --   case (see discussion above).
 
     let outputStream = OutputStream {
-            _writeChunk = wrapStreamExceptions . writeChunk'
-          , _flush      = wrapStreamExceptions $ flush'
+            _writeChunk = \c -> wrapStreamExceptionsWith ClientDisconnected $
+                            writeChunk' c
+          , _flush      = wrapStreamExceptionsWith ClientDisconnected $
+                            flush'
           }
 
     flush outputStream
@@ -128,9 +133,9 @@ serverOutputStream writeChunk' flush' = do
 clientInputStream :: Client.Response -> IO InputStream
 clientInputStream resp = do
     return InputStream {
-        _getChunk    = wrapStreamExceptions $
+        _getChunk    = wrapStreamExceptionsWith ServerDisconnected $
                          Client.getResponseBodyChunk resp
-      , _getTrailers = wrapStreamExceptions $
+      , _getTrailers = wrapStreamExceptionsWith ServerDisconnected $
                          maybe [] fromHeaderTable <$>
                            Client.getResponseTrailers resp
       }
@@ -150,8 +155,10 @@ clientOutputStream writeChunk' flush' = do
     -- improve the "duality" between the server/client API.
 
     let outputStream = OutputStream {
-            _writeChunk = wrapStreamExceptions . writeChunk'
-          , _flush      = wrapStreamExceptions $ flush'
+            _writeChunk = \c -> wrapStreamExceptionsWith ServerDisconnected $
+                            writeChunk' c
+          , _flush      = wrapStreamExceptionsWith ServerDisconnected $
+                            flush'
           }
 
     writeChunk outputStream mempty
@@ -165,6 +172,23 @@ data StreamException = StreamException SomeException CallStack
   deriving stock (Show)
   deriving anyclass (Exception)
 
-wrapStreamExceptions :: HasCallStack => IO a -> IO a
-wrapStreamExceptions action =
-    action `catch` \err -> throwIO $ StreamException err callStack
+-- | Client disconnected unexpectedly
+data ClientDisconnected = ClientDisconnected SomeException
+  deriving stock (Show)
+  deriving anyclass (Exception)
+
+-- | Server disconnected unexpectedly
+data ServerDisconnected = ServerDisconnected SomeException
+  deriving stock (Show)
+  deriving anyclass (Exception)
+
+instance PrettyVal ClientDisconnected where prettyVal = String . show
+instance PrettyVal ServerDisconnected where prettyVal = String . show
+
+wrapStreamExceptionsWith ::
+     (HasCallStack, Exception e)
+  => (SomeException -> e)
+  -> IO a -> IO a
+wrapStreamExceptionsWith f action =
+    action `catch` \err ->
+      throwIO $ f $ toException $ StreamException err callStack

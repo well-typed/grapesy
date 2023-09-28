@@ -257,7 +257,7 @@ isExpectedException cfg assessCustomException topLevel =
 
   We don't want to terminate the test when some of the server handlers are
   still running; this will result in those handlers being killed with a
-  'KilledByHttp2ThreadPoolManager' exception, confusing the test results.
+  'KilledByHttp2ThreadManager' exception, confusing the test results.
 -------------------------------------------------------------------------------}
 
 newtype ServerHandlerLock = ServerHandlerLock (TVar Int)

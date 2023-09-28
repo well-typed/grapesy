@@ -32,6 +32,8 @@ tests = testGroup "Test.Prop.Dialogue" [
         , testCaseInfo "exception2"        $ regression exception2
         , testCaseInfo "earlyTermination1" $ regression earlyTermination1
         , testCaseInfo "earlyTermination2" $ regression earlyTermination2
+        , testCaseInfo "earlyTermination3" $ regression earlyTermination3
+        , testCaseInfo "earlyTermination4" $ regression earlyTermination4
         ]
     , testGroup "Setup" [
           testProperty "shrinkingWellFounded" prop_shrinkingWellFounded
@@ -278,5 +280,32 @@ earlyTermination2 :: Dialogue
 earlyTermination2 = Dialogue [
       (0, ClientAction $ Initiate (Set.fromList [], RPC1))
     , (0, ClientAction $ Terminate Nothing)
+    , (0, ServerAction $ Send (NoMoreElems (Set.fromList [])))
+    ]
+
+-- | Variation on early client-side termination that tends to trigger a
+-- different code path, where we get a stream error; in @grapesy@ these
+-- various kinds of exceptions we can get from @http2@ should all be reported
+-- in the same manner (as 'ClientDisconnected' exceptions).
+earlyTermination3 :: Dialogue
+earlyTermination3 = Dialogue [
+      (1, ClientAction $ Initiate (Set.fromList [], RPC1 ))
+    , (0, ClientAction $ Initiate (Set.fromList [], RPC1))
+    , (1, ClientAction $ Terminate (Just (ExceptionId 0)))
+    , (0, ClientAction $ Send (NoMoreElems NoMetadata))
+    , (1, ServerAction $ Send (NoMoreElems (Set.fromList [])))
+    , (0, ServerAction $ Send (NoMoreElems (Set.fromList [])))
+    ]
+
+-- | Another minor variation on 'earlyTermination3', which tends to trigger yet
+-- another codepath
+earlyTermination4 :: Dialogue
+earlyTermination4 = Dialogue [
+      (0, ClientAction $ Initiate (Set.fromList [], RPC1))
+    , (0, ServerAction $ Initiate (Set.fromList []))
+    , (1, ClientAction $ Initiate (Set.fromList [], RPC1 ))
+    , (1, ClientAction $ Terminate (Just (ExceptionId 0)))
+    , (1, ServerAction $ Send (NoMoreElems (Set.fromList [])))
+    , (0, ClientAction $ Send (NoMoreElems NoMetadata))
     , (0, ServerAction $ Send (NoMoreElems (Set.fromList [])))
     ]

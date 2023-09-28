@@ -54,6 +54,7 @@ import Network.GRPC.Server.Context qualified as Context
 import Network.GRPC.Server.Handler (RpcHandler(..))
 import Network.GRPC.Server.Handler qualified as Handler
 import Network.GRPC.Spec
+import Network.GRPC.Util.HTTP2.Stream (ClientDisconnected(..))
 import Network.GRPC.Util.Session.Server qualified as Session.Server
 
 {-------------------------------------------------------------------------------

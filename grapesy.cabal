@@ -116,6 +116,7 @@ library
       Network.GRPC.Spec.Timeout
       Network.GRPC.Util.AccumulatedByteString
       Network.GRPC.Util.ByteString
+      Network.GRPC.Util.Concurrency
       Network.GRPC.Util.HTTP2
       Network.GRPC.Util.HTTP2.Stream
       Network.GRPC.Util.Parser
@@ -127,7 +128,6 @@ library
       Network.GRPC.Util.Session.Channel
       Network.GRPC.Util.Session.Client
       Network.GRPC.Util.Session.Server
-      Network.GRPC.Util.STM
       Network.GRPC.Util.Thread
       Network.GRPC.Util.TLS
       Paths_grapesy
