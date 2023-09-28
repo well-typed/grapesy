@@ -40,7 +40,7 @@ tests = testGroup "Test.Prop.Dialogue" [
         ]
     , testGroup "Arbitrary" [
           testProperty "withoutExceptions" arbitraryWithoutExceptions
---        , testProperty "withExceptions"    arbitraryWithExceptions
+        , testProperty "withExceptions"    arbitraryWithExceptions
         ]
     ]
 
@@ -63,8 +63,8 @@ arbitraryWithoutExceptions :: DialogueWithoutExceptions -> Property
 arbitraryWithoutExceptions (DialogueWithoutExceptions dialogue) =
     propDialogue dialogue
 
-_arbitraryWithExceptions :: DialogueWithExceptions -> Property
-_arbitraryWithExceptions (DialogueWithExceptions dialogue) =
+arbitraryWithExceptions :: DialogueWithExceptions -> Property
+arbitraryWithExceptions (DialogueWithExceptions dialogue) =
     propDialogue dialogue
 
 propDialogue :: Dialogue -> Property

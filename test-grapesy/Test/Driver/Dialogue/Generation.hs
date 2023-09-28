@@ -122,8 +122,6 @@ genLocalSteps genExceptions = sized $ \sz -> do
 data LocalGenState = LocalGenState {
       clientInitiatedRequest  :: Bool
     , serverInitiatedResponse :: Bool
-    , clientSentFinalMessage  :: Bool
-    , serverSentFinalMessage  :: Bool
     , clientTerminated        :: Bool
     , serverTerminated        :: Bool
     }
@@ -132,8 +130,6 @@ initLocalGenState :: LocalGenState
 initLocalGenState = LocalGenState {
       clientInitiatedRequest  = False
     , serverInitiatedResponse = False
-    , clientSentFinalMessage  = False
-    , serverSentFinalMessage  = False
     , clientTerminated        = False
     , serverTerminated        = False
     }
@@ -184,14 +180,11 @@ ensureCorrectUsage = go Map.empty []
 
               -- Make sure no messages are sent after the final one
 
-              Send{} | clientSentFinalMessage st ->
-                go sts acc ss
-
               Send StreamElem{} ->
                 go sts ((i, s) : acc) ss
 
               Send{} ->
-                go (upd st{clientSentFinalMessage = True}) ((i, s) : acc) ss
+                go (upd st{clientTerminated = True}) ((i, s) : acc) ss
 
               -- Unless we terminated or have not yet started the request the
               -- client, we can always sleep.
@@ -231,14 +224,11 @@ ensureCorrectUsage = go Map.empty []
 
               -- Make sure no messages are sent after the final one
 
-              Send{} | serverSentFinalMessage st ->
-                go sts acc ss
-
               Send StreamElem{} ->
                 go sts ((i, s) : acc) ss
 
               Send{} ->
-                go (upd st{serverSentFinalMessage = True}) ((i, s) : acc) ss
+                go (upd st{serverTerminated = True}) ((i, s) : acc) ss
 
               -- Unless we terminated or have not yet started the request the
               -- client, we can always sleep.
@@ -257,13 +247,11 @@ ensureCorrectUsage = go Map.empty []
     ensureCleanClose st = concat [
           [ ClientAction $ Send $ NoMoreElems NoMetadata
           | clientInitiatedRequest st
-          , not $ clientSentFinalMessage st
           , not $ clientTerminated st
           ]
 
         , [ ServerAction $ Send $ NoMoreElems Set.empty
           | clientInitiatedRequest st
-          , not $ serverSentFinalMessage st
           , not $ serverTerminated st
           ]
         ]
