@@ -15,12 +15,11 @@ module Network.GRPC.Util.Thread (
   , ThreadInterfaceUnavailable(..)
   ) where
 
-import Control.Concurrent
 import Control.Exception
 import Control.Monad
 import GHC.Stack
 
-import Network.GRPC.Util.STM
+import Network.GRPC.Util.Concurrency
 
 {-------------------------------------------------------------------------------
   State

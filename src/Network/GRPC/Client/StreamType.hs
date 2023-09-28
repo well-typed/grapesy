@@ -4,7 +4,6 @@ module Network.GRPC.Client.StreamType (
   , rpc
   ) where
 
-import Control.Concurrent.Async
 import Control.Monad.Catch
 import Control.Monad.IO.Class
 import Data.Default
@@ -13,6 +12,7 @@ import Data.Proxy
 import Network.GRPC.Client
 import Network.GRPC.Common.StreamType
 import Network.GRPC.Spec
+import Network.GRPC.Util.Concurrency
 
 {-------------------------------------------------------------------------------
   Obtain handler for specific RPC call

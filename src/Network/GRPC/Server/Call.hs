@@ -31,12 +31,8 @@ module Network.GRPC.Server.Call (
 
     -- ** Internal API
   , sendProperTrailers
-
-    -- * Exceptions
-  , ClientDisconnected(..)
   ) where
 
-import Control.Concurrent.Async
 import Control.Monad
 import Control.Monad.Catch
 import Control.Tracer
@@ -46,7 +42,6 @@ import GHC.Stack
 import Network.HTTP.Types qualified as HTTP
 import Network.HTTP2.Internal qualified as HTTP2
 import Network.HTTP2.Server qualified as HTTP2
-import Text.Show.Pretty
 
 import Network.GRPC.Common
 import Network.GRPC.Common.Compression qualified as Compr
@@ -56,9 +51,10 @@ import Network.GRPC.Server.Connection qualified as Connection
 import Network.GRPC.Server.Context qualified as Context
 import Network.GRPC.Server.Session
 import Network.GRPC.Spec
+import Network.GRPC.Util.Concurrency
+import Network.GRPC.Util.HTTP2.Stream (ClientDisconnected(..))
 import Network.GRPC.Util.Session qualified as Session
 import Network.GRPC.Util.Session.Server qualified as Server
-import Network.GRPC.Util.STM
 
 {-------------------------------------------------------------------------------
   Definition
@@ -300,7 +296,7 @@ acceptCall params conn k = do
 -- terminate. If we are interrupted while we wait, it depends on the
 -- interruption:
 --
--- * If we are interrupted by 'HTTP2.KilledByHttp2ThreadPoolManager', it means
+-- * If we are interrupted by 'HTTP2.KilledByHttp2ThreadManager', it means
 --   we got disconnected from the client. In this case, we shut down the channel
 --   (if it's not already shut down); /if/ the handler at this tries to
 --   communicate with the client, an exception will be raised. However, the
@@ -387,14 +383,6 @@ forwardException call err = do
     -- See discussion above.
     ignoreExceptions :: SomeException -> IO ()
     ignoreExceptions _ = return ()
-
--- | Client disconnected unexpectedly
-data ClientDisconnected = ClientDisconnected SomeException
-  deriving stock (Show)
-  deriving anyclass (Exception)
-
-instance PrettyVal ClientDisconnected where
-  prettyVal = String . show
 
 {-------------------------------------------------------------------------------
   Open (ongoing) call

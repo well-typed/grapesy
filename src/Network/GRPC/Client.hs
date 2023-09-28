@@ -56,6 +56,9 @@ module Network.GRPC.Client (
     -- * Common serialization formats
   , Protobuf
 
+    -- * Exceptions
+  , ServerDisconnected(..)
+
     -- * Debugging
   , ClientDebugMsg(..)
   ) where
@@ -63,6 +66,7 @@ module Network.GRPC.Client (
 import Network.GRPC.Client.Call
 import Network.GRPC.Client.Connection
 import Network.GRPC.Spec
+import Network.GRPC.Util.HTTP2.Stream (ServerDisconnected(..))
 import Network.GRPC.Util.TLS qualified as Util.TLS
 
 {-------------------------------------------------------------------------------

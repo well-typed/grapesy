@@ -21,7 +21,6 @@ module Network.GRPC.Client.Connection (
   , exponentialBackoff
   ) where
 
-import Control.Concurrent
 import Control.Monad
 import Control.Monad.Catch
 import Control.Tracer
@@ -44,8 +43,9 @@ import Network.GRPC.Client.Session
 import Network.GRPC.Common.Compression qualified as Compr
 import Network.GRPC.Common.Compression qualified as Compression
 import Network.GRPC.Spec
+import Network.GRPC.Util.Concurrency
+import Network.GRPC.Util.HTTP2.Stream (ServerDisconnected(..))
 import Network.GRPC.Util.Session qualified as Session
-import Network.GRPC.Util.STM
 import Network.GRPC.Util.TLS (ServerValidation(..), SslKeyLog(..))
 import Network.GRPC.Util.TLS qualified as Util.TLS
 
@@ -303,7 +303,8 @@ withConnection connParams server k = do
                     case mErr of
                       Nothing -> ExitCaseSuccess ()
                       Just exitWithException ->
-                        ExitCaseException . toException $ exitWithException
+                        ExitCaseException . toException $
+                          ServerDisconnected exitWithException
               _mAlreadyClosed <- Session.close channel exitReason
               return ()
 

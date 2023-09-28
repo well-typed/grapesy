@@ -8,11 +8,11 @@ import Control.Exception
 import Control.Tracer
 import Network.HTTP2.Server qualified as Server
 
+import Network.GRPC.Util.Concurrency
 import Network.GRPC.Util.HTTP2 (fromHeaderTable)
 import Network.GRPC.Util.HTTP2.Stream
 import Network.GRPC.Util.Session.API
 import Network.GRPC.Util.Session.Channel
-import Network.GRPC.Util.STM
 import Network.GRPC.Util.Thread
 
 {-------------------------------------------------------------------------------
