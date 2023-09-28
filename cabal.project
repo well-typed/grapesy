@@ -7,4 +7,4 @@ package grapesy
 source-repository-package
   type: git
   location: https://github.com/edsko/http2.git
-  tag: 6654f95e5e202c48599f3b7ae251ea13bd785a50
+  tag: f093214cba22ee90408f2d3c44d995ddbddd5766 
