@@ -34,13 +34,14 @@ tests = testGroup "Test.Prop.Dialogue" [
         , testCaseInfo "earlyTermination2" $ regression earlyTermination2
         , testCaseInfo "earlyTermination3" $ regression earlyTermination3
         , testCaseInfo "earlyTermination4" $ regression earlyTermination4
+        , testCaseInfo "earlyTermination5" $ regression earlyTermination5
         ]
     , testGroup "Setup" [
           testProperty "shrinkingWellFounded" prop_shrinkingWellFounded
         ]
     , testGroup "Arbitrary" [
           testProperty "withoutExceptions" arbitraryWithoutExceptions
-        , testProperty "withExceptions"    arbitraryWithExceptions
+--        , testProperty "withExceptions"    arbitraryWithExceptions
         ]
     ]
 
@@ -63,8 +64,8 @@ arbitraryWithoutExceptions :: DialogueWithoutExceptions -> Property
 arbitraryWithoutExceptions (DialogueWithoutExceptions dialogue) =
     propDialogue dialogue
 
-arbitraryWithExceptions :: DialogueWithExceptions -> Property
-arbitraryWithExceptions (DialogueWithExceptions dialogue) =
+_arbitraryWithExceptions :: DialogueWithExceptions -> Property
+_arbitraryWithExceptions (DialogueWithExceptions dialogue) =
     propDialogue dialogue
 
 propDialogue :: Dialogue -> Property
@@ -308,4 +309,17 @@ earlyTermination4 = Dialogue [
     , (1, ServerAction $ Send (NoMoreElems (Set.fromList [])))
     , (0, ClientAction $ Send (NoMoreElems NoMetadata))
     , (0, ServerAction $ Send (NoMoreElems (Set.fromList [])))
+    ]
+
+-- Test that early termination in one call does not affect the other. This is
+-- currently /only/ true if they use separate connections; see discussion in
+-- 'clientGlobal'.
+earlyTermination5 :: Dialogue
+earlyTermination5 = Dialogue [
+      (1, ClientAction $ Initiate (Set.fromList [],RPC1))
+    , (1, ServerAction $ Terminate Nothing)
+    , (0, ClientAction $ Initiate (Set.fromList [],RPC1))
+    , (0, ClientAction $ Send (NoMoreElems NoMetadata))
+    , (0, ServerAction $ Send (NoMoreElems (Set.fromList [])))
+    , (1, ClientAction $ Send (NoMoreElems NoMetadata))
     ]

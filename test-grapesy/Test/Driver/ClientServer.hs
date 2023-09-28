@@ -27,7 +27,7 @@ import Text.Show.Pretty
 
 data ClientServerTest = ClientServerTest {
       config :: ClientServerConfig
-    , client :: Client.Connection -> IO ()
+    , client :: (forall a. (Client.Connection -> IO a) -> IO a) -> IO ()
     , server :: [Server.RpcHandler IO]
     }
 

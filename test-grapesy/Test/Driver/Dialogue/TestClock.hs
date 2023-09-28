@@ -5,6 +5,8 @@ module Test.Driver.Dialogue.TestClock (
   , newTestClock
   , waitForTestClockTick
   , advanceTestClock
+  , advanceTestClockAtTime
+  , advanceTestClockAtTimes
     -- * Interleavings
   , interleave
   , assignTimings
@@ -61,6 +63,14 @@ waitForTestClockTick (TestClock clock) tick = do
 
 advanceTestClock :: TestClock -> IO ()
 advanceTestClock (TestClock clock) = atomically (modifyTVar clock succ)
+
+advanceTestClockAtTime :: TestClock -> TestClockTick -> IO ()
+advanceTestClockAtTime clock tick = do
+    waitForTestClockTick clock tick
+    advanceTestClock clock
+
+advanceTestClockAtTimes :: TestClock -> [TestClockTick] -> IO ()
+advanceTestClockAtTimes = mapM_ . advanceTestClockAtTime
 
 {-------------------------------------------------------------------------------
   Interleavings
