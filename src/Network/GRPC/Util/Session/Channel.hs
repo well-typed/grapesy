@@ -35,7 +35,7 @@ module Network.GRPC.Util.Session.Channel (
   , DebugMsg(..)
   ) where
 
-import Control.Exception
+import Control.Exception hiding (try)
 import Control.Monad.Catch
 import Control.Tracer
 import Data.Bifunctor
@@ -162,6 +162,13 @@ data RegularFlowState flow = RegularFlowState {
       -- /Their/ sole purpose is to catch user errors, not capture data flow.
     , flowTerminated :: TMVar (Trailers flow)
     }
+
+-- | 'Show' instance is useful in combination with @stm-debug@ only
+deriving instance (
+    Show (Headers flow)
+  , Show (TMVar (StreamElem (Trailers flow) (Message flow)))
+  , Show (TMVar (Trailers flow))
+  ) => Show (RegularFlowState flow)
 
 {-------------------------------------------------------------------------------
   Initialization
@@ -324,7 +331,11 @@ recv Channel{channelInbound, channelRecvFinal} = do
     case readFinal of
       Just cs -> throwSTM $ RecvAfterFinal cs
       Nothing -> do
-        st  <- readTMVar =<< getThreadInterface channelInbound
+        -- We get the TMVar in the same transaction as reading from it (below).
+        -- This means that /if/ the thread running 'recvMessageLoop' throws an
+        -- exception and is killed, the 'takeTMVar' below cannot block
+        -- indefinitely (because the transaction will be retried).
+        st <- readTMVar =<< getThreadInterface channelInbound
         case st of
           FlowStateRegular regular -> do
             msg <- takeTMVar (flowMsg regular)
@@ -369,7 +380,7 @@ data RecvAfterFinal =
 -- | Wait for the outbound thread to terminate
 --
 -- See 'forceClose' for discussion.
-waitForOutbound :: Channel sess -> IO (FlowState (Outbound sess))
+waitForOutbound :: HasCallStack => Channel sess -> IO (FlowState (Outbound sess))
 waitForOutbound Channel{channelOutbound} = atomically $
     readTMVar =<< waitForThread channelOutbound
 
@@ -448,14 +459,17 @@ data ChannelClosed =
 -------------------------------------------------------------------------------}
 
 -- | Send all messages to the node's peer
+--
+-- Should be called with exceptions masked.
 sendMessageLoop :: forall sess.
      IsSession sess
   => sess
+  -> (forall x. IO x -> IO x) -- ^ Unmask
   -> Tracer IO (DebugMsg sess)
   -> RegularFlowState (Outbound sess)
   -> OutputStream
   -> IO ()
-sendMessageLoop sess tracer st stream =
+sendMessageLoop sess unmask tracer st stream =
     go $ buildMsg sess (flowHeaders st)
   where
     go :: (Message (Outbound sess) -> Builder) -> IO ()
@@ -466,7 +480,9 @@ sendMessageLoop sess tracer st stream =
         loop :: IO (Trailers (Outbound sess))
         loop = do
             traceWith tracer $ NodeSendAwaitMsg
-            msg <- atomically $ takeTMVar (flowMsg st)
+            -- Technically the call to unmask is necessary here, as takeTMVar
+            -- is interuptible.
+            msg <- unmask $ atomically $ takeTMVar (flowMsg st)
             traceWith tracer $ NodeSendMsg msg
 
             case msg of
@@ -492,11 +508,12 @@ sendMessageLoop sess tracer st stream =
 recvMessageLoop :: forall sess.
      IsSession sess
   => sess
+  -> (forall x. IO x -> IO x) -- ^ Unmask
   -> Tracer IO (DebugMsg sess)
   -> RegularFlowState (Inbound sess)
   -> InputStream
   -> IO ()
-recvMessageLoop sess tracer st stream =
+recvMessageLoop sess unmask tracer st stream = do
     go $ parseMsg sess (flowHeaders st)
   where
     go :: Parser (Message (Inbound sess)) -> IO ()
@@ -507,7 +524,7 @@ recvMessageLoop sess tracer st stream =
         atomically $ putTMVar (flowMsg        st) $ NoMoreElems trailers
       where
         loop :: Parser (Message (Inbound sess)) -> IO [HTTP.Header]
-        loop (ParserError err) =
+        loop (ParserError err) = do
             throwIO $ PeerSentMalformedMessage err
         loop (ParserDone x p') = do
             traceWith tracer $ NodeRecvMsg (StreamElem x)
@@ -515,14 +532,11 @@ recvMessageLoop sess tracer st stream =
             loop p'
         loop (ParserNeedsData acc p') = do
             traceWith tracer $ NodeNeedsData acc
-            bs <- getChunk stream
-
+            bs <- unmask $ getChunk stream
             if | not (BS.Strict.null bs) ->
                    loop $ p' bs
-
                | not (BS.Lazy.null acc) ->
                    throwIO PeerSentIncompleteMessage
-
                | otherwise ->
                    getTrailers stream
 

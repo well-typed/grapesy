@@ -91,11 +91,10 @@ setupRequestChannel sess tracer ConnectionToServer{sendRequest} outboundStart = 
                     (requestHeaders requestInfo)
                 $ \unmask write' flush' -> unmask $ do
                      threadBody (channelOutbound channel)
-                                unmask
                                 (newTMVarIO (FlowStateRegular regular))
                               $ \_stVar -> do
                        stream <- clientOutputStream write' flush'
-                       sendMessageLoop sess tracer regular stream
+                       sendMessageLoop sess unmask tracer regular stream
         forkRequest channel req
       FlowStartNoMessages trailers -> do
         stVar <- newTMVarIO $ FlowStateNoMessages trailers
@@ -111,7 +110,7 @@ setupRequestChannel sess tracer ConnectionToServer{sendRequest} outboundStart = 
   where
     forkRequest :: Channel sess -> Client.Request -> IO ()
     forkRequest channel req =
-        forkThread (channelInbound channel) newEmptyTMVarIO $ \stVar -> do
+        forkThread (channelInbound channel) newEmptyTMVarIO $ \unmask stVar -> do
           setup <- try $ sendRequest req $ \resp -> do
             responseStatus <- case Client.responseStatus resp of
                                 Just x  -> return x
@@ -131,8 +130,8 @@ setupRequestChannel sess tracer ConnectionToServer{sendRequest} outboundStart = 
                 regular <- initFlowStateRegular headers
                 stream  <- clientInputStream resp
                 atomically $ putTMVar stVar $ FlowStateRegular regular
-                recvMessageLoop sess tracer regular stream
-              FlowStartNoMessages trailers ->
+                recvMessageLoop sess unmask tracer regular stream
+              FlowStartNoMessages trailers -> do
                 atomically $ putTMVar stVar $ FlowStateNoMessages trailers
 
           case setup of

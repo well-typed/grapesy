@@ -54,7 +54,7 @@ import Network.GRPC.Util.Session qualified as Session
 -- when the body is run. If you want to be sure that the call has been setup,
 -- you can call 'recvResponseMetadata'.
 withRPC :: forall m rpc a.
-     (MonadMask m, MonadIO m, IsRPC rpc)
+     (MonadMask m, MonadIO m, IsRPC rpc, HasCallStack)
   => Connection -> CallParams -> Proxy rpc -> (Call rpc -> m a) -> m a
 withRPC conn callParams proxy k =
     (throwUnclean =<<) $

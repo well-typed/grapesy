@@ -261,7 +261,7 @@ acceptCall params conn k = do
                   }
               , outCompression = cOut
               }
-          KickoffTrailersOnly trailers ->
+          KickoffTrailersOnly trailers -> do
             return $ Session.FlowStartNoMessages trailers
       where
         inboundHeaders :: RequestHeaders
@@ -392,7 +392,7 @@ forwardException call err = do
 --
 -- We do not return trailers, since gRPC does not support sending trailers from
 -- the client to the server (only from the server to the client).
-recvInput :: HasCallStack => Call rpc -> IO (StreamElem NoMetadata (Input rpc))
+recvInput :: forall rpc. HasCallStack => Call rpc -> IO (StreamElem NoMetadata (Input rpc))
 recvInput call = atomically $ recvInputSTM call
 
 -- | Send RPC output to the client

@@ -7,6 +7,7 @@ module Network.GRPC.Util.Session.Server (
 import Control.Exception
 import Control.Tracer
 import Network.HTTP2.Server qualified as Server
+import GHC.Stack
 
 import Network.GRPC.Util.Concurrency
 import Network.GRPC.Util.HTTP2 (fromHeaderTable)
@@ -33,7 +34,7 @@ data ConnectionToClient = ConnectionToClient {
 --
 -- The actual response will not immediately be initiated; see below.
 setupResponseChannel :: forall sess.
-     AcceptSession sess
+     (AcceptSession sess, HasCallStack)
   => sess
   -> Tracer IO (DebugMsg sess)
   -> ConnectionToClient
@@ -66,17 +67,17 @@ setupResponseChannel sess tracer conn startOutbound = do
       else
         FlowStartRegular <$> parseRequestRegular sess requestInfo
 
-    forkThread (channelInbound channel) newEmptyTMVarIO $ \stVar ->
+    forkThread (channelInbound channel) newEmptyTMVarIO $ \unmask stVar -> do
       case inboundStart of
         FlowStartRegular headers -> do
           regular <- initFlowStateRegular headers
           stream  <- serverInputStream (request conn)
           atomically $ putTMVar stVar $ FlowStateRegular regular
-          recvMessageLoop sess tracer regular stream
-        FlowStartNoMessages trailers ->
+          recvMessageLoop sess unmask tracer regular stream
+        FlowStartNoMessages trailers -> do
           atomically $ putTMVar stVar $ FlowStateNoMessages trailers
 
-    forkThread (channelOutbound channel) newEmptyTMVarIO $ \stVar -> do
+    forkThread (channelOutbound channel) newEmptyTMVarIO $ \unmask stVar -> do
       outboundStart <- startOutbound inboundStart
       let responseInfo = buildResponseInfo sess outboundStart
       case outboundStart of
@@ -90,7 +91,7 @@ setupResponseChannel sess tracer conn startOutbound = do
                            (responseHeaders responseInfo)
                    $ \write' flush' -> do
                         stream <- serverOutputStream write' flush'
-                        sendMessageLoop sess tracer regular stream
+                        sendMessageLoop sess unmask tracer regular stream
           respond conn resp
         FlowStartNoMessages trailers -> do
           atomically $ putTMVar stVar $ FlowStateNoMessages trailers
