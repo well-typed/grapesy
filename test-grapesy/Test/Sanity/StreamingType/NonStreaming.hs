@@ -77,7 +77,7 @@ type BinaryIncrement = BinaryRpc "binary" "increment"
 test_increment :: ClientServerConfig -> IO String
 test_increment config = testClientServer assessCustomException $ \k -> k def {
       config
-    , client = \conn -> do
+    , client = \withConn -> withConn $ \conn -> do
         Client.withRPC conn def (Proxy @BinaryIncrement) $ \call -> do
           Binary.sendFinalInput @Word8 call 1
           resp <- fst <$> Binary.recvFinalOutput @Word8 call

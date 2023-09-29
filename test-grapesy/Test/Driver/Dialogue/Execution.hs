@@ -13,6 +13,7 @@ import Control.Monad.State
 import Data.Bifunctor
 import Data.Default
 import Data.List (sortBy)
+import Data.Maybe (mapMaybe)
 import Data.Ord (comparing)
 import Data.Proxy
 import Data.Set qualified as Set
@@ -150,7 +151,17 @@ clientLocal testClock call = \(LocalSteps steps) ->
             continue <-   clientAct action
                         `finally`
                           liftIO (advanceTestClock testClock)
-            when continue $ go steps
+            if continue then
+              go steps
+            else do
+              -- See discussion in serverLocal
+              let ourStep :: (TestClockTick, LocalStep) -> Maybe TestClockTick
+                  ourStep (tick' , ClientAction _) = Just tick'
+                  ourStep (_     , ServerAction _) = Nothing
+              liftIO $ do
+                void $ forkIO $
+                  advanceTestClockAtTimes testClock $
+                    mapMaybe ourStep steps
           ServerAction action -> do
             reactToServer action
             go steps
@@ -168,21 +179,10 @@ clientLocal testClock call = \(LocalSteps steps) ->
         Send x -> do
           isExpected <- adjustExpectation ()
           expect isExpected =<< liftIO (try $ Client.Binary.sendInput call x)
-
-          -- This is making a difference:  we see an extra frame, that is
-          -- termating the stream. However, the server recvMessageLoop for some
-          -- reason is not receiving it. I don't know why.
-          --
-          -- Without this, we see GO_AWAY instead, which i guess on the server
-          -- side is killing the handler, without it getting a chance to
-          -- intercept it. At this point, recvMessageLoop will die because the
-          -- call to getChunk is blocked indefinitely.
           return True
         Terminate (Just exceptionId) -> do
           throwM $ SomeClientException exceptionId
         Terminate Nothing ->
-          -- This is a sign to the server that the client will terminate; we
-          -- don't have to do anything here.
           return False
         SleepMilli n -> do
           liftIO $ threadDelay (n * 1_000)
@@ -255,23 +255,41 @@ clientLocal testClock call = \(LocalSteps steps) ->
                  Right x'   -> x == x'
                  _otherwise -> False
 
-clientGlobal :: TestClock -> Client.Connection -> GlobalSteps -> IO ()
-clientGlobal testClock conn = \(GlobalSteps globalSteps) ->
-    go [] globalSteps
+clientGlobal ::
+     TestClock
+  -> (forall a. (Client.Connection -> IO a) -> IO a)
+  -> GlobalSteps
+  -> IO ()
+clientGlobal testClock withConn = \steps@(GlobalSteps globalSteps) ->
+    -- TODO: The tests assume that different calls are independent from each
+    -- other. This is mostly true, but not completely: when a client or a server
+    -- terminates early, the entire connection (supporting potentially many
+    -- calls) is reset. It's not entirely clear why; it feels like an
+    -- unnecessary limitation in @http2@.
+    --
+    -- Ideally, we would either (1) randomly assign connections to calls and
+    -- then test that an early termination only affects calls using the same
+    -- connection, or better yet, (2), remove this limitation from @http2@.
+    --
+    -- For now, we do neither: /if/ a test includes early termination, we give
+    -- each call its own connection, thereby regaining independence.
+    if hasEarlyTermination steps
+      then go Nothing [] globalSteps
+      else withConn $ \conn -> go (Just conn) [] globalSteps
   where
-    go :: [Async ()] -> [LocalSteps] -> IO ()
-    go threads [] = do
+    go :: Maybe Client.Connection -> [Async ()] -> [LocalSteps] -> IO ()
+    go _ threads [] = do
          -- Wait for all threads to finish
          --
          -- This also ensures that if any of these threads threw an exception,
          -- that is now rethrown here in the main test.
         mapM_ wait threads
-    go threads (c:cs) =
-        withAsync (runLocalSteps c) $ \newThread ->
-          go (newThread:threads) cs
+    go mConn threads (c:cs) =
+        withAsync (runLocalSteps mConn c) $ \newThread ->
+          go mConn (newThread:threads) cs
 
-    runLocalSteps :: LocalSteps -> IO ()
-    runLocalSteps (LocalSteps steps) = do
+    runLocalSteps :: Maybe Client.Connection -> LocalSteps -> IO ()
+    runLocalSteps mConn (LocalSteps steps) = do
         case steps of
           (tick, ClientAction (Initiate (metadata, rpc))) : steps' -> do
             waitForTestClockTick testClock tick
@@ -286,18 +304,21 @@ clientGlobal testClock conn = \(GlobalSteps globalSteps) ->
                   }
 
             withProxy rpc $ \proxy ->
-              Client.withRPC conn params proxy $ \call -> do
-                -- We wait for the /server/ to advance the test clock (so that
-                -- we are use the next step doesn't happen until the connection
-                -- is established).
-                --
-                -- NOTE: We could instead wait for the server to send the
-                -- initial metadata; this too would provide evidence that the
-                -- conneciton has been established. However, doing so precludes
-                -- a class of correct behaviour: the server might not respond
-                -- with that initial metadata until the client has sent some
-                -- messages.
-                clientLocal testClock call (LocalSteps steps')
+              (case mConn of
+                  Just conn -> ($ conn)
+                  Nothing   -> withConn) $ \conn ->
+                Client.withRPC conn params proxy $ \call -> do
+                  -- We wait for the /server/ to advance the test clock (so that
+                  -- we are use the next step doesn't happen until the connection
+                  -- is established).
+                  --
+                  -- NOTE: We could instead wait for the server to send the
+                  -- initial metadata; this too would provide evidence that the
+                  -- conneciton has been established. However, doing so precludes
+                  -- a class of correct behaviour: the server might not respond
+                  -- with that initial metadata until the client has sent some
+                  -- messages.
+                  clientLocal testClock call (LocalSteps steps')
 
           _otherwise ->
             error $ "clientGlobal: expected Initiate, got " ++ show steps
@@ -367,7 +388,19 @@ serverLocal testClock call = \(LocalSteps steps) -> do
             continue <-   serverAct action
                         `finally`
                           liftIO (advanceTestClock testClock)
-            when continue $ go steps
+            if continue then
+              go steps
+            else do
+              -- We need to exit the scope of the handler, but we do want to
+              -- keep advancing the test clock when its our turn, so that we
+              -- don't interfere with the timing of other threads.
+              let ourStep :: (TestClockTick, LocalStep) -> Maybe TestClockTick
+                  ourStep (tick' , ServerAction _) = Just tick'
+                  ourStep (_     , ClientAction _) = Nothing
+              liftIO $ do
+                void $ forkIO $
+                  advanceTestClockAtTimes testClock $
+                    mapMaybe ourStep steps
           ClientAction action -> do
             reactToClient action
             go steps
@@ -393,7 +426,6 @@ serverLocal testClock call = \(LocalSteps steps) -> do
         Terminate (Just exceptionId) -> do
           throwM $ SomeServerException exceptionId
         Terminate Nothing ->
-          -- Nothing to do; this is simply the last instruction we execute
           return False
         SleepMilli n -> do
           liftIO $ threadDelay (n * 1_000)

@@ -14,6 +14,8 @@ module Test.Driver.Dialogue.Definition (
   , ExceptionId(..)
     -- ** Wrappers
   , AnnotatedServerException(..)
+    -- * Utility
+  , hasEarlyTermination
   ) where
 
 import Control.Exception
@@ -57,7 +59,7 @@ data Action a b =
     -- | Send a message to the peer
   | Send (StreamElem b Int)
 
-    -- | Terminate (cleanly or with an exception)
+    -- | Early termination (cleanly or with an exception)
   | Terminate (Maybe ExceptionId)
 
     -- | Sleep specified number of milliseconds
@@ -133,4 +135,20 @@ data AnnotatedServerException = AnnotatedServerException {
   deriving stock (GHC.Generic)
   deriving anyclass (Exception, PrettyVal)
   deriving Show via ShowAsPretty AnnotatedServerException
+
+{-------------------------------------------------------------------------------
+  Utility
+-------------------------------------------------------------------------------}
+
+hasEarlyTermination :: GlobalSteps -> Bool
+hasEarlyTermination =
+      any isEarlyTermination
+    . map snd
+    . concatMap getLocalSteps
+    . getGlobalSteps
+  where
+    isEarlyTermination :: LocalStep -> Bool
+    isEarlyTermination (ClientAction (Terminate _)) = True
+    isEarlyTermination (ServerAction (Terminate _)) = True
+    isEarlyTermination _                            = False
 

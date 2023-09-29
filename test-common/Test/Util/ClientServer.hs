@@ -349,7 +349,7 @@ runTestServer cfg serverExceptions serverTracer handlerLock serverHandlers = do
 runTestClient :: forall a.
      ClientServerConfig
   -> Tracer IO Client.ClientDebugMsg
-  -> (Client.Connection -> IO a)
+  -> ((forall b. (Client.Connection -> IO b) -> IO b) -> IO a)
   -> IO a
 runTestClient cfg clientTracer clientRun = do
     pubCert <- getDataFileName "grpc-demo.cert"
@@ -415,8 +415,7 @@ runTestClient cfg clientTracer clientRun = do
                 , authorityPort = 50051
                 }
 
-    Client.withConnection clientParams clientServer $ \conn ->
-      clientRun conn
+    clientRun $ Client.withConnection clientParams clientServer
 
 {-------------------------------------------------------------------------------
   Main entry point: run server and client together
@@ -424,7 +423,7 @@ runTestClient cfg clientTracer clientRun = do
 
 runTestClientServer :: forall a.
      ClientServerConfig
-  -> (Client.Connection -> IO a)
+  -> ((forall b. (Client.Connection -> IO b) -> IO b) -> IO a)
   -> [Server.RpcHandler IO]
   -> IO a
 runTestClientServer cfg clientRun serverHandlers = do
