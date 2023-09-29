@@ -18,6 +18,8 @@ import Test.Driver.ClientServer
 import Test.Driver.Dialogue
 import Test.Util.PrettyVal
 
+import Control.Concurrent
+
 tests :: TestTree
 tests = testGroup "Test.Prop.Dialogue" [
       testGroup "Regression" [
@@ -35,6 +37,7 @@ tests = testGroup "Test.Prop.Dialogue" [
         , testCaseInfo "earlyTermination3" $ regression earlyTermination3
         , testCaseInfo "earlyTermination4" $ regression earlyTermination4
         , testCaseInfo "earlyTermination5" $ regression earlyTermination5
+        , testCaseInfo "earlyTermination6" $ regression earlyTermination6
         ]
     , testGroup "Setup" [
           testProperty "shrinkingWellFounded" prop_shrinkingWellFounded
@@ -74,13 +77,13 @@ propDialogue dialogue =
       propClientServer assessCustomException $ execGlobalSteps globalSteps
   where
     globalSteps :: GlobalSteps
-    globalSteps = dialogueGlobalSteps dialogue
+    globalSteps = dialogueGlobalSteps $ dialogue
 
 regression :: Dialogue -> IO String
 regression dialogue = do
     handle annotate $
-      testClientServer assessCustomException $
-        execGlobalSteps globalSteps
+      (testClientServer assessCustomException $
+        execGlobalSteps globalSteps) `finally` threadDelay 5_000_000
   where
     globalSteps :: GlobalSteps
     globalSteps = dialogueGlobalSteps dialogue
@@ -316,10 +319,26 @@ earlyTermination4 = Dialogue [
 -- 'clientGlobal'.
 earlyTermination5 :: Dialogue
 earlyTermination5 = Dialogue [
-      (1, ClientAction $ Initiate (Set.fromList [],RPC1))
+      (1, ClientAction $ Initiate (Set.fromList [], RPC1))
     , (1, ServerAction $ Terminate Nothing)
-    , (0, ClientAction $ Initiate (Set.fromList [],RPC1))
+    , (0, ClientAction $ Initiate (Set.fromList [], RPC1))
     , (0, ClientAction $ Send (NoMoreElems NoMetadata))
     , (0, ServerAction $ Send (NoMoreElems (Set.fromList [])))
     , (1, ClientAction $ Send (NoMoreElems NoMetadata))
+    ]
+
+-- | Variation where the client does send some messages before throwing an
+-- exception
+--
+-- This is mostly a check on the test infrastructure itself. In a test case
+-- like this where a message is enqueued and then an exception is thrown, the
+-- exception might " overtake " that message and the server will never
+-- receive it. This motivates the " conversative " test mode where we test
+-- each operation in a synchronous manner.
+earlyTermination6 :: Dialogue
+earlyTermination6 = Dialogue [
+      (0, ClientAction $ Initiate (Set.fromList [], RPC1))
+    , (0, ClientAction $ Send (StreamElem 0))
+    , (0, ClientAction $ Terminate (Just (ExceptionId 0)))
+    , (0, ServerAction $ Send (NoMoreElems (Set.fromList [])))
     ]

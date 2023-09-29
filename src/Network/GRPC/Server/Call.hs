@@ -56,6 +56,9 @@ import Network.GRPC.Util.HTTP2.Stream (ClientDisconnected(..))
 import Network.GRPC.Util.Session qualified as Session
 import Network.GRPC.Util.Session.Server qualified as Server
 
+import Debug.Trace
+import GHC.IO.Exception
+
 {-------------------------------------------------------------------------------
   Definition
 -------------------------------------------------------------------------------}
@@ -228,15 +231,19 @@ acceptCall params conn k = do
                       responseKickoffVar
                       requestStart
                     = do
+        traceIO "mkOutboundHeaders 1"
         -- Make request metadata available (see 'getRequestMetadata')
         atomically $ putTMVar requestMetadataVar $
                        requestMetadata inboundHeaders
+        traceIO "mkOutboundHeaders 2"
 
         -- Wait for kickoff (see 'Kickoff' for discussion)
         kickoff <- atomically $ readTMVar responseKickoffVar
+        traceIO "mkOutboundHeaders 3"
 
         -- Get response metadata (see 'setResponseMetadata')
         responseMetadata <- atomically $ readTVar responseMetadataVar
+        traceIO "mkOutboundHeaders 4"
 
         -- Session start
         case kickoff of
@@ -253,6 +260,7 @@ acceptCall params conn k = do
                    case Compr.choose compr cids of
                      Right c   -> return c
                      Left  err -> throwM err
+            traceIO $ "mkOutboundHeaders 5" ++ show cOut
             return $ Session.FlowStartRegular $ OutboundHeaders {
                 outHeaders = ResponseHeaders {
                     responseCompression       = Just $ Compr.compressionId cOut
@@ -261,7 +269,8 @@ acceptCall params conn k = do
                   }
               , outCompression = cOut
               }
-          KickoffTrailersOnly trailers ->
+          KickoffTrailersOnly trailers -> do
+            traceIO $ "mkOutboundHeaders 6"
             return $ Session.FlowStartNoMessages trailers
       where
         inboundHeaders :: RequestHeaders
@@ -392,8 +401,17 @@ forwardException call err = do
 --
 -- We do not return trailers, since gRPC does not support sending trailers from
 -- the client to the server (only from the server to the client).
-recvInput :: HasCallStack => Call rpc -> IO (StreamElem NoMetadata (Input rpc))
-recvInput call = atomically $ recvInputSTM call
+recvInput :: forall rpc. HasCallStack => Call rpc -> IO (StreamElem NoMetadata (Input rpc))
+recvInput call =
+    catch go $ \e@BlockedIndefinitelyOnSTM{} -> do
+      traceIO $ "Uhoh.. got the dreaded " ++ show e
+      throwM e
+      --threadDelay 1_000_000
+      --traceIO $ "Trying again!"
+      --go
+  where
+    go :: IO (StreamElem NoMetadata (Input rpc))
+    go = atomically $ recvInputSTM call
 
 -- | Send RPC output to the client
 --

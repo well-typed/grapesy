@@ -1,4 +1,18 @@
-packages: .
+packages:
+  .
+  ../forks/http2
+
+--  ~/wt/ghc/repo/9.2.8-patched/patched-libs/async
+--  ~/wt/ghc/repo/9.2.8-patched/patched-libs/tasty/core
+--  ~/wt/ghc/repo/9.2.8-patched/patched-libs/unliftio/unliftio-core
+--  ~/wt/ghc/repo/9.2.8-patched/patched-libs/unliftio/unliftio
+--  ~/wt/ghc/repo/9.2.8-patched/patched-libs/lens
+
+--   ~/wt/packages/stm-debug
+--   ~/wt/packages/stm-debug/assignid
+--   ~/wt/packages/stm-debug/patched/async
+--   ~/wt/packages/stm-debug/patched/tasty/core
+--   ~/wt/packages/stm-debug/patched/unliftio/unliftio
 
 package grapesy
   tests: True
@@ -6,7 +20,10 @@ package grapesy
 
 -- The version on Hackage also works, it just writes some (unnecessary)
 -- exceptions to stderr
-source-repository-package
-  type: git
-  location: https://github.com/edsko/http2.git
-  tag: c2a2994ed45a08998c2b6eb22a08f28b9eb36c3c
+-- source-repository-package
+--   type: git
+--   location: https://github.com/edsko/http2.git
+--   tag: c2a2994ed45a08998c2b6eb22a08f28b9eb36c3c
+
+allow-newer: stm
+

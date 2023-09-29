@@ -7,6 +7,7 @@ module Network.GRPC.Util.Session.Server (
 import Control.Exception
 import Control.Tracer
 import Network.HTTP2.Server qualified as Server
+import GHC.Stack
 
 import Network.GRPC.Util.Concurrency
 import Network.GRPC.Util.HTTP2 (fromHeaderTable)
@@ -14,6 +15,8 @@ import Network.GRPC.Util.HTTP2.Stream
 import Network.GRPC.Util.Session.API
 import Network.GRPC.Util.Session.Channel
 import Network.GRPC.Util.Thread
+
+import Debug.Trace
 
 {-------------------------------------------------------------------------------
   Connection
@@ -33,7 +36,7 @@ data ConnectionToClient = ConnectionToClient {
 --
 -- The actual response will not immediately be initiated; see below.
 setupResponseChannel :: forall sess.
-     AcceptSession sess
+     (AcceptSession sess, HasCallStack)
   => sess
   -> Tracer IO (DebugMsg sess)
   -> ConnectionToClient
@@ -66,22 +69,31 @@ setupResponseChannel sess tracer conn startOutbound = do
       else
         FlowStartRegular <$> parseRequestRegular sess requestInfo
 
-    forkThread (channelInbound channel) newEmptyTMVarIO $ \stVar ->
+    forkThread (channelInbound channel) newEmptyTMVarIO $ \unmask stVar -> do
+      traceIO $ "Server forkThread recvMessageLoop 1 " ++ " at " ++ prettyCallStack callStack
       case inboundStart of
         FlowStartRegular headers -> do
+          traceIO $ "Server forkThread recvMessageLoop 2"
           regular <- initFlowStateRegular headers
+          traceIO $ "Server forkThread recvMessageLoop 3 "
           stream  <- serverInputStream (request conn)
+          traceIO $ "Server forkThread recvMessageLoop 4"
           atomically $ putTMVar stVar $ FlowStateRegular regular
-          recvMessageLoop sess tracer regular stream
-        FlowStartNoMessages trailers ->
+          traceIO $ "Server forkThread recvMessageLoop 5"
+          recvMessageLoop sess unmask tracer regular stream
+        FlowStartNoMessages trailers -> do
+          traceIO $ "Server forkThread recvMessageLoop 6"
           atomically $ putTMVar stVar $ FlowStateNoMessages trailers
 
-    forkThread (channelOutbound channel) newEmptyTMVarIO $ \stVar -> do
+    forkThread (channelOutbound channel) newEmptyTMVarIO $ \unmask stVar -> do
+      traceIO $ "Server forkThread sendMessageLoop 1 "
       outboundStart <- startOutbound inboundStart
       let responseInfo = buildResponseInfo sess outboundStart
+      traceIO $ "Server forkThread sendMessageLoop 2 " ++ show outboundStart
       case outboundStart of
         FlowStartRegular headers -> do
           regular <- initFlowStateRegular headers
+          traceIO $ "Server forkThread sendMessageLoop 3 "
           atomically $ putTMVar stVar $ FlowStateRegular regular
           let resp :: Server.Response
               resp = setResponseTrailers sess channel
@@ -90,7 +102,7 @@ setupResponseChannel sess tracer conn startOutbound = do
                            (responseHeaders responseInfo)
                    $ \write' flush' -> do
                         stream <- serverOutputStream write' flush'
-                        sendMessageLoop sess tracer regular stream
+                        sendMessageLoop sess unmask tracer regular stream
           respond conn resp
         FlowStartNoMessages trailers -> do
           atomically $ putTMVar stVar $ FlowStateNoMessages trailers

@@ -35,7 +35,7 @@ module Network.GRPC.Util.Session.Channel (
   , DebugMsg(..)
   ) where
 
-import Control.Exception
+import Control.Exception hiding (try)
 import Control.Monad.Catch
 import Control.Tracer
 import Data.Bifunctor
@@ -53,6 +53,8 @@ import Network.GRPC.Util.HTTP2.Stream
 import Network.GRPC.Util.Parser
 import Network.GRPC.Util.Session.API
 import Network.GRPC.Util.Thread
+
+import Debug.Trace
 
 {-------------------------------------------------------------------------------
   Definitions
@@ -162,6 +164,13 @@ data RegularFlowState flow = RegularFlowState {
       -- /Their/ sole purpose is to catch user errors, not capture data flow.
     , flowTerminated :: TMVar (Trailers flow)
     }
+
+-- | 'Show' instance is useful in combination with @stm-debug@ only
+deriving instance (
+    Show (Headers flow)
+  , Show (TMVar (StreamElem (Trailers flow) (Message flow)))
+  , Show (TMVar (Trailers flow))
+  ) => Show (RegularFlowState flow)
 
 {-------------------------------------------------------------------------------
   Initialization
@@ -320,21 +329,36 @@ recv Channel{channelInbound, channelRecvFinal} = do
     -- receives messages from the peer will get to it eventually (unless it
     -- dies, in which case the thread status will change and the call to
     -- 'getThreadInterface' will be retried).
-    readFinal <- readTVar channelRecvFinal
-    case readFinal of
-      Just cs -> throwSTM $ RecvAfterFinal cs
-      Nothing -> do
-        st  <- readTMVar =<< getThreadInterface channelInbound
+    traceM $ "recv 1 " ++ " at " ++ prettyCallStack callStack
+--    readFinal <- readTVar channelRecvFinal
+--    traceM $ "recv 2 " ++ show readFinal
+--    case readFinal of
+--      Just cs -> throwSTM $ RecvAfterFinal cs
+--      Nothing -> do
+    do
+        -- We get the TMVar in the same transaction as reading from it (below).
+        -- This means that /if/ the thread running 'recvMessageLoop' throws an
+        -- exception and is killed, the 'takeTMVar' below cannot block
+        -- indefinitely.
+        traceM $ "recv 3a"
+        iface <- getThreadInterface channelInbound
+        traceM $ "recv 3b"
+        st  <- readTMVar iface
         case st of
           FlowStateRegular regular -> do
+            traceM $ "recv 4.1"
             msg <- takeTMVar (flowMsg regular)
-            -- We update 'channelRecvFinal' in the same tx as the read, to
+            traceM "recv 4.2"
+             -- We update 'channelRecvFinal' in the same tx as the read, to
             -- atomically change from "there is a value" to "all values read".
             StreamElem.whenDefinitelyFinal msg $ \_trailers ->
               writeTVar channelRecvFinal $ Just callStack
+            traceM "recv 4.3"
             return $ first Right msg
           FlowStateNoMessages trailers -> do
+            traceM "recv 5.1"
             writeTVar channelRecvFinal $ Just callStack
+            traceM "recv 5.2"
             return $ NoMoreElems (Left trailers)
 
 -- | Thrown by 'send'
@@ -369,7 +393,7 @@ data RecvAfterFinal =
 -- | Wait for the outbound thread to terminate
 --
 -- See 'forceClose' for discussion.
-waitForOutbound :: Channel sess -> IO (FlowState (Outbound sess))
+waitForOutbound :: HasCallStack => Channel sess -> IO (FlowState (Outbound sess))
 waitForOutbound Channel{channelOutbound} = atomically $
     readTMVar =<< waitForThread channelOutbound
 
@@ -448,14 +472,17 @@ data ChannelClosed =
 -------------------------------------------------------------------------------}
 
 -- | Send all messages to the node's peer
+--
+-- Should be called with exceptions masked.
 sendMessageLoop :: forall sess.
      IsSession sess
   => sess
+  -> (forall x. IO x -> IO x) -- ^ Unmask
   -> Tracer IO (DebugMsg sess)
   -> RegularFlowState (Outbound sess)
   -> OutputStream
   -> IO ()
-sendMessageLoop sess tracer st stream =
+sendMessageLoop sess unmask tracer st stream =
     go $ buildMsg sess (flowHeaders st)
   where
     go :: (Message (Outbound sess) -> Builder) -> IO ()
@@ -466,7 +493,9 @@ sendMessageLoop sess tracer st stream =
         loop :: IO (Trailers (Outbound sess))
         loop = do
             traceWith tracer $ NodeSendAwaitMsg
-            msg <- atomically $ takeTMVar (flowMsg st)
+            -- Technically the call to unmask is necessary here, as takeTMVar
+            -- is interuptible.
+            msg <- unmask $ atomically $ takeTMVar (flowMsg st)
             traceWith tracer $ NodeSendMsg msg
 
             case msg of
@@ -492,11 +521,12 @@ sendMessageLoop sess tracer st stream =
 recvMessageLoop :: forall sess.
      IsSession sess
   => sess
+  -> (forall x. IO x -> IO x) -- ^ Unmask
   -> Tracer IO (DebugMsg sess)
   -> RegularFlowState (Inbound sess)
   -> InputStream
   -> IO ()
-recvMessageLoop sess tracer st stream =
+recvMessageLoop sess unmask tracer st stream = do
     go $ parseMsg sess (flowHeaders st)
   where
     go :: Parser (Message (Inbound sess)) -> IO ()
@@ -507,7 +537,7 @@ recvMessageLoop sess tracer st stream =
         atomically $ putTMVar (flowMsg        st) $ NoMoreElems trailers
       where
         loop :: Parser (Message (Inbound sess)) -> IO [HTTP.Header]
-        loop (ParserError err) =
+        loop (ParserError err) = do
             throwIO $ PeerSentMalformedMessage err
         loop (ParserDone x p') = do
             traceWith tracer $ NodeRecvMsg (StreamElem x)
@@ -515,15 +545,21 @@ recvMessageLoop sess tracer st stream =
             loop p'
         loop (ParserNeedsData acc p') = do
             traceWith tracer $ NodeNeedsData acc
-            bs <- getChunk stream
+            mbs <- unmask $ try $ getChunk stream
+            bs <- case mbs of
+                    Left (err :: SomeException) -> do
+                      throwIO err
+                    Right bs ->
+                      return bs
 
-            if | not (BS.Strict.null bs) ->
+
+            if | not (BS.Strict.null bs) -> do
                    loop $ p' bs
 
-               | not (BS.Lazy.null acc) ->
+               | not (BS.Lazy.null acc) -> do
                    throwIO PeerSentIncompleteMessage
 
-               | otherwise ->
+               | otherwise -> do
                    getTrailers stream
 
 outboundTrailersMaker :: forall sess.

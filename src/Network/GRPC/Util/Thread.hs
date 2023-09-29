@@ -47,6 +47,7 @@ data ThreadState a =
 
     -- | Thread terminated with an exception
   | ThreadException SomeException
+  deriving (Show)
 
 {-------------------------------------------------------------------------------
   Creating threads
@@ -56,18 +57,20 @@ newThreadState :: IO (TVar (ThreadState a))
 newThreadState = newTVarIO ThreadNotStarted
 
 forkThread ::
-     TVar (ThreadState a)
+     HasCallStack
+  => TVar (ThreadState a)
   -> IO a         -- ^ Initialize the thread (runs with exceptions masked)
-  -> (a -> IO ()) -- ^ Main thread body
+  -> ((forall x. IO x -> IO x) -> a -> IO ()) -- ^ Main thread body
   -> IO ()
 forkThread state initThread body =
     void $ mask_ $ forkIOWithUnmask $ \unmask ->
-      threadBody state unmask initThread body
+      threadBody state initThread $ body unmask
 
 -- | Wrap the thread body
 --
 -- This should be wrapped around the body of the thread, and should be called
--- with exceptions masked.
+-- with exceptions masked. The body itself is responsible for unmasking
+-- exceptions
 --
 -- This is intended for integration with existing libraries (such as @http2@),
 -- which might do the forking under the hood.
@@ -76,11 +79,10 @@ forkThread state initThread body =
 -- this function terminates immediately.
 threadBody ::
      TVar (ThreadState a)
-  -> (forall x. IO x -> IO x) -- ^ Unmask exceptions
   -> IO a         -- ^ Initialize the thread (runs with exceptions masked)
   -> (a -> IO ()) -- ^ Main thread body
   -> IO ()
-threadBody state unmask initThread body = do
+threadBody state initThread body = do
     tid <- myThreadId
     shouldStart <- atomically $ do
       st <- readTVar state
@@ -93,7 +95,7 @@ threadBody state unmask initThread body = do
     when shouldStart $ do
       iface <- initThread
       atomically $ writeTVar state $ ThreadRunning tid iface
-      res <- try $ unmask $ body iface
+      res <- try $ body iface
       atomically $ writeTVar state $
         case res of
           Left  e  -> ThreadException e

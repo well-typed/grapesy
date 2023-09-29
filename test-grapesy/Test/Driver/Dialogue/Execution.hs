@@ -35,6 +35,8 @@ import Test.Driver.Dialogue.Definition
 import Test.Driver.Dialogue.TestClock
 import Test.Util.PrettyVal
 
+import Debug.Trace
+
 {-------------------------------------------------------------------------------
   Endpoints
 -------------------------------------------------------------------------------}
@@ -129,16 +131,106 @@ ifAlive :: (a -> Health e b) -> Health e a -> Health e b
 ifAlive = (=<<)
 
 {-------------------------------------------------------------------------------
+  Execution mode
+-------------------------------------------------------------------------------}
+
+-- | Execution mode
+--
+-- Each test involves one or more pairs of a client and a server engaged in an
+-- RPC call. Each call consists of a series of actions ("client sends initial
+-- metadata", "client sends a message", "server sends a message", etc.). We
+-- categorize such actions as either " passive " (such as receiving a message)
+-- or " active " (such as sending a message).
+--
+-- As part of the test generation, each action is assigned a (test) clock tick.
+-- This imposes a specific (but randomly generated) ordering; this matches the
+-- formal definition of the behaviour of concurrent systems: "for every
+-- interleaving, ...". Active actions wait until the test clock (essentially
+-- such an @MVar Int@) reaches their assigned tick before proceeding. The
+-- /advancement/ of the test clock depends on the mode (see below).
+data ExecutionMode =
+    -- | Conservative mode (used when tests involve early termination)
+    --
+    -- == Ordering
+    --
+    -- Consider a test that looks something like:
+    --
+    -- > clock tick 1: client sends message
+    -- > clock tick 2: client throws exception
+    --
+    -- We have to be careful to preserve ordering here: the exception thrown by
+    -- the client may or may not " overtake " the earlier send: the message may
+    -- or may not be send to the server, thereby making the tests flaky. In
+    -- conversative mode, therefore, the /passive/ participant is the one that
+    -- advances the test clock; in the example above, the /server/ advances the
+    -- test clock when it receives the message. The downside of this approach
+    -- is that we are excluding some valid behaviour from the tests: we're
+    -- effectively making every operation synchronous.
+    --
+    -- == Connection isolation
+    --
+    -- The tests assume that different calls are independent from each other.
+    -- This is mostly true, but not completely: when a client or a server
+    -- terminates early, the entire connection (supporting potentially many
+    -- calls) is reset. It's not entirely clear why; it feels like an
+    -- unnecessary limitation in @http2@. (TODO: Actually, this might be related
+    -- to an exception being thrown in 'outboundTrailersMaker'?)
+    --
+    -- Ideally, we would either (1) randomly assign connections to calls and
+    -- then test that an early termination only affects calls using the same
+    -- connection, or better yet, (2), remove this limitation from @http2@.
+    --
+    -- For now, we do neither: /if/ a test includes early termination, we give
+    -- each call its own connection, thereby regaining independence.
+    Conservative
+
+    -- | Aggressive mode (used when tests do not involve early termination)
+    --
+    -- == Ordering
+    --
+    -- Consider a test containing:
+    --
+    -- > clock tick 1: client sends message A
+    -- > clock tick 2: client sends message B
+    --
+    -- In aggressive mode it's the /active/ participant that advances the clock.
+    -- This means that we may well reach clock tick 2 before the server has
+    -- received message A, thus testing the asynchronous nature of the
+    -- operations that @grapesy@ offers
+    --
+    -- ## Connection isolation
+    --
+    -- In aggressive mode all calls from the client to the server share the
+    -- same connection.
+  | Aggressive
+  deriving (Show)
+
+determineExecutionMode :: GlobalSteps -> ExecutionMode
+determineExecutionMode steps = traceShowId $
+    if hasEarlyTermination steps
+      then Conservative
+      else Aggressive
+
+ifConservative :: Applicative m => ExecutionMode -> m () -> m ()
+ifConservative Conservative k = k
+ifConservative Aggressive   _ = pure ()
+
+ifAggressive :: Applicative m => ExecutionMode -> m () -> m ()
+ifAggressive Aggressive   k = k
+ifAggressive Conservative _ = pure ()
+
+{-------------------------------------------------------------------------------
   Client-side interpretation
 -------------------------------------------------------------------------------}
 
 clientLocal ::
      HasCallStack
   => TestClock
+  -> ExecutionMode
   -> Client.Call (BinaryRpc meth srv)
   -> LocalSteps
   -> IO ()
-clientLocal testClock call = \(LocalSteps steps) ->
+clientLocal testClock mode call = \(LocalSteps steps) ->
     flip evalStateT (Alive ()) $ go steps
   where
     go :: [(TestClockTick, LocalStep)] -> StateT (ServerHealth ()) IO ()
@@ -148,9 +240,9 @@ clientLocal testClock call = \(LocalSteps steps) ->
         case step of
           ClientAction action -> do
             liftIO $ waitForTestClockTick testClock tick
-            continue <-   clientAct action
-                        `finally`
-                          liftIO (advanceTestClock testClock)
+            continue <-
+              clientAct action `finally`
+                liftIO (ifAggressive mode $ advanceTestClock testClock)
             if continue then
               go steps
             else do
@@ -163,7 +255,9 @@ clientLocal testClock call = \(LocalSteps steps) ->
                   advanceTestClockAtTimes testClock $
                     mapMaybe ourStep steps
           ServerAction action -> do
-            reactToServer action
+            reactToServer action `finally`
+              liftIO (ifConservative mode $ advanceTestClock testClock)
+
             go steps
 
     -- Client action
@@ -257,25 +351,14 @@ clientLocal testClock call = \(LocalSteps steps) ->
 
 clientGlobal ::
      TestClock
+  -> ExecutionMode
   -> (forall a. (Client.Connection -> IO a) -> IO a)
   -> GlobalSteps
   -> IO ()
-clientGlobal testClock withConn = \steps@(GlobalSteps globalSteps) ->
-    -- TODO: The tests assume that different calls are independent from each
-    -- other. This is mostly true, but not completely: when a client or a server
-    -- terminates early, the entire connection (supporting potentially many
-    -- calls) is reset. It's not entirely clear why; it feels like an
-    -- unnecessary limitation in @http2@.
-    --
-    -- Ideally, we would either (1) randomly assign connections to calls and
-    -- then test that an early termination only affects calls using the same
-    -- connection, or better yet, (2), remove this limitation from @http2@.
-    --
-    -- For now, we do neither: /if/ a test includes early termination, we give
-    -- each call its own connection, thereby regaining independence.
-    if hasEarlyTermination steps
-      then go Nothing [] globalSteps
-      else withConn $ \conn -> go (Just conn) [] globalSteps
+clientGlobal testClock mode withConn = \(GlobalSteps globalSteps) ->
+    case mode of
+      Aggressive   -> withConn $ \conn -> go (Just conn) [] globalSteps
+      Conservative -> go Nothing [] globalSteps
   where
     go :: Maybe Client.Connection -> [Async ()] -> [LocalSteps] -> IO ()
     go _ threads [] = do
@@ -318,7 +401,7 @@ clientGlobal testClock withConn = \steps@(GlobalSteps globalSteps) ->
                   -- a class of correct behaviour: the server might not respond
                   -- with that initial metadata until the client has sent some
                   -- messages.
-                  clientLocal testClock call (LocalSteps steps')
+                  clientLocal testClock mode call (LocalSteps steps')
 
           _otherwise ->
             error $ "clientGlobal: expected Initiate, got " ++ show steps
@@ -373,9 +456,10 @@ _waitForEnabled label = liftIO $ do
 
 serverLocal ::
      TestClock
+  -> ExecutionMode
   -> Server.Call (BinaryRpc serv meth)
   -> LocalSteps -> IO ()
-serverLocal testClock call = \(LocalSteps steps) -> do
+serverLocal testClock mode call = \(LocalSteps steps) -> do
     flip evalStateT (Alive ()) $ go steps
   where
     go :: [(TestClockTick, LocalStep)] -> StateT (ClientHealth ()) IO ()
@@ -385,9 +469,9 @@ serverLocal testClock call = \(LocalSteps steps) -> do
         case step of
           ServerAction action -> do
             liftIO $ waitForTestClockTick testClock tick
-            continue <-   serverAct action
-                        `finally`
-                          liftIO (advanceTestClock testClock)
+            continue <-
+              serverAct action `finally`
+                liftIO (ifAggressive mode $ advanceTestClock testClock)
             if continue then
               go steps
             else do
@@ -402,7 +486,8 @@ serverLocal testClock call = \(LocalSteps steps) -> do
                   advanceTestClockAtTimes testClock $
                     mapMaybe ourStep steps
           ClientAction action -> do
-            reactToClient action
+            reactToClient action `finally`
+              liftIO (ifConservative mode $ advanceTestClock testClock)
             go steps
 
     -- Server action
@@ -495,6 +580,7 @@ serverLocal testClock call = \(LocalSteps steps) -> do
 serverGlobal ::
      HasCallStack
   => TestClock
+  -> ExecutionMode
   -> MVar GlobalSteps
     -- ^ Unlike in the client case, the grapesy infrastructure spawns a new
     -- thread for each incoming connection. To know which part of the test this
@@ -503,7 +589,7 @@ serverGlobal ::
     -- thread, the order of these incoming requests is deterministic.
   -> Server.Call (BinaryRpc serv meth)
   -> IO ()
-serverGlobal testClock globalStepsVar call = do
+serverGlobal testClock mode globalStepsVar call = do
     steps <- modifyMVar globalStepsVar (getNextSteps . getGlobalSteps)
     -- See discussion in clientGlobal (runLocalSteps)
     advanceTestClock testClock
@@ -519,7 +605,7 @@ serverGlobal testClock globalStepsVar call = do
          -- exception.
          receivedMetadata <- Server.getRequestMetadata call
          expect (== metadata) $ Set.fromList receivedMetadata
-         serverLocal testClock call $ LocalSteps steps'
+         serverLocal testClock mode call $ LocalSteps steps'
        _otherwise ->
           error "serverGlobal: expected ClientInitiateRequest"
   where
@@ -549,10 +635,10 @@ execGlobalSteps steps k = do
              IsRPC (BinaryRpc serv meth)
           => Proxy (BinaryRpc serv meth) -> Server.RpcHandler IO
         handler rpc = Server.mkRpcHandler rpc $ \call ->
-                        serverGlobal testClock globalStepsVar call
+                        serverGlobal testClock mode globalStepsVar call
 
     mRes :: Either SomeException a <- try $ k $ def {
-        client = \conn -> clientGlobal testClock conn steps
+        client = \conn -> clientGlobal testClock mode conn steps
       , server = [ handler (Proxy @TestRpc1)
                  , handler (Proxy @TestRpc2)
                  , handler (Proxy @TestRpc3)
@@ -562,6 +648,9 @@ execGlobalSteps steps k = do
       Left err -> throwM err
       Right a  -> return a
   where
+    mode :: ExecutionMode
+    mode = determineExecutionMode steps
+
     -- For 'clientGlobal' the order doesn't matter, because it spawns a thread
     -- for each 'LocalSteps'. The server however doesn't get this option; the
     -- threads /get/ spawnwed for each incoming connection, and must feel off

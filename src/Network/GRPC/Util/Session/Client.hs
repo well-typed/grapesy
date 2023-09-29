@@ -16,6 +16,8 @@ import Network.GRPC.Util.Session.API
 import Network.GRPC.Util.Session.Channel
 import Network.GRPC.Util.Thread
 
+import Debug.Trace
+
 {-------------------------------------------------------------------------------
   Connection
 -------------------------------------------------------------------------------}
@@ -91,11 +93,11 @@ setupRequestChannel sess tracer ConnectionToServer{sendRequest} outboundStart = 
                     (requestHeaders requestInfo)
                 $ \unmask write' flush' -> unmask $ do
                      threadBody (channelOutbound channel)
-                                unmask
                                 (newTMVarIO (FlowStateRegular regular))
                               $ \_stVar -> do
+                       traceIO $ "Client sendMessageLoop "
                        stream <- clientOutputStream write' flush'
-                       sendMessageLoop sess tracer regular stream
+                       sendMessageLoop sess unmask tracer regular stream
         forkRequest channel req
       FlowStartNoMessages trailers -> do
         stVar <- newTMVarIO $ FlowStateNoMessages trailers
@@ -111,13 +113,16 @@ setupRequestChannel sess tracer ConnectionToServer{sendRequest} outboundStart = 
   where
     forkRequest :: Channel sess -> Client.Request -> IO ()
     forkRequest channel req =
-        forkThread (channelInbound channel) newEmptyTMVarIO $ \stVar -> do
+        forkThread (channelInbound channel) newEmptyTMVarIO $ \unmask stVar -> do
+          traceIO $ "Client forkThread recvMessageLoop 1 "
           setup <- try $ sendRequest req $ \resp -> do
+            traceIO "forkThread 2"
             responseStatus <- case Client.responseStatus resp of
                                 Just x  -> return x
                                 Nothing -> throwM PeerMissingPseudoHeaderStatus
             let responseHeaders = fromHeaderTable $ Client.responseHeaders resp
                 responseInfo    = ResponseInfo {responseHeaders, responseStatus}
+            traceIO "forkThread 3"
 
             inboundStart <-
               if Client.responseBodySize resp == Just 0
@@ -125,16 +130,20 @@ setupRequestChannel sess tracer ConnectionToServer{sendRequest} outboundStart = 
                        parseResponseNoMessages sess responseInfo
                 else FlowStartRegular <$>
                        parseResponseRegular sess responseInfo
+            traceIO "forkThread 4"
 
             case inboundStart of
               FlowStartRegular headers -> do
+                traceIO "forkThread 5"
                 regular <- initFlowStateRegular headers
                 stream  <- clientInputStream resp
                 atomically $ putTMVar stVar $ FlowStateRegular regular
-                recvMessageLoop sess tracer regular stream
-              FlowStartNoMessages trailers ->
+                recvMessageLoop sess unmask tracer regular stream
+              FlowStartNoMessages trailers -> do
+                traceIO "forkThread 6"
                 atomically $ putTMVar stVar $ FlowStateNoMessages trailers
 
+          traceIO $ "forkThread 7 " ++ show setup
           case setup of
             Right () -> return ()
             Left  e  -> do

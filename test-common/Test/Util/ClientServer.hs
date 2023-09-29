@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP               #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Test.Util.ClientServer (
@@ -24,15 +25,17 @@ module Test.Util.ClientServer (
 import Control.Concurrent
 import Control.Concurrent.Async
 import Control.Concurrent.STM
-import Control.Exception
 import Control.Monad
+import Control.Monad.Catch
 import Control.Monad.IO.Class
 import Control.Tracer
+import Data.Bifunctor
 import Data.Default
 import Data.Map qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as Text
 import GHC.Generics qualified as GHC
+import Network.HTTP2.Internal qualified as HTTP2
 import Network.HTTP2.Server qualified as HTTP2
 import Network.TLS
 import Text.Show.Pretty
@@ -132,6 +135,7 @@ data ExpectedException e =
   | ExpectedExceptionCompressionNegotationFailed CompressionNegotationFailed
   | ExpectedExceptionDouble (DoubleException (ExpectedException e))
   | ExpectedExceptionCustom e
+  | ExpectedExceptionHttp2 (Maybe SomeException)
   deriving stock (Show, GHC.Generic)
   deriving anyclass (PrettyVal)
 
@@ -222,8 +226,12 @@ isExpectedException cfg assessCustomException topLevel =
               , doubleExceptionAnnotation = ()
               }
 
-      | Just (STMException _stack err' ) <- fromException err
+#if MIN_VERSION_stm(9,9,9)
+      -- http://github.com/edsko/stm-debug
+      | Just (STMException _stack err') <- fromException err
       = go err'
+#endif
+
       | Just (ThreadInterfaceUnavailable  _stack err') <- fromException err
       = go err'
       | Just (ThreadCancelled _stack err') <- fromException err
@@ -232,6 +240,21 @@ isExpectedException cfg assessCustomException topLevel =
       = go err'
       | Just (ChannelUncleanClose err') <- fromException err
       = go err'
+
+      --
+      -- HTTP2
+      --
+      -- HTTP2 will kill handlers when they are no longer required. We expect
+      -- these when one part of a test throws an exception and we exit the test
+      -- prematurely.
+      --
+      -- TODO: We could try and make these more precise, and expect them only
+      -- if indeed another part of the test has failed, but we'd really be
+      -- testing http2 rather than grapesy itself.
+      --
+
+      | Just (HTTP2.KilledByHttp2ThreadManager e) <- fromException err
+      = Right (ExpectedExceptionHttp2 e)
 
       --
       -- Custom exceptions
@@ -254,30 +277,45 @@ isExpectedException cfg assessCustomException topLevel =
 
 {-------------------------------------------------------------------------------
   Server handler lock
-
-  We don't want to terminate the test when some of the server handlers are
-  still running; this will result in those handlers being killed with a
-  'KilledByHttp2ThreadManager' exception, confusing the test results.
 -------------------------------------------------------------------------------}
 
-newtype ServerHandlerLock = ServerHandlerLock (TVar Int)
+newtype ServerHandlerLock = ServerHandlerLock (TVar (Either SomeException Int))
 
 newServerHandlerLock :: IO ServerHandlerLock
-newServerHandlerLock = ServerHandlerLock <$> newTVarIO 0
+newServerHandlerLock = ServerHandlerLock <$> newTVarIO (Right 0)
 
 waitForHandlerTermination :: ServerHandlerLock -> STM ()
 waitForHandlerTermination (ServerHandlerLock lock) = do
-    activeHandlers <- readTVar lock
-    unless (activeHandlers == 0) $ retry
+    mActiveHandlers <- readTVar lock
+    case mActiveHandlers of
+      Left err -> throwSTM err
+      Right 0  -> return ()
+      Right _  -> retry
 
 serverHandlerLockHook :: ServerHandlerLock -> HTTP2.Server -> HTTP2.Server
 serverHandlerLockHook (ServerHandlerLock lock) server request aux respond =
-    bracket_ register unregister $
-      server request aux respond
+    mask $ \unmask -> do
+      register
+      result <- try $ unmask $ server request aux respond
+      -- We don't rethrow the exception (instead 'waitForHandlerTermination' will)
+      unregister result
   where
-    register, unregister :: IO ()
-    register   = atomically $ modifyTVar lock (\x -> x + 1)
-    unregister = atomically $ modifyTVar lock (\x -> x - 1)
+    register :: IO ()
+    register = atomically $ modifyTVar lock $ bimap id succ
+
+    unregister :: Either SomeException () -> IO ()
+    unregister result = atomically $ modifyTVar lock $ either Left $
+        case result of
+          Right () ->
+            Right . pred
+          Left e ->
+            case fromException e of
+              Just (HTTP2.KilledByHttp2ThreadManager _) ->
+                -- If we are shutting down because of a test failure, we don't
+                -- want to get confused by any other handlers being shut down
+                Right . pred
+              Nothing ->
+                const (Left e)
 
 {-------------------------------------------------------------------------------
   Server
@@ -481,17 +519,17 @@ runTestClientServer cfg clientRun serverHandlers = do
       (Right (), Right a) ->
         return a
       (Left serverErr, Right _) ->
-        throwIO $ ServerException {
+        throwM $ ServerException {
             serverException     = serverErr
           , serverExceptionLogs = logMsgs
           }
       (Right (), Left clientErr) ->
-        throwIO $ ClientException {
+        throwM $ ClientException {
             clientException     = clientErr
           , clientExceptionLogs = logMsgs
           }
       (Left serverErr, Left clientErr) ->
-        throwIO $ DoubleException {
+        throwM $ DoubleException {
             doubleExceptionServer     = serverErr
           , doubleExceptionClient     = clientErr
           , doubleExceptionAnnotation = logMsgs

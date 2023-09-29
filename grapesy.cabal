@@ -89,7 +89,9 @@ library
       Network.GRPC.Server.Run
       Network.GRPC.Server.StreamType
       Network.GRPC.Spec
-  other-modules:
+
+  -- other-modules:
+
       Network.GRPC.Client.Call
       Network.GRPC.Client.Connection
       Network.GRPC.Client.Meta
@@ -195,6 +197,8 @@ test-suite test-grapesy
   ghc-options:
       -Wprepositive-qualified-module
       -threaded
+      -rtsopts
+      -debug
   type:
       exitcode-stdio-1.0
   hs-source-dirs:
@@ -232,7 +236,7 @@ test-suite test-grapesy
     , pretty-show      >= 1.10 && < 1.11
     , QuickCheck       >= 2.14 && < 2.15
     , stm              >= 2.5  && < 2.6
-    , tasty            >= 1.4  && < 1.5
+    , tasty            >= 1.4  && < 1.6
     , tasty-hunit      >= 0.10 && < 0.11
     , tasty-quickcheck >= 0.10 && < 0.11
     , text             >= 1.2  && < 2.1
@@ -353,6 +357,7 @@ executable test-stress
     , containers           >= 0.6  && < 0.7
     , contra-tracer        >= 0.2  && < 0.3
     , data-default         >= 0.7  && < 0.8
+    , exceptions           >= 0.10 && < 0.11
     , http2
     , optparse-applicative >= 0.16 && < 0.19
     , pretty-show          >= 1.10 && < 1.11
