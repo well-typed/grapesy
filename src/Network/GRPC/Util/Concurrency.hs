@@ -77,7 +77,7 @@ wrapThreadBody body = body
 -- but that is not our case here.
 --
 -- This is obviously a huge hack and has got to be of the worst functions I have
--- ever written (and I have written some pretty horrible functions in my past).
+-- ever written (and I have written some pretty horrible functions in my time).
 --
 -- TODO: Fix this properly.
 -- TODO: Is 1 guarded attempt enough..? Do we need more..? Unlimited..?
