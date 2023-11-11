@@ -13,7 +13,6 @@ import Control.Monad.State
 import Data.Bifunctor
 import Data.Default
 import Data.List (sortBy)
-import Data.Maybe (mapMaybe)
 import Data.Ord (comparing)
 import Data.Proxy
 import Data.Set qualified as Set
@@ -221,6 +220,22 @@ ifAggressive Conservative _ = pure ()
   Client-side interpretation
 -------------------------------------------------------------------------------}
 
+-- | Advance the clock for all non-executed steps
+--
+-- When a client or a handler exits (due to an exception, perhaps), then it is
+-- important we still step the test clock at the appropriate times, to avoid the
+-- rest of the tests stalling.
+skipMissedSteps ::
+     TestClock
+  -> ExecutionMode
+  -> (ExecutionMode -> LocalStep -> Bool)
+  -> [(TestClockTick, LocalStep)]
+  -> IO ()
+skipMissedSteps testClock mode ourStep steps =
+    void $ forkIO $
+      advanceTestClockAtTimes testClock $
+        map fst $ filter (ourStep mode . snd) steps
+
 clientLocal ::
      HasCallStack
   => TestClock
@@ -229,29 +244,27 @@ clientLocal ::
   -> LocalSteps
   -> IO ()
 clientLocal testClock mode call = \(LocalSteps steps) ->
-    flip evalStateT (Alive ()) $ go steps
+    evalStateT (go steps) (Alive ()) `finally`
+      skipMissedSteps testClock mode ourStep steps
   where
+    ourStep :: ExecutionMode -> LocalStep -> Bool
+    ourStep Aggressive   (ClientAction _) = True
+    ourStep Aggressive   (ServerAction _) = False
+    ourStep Conservative (ClientAction _) = False
+    ourStep Conservative (ServerAction _) = True
+
     go :: [(TestClockTick, LocalStep)] -> StateT (ServerHealth ()) IO ()
     go []                     = return ()
     go ((tick, step) : steps) = do
         waitFor "client"
         case step of
           ClientAction action -> do
-            liftIO $ waitForTestClockTick testClock tick
+            _reachedTick <- liftIO $ waitForTestClockTick testClock tick
+            -- TODO: We could assert that _reachedTick is True
             continue <-
               clientAct action `finally`
                 liftIO (ifAggressive mode $ advanceTestClock testClock)
-            if continue then
-              go steps
-            else do
-              -- See discussion in serverLocal
-              let ourStep :: (TestClockTick, LocalStep) -> Maybe TestClockTick
-                  ourStep (tick' , ClientAction _) = Just tick'
-                  ourStep (_     , ServerAction _) = Nothing
-              liftIO $ do
-                void $ forkIO $
-                  advanceTestClockAtTimes testClock $
-                    mapMaybe ourStep steps
+            when continue $ go steps
           ServerAction action -> do
             reactToServer action `finally`
               liftIO (ifConservative mode $ advanceTestClock testClock)
@@ -360,10 +373,10 @@ clientGlobal testClock mode withConn = \(GlobalSteps globalSteps) ->
   where
     go :: Maybe Client.Connection -> [Async ()] -> [LocalSteps] -> IO ()
     go _ threads [] = do
-         -- Wait for all threads to finish
-         --
-         -- This also ensures that if any of these threads threw an exception,
-         -- that is now rethrown here in the main test.
+        -- Wait for all threads to finish
+        --
+        -- This also ensures that if any of these threads threw an exception,
+        -- that is now rethrown here in the main test.
         mapM_ wait threads
     go mConn threads (c:cs) =
         withAsync (runLocalSteps mConn c) $ \newThread ->
@@ -373,7 +386,8 @@ clientGlobal testClock mode withConn = \(GlobalSteps globalSteps) ->
     runLocalSteps mConn (LocalSteps steps) = do
         case steps of
           (tick, ClientAction (Initiate (metadata, rpc))) : steps' -> do
-            waitForTestClockTick testClock tick
+            _reachedTick <- waitForTestClockTick testClock tick
+            -- TODO: We could assert that _reachedTick is True
 
             -- Timeouts are outside the scope of these tests: it's too finicky
             -- to relate timeouts (in seconds) to specific test execution.
@@ -390,15 +404,15 @@ clientGlobal testClock mode withConn = \(GlobalSteps globalSteps) ->
                   Nothing   -> withConn) $ \conn ->
                 Client.withRPC conn params proxy $ \call -> do
                   -- We wait for the /server/ to advance the test clock (so that
-                  -- we are use the next step doesn't happen until the connection
-                  -- is established).
+                  -- we are use the next step doesn't happen until the
+                  -- connection is established).
                   --
                   -- NOTE: We could instead wait for the server to send the
                   -- initial metadata; this too would provide evidence that the
-                  -- conneciton has been established. However, doing so precludes
-                  -- a class of correct behaviour: the server might not respond
-                  -- with that initial metadata until the client has sent some
-                  -- messages.
+                  -- connection has been established. However, doing so
+                  -- precludes a class of correct behaviour: the server might
+                  -- not respond with that initial metadata until the client has
+                  -- sent some messages.
                   clientLocal testClock mode call (LocalSteps steps')
 
           _otherwise ->
@@ -458,31 +472,27 @@ serverLocal ::
   -> Server.Call (BinaryRpc serv meth)
   -> LocalSteps -> IO ()
 serverLocal testClock mode call = \(LocalSteps steps) -> do
-    flip evalStateT (Alive ()) $ go steps
+    evalStateT (go steps) (Alive ()) `finally`
+      skipMissedSteps testClock mode ourStep steps
   where
+    ourStep :: ExecutionMode -> LocalStep -> Bool
+    ourStep Aggressive   (ServerAction _) = True
+    ourStep Aggressive   (ClientAction _) = False
+    ourStep Conservative (ClientAction _) = False
+    ourStep Conservative (ServerAction _) = True
+
     go :: [(TestClockTick, LocalStep)] -> StateT (ClientHealth ()) IO ()
     go []                     = return ()
     go ((tick, step) : steps) = do
         waitFor "server"
         case step of
           ServerAction action -> do
-            liftIO $ waitForTestClockTick testClock tick
+            _reachedTick <- liftIO $ waitForTestClockTick testClock tick
+            -- TODO: We could assert that _reachedTick is True
             continue <-
               serverAct action `finally`
                 liftIO (ifAggressive mode $ advanceTestClock testClock)
-            if continue then
-              go steps
-            else do
-              -- We need to exit the scope of the handler, but we do want to
-              -- keep advancing the test clock when its our turn, so that we
-              -- don't interfere with the timing of other threads.
-              let ourStep :: (TestClockTick, LocalStep) -> Maybe TestClockTick
-                  ourStep (tick' , ServerAction _) = Just tick'
-                  ourStep (_     , ClientAction _) = Nothing
-              liftIO $ do
-                void $ forkIO $
-                  advanceTestClockAtTimes testClock $
-                    mapMaybe ourStep steps
+            when continue $ go steps
           ClientAction action -> do
             reactToClient action `finally`
               liftIO (ifConservative mode $ advanceTestClock testClock)
