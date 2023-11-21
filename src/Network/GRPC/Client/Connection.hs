@@ -24,6 +24,7 @@ module Network.GRPC.Client.Connection (
 import Control.Monad
 import Control.Monad.Catch
 import Control.Tracer
+import Data.ByteString.UTF8 qualified as BS.Strict.UTF8
 import Data.Default
 import Data.Foldable (asum)
 import Data.Maybe (fromMaybe)
@@ -218,9 +219,9 @@ instance PrettyVal ClientDebugMsg where
 -------------------------------------------------------------------------------}
 
 data Server =
-    -- | Make insecure connection (without TLS) to the given server
-    ServerInsecure Authority
-
+    -- | Make insecure connection (without TLS) to the given server, with an
+    -- optional http2 authority pseudo-header.
+    ServerInsecure Authority (Maybe String)
     -- | Make secure connection (with TLS) to the given server
   | ServerSecure ServerValidation SslKeyLog Authority
   deriving stock (Show)
@@ -394,11 +395,11 @@ stayConnected connParams server connVar connCanClose =
 
         mRes <- try $
           case server of
-            ServerInsecure auth -> runTCPClient auth $ \sock ->
+            ServerInsecure dest mAuth -> runTCPClient dest $ \sock ->
               bracket (HTTP2.Client.allocSimpleConfig sock writeBufferSize)
                       HTTP2.Client.freeSimpleConfig $ \conf ->
                 HTTP2.Client.run
-                      (clientConfig auth Http)
+                      (clientConfig dest mAuth Http)
                       conf
                     $ \sendRequest -> do
                   traceWith tracer $ ClientDebugConnectedInsecure
@@ -469,10 +470,10 @@ stayConnected connParams server connVar connCanClose =
     writeBufferSize = 4096
 
     -- TODO: This is currently only used for the HTTP case, not HTTPS
-    clientConfig :: Authority -> Scheme -> HTTP2.Client.ClientConfig
-    clientConfig auth scheme = HTTP2.Client.ClientConfig {
+    clientConfig :: Authority -> Maybe String -> Scheme -> HTTP2.Client.ClientConfig
+    clientConfig auth mAuth scheme = HTTP2.Client.ClientConfig {
           scheme    = rawScheme serverPseudoHeaders
-        , authority = rawAuthority serverPseudoHeaders
+        , authority = maybe (rawAuthority serverPseudoHeaders) BS.Strict.UTF8.fromString mAuth
 
           -- Docs describe this as "How many pushed responses are contained in
           -- the cache". Since gRPC does not make use of HTTP2 server push, we

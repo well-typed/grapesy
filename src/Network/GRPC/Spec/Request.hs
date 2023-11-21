@@ -140,7 +140,6 @@ callDefinition proxy = \hdrs -> catMaybes [
           "grpc-timeout"
         , mconcat [
               BS.Strict.C8.pack $ show $ getTimeoutValue val
-            , " "
             , case unit of
                 Hour        -> "H"
                 Minute      -> "M"
