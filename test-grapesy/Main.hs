@@ -1,44 +1,41 @@
+-- with O1 the bug still triggers, but it's (much?) less likely
+{-# OPTIONS_GHC -O0 #-}
+
 {-# LANGUAGE OverloadedStrings #-}
 
 module Main (main) where
 
-import Control.Exception (throwIO)
-import Data.Set qualified as Set
-import Data.Text qualified as Text
-import GHC.Generics qualified as GHC
-import System.Exit
-import Text.Show.Pretty
-
-import Network.GRPC.Common
-import Network.GRPC.Server (ClientDisconnected(..))
-
-import Control.Monad.IO.Class
-import Data.Default
-
-import Network.GRPC.Client qualified as Client
-import Network.GRPC.Server qualified as Server
-
-import Test.Util.ClientServer
-
 import Control.Concurrent
 import Control.Concurrent.Async
 import Control.Concurrent.STM
+import Control.Exception (BlockedIndefinitelyOnSTM(..))
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.State
+import Control.Tracer
 import Data.Bifunctor
-import Data.List (sortBy)
+import Data.Default
 import Data.Maybe (mapMaybe)
-import Data.Ord (comparing)
 import Data.Proxy
-import System.IO.Unsafe (unsafePerformIO)
+import Data.Set (Set)
+import Data.Set qualified as Set
+import Data.Text qualified as Text
+import GHC.Generics qualified as GHC
+import Network.HTTP2.Internal qualified as HTTP2
+import Network.HTTP2.Server qualified as HTTP2
+import System.Exit
 import System.Timeout (timeout)
+import Text.Show.Pretty
 
+import Network.GRPC.Client qualified as Client
 import Network.GRPC.Client.Binary qualified as Client.Binary
+import Network.GRPC.Common
 import Network.GRPC.Common.Binary
+import Network.GRPC.Common.Compression qualified as Compr
+import Network.GRPC.Server qualified as Server
 import Network.GRPC.Server.Binary qualified as Server.Binary
+import Network.GRPC.Server.Run qualified as Server
 
-import Test.Driver.Dialogue.Definition
 import Test.Driver.Dialogue.TestClock
 import Test.Util.PrettyVal
 
@@ -46,132 +43,251 @@ import Debug.Trace
 
 -- ========================================================================== --
 
-regression :: IO ()
-regression = do
-    mResult :: Either SomeException String <- try $
-      testClientServer $ execGlobalSteps globalSteps
-    case mResult of
-      Left err -> do
-        print err
-        exitWith $ ExitFailure 1
-      Right result -> do
-        putStrLn result
-        exitWith $ ExitSuccess
-  where
-    globalSteps :: GlobalSteps
-    globalSteps = GlobalSteps [
-        LocalSteps [
-            ( TestClockTick 1, ClientAction $ Initiate ( Set.fromList [] , RPC1 ))
-          , ( TestClockTick 3, ClientAction $ Send (NoMoreElems NoMetadata))
-          , ( TestClockTick 5, ServerAction $ Send (NoMoreElems (Set.fromList [])))
-          ]
-      , LocalSteps [
-            ( TestClockTick 0, ClientAction $ Initiate ( Set.fromList [] , RPC1 ))
-          , ( TestClockTick 2, ClientAction $ Terminate (Just (ExceptionId 0)))
-          , ( TestClockTick 4, ServerAction $ Send (NoMoreElems (Set.fromList [])))
-          ]
-      ]
-
-data ExpectedUserException =
-    ExpectedClientException SomeClientException
-  | ExpectedServerException SomeServerException
-  | ExpectedForwardedToClient GrpcException
-  | ExpectedClientDisconnected SomeException
-  | ExpectedEarlyTermination
-  deriving stock (Show, GHC.Generic)
-  deriving anyclass (PrettyVal)
-
--- | Custom exceptions
---
--- Technically we should only be expected custom user exceptions when we
--- generate them, but we're not concerned about accidental throws of these
--- custom exceptions.
---
--- TODO: However, it might be useful to be more precise about exactly which
--- gRPC exceptions we expect and when.
-assessCustomException :: SomeException -> CustomException ExpectedUserException
-assessCustomException err
-    --
-    -- Custom exceptions
-    --
-
-    | Just (userEx :: SomeServerException) <- fromException err
-    = CustomExceptionExpected $ ExpectedServerException userEx
-
-    | Just (userEx :: SomeClientException) <- fromException err
-    = CustomExceptionExpected $ ExpectedClientException userEx
-
-    -- Server-side exceptions are thrown as 'GrpcException' client-side
-    | Just (grpc :: GrpcException) <- fromException err
-    , GrpcUnknown <- grpcError grpc
-    , Just msg <- grpcErrorMessage grpc
-    , "SomeServerException" `Text.isInfixOf` msg
-    = CustomExceptionExpected $ ExpectedForwardedToClient grpc
-
-    -- Client-side exceptions are reported as 'ClientDisconnected', but without
-    -- additional information (gRPC does not support client-to-server trailers
-    -- so we have no way of informing the server about what went wrong).
-    | Just (ClientDisconnected e) <- fromException err
-    = CustomExceptionExpected $ ExpectedClientDisconnected e
-
-    --
-    -- Early termination
-    --
-
-    | Just (ChannelDiscarded _) <- fromException err
-    = CustomExceptionExpected $ ExpectedEarlyTermination
-    | Just (grpc :: GrpcException) <- fromException err
-    , GrpcUnknown <- grpcError grpc
-    , Just msg <- grpcErrorMessage grpc
-    , "ChannelDiscarded" `Text.isInfixOf` msg
-    = CustomExceptionExpected $ ExpectedForwardedToClient grpc
-
-    --
-    -- Custom wrappers
-    --
-
-    | Just (AnnotatedServerException err' _ _) <- fromException err
-    = CustomExceptionNested err'
-
-    --
-    -- Catch-all
-    --
-
-    | otherwise
-    = CustomExceptionUnexpected
+_traceLabelled :: Show a => String -> a -> a
+_traceLabelled label x = trace (label ++ ": " ++ show x) x
 
 -- ========================================================================== --
 
 {-------------------------------------------------------------------------------
-  Basic client-server test
+  Server handler lock
 -------------------------------------------------------------------------------}
 
-data ClientServerTest = ClientServerTest {
-      config :: ClientServerConfig
-    , client :: (forall a. (Client.Connection -> IO a) -> IO a) -> IO ()
-    , server :: [Server.RpcHandler IO]
-    }
+newtype ServerHandlerLock = ServerHandlerLock (TVar (Either SomeException Int))
 
-instance Default ClientServerTest where
-  def = ClientServerTest {
-        config = def
-      , client = \_ -> return ()
-      , server = []
-      }
+newServerHandlerLock :: IO ServerHandlerLock
+newServerHandlerLock = ServerHandlerLock <$> newTVarIO (Right 0)
 
--- | Run client server test, and check for expected failures
-testClientServer ::
-     (forall a. Show a => (ClientServerTest -> IO a) -> IO a)
-  -> IO String
-testClientServer withTest =
-    withTest $ \ClientServerTest{config, client, server} -> do
-      mRes <- try $ runTestClientServer config client server
-      case mRes of
-        Right () -> return ""
-        Left err ->
-          case isExpectedException config assessCustomException err of
-            Right err' -> return $ "Got expected error: " ++ show err'
-            Left  err' -> throwIO err' -- test failure
+waitForHandlerTermination :: ServerHandlerLock -> STM ()
+waitForHandlerTermination (ServerHandlerLock lock) = do
+    mActiveHandlers <- readTVar lock
+    case mActiveHandlers of
+      Left err -> throwSTM err
+      Right 0  -> return ()
+      Right _  -> retry
+
+serverHandlerLockHook :: ServerHandlerLock -> HTTP2.Server -> HTTP2.Server
+serverHandlerLockHook (ServerHandlerLock lock) server request aux respond =
+    mask $ \unmask -> do
+      register
+      result <- try $ unmask $ server request aux respond
+      -- We don't rethrow the exception (instead 'waitForHandlerTermination' will)
+      unregister result
+  where
+    register :: IO ()
+    register = atomically $ modifyTVar lock $ bimap id succ
+
+    unregister :: Either SomeException () -> IO ()
+    unregister result = atomically $ modifyTVar lock $ either Left $
+        case result of
+          Right () ->
+            Right . pred
+          Left e ->
+            case fromException e of
+              Just (HTTP2.KilledByHttp2ThreadManager _) ->
+                -- If we are shutting down because of a test failure, we don't
+                -- want to get confused by any other handlers being shut down
+                Right . pred
+              Nothing ->
+                const (Left e)
+
+{-------------------------------------------------------------------------------
+  Server
+-------------------------------------------------------------------------------}
+
+runTestServer ::
+     Tracer IO SomeException
+  -> ServerHandlerLock
+  -> [Server.RpcHandler IO]
+  -> IO ()
+runTestServer serverExceptions handlerLock serverHandlers = do
+    let serverSetup :: Server.ServerSetup
+        serverSetup = def {
+              Server.serverHandlerHook = serverHandlerLockHook handlerLock
+            }
+
+        serverConfig :: Server.ServerConfig
+        serverConfig = Server.ServerConfig {
+              serverSetup    = serverSetup
+            , serverInsecure = Just Server.InsecureConfig {
+                  insecureHost = Nothing
+                , insecurePort = "50051"
+                }
+            , serverSecure   = Nothing
+            }
+
+        serverParams :: Server.ServerParams
+        serverParams = Server.ServerParams {
+              serverCompression     = Compr.none
+            , serverExceptionTracer = serverExceptions
+            , serverDebugTracer     = nullTracer
+            }
+
+    Server.withServer serverParams serverHandlers $
+      Server.runServer serverConfig
+
+{-------------------------------------------------------------------------------
+  Client
+-------------------------------------------------------------------------------}
+
+runTestClient :: forall a.
+     ((forall b. (Client.Connection -> IO b) -> IO b) -> IO a)
+  -> IO a
+runTestClient clientRun = do
+    let clientParams :: Client.ConnParams
+        clientParams = Client.ConnParams {
+              connDebugTracer     = nullTracer
+            , connCompression     = Compr.none
+            , connDefaultTimeout  = Nothing
+
+              -- We need a single reconnect, to enable wait-for-ready.
+              -- This avoids a race condition between the server starting first
+              -- and the client starting first.
+            , connReconnectPolicy =
+                  Client.ReconnectAfter (0.1, 0.2)
+                $ Client.DontReconnect
+            }
+
+        clientServer :: Client.Server
+        clientServer = Client.ServerInsecure clientAuthority
+
+        clientAuthority :: Client.Authority
+        clientAuthority = Client.Authority "localhost" 50051
+
+    clientRun $ Client.withConnection clientParams clientServer
+
+{-------------------------------------------------------------------------------
+  Main entry point: run server and client together
+-------------------------------------------------------------------------------}
+
+runTestClientServer :: forall a.
+     ((forall b. (Client.Connection -> IO b) -> IO b) -> IO a)
+  -> [Server.RpcHandler IO]
+  -> IO a
+runTestClientServer clientRun serverHandlers = do
+    -- Normally, when a handler throws an exception, that request is simply
+    -- aborted, but the server does not shut down. However, for the sake of
+    -- testing, if a handler throws an unexpected exception, the test should
+    -- fail. We therefore monitor for these exceptions.
+    serverHandlerExceptions <- newEmptyTMVarIO
+    let serverExceptions :: Tracer IO SomeException
+        serverExceptions = arrow $ emit $ \err ->
+            atomically $ void $ tryPutTMVar serverHandlerExceptions err
+
+    -- Start server
+    serverHandlerLock <- newServerHandlerLock
+    server <- async $ do
+      runTestServer
+        serverExceptions
+        serverHandlerLock
+        serverHandlers
+
+    -- Start client
+    --
+    -- We run this in its own thread, so we can catch its exceptions separately
+    -- from the one from the server (see below)
+    client <- async $ runTestClient clientRun
+
+    -- The server never shuts down under normal circumstances; so we wait for
+    -- the client to terminate, then wait for any potential still-running
+    -- server handlers to terminate, monitoring for exceptions, and then shut
+    -- down the server.
+    clientRes <- waitCatch client
+    serverRes <- atomically $
+                     (Left <$> readTMVar serverHandlerExceptions)
+                   `orElse`
+                     (Right <$> waitForHandlerTermination serverHandlerLock)
+    cancel server
+
+    case (serverRes, clientRes) of
+      (Right (), Right a) ->
+        return a
+      (Left serverErr, Right _) ->
+        throwM serverErr
+      (Right (), Left clientErr) ->
+        throwM clientErr
+      (Left serverErr, Left clientErr) ->
+          -- We are hunting for BlockedIndefinitelyOnSTM
+          case (fromException serverErr, fromException clientErr) of
+            (Just BlockedIndefinitelyOnSTM{}, _) ->
+              throwM serverErr
+            (_, Just BlockedIndefinitelyOnSTM{}) ->
+              throwM clientErr
+            _otherwise ->
+              -- doesn't really matter which one we throw
+              throwM clientErr
+
+-- ========================================================================== --
+
+data LocalStep =
+    ClientAction (Action (Metadata, RPC) NoMetadata)
+  | ServerAction (Action Metadata        Metadata)
+  deriving stock (Show, Eq, GHC.Generic)
+  deriving anyclass (PrettyVal)
+
+data Action a b =
+    -- | Initiate request and response
+    --
+    -- When the client initiates a request, they can specify a timeout, initial
+    -- metadata for the request, as well as which endpoint to connect to. This
+    -- must happen before anything else.
+    --
+    -- On the server side an explicit 'Initiate' is not required; if not
+    -- present, there will be an implicit one, with empty metadata, on the first
+    -- 'Send'.
+    Initiate a
+
+    -- | Send a message to the peer
+  | Send (StreamElem b Int)
+
+    -- | Early termination (cleanly or with an exception)
+  | Terminate (Maybe ExceptionId)
+
+    -- | Sleep specified number of milliseconds
+    --
+    -- This is occassionally useful, for example to have the client keep the
+    -- connection open to the server for a bit longer, without actually doing
+    -- anything with that connection.
+  | SleepMilli Int
+  deriving stock (Show, Eq, GHC.Generic)
+  deriving anyclass (PrettyVal)
+
+data RPC = RPC1 | RPC2 | RPC3
+  deriving stock (Show, Eq, GHC.Generic)
+  deriving anyclass (PrettyVal)
+
+-- | Metadata
+--
+-- We use 'Set' for 'CustomMetadata' rather than a list, because we do not
+-- want to test that the /order/ of the metadata is matched.
+type Metadata = Set CustomMetadata
+
+{-------------------------------------------------------------------------------
+  Many channels (bird's-eye view)
+-------------------------------------------------------------------------------}
+
+type LocalSteps = [(TestClockTick, LocalStep)]
+type GlobalSteps = [LocalSteps]
+
+{-------------------------------------------------------------------------------
+  User exceptions
+
+  When a test calls for the client or the server to throw an exception, we throw
+  one of these. Their sole purpose is to be "any" kind of exception (not a
+  specific one).
+-------------------------------------------------------------------------------}
+
+data SomeServerException = SomeServerException ExceptionId
+  deriving stock (Show, GHC.Generic)
+  deriving anyclass (Exception, PrettyVal)
+
+data SomeClientException = SomeClientException ExceptionId
+  deriving stock (Show, GHC.Generic)
+  deriving anyclass (Exception, PrettyVal)
+
+-- | We distinguish exceptions from each other simply by a number
+newtype ExceptionId = ExceptionId Int
+  deriving stock (Show, Eq, GHC.Generic)
+  deriving anyclass (PrettyVal)
 
 -- ========================================================================== --
 
@@ -269,118 +385,26 @@ ifAlive :: (a -> Health e b) -> Health e a -> Health e b
 ifAlive = (=<<)
 
 {-------------------------------------------------------------------------------
-  Execution mode
--------------------------------------------------------------------------------}
-
--- | Execution mode
---
--- Each test involves one or more pairs of a client and a server engaged in an
--- RPC call. Each call consists of a series of actions ("client sends initial
--- metadata", "client sends a message", "server sends a message", etc.). We
--- categorize such actions as either " passive " (such as receiving a message)
--- or " active " (such as sending a message).
---
--- As part of the test generation, each action is assigned a (test) clock tick.
--- This imposes a specific (but randomly generated) ordering; this matches the
--- formal definition of the behaviour of concurrent systems: "for every
--- interleaving, ...". Active actions wait until the test clock (essentially
--- such an @MVar Int@) reaches their assigned tick before proceeding. The
--- /advancement/ of the test clock depends on the mode (see below).
-data ExecutionMode =
-    -- | Conservative mode (used when tests involve early termination)
-    --
-    -- == Ordering
-    --
-    -- Consider a test that looks something like:
-    --
-    -- > clock tick 1: client sends message
-    -- > clock tick 2: client throws exception
-    --
-    -- We have to be careful to preserve ordering here: the exception thrown by
-    -- the client may or may not " overtake " the earlier send: the message may
-    -- or may not be send to the server, thereby making the tests flaky. In
-    -- conversative mode, therefore, the /passive/ participant is the one that
-    -- advances the test clock; in the example above, the /server/ advances the
-    -- test clock when it receives the message. The downside of this approach
-    -- is that we are excluding some valid behaviour from the tests: we're
-    -- effectively making every operation synchronous.
-    --
-    -- == Connection isolation
-    --
-    -- The tests assume that different calls are independent from each other.
-    -- This is mostly true, but not completely: when a client or a server
-    -- terminates early, the entire connection (supporting potentially many
-    -- calls) is reset. It's not entirely clear why; it feels like an
-    -- unnecessary limitation in @http2@. (TODO: Actually, this might be related
-    -- to an exception being thrown in 'outboundTrailersMaker'?)
-    --
-    -- Ideally, we would either (1) randomly assign connections to calls and
-    -- then test that an early termination only affects calls using the same
-    -- connection, or better yet, (2), remove this limitation from @http2@.
-    --
-    -- For now, we do neither: /if/ a test includes early termination, we give
-    -- each call its own connection, thereby regaining independence.
-    Conservative
-
-    -- | Aggressive mode (used when tests do not involve early termination)
-    --
-    -- == Ordering
-    --
-    -- Consider a test containing:
-    --
-    -- > clock tick 1: client sends message A
-    -- > clock tick 2: client sends message B
-    --
-    -- In aggressive mode it's the /active/ participant that advances the clock.
-    -- This means that we may well reach clock tick 2 before the server has
-    -- received message A, thus testing the asynchronous nature of the
-    -- operations that @grapesy@ offers
-    --
-    -- ## Connection isolation
-    --
-    -- In aggressive mode all calls from the client to the server share the
-    -- same connection.
-  | Aggressive
-  deriving (Show)
-
-determineExecutionMode :: GlobalSteps -> ExecutionMode
-determineExecutionMode steps = traceShowId $
-    if hasEarlyTermination steps
-      then Conservative
-      else Aggressive
-
-ifConservative :: Applicative m => ExecutionMode -> m () -> m ()
-ifConservative Conservative k = k
-ifConservative Aggressive   _ = pure ()
-
-ifAggressive :: Applicative m => ExecutionMode -> m () -> m ()
-ifAggressive Aggressive   k = k
-ifAggressive Conservative _ = pure ()
-
-{-------------------------------------------------------------------------------
   Client-side interpretation
 -------------------------------------------------------------------------------}
 
 clientLocal ::
      HasCallStack
   => TestClock
-  -> ExecutionMode
   -> Client.Call (BinaryRpc meth srv)
   -> LocalSteps
   -> IO ()
-clientLocal testClock mode call = \(LocalSteps steps) ->
+clientLocal testClock call = \steps ->
     flip evalStateT (Alive ()) $ go steps
   where
     go :: [(TestClockTick, LocalStep)] -> StateT (ServerHealth ()) IO ()
     go []                     = return ()
     go ((tick, step) : steps) = do
-        waitFor "client"
         case step of
           ClientAction action -> do
             liftIO $ waitForTestClockTick testClock tick
             continue <-
-              clientAct action `finally`
-                liftIO (ifAggressive mode $ advanceTestClock testClock)
+              clientAct action
             if continue then
               go steps
             else do
@@ -393,9 +417,7 @@ clientLocal testClock mode call = \(LocalSteps steps) ->
                   advanceTestClockAtTimes testClock $
                     mapMaybe ourStep steps
           ServerAction action -> do
-            reactToServer action `finally`
-              liftIO (ifConservative mode $ advanceTestClock testClock)
-
+            reactToServer action `finally` liftIO (advanceTestClock testClock)
             go steps
 
     -- Client action
@@ -489,14 +511,11 @@ clientLocal testClock mode call = \(LocalSteps steps) ->
 
 clientGlobal ::
      TestClock
-  -> ExecutionMode
   -> (forall a. (Client.Connection -> IO a) -> IO a)
   -> GlobalSteps
   -> IO ()
-clientGlobal testClock mode withConn = \(GlobalSteps globalSteps) ->
-    case mode of
-      Aggressive   -> withConn $ \conn -> go (Just conn) [] globalSteps
-      Conservative -> go Nothing [] globalSteps
+clientGlobal testClock withConn = \globalSteps ->
+    go Nothing [] globalSteps
   where
     go :: Maybe Client.Connection -> [Async ()] -> [LocalSteps] -> IO ()
     go _ threads [] = do
@@ -510,7 +529,7 @@ clientGlobal testClock mode withConn = \(GlobalSteps globalSteps) ->
           go mConn (newThread:threads) cs
 
     runLocalSteps :: Maybe Client.Connection -> LocalSteps -> IO ()
-    runLocalSteps mConn (LocalSteps steps) = do
+    runLocalSteps mConn steps = do
         case steps of
           (tick, ClientAction (Initiate (metadata, rpc))) : steps' -> do
             waitForTestClockTick testClock tick
@@ -539,51 +558,10 @@ clientGlobal testClock mode withConn = \(GlobalSteps globalSteps) ->
                   -- a class of correct behaviour: the server might not respond
                   -- with that initial metadata until the client has sent some
                   -- messages.
-                  clientLocal testClock mode call (LocalSteps steps')
+                  clientLocal testClock call steps'
 
           _otherwise ->
             error $ "clientGlobal: expected Initiate, got " ++ show steps
-
-{-------------------------------------------------------------------------------
-  Debugging: control who is allowed to take a step
--------------------------------------------------------------------------------}
-
-promptLock :: MVar ()
-{-# NOINLINE promptLock #-}
-promptLock = unsafePerformIO $ newMVar ()
-
-promptVar :: TVar [String]
-{-# NOINLINE promptVar #-}
-promptVar = unsafePerformIO $ newTVarIO []
-
-waitFor :: MonadIO m => String -> m ()
--- waitFor = _waitForEnabled
-waitFor _ = return ()
-
-_waitForEnabled :: MonadIO m => String -> m ()
-_waitForEnabled label = liftIO $ do
-    -- We spawn a prompt for each call to 'waitFor': @n@ calls to 'waitFor' will
-    -- need @n@ prompts. The order doesn't matter, each prompt is equivalent to
-    -- every other, but we don't want multiple prompts at once, so we require
-    -- that we hold the 'promptLock'.
-    _ <- forkIO $ do
-      line <- withMVar promptLock $ \() -> do
-        let loop :: IO String
-            loop = do
-                str <- getLine
-                if null str
-                  then loop
-                  else return str
-        loop
-      atomically $ modifyTVar promptVar (line :)
-    -- Only consume our own prompt
-    putStrLn $ "Waiting for " ++ show label
-    atomically $ do
-      prompts <- readTVar promptVar
-      case break (== label) prompts of
-        (_ , []   ) -> retry
-        (ps, _:ps') -> writeTVar promptVar (ps ++ ps')
-    putStrLn $ "Got " ++ show label
 
 {-------------------------------------------------------------------------------
   Server-side interpretation
@@ -594,22 +572,18 @@ _waitForEnabled label = liftIO $ do
 
 serverLocal ::
      TestClock
-  -> ExecutionMode
   -> Server.Call (BinaryRpc serv meth)
   -> LocalSteps -> IO ()
-serverLocal testClock mode call = \(LocalSteps steps) -> do
+serverLocal testClock call = \steps -> do
     flip evalStateT (Alive ()) $ go steps
   where
     go :: [(TestClockTick, LocalStep)] -> StateT (ClientHealth ()) IO ()
     go []                     = return ()
     go ((tick, step) : steps) = do
-        waitFor "server"
         case step of
           ServerAction action -> do
             liftIO $ waitForTestClockTick testClock tick
-            continue <-
-              serverAct action `finally`
-                liftIO (ifAggressive mode $ advanceTestClock testClock)
+            continue <- serverAct action
             if continue then
               go steps
             else do
@@ -624,8 +598,7 @@ serverLocal testClock mode call = \(LocalSteps steps) -> do
                   advanceTestClockAtTimes testClock $
                     mapMaybe ourStep steps
           ClientAction action -> do
-            reactToClient action `finally`
-              liftIO (ifConservative mode $ advanceTestClock testClock)
+            reactToClient action `finally` liftIO (advanceTestClock testClock)
             go steps
 
     -- Server action
@@ -718,7 +691,6 @@ serverLocal testClock mode call = \(LocalSteps steps) -> do
 serverGlobal ::
      HasCallStack
   => TestClock
-  -> ExecutionMode
   -> MVar GlobalSteps
     -- ^ Unlike in the client case, the grapesy infrastructure spawns a new
     -- thread for each incoming connection. To know which part of the test this
@@ -727,84 +699,69 @@ serverGlobal ::
     -- thread, the order of these incoming requests is deterministic.
   -> Server.Call (BinaryRpc serv meth)
   -> IO ()
-serverGlobal testClock mode globalStepsVar call = do
-    steps <- modifyMVar globalStepsVar (getNextSteps . getGlobalSteps)
+serverGlobal testClock globalStepsVar call = do
+    steps <- modifyMVar globalStepsVar getNextSteps
     -- See discussion in clientGlobal (runLocalSteps)
     advanceTestClock testClock
 
-    handle (annotate steps) $ do
-     case getLocalSteps steps of
-       -- It is important that we do this 'expect' outside the scope of the
-       -- @modifyMVar@: if we do not, then if the expect fails, we'd leave the
-       -- @MVar@ unchanged, and the next request would use the wrong steps.
-       (_tick, ClientAction (Initiate (metadata, _rpc))) : steps' -> do
-         -- We don't care about the timeout the client sets; if the server
-         -- takes too long, the /client/ will check that it gets the expected
-         -- exception.
-         receivedMetadata <- Server.getRequestMetadata call
-         expect (== metadata) $ Set.fromList receivedMetadata
-         serverLocal testClock mode call $ LocalSteps steps'
-       _otherwise ->
-          error "serverGlobal: expected ClientInitiateRequest"
+    case steps of
+      -- It is important that we do this 'expect' outside the scope of the
+      -- @modifyMVar@: if we do not, then if the expect fails, we'd leave the
+      -- @MVar@ unchanged, and the next request would use the wrong steps.
+      (_tick, ClientAction (Initiate (metadata, _rpc))) : steps' -> do
+        -- We don't care about the timeout the client sets; if the server
+        -- takes too long, the /client/ will check that it gets the expected
+        -- exception.
+        receivedMetadata <- Server.getRequestMetadata call
+        expect (== metadata) $ Set.fromList receivedMetadata
+        serverLocal testClock call steps'
+      _otherwise ->
+         error "serverGlobal: expected ClientInitiateRequest"
   where
     getNextSteps :: [LocalSteps] -> IO (GlobalSteps, LocalSteps)
     getNextSteps [] = do
         throwM $ TestFailure prettyCallStack $ UnexpectedRequest
-    getNextSteps (LocalSteps steps:global') =
-        return (GlobalSteps global', LocalSteps steps)
-
-    annotate :: LocalSteps -> SomeException -> IO ()
-    annotate steps err = throwM $ AnnotatedServerException {
-          serverGlobalException          = err
-        , serverGlobalExceptionSteps     = steps
-        , serverGlobalExceptionCallStack = prettyCallStack
-        }
-
-{-------------------------------------------------------------------------------
-  Top-level
--------------------------------------------------------------------------------}
-
-execGlobalSteps :: GlobalSteps -> (ClientServerTest -> IO a) -> IO a
-execGlobalSteps steps k = do
-    globalStepsVar <- newMVar (order steps)
-    testClock      <- newTestClock
-
-    let handler ::
-             IsRPC (BinaryRpc serv meth)
-          => Proxy (BinaryRpc serv meth) -> Server.RpcHandler IO
-        handler rpc = Server.mkRpcHandler rpc $ \call ->
-                        serverGlobal testClock mode globalStepsVar call
-
-    mRes :: Either SomeException a <- try $ k $ def {
-        client = \conn -> clientGlobal testClock mode conn steps
-      , server = [ handler (Proxy @TestRpc1)
-                 , handler (Proxy @TestRpc2)
-                 , handler (Proxy @TestRpc3)
-                 ]
-      }
-    case mRes of
-      Left err -> throwM err
-      Right a  -> return a
-  where
-    mode :: ExecutionMode
-    mode = determineExecutionMode steps
-
-    -- For 'clientGlobal' the order doesn't matter, because it spawns a thread
-    -- for each 'LocalSteps'. The server however doesn't get this option; the
-    -- threads /get/ spawnwed for each incoming connection, and must feel off
-    -- the appropriate steps. It's therefore important that it will get these
-    -- in the order that they come in.
-    order :: GlobalSteps -> GlobalSteps
-    order (GlobalSteps threads) = GlobalSteps $
-        sortBy (comparing firstTick) threads
-     where
-       firstTick :: LocalSteps -> TestClockTick
-       firstTick (LocalSteps []) =
-           error "execGlobalSteps: unexpected empty LocalSteps"
-       firstTick (LocalSteps ((tick, _):_)) =
-           tick
+    getNextSteps (steps:global') =
+        return (global', steps)
 
 -- ========================================================================== --
 
 main :: IO ()
-main = regression
+main = do
+    globalStepsVar <- newMVar steps
+    testClock      <- newTestClock
+
+    let -- the reverse ordering here seems necessary for the bug to happen
+        -- (without it, we deadlock instead...?)
+        client :: (forall a. (Client.Connection -> IO a) -> IO a) -> IO ()
+        client conn = clientGlobal testClock conn (reverse steps)
+
+        server :: [Server.RpcHandler IO]
+        server = [ Server.mkRpcHandler (Proxy @TestRpc1) $ \call ->
+                        serverGlobal testClock globalStepsVar call ]
+
+    mRes :: Either SomeException () <- try $ runTestClientServer client server
+    case mRes of
+      Left err | Just err'@BlockedIndefinitelyOnSTM{} <- fromException err -> do
+        print err'
+        exitWith $ ExitFailure 1
+      Left err -> do
+        putStrLn "Got expected exception"
+        print err
+        exitWith $ ExitSuccess
+      _otherwise -> do
+        putStrLn "No expection was thrown"
+        exitWith $ ExitSuccess
+  where
+    steps :: GlobalSteps
+    steps = [
+        [ ( TestClockTick 0, ClientAction $ Initiate ( Set.fromList [] , RPC1 ))
+        , ( TestClockTick 2, ClientAction $ Terminate (Just (ExceptionId 0)))
+        , ( TestClockTick 4, ServerAction $ Send (NoMoreElems (Set.fromList [])))
+        ]
+      , [ ( TestClockTick 1, ClientAction $ Initiate ( Set.fromList [] , RPC1 ))
+        , ( TestClockTick 3, ClientAction $ Send (NoMoreElems NoMetadata))
+        , ( TestClockTick 5, ServerAction $ Send (NoMoreElems (Set.fromList [])))
+        ]
+      ]
+
