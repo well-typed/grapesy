@@ -470,14 +470,9 @@ stayConnected connParams server connVar connCanClose =
 
     -- TODO: This is currently only used for the HTTP case, not HTTPS
     clientConfig :: Authority -> Scheme -> HTTP2.Client.ClientConfig
-    clientConfig auth scheme = HTTP2.Client.ClientConfig {
-          scheme    = rawScheme serverPseudoHeaders
-        , authority = rawAuthority serverPseudoHeaders
-
-          -- Docs describe this as "How many pushed responses are contained in
-          -- the cache". Since gRPC does not make use of HTTP2 server push, we
-          -- set it to 0.
-        , cacheLimit = 0
+    clientConfig auth scheme = HTTP2.Client.defaultClientConfig {
+          HTTP2.Client.scheme    = rawScheme serverPseudoHeaders
+        , HTTP2.Client.authority = rawAuthority serverPseudoHeaders
         }
       where
         serverPseudoHeaders :: RawServerHeaders

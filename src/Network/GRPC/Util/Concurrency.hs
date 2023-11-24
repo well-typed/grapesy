@@ -82,13 +82,4 @@ wrapThreadBody body = body
 -- TODO: Fix this properly.
 -- TODO: Is 1 guarded attempt enough..? Do we need more..? Unlimited..?
 atomically :: forall a. STM a -> IO a
-atomically stm = go 1
-  where
-    go ::
-         Int   -- ^ Number of guarded attempts left
-      -> IO a
-    go 0 = run
-    go n = run `catch` \BlockedIndefinitelyOnSTM{} -> go (n - 1)
-
-    run :: IO a
-    run = STM.atomically stm
+atomically = STM.atomically

@@ -1,80 +1,114 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module Main (main) where
 
-{-
-import Control.Concurrent
-import Control.Concurrent.STM
 import Control.Exception
-import Data.Void
-import Debug.Trace
+import Data.Set qualified as Set
+import Data.Text qualified as Text
+import GHC.Generics qualified as GHC
+import System.Exit
+import Text.Show.Pretty
 
-import Network.GRPC.Util.Parser
-import Network.GRPC.Util.Session.API
-import Network.GRPC.Util.Session.Channel
-import Network.GRPC.Util.Thread
+import Network.GRPC.Common
+import Network.GRPC.Server (ClientDisconnected(..))
 
-data Debug = Debug
-data DebugIn
-data DebugOut
+import Test.Driver.ClientServer
+import Test.Driver.Dialogue
 
-instance DataFlow DebugIn where
-  data Headers    DebugIn = InHeaders deriving (Show)
-  type Message    DebugIn = Void
-  type NoMessages DebugIn = ()
-  type Trailers   DebugIn = ()
+regression :: IO ()
+regression = do
+    mResult :: Either SomeException String <- try $
+      testClientServer assessCustomException $
+       execGlobalSteps globalSteps
+    case mResult of
+      Left err -> do
+        print err
+        exitWith $ ExitFailure 1
+      Right result -> do
+        putStrLn result
+        exitWith $ ExitSuccess
+  where
+    globalSteps :: GlobalSteps
+    globalSteps = GlobalSteps [
+        LocalSteps [
+            ( TestClockTick 1, ClientAction $ Initiate ( Set.fromList [] , RPC1 ))
+          , ( TestClockTick 3, ClientAction $ Send (NoMoreElems NoMetadata))
+          , ( TestClockTick 5, ServerAction $ Send (NoMoreElems (Set.fromList [])))
+          ]
+      , LocalSteps [
+            ( TestClockTick 0, ClientAction $ Initiate ( Set.fromList [] , RPC1 ))
+          , ( TestClockTick 2, ClientAction $ Terminate (Just (ExceptionId 0)))
+          , ( TestClockTick 4, ServerAction $ Send (NoMoreElems (Set.fromList [])))
+          ]
+      ]
 
-instance DataFlow DebugOut where
-  data Headers    DebugOut = OutHeaders deriving (Show)
-  type Message    DebugOut = Void
-  type NoMessages DebugOut = ()
-  type Trailers   DebugOut = ()
+data ExpectedUserException =
+    ExpectedClientException SomeClientException
+  | ExpectedServerException SomeServerException
+  | ExpectedForwardedToClient GrpcException
+  | ExpectedClientDisconnected SomeException
+  | ExpectedEarlyTermination
+  deriving stock (Show, GHC.Generic)
+  deriving anyclass (PrettyVal)
 
-instance IsSession Debug where
-  type Inbound Debug  = DebugIn
-  type Outbound Debug = DebugOut
+-- | Custom exceptions
+--
+-- Technically we should only be expected custom user exceptions when we
+-- generate them, but we're not concerned about accidental throws of these
+-- custom exceptions.
+--
+-- TODO: However, it might be useful to be more precise about exactly which
+-- gRPC exceptions we expect and when.
+assessCustomException :: SomeException -> CustomException ExpectedUserException
+assessCustomException err
+    --
+    -- Custom exceptions
+    --
 
-  parseInboundTrailers  _ _ = return ()
-  buildOutboundTrailers _ _ = []
-  parseMsg              _ _ = ParserError "Never parsing anything"
-  buildMsg              _ _ = absurd
+    | Just (userEx :: SomeServerException) <- fromException err
+    = CustomExceptionExpected $ ExpectedServerException userEx
 
-data RecvMessageLoopDied = RecvMessageLoopDied
-  deriving (Show, Exception)
+    | Just (userEx :: SomeClientException) <- fromException err
+    = CustomExceptionExpected $ ExpectedClientException userEx
+
+    -- Server-side exceptions are thrown as 'GrpcException' client-side
+    | Just (grpc :: GrpcException) <- fromException err
+    , GrpcUnknown <- grpcError grpc
+    , Just msg <- grpcErrorMessage grpc
+    , "SomeServerException" `Text.isInfixOf` msg
+    = CustomExceptionExpected $ ExpectedForwardedToClient grpc
+
+    -- Client-side exceptions are reported as 'ClientDisconnected', but without
+    -- additional information (gRPC does not support client-to-server trailers
+    -- so we have no way of informing the server about what went wrong).
+    | Just (ClientDisconnected e) <- fromException err
+    = CustomExceptionExpected $ ExpectedClientDisconnected e
+
+    --
+    -- Early termination
+    --
+
+    | Just (ChannelDiscarded _) <- fromException err
+    = CustomExceptionExpected $ ExpectedEarlyTermination
+    | Just (grpc :: GrpcException) <- fromException err
+    , GrpcUnknown <- grpcError grpc
+    , Just msg <- grpcErrorMessage grpc
+    , "ChannelDiscarded" `Text.isInfixOf` msg
+    = CustomExceptionExpected $ ExpectedForwardedToClient grpc
+
+    --
+    -- Custom wrappers
+    --
+
+    | Just (AnnotatedServerException err' _ _) <- fromException err
+    = CustomExceptionNested err'
+
+    --
+    -- Catch-all
+    --
+
+    | otherwise
+    = CustomExceptionUnexpected
 
 main :: IO ()
-main = do
-    channel :: Channel Debug <- initChannel
-
-    forkThread (channelInbound channel) newEmptyTMVarIO $ \unmask stVar -> do
-      regular <- initFlowStateRegular InHeaders
-      atomically $ putTMVar stVar $ FlowStateRegular regular
-      traceIO "threadBody 1"
-      threadDelay 5_000_000
-      throw $ RecvMessageLoopDied
-
-    x <- atomically $ recv channel
-
-    print x
-
--}
-
-import Test.Tasty
-
-import Test.Prop.Dialogue                     qualified as Dialogue
-import Test.Prop.Serialization                qualified as Serialization
-import Test.Sanity.StreamingType.NonStreaming qualified as StreamingType.NonStreaming
-import Test.Sanity.HalfClosedLocal            qualified as HalfClosedLocal
-
-main :: IO ()
-main = defaultMain $ testGroup "grapesy" [
-      testGroup "Sanity" [
-          HalfClosedLocal.tests
-        , testGroup "StreamingType" [
-              StreamingType.NonStreaming.tests
-            ]
-        ]
-    , testGroup "Prop" [
-          Serialization.tests
-        , Dialogue.tests
-        ]
-    ]
-
+main = regression

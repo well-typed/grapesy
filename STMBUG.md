@@ -51,7 +51,13 @@ Related reports:
   This is not the case for us (indeed, one of the threads involved runs to
   completion).
 
+  Another example: https://gitlab.haskell.org/ghc/ghc/-/issues/10241
+
+  https://gitlab.haskell.org/ghc/ghc/-/issues/10793 is similar: two
+  threads that are both deadlocked.
+
 * https://gitlab.haskell.org/ghc/ghc/-/issues/11001
   This is to do with the other reference to the `T(M)Var` being from a
   finalizer. Also not the case in our example.
 
+  
