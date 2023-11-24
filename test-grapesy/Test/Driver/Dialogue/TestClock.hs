@@ -61,14 +61,8 @@ waitForTestClockTick (TestClock clock) tick = do
       currentTick <- readTVar clock
       unless (currentTick == tick) retry
 
--- | Advance the test clock
---
--- Returns the time before it was advanced.
-advanceTestClock :: TestClock -> IO Int
-advanceTestClock (TestClock clock) = atomically $ do
-    now <- getTestClockTick <$> readTVar clock
-    modifyTVar clock succ
-    return now
+advanceTestClock :: TestClock -> IO ()
+advanceTestClock (TestClock clock) = atomically $ modifyTVar clock succ
 
 advanceTestClockAtTime :: TestClock -> TestClockTick -> IO ()
 advanceTestClockAtTime clock tick = do

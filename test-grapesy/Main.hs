@@ -581,7 +581,7 @@ clientGlobal testClock withConn =
     -- reverse ordering here is important for the bug to materialize
     globalSteps :: GlobalSteps
     globalSteps = [
-        [ ( TestClockTick 1, ClientAction $ Initiate ( Set.fromList [] , RPC1 ))
+        [ ( TestClockTick 1, ClientAction $ Initiate ( Set.fromList [] , RPC2 ))
         , ( TestClockTick 3, ClientAction $ Send (NoMoreElems NoMetadata))
         , ( TestClockTick 5, ServerAction $ Send (NoMoreElems (Set.fromList [])))
         ]
@@ -598,76 +598,51 @@ clientGlobal testClock withConn =
   threads on our behalf (one for each incoming RPC).
 -------------------------------------------------------------------------------}
 
-serverLocal0 ::
-     TestClock
-  -> Server.Call (BinaryRpc serv meth)
-  -> IO ()
-serverLocal0 testClock call = do
-    -- Wait for client to close their end
-    expect expectedRecvResult =<< try (Server.Binary.recvInput call)
-    void $ advanceTestClock testClock
-
-    -- Close our end
-    waitForTestClockTick testClock $ TestClockTick 5
-    received <- try $ Server.Binary.sendOutput call (NoMoreElems [] :: (StreamElem [CustomMetadata] Int))
-    expect expectedSendResult received
-  where
-    expectedRecvResult :: Either Server.ClientDisconnected (StreamElem NoMetadata Int) -> Bool
-    expectedRecvResult result =
-        case result of
-          Right x'   -> x' == NoMoreElems NoMetadata
-          _otherwise -> False
-
-    expectedSendResult :: Either Server.ClientDisconnected () -> Bool
-    expectedSendResult result =
-        case result of
-          Right x'   -> x' == ()
-          _otherwise -> False
-
 serverLocal1 ::
      TestClock
   -> Server.Call (BinaryRpc serv meth)
   -> IO ()
 serverLocal1 testClock call = do
-    -- Wait for client termination to become visible
+    advanceTestClock testClock
+
+    -- Wait for client early termination to become visible
     atomically $ do
       healthy <- Server.isCallHealthy call
       when healthy $ retry
 
     -- At this point, sending anything should fail
     waitForTestClockTick testClock $ TestClockTick 4
-    let isExpected result = case result of
-                              Left (Server.ClientDisconnected _) -> True
-                              _otherwise                         -> False
-    received  <- try $ Server.Binary.sendOutput call (NoMoreElems [] :: (StreamElem [CustomMetadata] Int))
-    expect isExpected received
+    Server.Binary.sendOutput call (NoMoreElems [] :: (StreamElem [CustomMetadata] Int))
 
-serverGlobal ::
-     HasCallStack
-  => TestClock
+serverLocal2 ::
+     TestClock
   -> Server.Call (BinaryRpc serv meth)
   -> IO ()
-serverGlobal testClock call = do
-    -- See discussion in clientGlobal (runLocalSteps)
-    now <- advanceTestClock testClock
+serverLocal2 testClock call = do
+    advanceTestClock testClock
 
-    case now of
-      0 -> serverLocal0 testClock call
-      1 -> serverLocal1 testClock call
-      _ -> undefined
+    -- Wait for client to tell us they will send no more elements
+    _ :: StreamElem NoMetadata Int <- Server.Binary.recvInput call
+    advanceTestClock testClock
+
+    -- Tell the client we won't send them more elements either
+    waitForTestClockTick testClock $ TestClockTick 5
+    Server.Binary.sendOutput call (NoMoreElems [] :: (StreamElem [CustomMetadata] Int))
 
 -- ========================================================================== --
 
 main :: IO ()
 main = do
-    testClock      <- newTestClock
+    testClock <- newTestClock
 
     let client :: (forall a. (Client.Connection -> IO a) -> IO a) -> IO ()
         client conn = clientGlobal testClock conn
 
         server :: [Server.RpcHandler IO]
-        server = [ Server.mkRpcHandler (Proxy @TestRpc1) $ \call ->
-                        serverGlobal testClock call ]
+        server = [
+              Server.mkRpcHandler (Proxy @TestRpc1) $ serverLocal1 testClock
+            , Server.mkRpcHandler (Proxy @TestRpc2) $ serverLocal2 testClock
+            ]
 
     mRes :: Either SomeException () <- try $ runTestClientServer client server
     case mRes of
