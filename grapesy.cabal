@@ -208,11 +208,7 @@ test-suite test-grapesy
       Main.hs
   other-modules:
       Paths_grapesy
-      Test.Driver.ClientServer
-      Test.Driver.Dialogue
       Test.Driver.Dialogue.Definition
-      Test.Driver.Dialogue.Execution
-      Test.Driver.Dialogue.Generation
       Test.Driver.Dialogue.TestClock
       Test.Util.ClientServer
       Test.Util.PrettyVal
@@ -237,7 +233,6 @@ test-suite test-grapesy
     , tasty-quickcheck >= 0.10 && < 0.11
     , text             >= 1.2  && < 2.1
     , tls              >= 1.5  && < 1.8
-
 
 Flag build-demo
   description: Build the demo
