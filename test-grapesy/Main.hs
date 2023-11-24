@@ -22,26 +22,19 @@
 
 module Main (main) where
 
-import Control.Concurrent
 import Control.Concurrent.Async
 import Control.Concurrent.STM
-import Control.Exception (BlockedIndefinitelyOnSTM(..))
+import Control.Exception
 import Control.Monad
-import Control.Monad.Catch
-import Control.Monad.State
 import Control.Tracer
 import Data.Bifunctor
 import Data.Default
-import Data.Maybe (mapMaybe)
 import Data.Proxy
 import Data.Set (Set)
-import Data.Set qualified as Set
-import Data.Text qualified as Text
 import GHC.Generics qualified as GHC
 import Network.HTTP2.Internal qualified as HTTP2
 import Network.HTTP2.Server qualified as HTTP2
 import System.Exit
-import System.Timeout (timeout)
 import Text.Show.Pretty
 
 import Network.GRPC.Client qualified as Client
@@ -219,19 +212,19 @@ runTestClientServer clientRun serverHandlers = do
       (Right (), Right a) ->
         return a
       (Left serverErr, Right _) ->
-        throwM serverErr
+        throwIO serverErr
       (Right (), Left clientErr) ->
-        throwM clientErr
+        throwIO clientErr
       (Left serverErr, Left clientErr) ->
           -- We are hunting for BlockedIndefinitelyOnSTM
           case (fromException serverErr, fromException clientErr) of
             (Just BlockedIndefinitelyOnSTM{}, _) ->
-              throwM serverErr
+              throwIO serverErr
             (_, Just BlockedIndefinitelyOnSTM{}) ->
-              throwM clientErr
+              throwIO clientErr
             _otherwise ->
               -- doesn't really matter which one we throw
-              throwM clientErr
+              throwIO clientErr
 
 -- ========================================================================== --
 
@@ -309,202 +302,37 @@ type TestRpc1 = BinaryRpc "dialogue" "test1"
 type TestRpc2 = BinaryRpc "dialogue" "test2"
 
 {-------------------------------------------------------------------------------
-  Test failures
--------------------------------------------------------------------------------}
-
-data TestFailure = TestFailure PrettyCallStack Failure
-  deriving stock (GHC.Generic)
-  deriving anyclass (Exception, PrettyVal)
-  deriving Show via ShowAsPretty TestFailure
-
-data Failure =
-    -- | Thrown by the server when an unexpected new RPC is initiated
-    UnexpectedRequest
-
-    -- | Received an unexpected value
-  | Unexpected ReceivedUnexpected
-  deriving stock (Show, GHC.Generic)
-  deriving anyclass (Exception, PrettyVal)
-
-data ReceivedUnexpected = forall a. (Show a, PrettyVal a) => ReceivedUnexpected {
-      received :: a
-    }
-
-deriving stock instance Show ReceivedUnexpected
-
-instance PrettyVal ReceivedUnexpected where
-  prettyVal (ReceivedUnexpected{received}) =
-      Rec "ReceivedUnexpected" [
-          ("received", prettyVal received)
-        ]
-
-expect ::
-     (MonadThrow m, Show a, PrettyVal a, HasCallStack)
-  => (a -> Bool)  -- ^ Expected
-  -> a            -- ^ Actually received
-  -> m ()
-expect isExpected received
-  | isExpected received
-  = return ()
-
-  | otherwise
-  = throwM $ TestFailure prettyCallStack $
-      Unexpected $ ReceivedUnexpected{received}
-
-{-------------------------------------------------------------------------------
-  Health
--------------------------------------------------------------------------------}
-
--- | Health
---
--- When the client is expecting a response from the server, it needs to know the
--- "health" of the server, that is, is the server still alive, or did it fail
--- with some kind exception? The same is true for the server when it expects a
--- response from the client. Therefore, the client interpretation keeps track of
--- the health of the server, and vice versa.
-data Health e a = Alive a | Failed e | Disappeared
-  deriving stock (Show)
-
-type ServerHealth = Health SomeServerException
-
-instance Functor (Health e) where
-  fmap  = liftM
-instance Applicative (Health e) where
-  pure  = Alive
-  (<*>) = ap
-instance Monad (Health e) where
-  return = pure
-  Alive x     >>= f = f x
-  Failed e    >>= _ = Failed e
-  Disappeared >>= _ = Disappeared
-
-ifAlive :: (a -> Health e b) -> Health e a -> Health e b
-ifAlive = (=<<)
-
-{-------------------------------------------------------------------------------
   Client-side interpretation
+
+  After connecting, we wait for the /server/ to advance the test clock (so that
+  we are use the next step doesn't happen until the connection is established).
 -------------------------------------------------------------------------------}
 
-clientLocal ::
+clientLocal1 ::
      HasCallStack
   => TestClock
-  -> Client.Call (BinaryRpc meth srv)
-  -> [(TestClockTick, LocalStep)]
+  -> (forall a. (Client.Connection -> IO a) -> IO a)
   -> IO ()
-clientLocal testClock call = \steps ->
-    flip evalStateT (Alive ()) $ go steps
-  where
-    go :: [(TestClockTick, LocalStep)] -> StateT (ServerHealth ()) IO ()
-    go []                     = return ()
-    go ((tick, step) : steps) = do
-        case step of
-          ClientAction action -> do
-            liftIO $ waitForTestClockTick testClock tick
-            continue <-
-              clientAct action
-            if continue then
-              go steps
-            else do
-              -- See discussion in serverLocal
-              let ourStep :: (TestClockTick, LocalStep) -> Maybe TestClockTick
-                  ourStep (tick' , ClientAction _) = Just tick'
-                  ourStep (_     , ServerAction _) = Nothing
-              liftIO $ do
-                void $ forkIO $
-                  advanceTestClockAtTimes testClock $
-                    mapMaybe ourStep steps
-          ServerAction action -> do
-            reactToServer action `finally` liftIO (advanceTestClock testClock)
-            go steps
+clientLocal1 testClock withConn = do
+    waitForTestClockTick testClock $ TestClockTick 0
+    withConn $ \conn ->
+      Client.withRPC conn def (Proxy @TestRpc1) $ \_call -> do
+        waitForTestClockTick testClock $ TestClockTick 2
+        throwIO $ SomeClientException (ExceptionId 0)
 
-    -- Client action
-    --
-    -- Returns 'True' if we should continue executing more actions, or
-    -- exit (thereby closing the RPC call)
-    clientAct ::
-         Action (Metadata, RPC) NoMetadata
-      -> StateT (ServerHealth ()) IO Bool
-    clientAct = \case
-        Initiate _ ->
-          error "clientLocal: unexpected Initiate"
-        Send x -> do
-          isExpected <- adjustExpectation ()
-          expect isExpected =<< liftIO (try $ Client.Binary.sendInput call x)
-          return True
-        Terminate (Just exceptionId) -> do
-          throwM $ SomeClientException exceptionId
-        Terminate Nothing ->
-          return False
-        SleepMilli n -> do
-          liftIO $ threadDelay (n * 1_000)
-          return True
-
-    reactToServer ::
-           Action Metadata Metadata
-        -> StateT (ServerHealth ()) IO ()
-    reactToServer = \case
-        Initiate expectedMetadata -> liftIO $ do
-          receivedMetadata <- atomically $ Client.recvResponseMetadata call
-          expect (== expectedMetadata) $ Set.fromList receivedMetadata
-        Send (FinalElem a b) -> do
-          -- Known bug (limitation in http2). See recvMessageLoop.
-          reactToServer $ Send (StreamElem a)
-          reactToServer $ Send (NoMoreElems b)
-        Send expectedElem -> do
-          expected <- adjustExpectation expectedElem
-          received <- liftIO . try $
-                        fmap (first Set.fromList) $
-                          Client.Binary.recvOutput call
-          expect expected received
-        Terminate mErr -> do
-          reactToServerTermination mErr
-        SleepMilli _ ->
-          return ()
-
-    -- See 'reactToClientTermination' for discussion.
-    reactToServerTermination ::
-         Maybe ExceptionId
-      -> StateT (ServerHealth ()) IO ()
-    reactToServerTermination mErr = do
-        liftIO $ void . timeout 5_000_000 $ atomically $ do
-          healthy <- Client.isCallHealthy call
-          when healthy $ retry
-        modify $ ifAlive $ \() ->
-          case mErr of
-            Just i  -> Failed $ SomeServerException i
-            Nothing -> Disappeared
-
-    -- Adjust expectation when communicating with the server
-    --
-    -- If the server handler died for some reason, we won't get the regular
-    -- result, but should instead see the exception reported to the client.
-    adjustExpectation :: forall a.
-         Eq a
-      => a
-      -> StateT (ServerHealth ()) IO (Either GrpcException a -> Bool)
-    adjustExpectation x =
-        return . aux =<< get
-     where
-       aux :: ServerHealth () -> Either GrpcException a -> Bool
-       aux serverHealth result =
-           case serverHealth of
-             Failed err ->
-               case result of
-                 Left (GrpcException GrpcUnknown msg [])
-                   | msg == Just (Text.pack $ show err)
-                   -> True
-                 _otherwise -> False
-             Disappeared ->
-               -- TODO: Not really sure what exception we get here actually
-               case result of
-                 Left (GrpcException GrpcUnknown msg [])
-                   | msg == Just "TODO"
-                   -> True
-                 _otherwise -> False
-             Alive () ->
-               case result of
-                 Right x'   -> x == x'
-                 _otherwise -> False
+clientLocal2 ::
+     HasCallStack
+  => TestClock
+  -> (forall a. (Client.Connection -> IO a) -> IO a)
+  -> IO ()
+clientLocal2 testClock withConn = do
+    waitForTestClockTick testClock $ TestClockTick 1
+    withConn $ \conn ->
+      Client.withRPC conn def (Proxy @TestRpc2) $ \call -> do
+        waitForTestClockTick testClock $ TestClockTick 3
+        Client.Binary.sendInput call (NoMoreElems NoMetadata :: (StreamElem NoMetadata Int))
+        _ :: StreamElem [CustomMetadata] Int <- Client.Binary.recvOutput call
+        advanceTestClock testClock
 
 clientGlobal ::
      TestClock
@@ -516,35 +344,9 @@ clientGlobal testClock withConn =
     --
     -- * @wait@ in the opposite order
     -- * use @async@ instead of @withAsync@
-    withAsync runLocalSteps2 $ \thread2 ->
-    withAsync runLocalSteps1 $ \thread1 ->
+    withAsync (clientLocal2 testClock withConn) $ \thread2 ->
+    withAsync (clientLocal1 testClock withConn) $ \thread1 ->
     mapM_ wait [thread1, thread2]
-  where
-    -- We wait for the /server/ to advance the test clock (so that we are use
-    -- the next step doesn't happen until the connection is established).
-
-    steps1 = [ ( TestClockTick 2, ClientAction $ Terminate (Just (ExceptionId 0)))
-             , ( TestClockTick 4, ServerAction $ Send (NoMoreElems (Set.fromList [])))
-             ]
-
-    runLocalSteps1 :: IO ()
-    runLocalSteps1 = do
-        waitForTestClockTick testClock $ TestClockTick 0
-        withConn $ \conn ->
-          Client.withRPC conn def (Proxy @TestRpc1) $ \call ->
-            clientLocal testClock call steps1
-
-    steps2, steps1 :: [(TestClockTick, LocalStep)]
-    steps2 = [ ( TestClockTick 3, ClientAction $ Send (NoMoreElems NoMetadata))
-             , ( TestClockTick 5, ServerAction $ Send (NoMoreElems (Set.fromList [])))
-             ]
-
-    runLocalSteps2 :: IO ()
-    runLocalSteps2 = do
-        waitForTestClockTick testClock $ TestClockTick 1
-        withConn $ \conn ->
-          Client.withRPC conn def (Proxy @TestRpc2) $ \call ->
-            clientLocal testClock call steps2
 
 {-------------------------------------------------------------------------------
   Server-side interpretation
