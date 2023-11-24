@@ -279,13 +279,6 @@ data RPC = RPC1 | RPC2 | RPC3
 type Metadata = Set CustomMetadata
 
 {-------------------------------------------------------------------------------
-  Many channels (bird's-eye view)
--------------------------------------------------------------------------------}
-
-type LocalSteps  = [(TestClockTick, LocalStep)]
-type GlobalSteps = [LocalSteps]
-
-{-------------------------------------------------------------------------------
   User exceptions
 
   When a test calls for the client or the server to throw an exception, we throw
@@ -314,18 +307,6 @@ newtype ExceptionId = ExceptionId Int
 
 type TestRpc1 = BinaryRpc "dialogue" "test1"
 type TestRpc2 = BinaryRpc "dialogue" "test2"
-type TestRpc3 = BinaryRpc "dialogue" "test3"
-
-withProxy ::
-     RPC
-  -> (forall serv meth.
-          IsRPC (BinaryRpc serv meth)
-       => Proxy (BinaryRpc serv meth)
-       -> a)
-  -> a
-withProxy RPC1 k = k (Proxy @TestRpc1)
-withProxy RPC2 k = k (Proxy @TestRpc2)
-withProxy RPC3 k = k (Proxy @TestRpc3)
 
 {-------------------------------------------------------------------------------
   Test failures
@@ -408,7 +389,7 @@ clientLocal ::
      HasCallStack
   => TestClock
   -> Client.Call (BinaryRpc meth srv)
-  -> LocalSteps
+  -> [(TestClockTick, LocalStep)]
   -> IO ()
 clientLocal testClock call = \steps ->
     flip evalStateT (Alive ()) $ go steps
@@ -530,66 +511,40 @@ clientGlobal ::
   -> (forall a. (Client.Connection -> IO a) -> IO a)
   -> IO ()
 clientGlobal testClock withConn =
-    go Nothing [] globalSteps
+    -- The bug is /very/ sensitive to what exactly we do here. The bug does not
+    -- materialize if we
+    --
+    -- * @wait@ in the opposite order
+    -- * use @async@ instead of @withAsync@
+    withAsync runLocalSteps2 $ \thread2 ->
+    withAsync runLocalSteps1 $ \thread1 ->
+    mapM_ wait [thread1, thread2]
   where
-    go :: Maybe Client.Connection -> [Async ()] -> [LocalSteps] -> IO ()
-    go _ threads [] = do
-         -- Wait for all threads to finish
-         --
-         -- This also ensures that if any of these threads threw an exception,
-         -- that is now rethrown here in the main test.
-        mapM_ wait threads
-    go mConn threads (c:cs) =
-        withAsync (runLocalSteps mConn c) $ \newThread ->
-          go mConn (newThread:threads) cs
+    -- We wait for the /server/ to advance the test clock (so that we are use
+    -- the next step doesn't happen until the connection is established).
 
-    runLocalSteps :: Maybe Client.Connection -> LocalSteps -> IO ()
-    runLocalSteps mConn steps = do
-        case steps of
-          (tick, ClientAction (Initiate (metadata, rpc))) : steps' -> do
-            waitForTestClockTick testClock tick
+    steps1 = [ ( TestClockTick 2, ClientAction $ Terminate (Just (ExceptionId 0)))
+             , ( TestClockTick 4, ServerAction $ Send (NoMoreElems (Set.fromList [])))
+             ]
 
-            -- Timeouts are outside the scope of these tests: it's too finicky
-            -- to relate timeouts (in seconds) to specific test execution.
-            -- We do test exceptions in general here; the specific exception
-            -- arising from a timeout we test elsewhere.
-            let params :: Client.CallParams
-                params = def {
-                    Client.callRequestMetadata = Set.toList metadata
-                  }
+    runLocalSteps1 :: IO ()
+    runLocalSteps1 = do
+        waitForTestClockTick testClock $ TestClockTick 0
+        withConn $ \conn ->
+          Client.withRPC conn def (Proxy @TestRpc1) $ \call ->
+            clientLocal testClock call steps1
 
-            withProxy rpc $ \proxy ->
-              (case mConn of
-                  Just conn -> ($ conn)
-                  Nothing   -> withConn) $ \conn ->
-                Client.withRPC conn params proxy $ \call -> do
-                  -- We wait for the /server/ to advance the test clock (so that
-                  -- we are use the next step doesn't happen until the connection
-                  -- is established).
-                  --
-                  -- NOTE: We could instead wait for the server to send the
-                  -- initial metadata; this too would provide evidence that the
-                  -- conneciton has been established. However, doing so precludes
-                  -- a class of correct behaviour: the server might not respond
-                  -- with that initial metadata until the client has sent some
-                  -- messages.
-                  clientLocal testClock call steps'
+    steps2, steps1 :: [(TestClockTick, LocalStep)]
+    steps2 = [ ( TestClockTick 3, ClientAction $ Send (NoMoreElems NoMetadata))
+             , ( TestClockTick 5, ServerAction $ Send (NoMoreElems (Set.fromList [])))
+             ]
 
-          _otherwise ->
-            error $ "clientGlobal: expected Initiate, got " ++ show steps
-
-    -- reverse ordering here is important for the bug to materialize
-    globalSteps :: GlobalSteps
-    globalSteps = [
-        [ ( TestClockTick 1, ClientAction $ Initiate ( Set.fromList [] , RPC2 ))
-        , ( TestClockTick 3, ClientAction $ Send (NoMoreElems NoMetadata))
-        , ( TestClockTick 5, ServerAction $ Send (NoMoreElems (Set.fromList [])))
-        ]
-      , [ ( TestClockTick 0, ClientAction $ Initiate ( Set.fromList [] , RPC1 ))
-        , ( TestClockTick 2, ClientAction $ Terminate (Just (ExceptionId 0)))
-        , ( TestClockTick 4, ServerAction $ Send (NoMoreElems (Set.fromList [])))
-        ]
-      ]
+    runLocalSteps2 :: IO ()
+    runLocalSteps2 = do
+        waitForTestClockTick testClock $ TestClockTick 1
+        withConn $ \conn ->
+          Client.withRPC conn def (Proxy @TestRpc2) $ \call ->
+            clientLocal testClock call steps2
 
 {-------------------------------------------------------------------------------
   Server-side interpretation
