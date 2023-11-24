@@ -39,7 +39,7 @@ import Text.Show.Pretty
 
 newtype TestClock = TestClock (TVar TestClockTick)
 
-newtype TestClockTick = TestClockTick Int
+newtype TestClockTick = TestClockTick { getTestClockTick :: Int }
   deriving stock (Show, GHC.Generic)
   deriving newtype (Eq, Ord, Enum)
   deriving anyclass (PrettyVal)
@@ -61,13 +61,19 @@ waitForTestClockTick (TestClock clock) tick = do
       currentTick <- readTVar clock
       unless (currentTick == tick) retry
 
-advanceTestClock :: TestClock -> IO ()
-advanceTestClock (TestClock clock) = atomically (modifyTVar clock succ)
+-- | Advance the test clock
+--
+-- Returns the time before it was advanced.
+advanceTestClock :: TestClock -> IO Int
+advanceTestClock (TestClock clock) = atomically $ do
+    now <- getTestClockTick <$> readTVar clock
+    modifyTVar clock succ
+    return now
 
 advanceTestClockAtTime :: TestClock -> TestClockTick -> IO ()
 advanceTestClockAtTime clock tick = do
     waitForTestClockTick clock tick
-    advanceTestClock clock
+    void $ advanceTestClock clock
 
 advanceTestClockAtTimes :: TestClock -> [TestClockTick] -> IO ()
 advanceTestClockAtTimes = mapM_ . advanceTestClockAtTime

@@ -1,3 +1,20 @@
+{-
+   inlined version of this tset case:
+   (reverse ordering for the client is important for the bug to materialize)
+
+   > globalSteps :: GlobalSteps
+   > globalSteps = [
+   >     [ ( TestClockTick 1, ClientAction $ Initiate ( Set.fromList [] , RPC1 ))
+   >     , ( TestClockTick 3, ClientAction $ Send (NoMoreElems NoMetadata))
+   >     , ( TestClockTick 5, ServerAction $ Send (NoMoreElems (Set.fromList [])))
+   >     ]
+   >   , [ ( TestClockTick 0, ClientAction $ Initiate ( Set.fromList [] , RPC1 ))
+   >     , ( TestClockTick 2, ClientAction $ Terminate (Just (ExceptionId 0)))
+   >     , ( TestClockTick 4, ServerAction $ Send (NoMoreElems (Set.fromList [])))
+   >     ]
+   >   ]
+-}
+
 -- with O1 the bug still triggers, but it's (much?) less likely
 {-# OPTIONS_GHC -O0 #-}
 
@@ -265,7 +282,7 @@ type Metadata = Set CustomMetadata
   Many channels (bird's-eye view)
 -------------------------------------------------------------------------------}
 
-type LocalSteps = [(TestClockTick, LocalStep)]
+type LocalSteps  = [(TestClockTick, LocalStep)]
 type GlobalSteps = [LocalSteps]
 
 {-------------------------------------------------------------------------------
@@ -368,7 +385,6 @@ data Health e a = Alive a | Failed e | Disappeared
   deriving stock (Show)
 
 type ServerHealth = Health SomeServerException
-type ClientHealth = Health SomeClientException
 
 instance Functor (Health e) where
   fmap  = liftM
@@ -512,9 +528,8 @@ clientLocal testClock call = \steps ->
 clientGlobal ::
      TestClock
   -> (forall a. (Client.Connection -> IO a) -> IO a)
-  -> GlobalSteps
   -> IO ()
-clientGlobal testClock withConn = \globalSteps ->
+clientGlobal testClock withConn =
     go Nothing [] globalSteps
   where
     go :: Maybe Client.Connection -> [Async ()] -> [LocalSteps] -> IO ()
@@ -563,6 +578,19 @@ clientGlobal testClock withConn = \globalSteps ->
           _otherwise ->
             error $ "clientGlobal: expected Initiate, got " ++ show steps
 
+    -- reverse ordering here is important for the bug to materialize
+    globalSteps :: GlobalSteps
+    globalSteps = [
+        [ ( TestClockTick 1, ClientAction $ Initiate ( Set.fromList [] , RPC1 ))
+        , ( TestClockTick 3, ClientAction $ Send (NoMoreElems NoMetadata))
+        , ( TestClockTick 5, ServerAction $ Send (NoMoreElems (Set.fromList [])))
+        ]
+      , [ ( TestClockTick 0, ClientAction $ Initiate ( Set.fromList [] , RPC1 ))
+        , ( TestClockTick 2, ClientAction $ Terminate (Just (ExceptionId 0)))
+        , ( TestClockTick 4, ServerAction $ Send (NoMoreElems (Set.fromList [])))
+        ]
+      ]
+
 {-------------------------------------------------------------------------------
   Server-side interpretation
 
@@ -570,175 +598,76 @@ clientGlobal testClock withConn = \globalSteps ->
   threads on our behalf (one for each incoming RPC).
 -------------------------------------------------------------------------------}
 
-serverLocal ::
+serverLocal0 ::
      TestClock
   -> Server.Call (BinaryRpc serv meth)
-  -> LocalSteps -> IO ()
-serverLocal testClock call = \steps -> do
-    flip evalStateT (Alive ()) $ go steps
+  -> IO ()
+serverLocal0 testClock call = do
+    -- Wait for client to close their end
+    expect expectedRecvResult =<< try (Server.Binary.recvInput call)
+    void $ advanceTestClock testClock
+
+    -- Close our end
+    waitForTestClockTick testClock $ TestClockTick 5
+    received <- try $ Server.Binary.sendOutput call (NoMoreElems [] :: (StreamElem [CustomMetadata] Int))
+    expect expectedSendResult received
   where
-    go :: [(TestClockTick, LocalStep)] -> StateT (ClientHealth ()) IO ()
-    go []                     = return ()
-    go ((tick, step) : steps) = do
-        case step of
-          ServerAction action -> do
-            liftIO $ waitForTestClockTick testClock tick
-            continue <- serverAct action
-            if continue then
-              go steps
-            else do
-              -- We need to exit the scope of the handler, but we do want to
-              -- keep advancing the test clock when its our turn, so that we
-              -- don't interfere with the timing of other threads.
-              let ourStep :: (TestClockTick, LocalStep) -> Maybe TestClockTick
-                  ourStep (tick' , ServerAction _) = Just tick'
-                  ourStep (_     , ClientAction _) = Nothing
-              liftIO $ do
-                void $ forkIO $
-                  advanceTestClockAtTimes testClock $
-                    mapMaybe ourStep steps
-          ClientAction action -> do
-            reactToClient action `finally` liftIO (advanceTestClock testClock)
-            go steps
+    expectedRecvResult :: Either Server.ClientDisconnected (StreamElem NoMetadata Int) -> Bool
+    expectedRecvResult result =
+        case result of
+          Right x'   -> x' == NoMoreElems NoMetadata
+          _otherwise -> False
 
-    -- Server action
-    --
-    -- Returns 'True' if we should continue executing the other actions, or
-    -- terminate (thereby terminating the handler)
-    serverAct ::
-         Action Metadata Metadata
-      -> StateT (ClientHealth ()) IO Bool
-    serverAct = \case
-        Initiate metadata -> liftIO $ do
-          Server.setResponseMetadata call (Set.toList metadata)
-          void $ Server.initiateResponse call
-          return True
-        Send x -> do
-          isExpected <- adjustExpectation ()
-          received   <- try . liftIO $
-                          Server.Binary.sendOutput call (first Set.toList x)
-          expect isExpected received
-          return True
-        Terminate (Just exceptionId) -> do
-          throwM $ SomeServerException exceptionId
-        Terminate Nothing ->
-          return False
-        SleepMilli n -> do
-          liftIO $ threadDelay (n * 1_000)
-          return True
+    expectedSendResult :: Either Server.ClientDisconnected () -> Bool
+    expectedSendResult result =
+        case result of
+          Right x'   -> x' == ()
+          _otherwise -> False
 
-    reactToClient ::
-           Action (Metadata, RPC) NoMetadata
-        -> StateT (ClientHealth ()) IO ()
-    reactToClient = \case
-        Initiate _ ->
-          error "serverLocal: unexpected ClientInitiateRequest"
-        Send (FinalElem a b) -> do
-          -- Known bug (limitation in http2). See recvMessageLoop.
-          reactToClient $ Send (StreamElem a)
-          reactToClient $ Send (NoMoreElems b)
-        Send expectedElem -> do
-          isExpected <- adjustExpectation expectedElem
-          expect isExpected =<< liftIO (try $ Server.Binary.recvInput call)
-        Terminate mErr -> do
-          reactToClientTermination mErr
-        SleepMilli _ ->
-          return ()
+serverLocal1 ::
+     TestClock
+  -> Server.Call (BinaryRpc serv meth)
+  -> IO ()
+serverLocal1 testClock call = do
+    -- Wait for client termination to become visible
+    atomically $ do
+      healthy <- Server.isCallHealthy call
+      when healthy $ retry
 
-    reactToClientTermination ::
-         Maybe ExceptionId
-      -> StateT (ClientHealth ()) IO ()
-    reactToClientTermination mErr = do
-        -- Wait for the client-side exception to become noticable server-side.
-        -- Under normal circumstances the server will only notice this when
-        -- trying to communicate; by explicitly checking we avoid
-        -- non-determinism in the test (where the exception may or may not
-        -- already have been come visible server-side).
-        liftIO $ void . timeout 5_000_000 $ atomically $ do
-          healthy <- Server.isCallHealthy call
-          when healthy $ retry
-
-        -- Update client health, /if/ the client was alive at this point
-        modify $ ifAlive $ \() ->
-          case mErr of
-            Just i  -> Failed $ SomeClientException i
-            Nothing -> Disappeared
-
-    -- Adjust expectation when communicating with the client
-    adjustExpectation :: forall a.
-         Eq a
-      => a
-      -> StateT (ClientHealth ()) IO (Either Server.ClientDisconnected a -> Bool)
-    adjustExpectation x =
-        return . aux =<< get
-     where
-       aux :: ClientHealth () -> Either Server.ClientDisconnected a -> Bool
-       aux clientHealth result =
-           case clientHealth of
-             Failed _err ->
-               case result of
-                 Left (Server.ClientDisconnected _) -> True
-                 _otherwise                         -> False
-             Disappeared ->
-               case result of
-                 Left (Server.ClientDisconnected _) -> True
-                 _otherwise                         -> False
-             Alive () ->
-               case result of
-                 Right x'   -> x == x'
-                 _otherwise -> False
+    -- At this point, sending anything should fail
+    waitForTestClockTick testClock $ TestClockTick 4
+    let isExpected result = case result of
+                              Left (Server.ClientDisconnected _) -> True
+                              _otherwise                         -> False
+    received  <- try $ Server.Binary.sendOutput call (NoMoreElems [] :: (StreamElem [CustomMetadata] Int))
+    expect isExpected received
 
 serverGlobal ::
      HasCallStack
   => TestClock
-  -> MVar GlobalSteps
-    -- ^ Unlike in the client case, the grapesy infrastructure spawns a new
-    -- thread for each incoming connection. To know which part of the test this
-    -- particular handler corresponds to, we take the next 'LocalSteps' from
-    -- this @MVar@. Since all requests are started by the client from /one/
-    -- thread, the order of these incoming requests is deterministic.
   -> Server.Call (BinaryRpc serv meth)
   -> IO ()
-serverGlobal testClock globalStepsVar call = do
-    steps <- modifyMVar globalStepsVar getNextSteps
+serverGlobal testClock call = do
     -- See discussion in clientGlobal (runLocalSteps)
-    advanceTestClock testClock
+    now <- advanceTestClock testClock
 
-    case steps of
-      -- It is important that we do this 'expect' outside the scope of the
-      -- @modifyMVar@: if we do not, then if the expect fails, we'd leave the
-      -- @MVar@ unchanged, and the next request would use the wrong steps.
-      (_tick, ClientAction (Initiate (metadata, _rpc))) : steps' -> do
-        -- We don't care about the timeout the client sets; if the server
-        -- takes too long, the /client/ will check that it gets the expected
-        -- exception.
-        receivedMetadata <- Server.getRequestMetadata call
-        expect (== metadata) $ Set.fromList receivedMetadata
-        serverLocal testClock call steps'
-      _otherwise ->
-         error "serverGlobal: expected ClientInitiateRequest"
-  where
-    getNextSteps :: [LocalSteps] -> IO (GlobalSteps, LocalSteps)
-    getNextSteps [] = do
-        throwM $ TestFailure prettyCallStack $ UnexpectedRequest
-    getNextSteps (steps:global') =
-        return (global', steps)
+    case now of
+      0 -> serverLocal0 testClock call
+      1 -> serverLocal1 testClock call
+      _ -> undefined
 
 -- ========================================================================== --
 
 main :: IO ()
 main = do
-    globalStepsVar <- newMVar steps
     testClock      <- newTestClock
 
-    let -- the reverse ordering here seems necessary for the bug to happen
-        -- (without it, we deadlock instead...?)
-        client :: (forall a. (Client.Connection -> IO a) -> IO a) -> IO ()
-        client conn = clientGlobal testClock conn (reverse steps)
+    let client :: (forall a. (Client.Connection -> IO a) -> IO a) -> IO ()
+        client conn = clientGlobal testClock conn
 
         server :: [Server.RpcHandler IO]
         server = [ Server.mkRpcHandler (Proxy @TestRpc1) $ \call ->
-                        serverGlobal testClock globalStepsVar call ]
+                        serverGlobal testClock call ]
 
     mRes :: Either SomeException () <- try $ runTestClientServer client server
     case mRes of
@@ -752,16 +681,4 @@ main = do
       _otherwise -> do
         putStrLn "No expection was thrown"
         exitWith $ ExitSuccess
-  where
-    steps :: GlobalSteps
-    steps = [
-        [ ( TestClockTick 0, ClientAction $ Initiate ( Set.fromList [] , RPC1 ))
-        , ( TestClockTick 2, ClientAction $ Terminate (Just (ExceptionId 0)))
-        , ( TestClockTick 4, ServerAction $ Send (NoMoreElems (Set.fromList [])))
-        ]
-      , [ ( TestClockTick 1, ClientAction $ Initiate ( Set.fromList [] , RPC1 ))
-        , ( TestClockTick 3, ClientAction $ Send (NoMoreElems NoMetadata))
-        , ( TestClockTick 5, ServerAction $ Send (NoMoreElems (Set.fromList [])))
-        ]
-      ]
 
