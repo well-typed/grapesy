@@ -470,8 +470,9 @@ stayConnected connParams server connVar connCanClose =
     writeBufferSize = 4096
 
     -- TODO: This is currently only used for the HTTP case, not HTTPS
+    -- | dest is only used if mAuth is Nothing
     clientConfig :: Authority -> Maybe String -> Scheme -> HTTP2.Client.ClientConfig
-    clientConfig auth mAuth scheme = HTTP2.Client.ClientConfig {
+    clientConfig dest mAuth scheme = HTTP2.Client.ClientConfig {
           scheme    = rawScheme serverPseudoHeaders
         , authority = maybe (rawAuthority serverPseudoHeaders) BS.Strict.UTF8.fromString mAuth
 
@@ -482,7 +483,7 @@ stayConnected connParams server connVar connCanClose =
         }
       where
         serverPseudoHeaders :: RawServerHeaders
-        serverPseudoHeaders = buildServerHeaders $ ServerHeaders scheme auth
+        serverPseudoHeaders = buildServerHeaders $ ServerHeaders scheme dest
 
     tracer :: Tracer IO ClientDebugMsg
     tracer = connDebugTracer connParams
