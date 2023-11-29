@@ -178,7 +178,7 @@ library
     -- Lower bounds are the first version of these packages after forking.
     -- Upper bounds as discussed above.
     build-depends:
-      , tls                 >= 1.7 && < 1.8
+      , tls                 >= 1.7 && < 1.10
       , crypton-x509        >= 1.7 && < 1.8
       , crypton-x509-store  >= 1.6 && < 1.7
       , crypton-x509-system >= 1.6 && < 1.7
@@ -214,18 +214,14 @@ test-suite test-grapesy
     , grapesy
   build-depends:
       -- External dependencies
-    , async         >= 2.2  && < 2.3
     , containers    >= 0.6  && < 0.7
     , contra-tracer >= 0.2  && < 0.3
     , data-default  >= 0.7  && < 0.8
-    , exceptions    >= 0.10 && < 0.11
     , http2
-    , mtl           >= 2.2  && < 2.4
     , pretty-show   >= 1.10 && < 1.11
     , QuickCheck    >= 2.14 && < 2.15
     , stm           >= 2.5  && < 2.6
-    , text          >= 1.2  && < 2.1
-    , tls           >= 1.5  && < 1.8
+    , tls           >= 1.5  && < 1.10
 
 Flag build-demo
   description: Build the demo

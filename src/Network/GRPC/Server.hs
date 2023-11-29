@@ -56,6 +56,7 @@ import Network.GRPC.Server.Handler qualified as Handler
 import Network.GRPC.Spec
 import Network.GRPC.Util.HTTP2.Stream (ClientDisconnected(..))
 import Network.GRPC.Util.Session.Server qualified as Session.Server
+import Control.Concurrent
 
 {-------------------------------------------------------------------------------
   Server proper
@@ -86,6 +87,9 @@ handleRequest ::
   -> Handler.Map IO
   -> Connection -> IO ()
 handleRequest params handlers conn = do
+    tid <- myThreadId
+    putStrLn $ "handleRequest: " ++ show (Context.ServerDebugRequest path, tid)
+
     -- TODO: Proper "Apache style" logging (in addition to the debug logging)
     traceWith tracer $ Context.ServerDebugRequest path
     withHandler params handlers path conn $ \(RpcHandler h) -> do

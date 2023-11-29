@@ -1,6 +1,7 @@
 packages:
   .
   ../forks/http2
+  ../forks/http2-tls
 
   ~/wt/ghc/repo/9.2.8-patched/patched-libs/async
   ~/wt/ghc/repo/9.2.8-patched/patched-libs/tasty/core
@@ -8,20 +9,5 @@ packages:
   ~/wt/ghc/repo/9.2.8-patched/patched-libs/unliftio/unliftio
   ~/wt/ghc/repo/9.2.8-patched/patched-libs/lens
 
---   ~/wt/packages/stm-debug
---   ~/wt/packages/stm-debug/assignid
---   ~/wt/packages/stm-debug/patched/async
---   ~/wt/packages/stm-debug/patched/tasty/core
---   ~/wt/packages/stm-debug/patched/unliftio/unliftio
-
 package grapesy
   tests: True
-  flags: +build-demo +build-stress-test
-
-allow-newer: stm
-
--- https://github.com/kazu-yamamoto/http2-tls/pull/4
-source-repository-package
-  type: git
-  location: https://github.com/edsko/http2-tls.git
-  tag: 4fdfe7c32177c5a483916623cb8f93525761cff6

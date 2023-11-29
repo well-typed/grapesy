@@ -1,0 +1,62 @@
+```
+serverHandlerExceptions <- newEmptyTMVarIO
+```
+
+is unnecessary. The server handler lock already takes care of it.
+
+
+Update to latest http2 and http2-tls, relax bounds on tls to < 1.10
+
+```
+        HTTP2.run HTTP2.defaultServerConfig config $ serverHandlerHook server
+
+                HTTP2.Client.run
+                      (clientConfig auth Http)
+                      conf
+                    $ \sendRequest _aux -> do
+```
+
+
+
+In both server and client code, we need to install an exception handler that
+ensures that the clock is stepped correctly when the client is interrupted
+See also this explanation:
+
+```
+clientGlobal ::
+     TestClock
+  -> (forall a. (Client.Connection -> IO a) -> IO a)
+  -> IO ()
+clientGlobal testClock withConn =
+    -- The bug is /very/ sensitive to what exactly we do here. The bug does not
+    -- materialize if we
+    --
+    -- * @wait@ in the opposite order
+    -- * use @async@ instead of @withAsync@
+    --
+    -- Explanation: thread1 throws an exception; this will cause the wait on
+    -- thread1 to throw an exception also, so that we will exit the scope of
+    -- both calls to @withAsync@, thereby cancelling thread2. The client
+    -- disappearing causes the recv in serverLocal2 to become impossible
+    -- (though we get get the blocked indefinitely exception in STM is still
+    -- unclear, of course).
+    withAsync (clientLocal2 testClock withConn) $ \thread2 ->
+    withAsync (clientLocal1 testClock withConn) $ \thread1 ->
+    mapM_ wait [thread1, thread2]
+```
+
+Test infrastructure should probably also import from Network.GRPC.Util.Concurrency
+
+Missing wrappers in .COncurrency:
+
+```
+async :: HasCallStack => IO a -> IO (Async a)
+async = Async.async . wrapThreadBody
+
+asyncWithUnmask ::
+     HasCallStack
+  => ((forall b. IO b -> IO b) -> IO a)
+  -> IO (Async a)
+asyncWithUnmask k = Async.asyncWithUnmask $ \unmask ->
+    wrapThreadBody (k unmask)
+```

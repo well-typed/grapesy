@@ -400,7 +400,7 @@ stayConnected connParams server connVar connCanClose =
                 HTTP2.Client.run
                       (clientConfig auth Http)
                       conf
-                    $ \sendRequest -> do
+                    $ \sendRequest _aux -> do
                   traceWith tracer $ ClientDebugConnectedInsecure
                   let conn = Session.ConnectionToServer sendRequest
                   atomically $ writeTVar connVar $ ConnectionReady connClosed conn
@@ -423,7 +423,7 @@ stayConnected connParams server connVar connCanClose =
                     settings
                     (authorityHost auth)
                     (fromIntegral $ authorityPort auth)
-                  $ \sendRequest -> do
+                  $ \sendRequest _aux -> do
                 traceWith tracer $ ClientDebugConnectedSecure
                 let conn = Session.ConnectionToServer sendRequest
                 atomically $ writeTVar connVar $ ConnectionReady connClosed conn

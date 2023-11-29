@@ -22,8 +22,6 @@
 
 module Main (main) where
 
-import Control.Concurrent.Async
-import Control.Concurrent.STM
 import Control.Exception
 import Control.Monad
 import Control.Tracer
@@ -48,6 +46,8 @@ import Test.Util.PrettyVal
 
 import Debug.Trace
 
+import Network.GRPC.Util.Concurrency
+
 -- ========================================================================== --
 
 _traceLabelled :: Show a => String -> a -> a
@@ -64,12 +64,12 @@ newtype ServerHandlerLock = ServerHandlerLock (TVar (Either SomeException Int))
 newServerHandlerLock :: IO ServerHandlerLock
 newServerHandlerLock = ServerHandlerLock <$> newTVarIO (Right 0)
 
-waitForHandlerTermination :: ServerHandlerLock -> STM ()
+waitForHandlerTermination :: ServerHandlerLock -> STM (Either SomeException ())
 waitForHandlerTermination (ServerHandlerLock lock) = do
     mActiveHandlers <- readTVar lock
     case mActiveHandlers of
-      Left err -> throwSTM err
-      Right 0  -> return ()
+      Left err -> return $ Left err
+      Right 0  -> return $ Right ()
       Right _  -> retry
 
 serverHandlerLockHook :: ServerHandlerLock -> HTTP2.Server -> HTTP2.Server
@@ -79,6 +79,8 @@ serverHandlerLockHook (ServerHandlerLock lock) server request aux respond =
       result <- try $ unmask $ server request aux respond
       -- We don't rethrow the exception (instead 'waitForHandlerTermination' will)
       unregister result
+      tid <- myThreadId
+      (\st -> putStrLn $ "lock state in " ++ show tid ++ " after " ++ show result ++ ": " ++ show st) =<< atomically (readTVar lock)
   where
     register :: IO ()
     register = atomically $ modifyTVar lock $ bimap id succ
@@ -96,134 +98,6 @@ serverHandlerLockHook (ServerHandlerLock lock) server request aux respond =
                 Right . pred
               Nothing ->
                 const (Left e)
-
-{-------------------------------------------------------------------------------
-  Server
--------------------------------------------------------------------------------}
-
-runTestServer ::
-     Tracer IO SomeException
-  -> ServerHandlerLock
-  -> [Server.RpcHandler IO]
-  -> IO ()
-runTestServer serverExceptions handlerLock serverHandlers = do
-    let serverSetup :: Server.ServerSetup
-        serverSetup = def {
-              Server.serverHandlerHook = serverHandlerLockHook handlerLock
-            }
-
-        serverConfig :: Server.ServerConfig
-        serverConfig = Server.ServerConfig {
-              serverSetup    = serverSetup
-            , serverInsecure = Just Server.InsecureConfig {
-                  insecureHost = Nothing
-                , insecurePort = "50051"
-                }
-            , serverSecure   = Nothing
-            }
-
-        serverParams :: Server.ServerParams
-        serverParams = Server.ServerParams {
-              serverCompression     = Compr.none
-            , serverExceptionTracer = serverExceptions
-            , serverDebugTracer     = nullTracer
-            }
-
-    Server.withServer serverParams serverHandlers $
-      Server.runServer serverConfig
-
-{-------------------------------------------------------------------------------
-  Client
--------------------------------------------------------------------------------}
-
-runTestClient :: forall a.
-     ((forall b. (Client.Connection -> IO b) -> IO b) -> IO a)
-  -> IO a
-runTestClient clientRun = do
-    let clientParams :: Client.ConnParams
-        clientParams = Client.ConnParams {
-              connDebugTracer     = nullTracer
-            , connCompression     = Compr.none
-            , connDefaultTimeout  = Nothing
-
-              -- We need a single reconnect, to enable wait-for-ready.
-              -- This avoids a race condition between the server starting first
-              -- and the client starting first.
-            , connReconnectPolicy =
-                  Client.ReconnectAfter (0.1, 0.2)
-                $ Client.DontReconnect
-            }
-
-        clientServer :: Client.Server
-        clientServer = Client.ServerInsecure clientAuthority
-
-        clientAuthority :: Client.Authority
-        clientAuthority = Client.Authority "localhost" 50051
-
-    clientRun $ Client.withConnection clientParams clientServer
-
-{-------------------------------------------------------------------------------
-  Main entry point: run server and client together
--------------------------------------------------------------------------------}
-
-runTestClientServer :: forall a.
-     ((forall b. (Client.Connection -> IO b) -> IO b) -> IO a)
-  -> [Server.RpcHandler IO]
-  -> IO a
-runTestClientServer clientRun serverHandlers = do
-    -- Normally, when a handler throws an exception, that request is simply
-    -- aborted, but the server does not shut down. However, for the sake of
-    -- testing, if a handler throws an unexpected exception, the test should
-    -- fail. We therefore monitor for these exceptions.
-    serverHandlerExceptions <- newEmptyTMVarIO
-    let serverExceptions :: Tracer IO SomeException
-        serverExceptions = arrow $ emit $ \err ->
-            atomically $ void $ tryPutTMVar serverHandlerExceptions err
-
-    -- Start server
-    serverHandlerLock <- newServerHandlerLock
-    server <- async $ do
-      runTestServer
-        serverExceptions
-        serverHandlerLock
-        serverHandlers
-
-    -- Start client
-    --
-    -- We run this in its own thread, so we can catch its exceptions separately
-    -- from the one from the server (see below)
-    client <- async $ runTestClient clientRun
-
-    -- The server never shuts down under normal circumstances; so we wait for
-    -- the client to terminate, then wait for any potential still-running
-    -- server handlers to terminate, monitoring for exceptions, and then shut
-    -- down the server.
-    clientRes <- waitCatch client
-    serverRes <- atomically $
-                     (Left <$> readTMVar serverHandlerExceptions)
-                   `orElse`
-                     (Right <$> waitForHandlerTermination serverHandlerLock)
-    cancel server
-
-    case (serverRes, clientRes) of
-      (Right (), Right a) ->
-        return a
-      (Left serverErr, Right _) ->
-        throwIO serverErr
-      (Right (), Left clientErr) ->
-        throwIO clientErr
-      (Left serverErr, Left clientErr) ->
-          -- We are hunting for BlockedIndefinitelyOnSTM
-          case (fromException serverErr, fromException clientErr) of
-            (Just BlockedIndefinitelyOnSTM{}, _) ->
-              throwIO serverErr
-            (_, Just BlockedIndefinitelyOnSTM{}) ->
-              throwIO clientErr
-            _otherwise ->
-              -- doesn't really matter which one we throw
-              throwIO clientErr
-
--- ========================================================================== --
 
 {-------------------------------------------------------------------------------
   Endpoints
@@ -244,26 +118,49 @@ clientLocal1 ::
   => TestClock
   -> (forall a. (Client.Connection -> IO a) -> IO a)
   -> IO ()
-clientLocal1 testClock withConn = do
+clientLocal1 testClock withConn = handle showExceptions $ do
+    putStrLn "clientLocal1: 1"
     waitForTestClockTick testClock $ TestClockTick 0
-    withConn $ \conn ->
+    putStrLn "clientLocal1: 2"
+    withConn $ \conn -> do
+      putStrLn "clientLocal1: 3"
       Client.withRPC conn def (Proxy @TestRpc1) $ \_call -> do
+        putStrLn "clientLocal1: 4"
         waitForTestClockTick testClock $ TestClockTick 2
-        throwIO $ userError "client exception"
+        putStrLn "clientLocal1: 5"
+        throwIO $ userError "this models some kind of client exception"
+  where
+    showExceptions :: SomeException -> IO ()
+    showExceptions err = do
+        putStrLn $ "clientLocal1: " ++ show err
+        throwIO err
 
 clientLocal2 ::
      HasCallStack
   => TestClock
   -> (forall a. (Client.Connection -> IO a) -> IO a)
   -> IO ()
-clientLocal2 testClock withConn = do
+clientLocal2 testClock withConn = handle showExceptions $ do
+    putStrLn "clientLocal2: 1"
     waitForTestClockTick testClock $ TestClockTick 1
-    withConn $ \conn ->
+    putStrLn "clientLocal2: 2"
+    withConn $ \conn -> do
+      putStrLn "clientLocal2: 3"
       Client.withRPC conn def (Proxy @TestRpc2) $ \call -> do
+        putStrLn "clientLocal2: 4"
         waitForTestClockTick testClock $ TestClockTick 3
+        putStrLn "clientLocal2: 5"
         Client.Binary.sendInput call (NoMoreElems NoMetadata :: (StreamElem NoMetadata Int))
+        putStrLn "clientLocal2: 6"
         _ :: StreamElem [CustomMetadata] Int <- Client.Binary.recvOutput call
+        putStrLn "clientLocal2: 7"
         advanceTestClock testClock
+        putStrLn "clientLocal2: 8"
+  where
+    showExceptions :: SomeException -> IO ()
+    showExceptions err = do
+        putStrLn $ "clientLocal2: " ++ show err
+        throwIO err
 
 clientGlobal ::
      TestClock
@@ -275,6 +172,13 @@ clientGlobal testClock withConn =
     --
     -- * @wait@ in the opposite order
     -- * use @async@ instead of @withAsync@
+    --
+    -- Explanation: thread1 throws an exception; this will cause the wait on
+    -- thread1 to throw an exception also, so that we will exit the scope of
+    -- both calls to @withAsync@, thereby cancelling thread2. The client
+    -- disappearing causes the recv in serverLocal2 to become impossible
+    -- (though we get get the blocked indefinitely exception in STM is still
+    -- unclear, of course).
     withAsync (clientLocal2 testClock withConn) $ \thread2 ->
     withAsync (clientLocal1 testClock withConn) $ \thread1 ->
     mapM_ wait [thread1, thread2]
@@ -290,32 +194,56 @@ serverLocal1 ::
      TestClock
   -> Server.Call (BinaryRpc serv meth)
   -> IO ()
-serverLocal1 testClock call = do
+serverLocal1 testClock call = handle showExceptions $ do
+    tid <- myThreadId
+    putStrLn $ "serverLocal1: 1: " ++ show tid
     advanceTestClock testClock
+    putStrLn "serverLocal1: 2"
 
     -- Wait for client early termination to become visible
     atomically $ do
       healthy <- Server.isCallHealthy call
       when healthy $ retry
 
+    putStrLn "serverLocal1: 3"
+
     -- At this point, sending anything should fail
     waitForTestClockTick testClock $ TestClockTick 4
+    putStrLn "serverLocal1: 4"
     Server.Binary.sendOutput call (NoMoreElems [] :: (StreamElem [CustomMetadata] Int))
+    putStrLn "serverLocal1: 5"
+  where
+    showExceptions :: SomeException -> IO ()
+    showExceptions err = do
+        putStrLn $ "serverLocal1: " ++ show err
+        throwIO err
 
 serverLocal2 ::
      TestClock
   -> Server.Call (BinaryRpc serv meth)
   -> IO ()
-serverLocal2 testClock call = do
+serverLocal2 testClock call = handle showExceptions $ do
+    tid <- myThreadId
+    putStrLn $ "serverLocal2: 1: " ++ show tid
     advanceTestClock testClock
+    putStrLn "serverLocal2: 2"
 
     -- Wait for client to tell us they will send no more elements
     _ :: StreamElem NoMetadata Int <- Server.Binary.recvInput call
+    putStrLn "serverLocal2: 3"
     advanceTestClock testClock
+    putStrLn "serverLocal2: 4"
 
     -- Tell the client we won't send them more elements either
     waitForTestClockTick testClock $ TestClockTick 5
+    putStrLn "serverLocal2: 5"
     Server.Binary.sendOutput call (NoMoreElems [] :: (StreamElem [CustomMetadata] Int))
+    putStrLn "serverLocal2: 6"
+  where
+    showExceptions :: SomeException -> IO ()
+    showExceptions err = do
+        putStrLn $ "serverLocal2: " ++ show err
+        throwIO err
 
 -- ========================================================================== --
 
@@ -323,22 +251,103 @@ main :: IO ()
 main = do
     testClock <- newTestClock
 
-    let client :: (forall a. (Client.Connection -> IO a) -> IO a) -> IO ()
-        client conn = clientGlobal testClock conn
+    mRes :: Either SomeException () <- try $ do
+      -- Start server
+      handlerLock <- newServerHandlerLock
 
-        server :: [Server.RpcHandler IO]
-        server = [
-              Server.mkRpcHandler (Proxy @TestRpc1) $ serverLocal1 testClock
-            , Server.mkRpcHandler (Proxy @TestRpc2) $ serverLocal2 testClock
-            ]
+      server <- async $ do
+        let serverHandlers :: [Server.RpcHandler IO]
+            serverHandlers = [
+                  Server.mkRpcHandler (Proxy @TestRpc1) $ serverLocal1 testClock
+                , Server.mkRpcHandler (Proxy @TestRpc2) $ serverLocal2 testClock
+                ]
 
-    mRes :: Either SomeException () <- try $ runTestClientServer client server
+            serverSetup :: Server.ServerSetup
+            serverSetup = def {
+                  Server.serverHandlerHook = serverHandlerLockHook handlerLock
+                }
+
+            serverConfig :: Server.ServerConfig
+            serverConfig = Server.ServerConfig {
+                  serverSetup    = serverSetup
+                , serverInsecure = Just Server.InsecureConfig {
+                      insecureHost = Nothing
+                    , insecurePort = "50051"
+                    }
+                , serverSecure   = Nothing
+                }
+
+            serverParams :: Server.ServerParams
+            serverParams = def {
+                  -- Don't print exceptions (to avoid confusing test output)
+                  Server.serverExceptionTracer = nullTracer
+                }
+
+        Server.withServer serverParams serverHandlers $
+          Server.runServer serverConfig
+
+      -- Give the server a chance to start
+      -- (We can automatically reconnect, but this keeps the test simpler)
+      threadDelay 500_000
+
+      -- Start client
+      --
+      -- We run this in its own thread, so we can catch its exceptions separately
+      -- from the one from the server (see below)
+      client <- async $ do
+        let clientParams :: Client.ConnParams
+            clientParams = Client.ConnParams {
+                  connDebugTracer     = nullTracer
+                , connCompression     = Compr.none
+                , connDefaultTimeout  = Nothing
+                , connReconnectPolicy = def
+                }
+
+            clientServer :: Client.Server
+            clientServer = Client.ServerInsecure clientAuthority
+
+            clientAuthority :: Client.Authority
+            clientAuthority = Client.Authority "localhost" 50051
+
+        clientGlobal testClock $
+          Client.withConnection clientParams clientServer
+
+      -- The server never shuts down under normal circumstances; so we wait for
+      -- the client to terminate, then wait for any potential still-running
+      -- server handlers to terminate, monitoring for exceptions, and then shut
+      -- down the server.
+      clientRes <- waitCatch client
+      putStrLn $ "clientRes: " ++ show clientRes
+      serverRes <- atomically $ waitForHandlerTermination handlerLock
+      putStrLn $ "serverRes: " ++ show serverRes
+      cancel server
+
+      case (serverRes, clientRes) of
+        (Right (), Right a) ->
+          return a
+        (Left serverErr, Right _) ->
+          throwIO serverErr
+        (Right (), Left clientErr) ->
+          throwIO clientErr
+        (Left serverErr, Left clientErr) ->
+            -- We are hunting for BlockedIndefinitelyOnSTM
+            case (fromException serverErr, fromException clientErr) of
+              (Just BlockedIndefinitelyOnSTM{}, _) ->
+                throwIO serverErr
+              (_, Just BlockedIndefinitelyOnSTM{}) ->
+                throwIO clientErr
+              _otherwise ->
+                -- doesn't really matter which one we throw
+                throwIO clientErr
+
+
     case mRes of
       Left err | Just err'@BlockedIndefinitelyOnSTM{} <- fromException err -> do
+        putStrLn "Got STM exception!"
         print err'
         exitWith $ ExitFailure 1
       Left err -> do
-        putStrLn "Got expected exception"
+        putStrLn "Got another exception"
         print err
         exitWith $ ExitSuccess
       _otherwise -> do

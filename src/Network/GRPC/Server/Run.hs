@@ -107,7 +107,7 @@ runInsecure ServerSetup{serverHandlerHook} server cfg =
     runTCPServer (insecureHost cfg) (insecurePort cfg) $ \sock -> do
       bracket (HTTP2.allocSimpleConfig sock writeBufferSize)
               HTTP2.freeSimpleConfig $ \config ->
-        HTTP2.run config $ serverHandlerHook server
+        HTTP2.run HTTP2.defaultServerConfig config $ serverHandlerHook server
 
 {-------------------------------------------------------------------------------
   Secure (over TLS)
