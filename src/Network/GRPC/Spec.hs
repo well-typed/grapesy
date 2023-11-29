@@ -50,18 +50,15 @@ module Network.GRPC.Spec (
   , ServerHeaders(..)
   , ResourceHeaders(..)
   , Path(..)
-  , Authority(..)
+  , Address(..)
   , Scheme(..)
   , Method(..)
   , rpcPath
     -- ** Serialization
-  , RawPseudoHeaders(..)
-  , RawServerHeaders(..)
   , RawResourceHeaders(..)
-  , InvalidPseudoHeaders(..)
+  , InvalidResourceHeaders(..)
   , buildResourceHeaders
-  , buildServerHeaders
-  , parsePseudoHeaders
+  , parseResourceHeaders
     -- ** Headers
   , buildRequestHeaders
   , parseRequestHeaders

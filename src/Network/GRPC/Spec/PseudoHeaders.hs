@@ -11,26 +11,21 @@ module Network.GRPC.Spec.PseudoHeaders (
     -- ** Individual headers
   , Method(..)
   , Scheme(..)
-  , Authority(..)
+  , Address(..)
   , Path(..)
-    -- * Raw headers
-  , RawServerHeaders(..)
+    -- * Building and parsing resource headers
   , RawResourceHeaders(..)
-  , RawPseudoHeaders(..)
-    -- * Construction
-  , buildServerHeaders
+    -- ** Building
   , buildResourceHeaders
   , rpcPath
-    -- * Parsing
-  , InvalidPseudoHeaders(..)
-  , parsePseudoHeaders
+    -- ** Parsing
+  , InvalidResourceHeaders(..)
+  , parseResourceHeaders
   ) where
 
 import Control.Monad.Except
 import Data.ByteString qualified as BS.Strict
 import Data.ByteString qualified as Strict (ByteString)
-import Data.ByteString.Char8 qualified as BS.Strict.C8
-import Data.ByteString.UTF8 qualified as BS.Strict.UTF8
 import Data.Hashable (Hashable)
 import Data.Proxy
 import Data.Text (Text)
@@ -49,8 +44,8 @@ import Network.GRPC.Util.ByteString
 
 -- | Partial pseudo headers: identify the server, but not a specific resource
 data ServerHeaders = ServerHeaders {
-      serverScheme    :: Scheme
-    , serverAuthority :: Authority
+      serverScheme  :: Scheme
+    , serverAddress :: Address
     }
   deriving stock (Show)
 
@@ -84,20 +79,37 @@ data Method = Post
 data Scheme = Http | Https
   deriving stock (Show)
 
--- | HTTP authority
+-- | Address
 --
---  As per the HTTP2 spec, this does not include @userinfo@:
---
--- > The authority MUST NOT include the deprecated "userinfo" subcomponent for
--- > "http" or "https" schemed URIs.
---
--- See also <https://datatracker.ietf.org/doc/html/rfc3986#section-3.2>.
-data Authority = Authority {
+-- The address of a server to connect to. This is not standard gRPC
+-- nomenclature, but follows convention such as adopted by
+-- [grpcurl](https://github.com/fullstorydev/grpcurl) and
+-- [grpc-client-cli](https://github.com/vadimi/grpc-client-cli), which
+-- distinguish between the /address/ of a server to connect to (hostname and
+-- port), and the (optional) HTTP /authority/, which is an (optional) string to
+-- be included as the HTTP2
+-- [:authority](https://datatracker.ietf.org/doc/html/rfc3986#section-3.2)
+-- [pseudo-header](https://datatracker.ietf.org/doc/html/rfc7540#section-8.1.2.3).
+data Address = Address {
       -- | Hostname
-      authorityHost :: String
+      addressHost :: String
 
       -- | TCP port
-    , authorityPort :: Word
+    , addressPort :: Word
+
+      -- | Authority
+      --
+      -- When the authority is not specified, it defaults to @addressHost@.
+      --
+      -- This is used both for the HTTP2 @:authority@ pseudo-header as well
+      -- as for TLS SNI (if using a secure connection).
+      --
+      -- Although the HTTP(2) specification allows the authority to include a
+      -- port number, and many servers can accept this, this will /not/ work
+      -- with TLS, and it is therefore recommended not to include a port number.
+      -- Note that the HTTP2 spec explicitly /disallows/ the authority to
+      -- include @userinfo@@.
+    , addressAuthority :: Maybe String
     }
   deriving stock (Show)
 
@@ -126,44 +138,13 @@ data Path = Path {
   deriving anyclass (Hashable)
 
 {-------------------------------------------------------------------------------
-  Raw headers
+  Building and parsing resource headers
 -------------------------------------------------------------------------------}
-
-data RawServerHeaders = RawServerHeaders {
-      rawScheme    :: Strict.ByteString
-    , rawAuthority :: Strict.ByteString
-    }
 
 data RawResourceHeaders = RawResourceHeaders {
       rawPath   :: Strict.ByteString
     , rawMethod :: Strict.ByteString
     }
-
-data RawPseudoHeaders = RawPseudoHeaders {
-      rawServerHeaders   :: RawServerHeaders
-    , rawResourceHeaders :: RawResourceHeaders
-    }
-
-{-------------------------------------------------------------------------------
-  Construction
--------------------------------------------------------------------------------}
-
-buildServerHeaders :: ServerHeaders -> RawServerHeaders
-buildServerHeaders ServerHeaders{serverScheme, serverAuthority} =
-    RawServerHeaders {
-        rawAuthority =
-          -- The spec mandates the use of UTF8
-          -- <https://www.rfc-editor.org/rfc/rfc3986#section-3.2.2>
-          mconcat [
-              BS.Strict.UTF8.fromString $ authorityHost serverAuthority
-            , ":"
-            , BS.Strict.C8.pack $ show $ authorityPort serverAuthority
-            ]
-      , rawScheme =
-          case serverScheme of
-            Http  -> "http"
-            Https -> "https"
-      }
 
 buildResourceHeaders :: ResourceHeaders -> RawResourceHeaders
 buildResourceHeaders ResourceHeaders{resourcePath, resourceMethod} =
@@ -180,27 +161,15 @@ buildResourceHeaders ResourceHeaders{resourcePath, resourceMethod} =
 rpcPath :: IsRPC rpc => Proxy rpc -> Path
 rpcPath proxy = Path (serviceName proxy) (methodName proxy)
 
-{-------------------------------------------------------------------------------
-  Parsing
--------------------------------------------------------------------------------}
-
-data InvalidPseudoHeaders =
-    InvalidScheme Strict.ByteString
-  | InvalidAuthority Strict.ByteString
-  | InvalidMethod Strict.ByteString
+data InvalidResourceHeaders =
+    InvalidMethod Strict.ByteString
   | InvalidPath Strict.ByteString
 
 -- | Parse pseudo headers
---
--- We only parse the 'ResourceHeaders', ignoring the 'ServerHeaders'
--- (we don't need it, and there are different formats in use; by simply not
--- parsiing it altogether we avoid parse errors that don't affect us anyway.)
-parsePseudoHeaders ::
-     RawPseudoHeaders
-  -> Either InvalidPseudoHeaders ResourceHeaders
-parsePseudoHeaders RawPseudoHeaders{
-        rawResourceHeaders = RawResourceHeaders{rawMethod, rawPath}
-      } = do
+parseResourceHeaders ::
+     RawResourceHeaders
+  -> Either InvalidResourceHeaders ResourceHeaders
+parseResourceHeaders RawResourceHeaders{rawMethod, rawPath} = do
     resourceMethod <-
       case rawMethod of
         "POST"     -> return Post

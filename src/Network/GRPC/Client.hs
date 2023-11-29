@@ -13,7 +13,7 @@ module Network.GRPC.Client (
 
     -- ** Connection parameters
   , Scheme(..)
-  , Authority(..)
+  , Address(..)
 
     -- ** Secure connection (TLS)
   , ServerValidation(..)

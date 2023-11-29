@@ -85,13 +85,10 @@ path = resourcePath . connectionResource
 
 getResourceHeaders :: HTTP2.Request -> Either OutOfSpecError ResourceHeaders
 getResourceHeaders req =
-    -- TODO: We should not parse the full pseudo headers
-    case parsePseudoHeaders (rawPseudoHeaders req) of
-      Left (InvalidScheme    x) -> Left $ bad "invalid scheme"    x
-      Left (InvalidAuthority x) -> Left $ bad "invalid authority" x
-      Left (InvalidPath      x) -> Left $ bad "invalid path"      x
-      Left (InvalidMethod    x) -> Left $ httpMethodNotAllowed    x
-      Right hdrs                -> return hdrs
+    case parseResourceHeaders (rawResourceHeaders req) of
+      Left (InvalidPath   x) -> Left $ bad "invalid path"   x
+      Left (InvalidMethod x) -> Left $ httpMethodNotAllowed x
+      Right hdrs             -> return hdrs
   where
     bad :: Builder -> Strict.ByteString -> OutOfSpecError
     bad msg arg = httpBadRequest $ mconcat [
@@ -100,16 +97,10 @@ getResourceHeaders req =
         , Builder.byteString arg
         ]
 
-rawPseudoHeaders :: HTTP2.Request -> RawPseudoHeaders
-rawPseudoHeaders req = RawPseudoHeaders {
-      rawServerHeaders = RawServerHeaders {
-          rawScheme    = fromMaybe "" $ HTTP2.requestScheme    req
-        , rawAuthority = fromMaybe "" $ HTTP2.requestAuthority req
-        }
-    , rawResourceHeaders = RawResourceHeaders {
-          rawPath   = fromMaybe "" $ HTTP2.requestPath   req
-        , rawMethod = fromMaybe "" $ HTTP2.requestMethod req
-        }
+rawResourceHeaders :: HTTP2.Request -> RawResourceHeaders
+rawResourceHeaders req = RawResourceHeaders {
+      rawPath   = fromMaybe "" $ HTTP2.requestPath   req
+    , rawMethod = fromMaybe "" $ HTTP2.requestMethod req
     }
 
 {-------------------------------------------------------------------------------

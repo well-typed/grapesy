@@ -422,19 +422,21 @@ runTestClient cfg clientTracer clientRun = do
                 Client.ValidateServer $
                   Client.certStoreFromPath pubCert
 
-        clientAuthority :: Client.Authority
+        clientAuthority :: Client.Address
         clientAuthority =
             case useTLS cfg of
-              Just tlsSetup -> Client.Authority {
-                  authorityHost = case tlsSetup of
-                                    TlsFail TlsFailHostname -> "127.0.0.1"
-                                    _otherwise              -> "localhost"
-                , authorityPort = 50052
+              Just tlsSetup -> Client.Address {
+                  addressHost      = case tlsSetup of
+                                       TlsFail TlsFailHostname -> "127.0.0.1"
+                                       _otherwise              -> "localhost"
+                , addressPort      = 50052
+                , addressAuthority = Nothing
                 }
 
-              Nothing -> Client.Authority {
-                  authorityHost = "localhost"
-                , authorityPort = 50051
+              Nothing -> Client.Address {
+                  addressHost      = "localhost"
+                , addressPort      = 50051
+                , addressAuthority = Nothing
                 }
 
     clientRun $ Client.withConnection clientParams clientServer
