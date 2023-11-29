@@ -3,10 +3,3 @@ packages: .
 package grapesy
   tests: True
   flags: +build-demo +build-stress-test
-
--- The version on Hackage also works, it just writes some (unnecessary)
--- exceptions to stderr
-source-repository-package
-  type: git
-  location: https://github.com/edsko/http2.git
-  tag: c2a2994ed45a08998c2b6eb22a08f28b9eb36c3c
