@@ -48,6 +48,7 @@ import Network.GRPC.Util.HTTP2.Stream (ServerDisconnected(..))
 import Network.GRPC.Util.Session qualified as Session
 import Network.GRPC.Util.TLS (ServerValidation(..), SslKeyLog(..))
 import Network.GRPC.Util.TLS qualified as Util.TLS
+import Network.TLS (TLSException)
 
 {-------------------------------------------------------------------------------
   Connection API
@@ -208,10 +209,31 @@ data ClientDebugMsg =
     -- | We got disconnected and will not reconnect again
   | ClientDebugDisconnected SomeException
 
+    -- | Connection failed with a fatal exception
+    --
+    -- Exceptions are considered fatal if there is no point retrying.
+  | ClientDebugFatal FatalException
+
 deriving instance Show ClientDebugMsg
 
 instance PrettyVal ClientDebugMsg where
   prettyVal = String . show
+
+{-------------------------------------------------------------------------------
+  Fatal exceptions (no point reconnecting)
+-------------------------------------------------------------------------------}
+
+data FatalException =
+    FatalTLS TLSException
+  deriving (Show)
+
+isFinalException :: SomeException -> Maybe FatalException
+isFinalException err
+  | Just tlsException <- fromException err
+  = Just $ FatalTLS tlsException
+
+  | otherwise
+  = Nothing
 
 {-------------------------------------------------------------------------------
   Server address
@@ -446,11 +468,14 @@ stayConnected connParams server connVar connCanClose =
             traceWith tracer $ ClientDebugConnectionClosed
             atomically $ writeTVar connVar $ ConnectionClosed
           Left err -> do
-            case thisReconnectPolicy of
-              DontReconnect -> do
+            case (isFinalException err, thisReconnectPolicy) of
+              (Just fatal, _) -> do
+                traceWith tracer $ ClientDebugFatal fatal
+                atomically $ writeTVar connVar $ ConnectionAbandoned err
+              (Nothing, DontReconnect) -> do
                 traceWith tracer $ ClientDebugDisconnected err
                 atomically $ writeTVar connVar $ ConnectionAbandoned err
-              ReconnectAfter (lo, hi) reconnectPolicy' -> do
+              (Nothing, ReconnectAfter (lo, hi) reconnectPolicy') -> do
                 delay <- randomRIO (lo, hi)
                 traceWith tracer $ ClientDebugReconnectingAfter err delay
                 atomically $ writeTVar connVar $ ConnectionNotReady
