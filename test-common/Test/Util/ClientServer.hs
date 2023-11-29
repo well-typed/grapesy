@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Test.Util.ClientServer (
@@ -175,6 +176,16 @@ isExpectedException cfg assessCustomException topLevel =
 
       | Just (tls :: TLSException) <- fromException err
       = case (useTLS cfg, tls) of
+#if MIN_VERSION_tls(1,9,0)
+          (   Just (TlsFail TlsFailValidation)
+            , HandshakeFailed (Error_Protocol _msg UnknownCa)
+            ) ->
+            Right $ ExpectedExceptionTls tls
+          (   Just (TlsFail TlsFailHostname)
+            , HandshakeFailed (Error_Protocol _msg CertificateUnknown)
+            ) ->
+             Right $ ExpectedExceptionTls tls
+#else
           (   Just (TlsFail TlsFailValidation)
             , HandshakeFailed (Error_Protocol (_msg, _bool, UnknownCa))
             ) ->
@@ -183,6 +194,7 @@ isExpectedException cfg assessCustomException topLevel =
             , HandshakeFailed (Error_Protocol (_msg, _bool, CertificateUnknown))
             ) ->
              Right $ ExpectedExceptionTls tls
+#endif
           (   Just (TlsFail TlsFailUnsupported)
             , HandshakeFailed (Error_Packet_Parsing _)
             ) ->

@@ -14,8 +14,8 @@ data-files:         route_guide_db.json
                     grpc-demo.priv
 tested-with:        GHC==8.10.7
                   , GHC==9.2.8
-                  , GHC==9.4.5
-                  , GHC==9.6.2
+                  , GHC==9.4.8
+                  , GHC==9.6.3
 
 common lang
   ghc-options:
@@ -150,6 +150,8 @@ library
     , generics-sop         >= 0.5  && < 0.6
     , hashable             >= 1.3  && < 1.5
     , http-types           >= 0.12 && < 0.13
+    , http2                >= 5.0  && < 5.1
+    , http2-tls            >= 0.2  && < 0.3
     , mtl                  >= 2.2  && < 2.4
     , network              >= 3.1  && < 3.2
     , network-byte-order   >= 0.1  && < 0.2
@@ -167,16 +169,12 @@ library
     , utf8-string          >= 1.0  && < 1.1
     , zlib                 >= 0.6  && < 0.7
 
-    -- We need an unreleased version of http2 right now
-    , http2
-    , http2-tls
-
   -- tls 1.7 starts using Kazu's forked versions of x509-* packages
   if flag(crypton)
     -- Lower bounds are the first version of these packages after forking.
     -- Upper bounds as discussed above.
     build-depends:
-      , tls                 >= 1.7 && < 1.8
+      , tls                 >= 1.7 && < 1.10
       , crypton-x509        >= 1.7 && < 1.8
       , crypton-x509-store  >= 1.6 && < 1.7
       , crypton-x509-system >= 1.6 && < 1.7
@@ -227,7 +225,7 @@ test-suite test-grapesy
     , contra-tracer    >= 0.2  && < 0.3
     , data-default     >= 0.7  && < 0.8
     , exceptions       >= 0.10 && < 0.11
-    , http2
+    , http2            >= 5.0  && < 5.1
     , mtl              >= 2.2  && < 2.4
     , pretty-show      >= 1.10 && < 1.11
     , QuickCheck       >= 2.14 && < 2.15
@@ -236,7 +234,7 @@ test-suite test-grapesy
     , tasty-hunit      >= 0.10 && < 0.11
     , tasty-quickcheck >= 0.10 && < 0.11
     , text             >= 1.2  && < 2.1
-    , tls              >= 1.5  && < 1.8
+    , tls              >= 1.5  && < 1.10
 
 executable demo-client
   import:
@@ -353,12 +351,12 @@ executable test-stress
     , containers           >= 0.6  && < 0.7
     , contra-tracer        >= 0.2  && < 0.3
     , data-default         >= 0.7  && < 0.8
-    , http2
+    , http2                >= 5.0  && < 5.1
     , optparse-applicative >= 0.16 && < 0.19
     , pretty-show          >= 1.10 && < 1.11
     , stm                  >= 2.5  && < 2.6
     , text                 >= 1.2  && < 2.1
-    , tls                  >= 1.5  && < 1.8
+    , tls                  >= 1.5  && < 1.10
 
   if !flag(build-stress-test)
     buildable:
