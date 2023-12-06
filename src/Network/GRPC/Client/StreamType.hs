@@ -9,7 +9,8 @@ import Control.Monad.IO.Class
 import Data.Default
 import Data.Proxy
 
-import Network.GRPC.Client
+import Network.GRPC.Client.Call
+import Network.GRPC.Client.Connection
 import Network.GRPC.Common.StreamType
 import Network.GRPC.Spec
 import Network.GRPC.Util.Concurrency

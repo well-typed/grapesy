@@ -30,19 +30,22 @@ import Data.Proxy
 import Debug.Trace
 import GHC.Stack
 
-import Network.GRPC.Client qualified as Client
+import Network.GRPC.Client.Call qualified as Client
+import Network.GRPC.Client.Connection qualified as Client
 import Network.GRPC.Common
 import Network.GRPC.Common.Binary
 import Network.GRPC.Common.Compression qualified as Compr
 import Network.GRPC.Server qualified as Server
 import Network.GRPC.Server.Binary qualified as Server.Binary
 import Network.GRPC.Server.Run qualified as Server
+import Network.GRPC.Spec
 import Network.GRPC.Util.Concurrency
 
 -- ========================================================================== --
 
 _traceLabelled :: Show a => String -> a -> a
 _traceLabelled lbl x = trace (lbl ++ ": " ++ show x) x
+
 
 -- ========================================================================== --
 
@@ -243,8 +246,8 @@ main = do
           clientServer :: Client.Server
           clientServer = Client.ServerInsecure clientAuthority
 
-          clientAuthority :: Client.Authority
-          clientAuthority = Client.Authority "localhost" 50051
+          clientAuthority :: Authority
+          clientAuthority = Authority "localhost" 50051
 
       clientGlobal testClock $
         Client.withConnection clientParams clientServer

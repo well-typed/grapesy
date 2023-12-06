@@ -74,9 +74,7 @@ library
       -- does not use ImportQualifiedPost.
       -Wprepositive-qualified-module
   exposed-modules:
-      Network.GRPC.Client
       Network.GRPC.Client.StreamType
-      Network.GRPC.Client.StreamType.Pipes
       Network.GRPC.Common
       Network.GRPC.Common.Binary
       Network.GRPC.Common.Compression
@@ -155,8 +153,6 @@ library
     , network              >= 3.1  && < 3.2
     , network-byte-order   >= 0.1  && < 0.2
     , network-run          >= 0.2  && < 0.3
-    , pipes                >= 4.3  && < 4.4
-    , pipes-safe           >= 2.3  && < 2.4
     , pretty-show          >= 1.10 && < 1.11
     , proto-lens           >= 0.7  && < 0.8
     , random               >= 1.2  && < 1.3
