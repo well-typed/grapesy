@@ -24,7 +24,10 @@ module Main (main) where
 
 import Control.Exception
 import Control.Monad
+import Control.Monad.Catch (MonadMask(..), ExitCase)
+import Control.Monad.IO.Class
 import Control.Tracer
+import Data.Bifunctor
 import Data.Default
 import Data.Proxy
 import Data.Text qualified as Text
@@ -33,18 +36,66 @@ import Debug.Trace
 import GHC.Stack
 import GHC.TypeLits
 
-import Network.GRPC.Client.Call qualified as Client
 import Network.GRPC.Client.Connection qualified as Client
 import Network.GRPC.Common
+import Network.GRPC.Common.StreamElem qualified as StreamElem
 import Network.GRPC.Server qualified as Server
 import Network.GRPC.Server.Run qualified as Server
 import Network.GRPC.Spec
 import Network.GRPC.Util.Concurrency
+import Network.GRPC.Util.Session qualified as Session
 
 -- ========================================================================== --
 
 _traceLabelled :: Show a => String -> a -> a
 _traceLabelled lbl x = trace (lbl ++ ": " ++ show x) x
+
+-- ========================================================================== --
+
+clientWithRPC :: forall rpc a.
+     (IsRPC rpc, HasCallStack)
+  => Client.Connection -> CallParams -> Proxy rpc -> (Client.Call rpc -> IO a) -> IO a
+clientWithRPC conn callParams proxy k =
+    (throwUnclean =<<) $
+      generalBracket
+        (liftIO $ Client.startRPC conn proxy callParams)
+        (\call -> liftIO . clientCloseRPC call)
+        k
+  where
+    throwUnclean :: (a, Maybe ChannelUncleanClose) -> IO a
+    throwUnclean (_, Just err) = throwIO err
+    throwUnclean (x, Nothing)  = return x
+
+clientCloseRPC ::
+     HasCallStack
+  => Client.Call rpc -> ExitCase a -> IO (Maybe ChannelUncleanClose)
+clientCloseRPC = Session.close . Client.callChannel
+
+clientSendInput ::
+     (HasCallStack, MonadIO m)
+  => Client.Call rpc
+  -> StreamElem NoMetadata (Input rpc)
+  -> m ()
+clientSendInput call msg = liftIO $ do
+    atomically $ Session.send (Client.callChannel call) msg
+    StreamElem.whenDefinitelyFinal msg $ \_ ->
+      void $ Session.waitForOutbound (Client.callChannel call)
+
+clientRecvOutput ::
+     MonadIO m
+  => Client.Call rpc
+  -> m (StreamElem [CustomMetadata] (Output rpc))
+clientRecvOutput call =
+    liftIO $ atomically $ recvOutputSTM call
+
+recvOutputSTM :: Client.Call rpc -> STM (StreamElem [CustomMetadata] (Output rpc))
+recvOutputSTM = fmap (first collapseTrailers) . Session.recv . Client.callChannel
+  where
+    -- No difference between 'ProperTrailers' and 'TrailersOnly'
+    collapseTrailers ::
+         Either [CustomMetadata] [CustomMetadata]
+      -> [CustomMetadata]
+    collapseTrailers = either id id
 
 -- ========================================================================== --
 
@@ -112,7 +163,7 @@ clientLocal1 ::
 clientLocal1 testClock withConn = handle showExceptions $ do
     waitForTestClockTick testClock 0
     withConn $ \conn -> do
-      Client.withRPC conn def (Proxy @TestRpc1) $ \_call -> do
+      clientWithRPC conn def (Proxy @TestRpc1) $ \_call -> do
         waitForTestClockTick testClock 2
         throwIO $ userError "this models some kind of client exception"
   where
@@ -129,10 +180,10 @@ clientLocal2 ::
 clientLocal2 testClock withConn = handle showExceptions $ do
     waitForTestClockTick testClock 1
     withConn $ \conn -> do
-      Client.withRPC conn def (Proxy @TestRpc2) $ \call -> do
+      clientWithRPC conn def (Proxy @TestRpc2) $ \call -> do
         waitForTestClockTick testClock 3
-        Client.sendInput call $ NoMoreElems NoMetadata
-        _ <- Client.recvOutput call
+        clientSendInput call $ NoMoreElems NoMetadata
+        _ <- clientRecvOutput call
         advanceTestClock testClock
   where
     showExceptions :: SomeException -> IO ()
