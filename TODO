@@ -82,3 +82,9 @@ data ClientConnection = ClientConnection {
       clientConnState :: TVar ConnectionState
     }
 ```
+
+This line in `withRPC` deserves a comment. Why is this impossible..?
+
+```haskell
+            ConnectionClosed                -> error "impossible"
+```
