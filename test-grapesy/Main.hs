@@ -33,7 +33,6 @@ import GHC.Stack
 import Network.GRPC.Client.Call qualified as Client
 import Network.GRPC.Client.Connection qualified as Client
 import Network.GRPC.Common
-import Network.GRPC.Common.Compression qualified as Compr
 import Network.GRPC.Server qualified as Server
 import Network.GRPC.Server.Run qualified as Server
 import Network.GRPC.Spec
@@ -238,7 +237,6 @@ main = do
       let clientParams :: Client.ConnParams
           clientParams = Client.ConnParams {
                 connDebugTracer     = nullTracer
-              , connCompression     = Compr.none
               , connDefaultTimeout  = Nothing
               , connReconnectPolicy = def
               }

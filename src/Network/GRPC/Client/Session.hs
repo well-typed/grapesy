@@ -11,7 +11,6 @@ import Data.Proxy
 import Network.HTTP.Types qualified as HTTP
 
 import Network.GRPC.Common
-import Network.GRPC.Common.Compression qualified as Compr
 import Network.GRPC.Spec
 import Network.GRPC.Util.Session
 
@@ -19,10 +18,7 @@ import Network.GRPC.Util.Session
   Definition
 -------------------------------------------------------------------------------}
 
-data ClientSession rpc = ClientSession {
-      clientCompression :: Compr.Negotation
-    , clientUpdateMeta  :: ResponseHeaders -> IO ()
-    }
+data ClientSession rpc = ClientSession
 
 {-------------------------------------------------------------------------------
   Instances
@@ -33,8 +29,7 @@ data ClientOutbound rpc
 
 instance IsRPC rpc => DataFlow (ClientInbound rpc) where
   data Headers (ClientInbound rpc) = InboundHeaders {
-        inbHeaders     :: ResponseHeaders
-      , inbCompression :: Compression
+        inbHeaders :: ResponseHeaders
       }
     deriving (Show)
 
@@ -44,8 +39,7 @@ instance IsRPC rpc => DataFlow (ClientInbound rpc) where
 
 instance IsRPC rpc => DataFlow (ClientOutbound rpc) where
   data Headers (ClientOutbound rpc) = OutboundHeaders {
-        outHeaders     :: RequestHeaders
-      , outCompression :: Compression
+        outHeaders :: RequestHeaders
       }
     deriving (Show)
 
@@ -66,11 +60,11 @@ instance IsRPC rpc => IsSession (ClientSession rpc) where
   parseInboundTrailers _client =
       processResponseTrailers $ parseProperTrailers (Proxy @rpc)
 
-  parseMsg _ = parseOutput (Proxy @rpc) . inbCompression
-  buildMsg _ = buildInput  (Proxy @rpc) . outCompression
+  parseMsg _ _ = parseOutput (Proxy @rpc)
+  buildMsg _ _ = buildInput  (Proxy @rpc)
 
 instance IsRPC rpc => InitiateSession (ClientSession rpc) where
-  parseResponseRegular client info = do
+  parseResponseRegular _client info = do
       unless (HTTP.statusCode (responseStatus info) == 200) $
         throwIO $ ResponseInvalidStatus (responseStatus info)
 
@@ -79,15 +73,8 @@ instance IsRPC rpc => InitiateSession (ClientSession rpc) where
           Left  err    -> throwIO $ ResponseInvalidHeaders err
           Right parsed -> return parsed
 
-      cIn :: Compression <-
-        Compr.getSupported (clientCompression client) $
-          responseCompression responseHeaders
-
-      clientUpdateMeta client responseHeaders
-
       return $ InboundHeaders {
-          inbHeaders     = responseHeaders
-        , inbCompression = cIn
+          inbHeaders = responseHeaders
         }
 
   parseResponseNoMessages _ info = do

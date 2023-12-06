@@ -19,7 +19,6 @@ import Control.Tracer
 import Data.Default
 import Text.Show.Pretty
 
-import Network.GRPC.Common.Compression qualified as Compr
 import Network.GRPC.Server.Session (ServerSession)
 import Network.GRPC.Spec
 import Network.GRPC.Util.Session qualified as Session
@@ -42,13 +41,10 @@ withContext params k = k $ ServerContext{params}
 -------------------------------------------------------------------------------}
 
 data ServerParams = ServerParams {
-      -- | Server compression preferences
-      serverCompression :: Compr.Negotation
-
       -- | Tracer for exceptions thrown by handlers
       --
       -- The default uses 'stdoutTracer'.
-    , serverExceptionTracer :: Tracer IO SomeException
+      serverExceptionTracer :: Tracer IO SomeException
 
       -- | Tracer for debug messages
       --
@@ -59,8 +55,7 @@ data ServerParams = ServerParams {
 
 instance Default ServerParams where
   def = ServerParams {
-        serverCompression     = def
-      , serverExceptionTracer = contramap show stdoutTracer
+        serverExceptionTracer = contramap show stdoutTracer
       , serverDebugTracer     = nullTracer
       }
 

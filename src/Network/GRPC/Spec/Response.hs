@@ -28,7 +28,6 @@ module Network.GRPC.Spec.Response (
 import Control.Exception
 import Control.Monad.Except
 import Data.ByteString.Char8 qualified as BS.Strict.C8
-import Data.List.NonEmpty (NonEmpty)
 import Data.SOP
 import Data.Text (Text)
 import Generics.SOP qualified as SOP
@@ -38,7 +37,6 @@ import Text.Read (readMaybe)
 import Text.Show.Pretty
 
 import Network.GRPC.Spec.Common
-import Network.GRPC.Spec.Compression (CompressionId)
 import Network.GRPC.Spec.CustomMetadata
 import Network.GRPC.Spec.PercentEncoding qualified as PercentEncoding
 import Network.GRPC.Spec.RPC
@@ -51,9 +49,7 @@ import Network.GRPC.Util.Partial
 
 -- | Response headers
 data ResponseHeaders = ResponseHeaders {
-      responseCompression       :: Maybe CompressionId
-    , responseAcceptCompression :: Maybe (NonEmpty CompressionId)
-    , responseMetadata          :: [CustomMetadata]
+      responseMetadata :: [CustomMetadata]
     }
   deriving stock (Show, Eq)
   deriving stock (GHC.Generic)
@@ -139,18 +135,8 @@ grpcExceptionToTrailers err = ProperTrailers{
 
 -- | Build response headers
 buildResponseHeaders :: IsRPC rpc => Proxy rpc -> ResponseHeaders -> [HTTP.Header]
-buildResponseHeaders proxy
-             ResponseHeaders{ responseCompression
-                            , responseAcceptCompression
-                            , responseMetadata
-                            } = concat [
+buildResponseHeaders proxy ResponseHeaders{responseMetadata} = concat [
       [ buildContentType proxy ]
-    , [ buildMessageEncoding x
-      | Just x <- [responseCompression]
-      ]
-    , [ buildMessageAcceptEncoding x
-      | Just x <- [responseAcceptCompression]
-      ]
     , [ buildCustomMetadata x
       | x <- responseMetadata
       ]
@@ -174,27 +160,18 @@ parseResponseHeaders proxy =
       = parseContentType proxy hdr
 
       | name == "grpc-encoding"
-      = update updCompression $ \_ ->
-          Just <$> parseMessageEncoding hdr
+      = return () -- ignore
 
       | name == "grpc-accept-encoding"
-      = update updAcceptCompression $ \_ ->
-          Just <$> parseMessageAcceptEncoding hdr
+      = return () -- ignore
 
       | otherwise
       = parseCustomMetadata hdr >>= update updCustom . fmap . (:)
 
     uninitResponseHeaders :: Partial (Either String) ResponseHeaders
-    uninitResponseHeaders =
-           return (Nothing :: Maybe CompressionId)
-        :* return (Nothing :: Maybe (NonEmpty CompressionId))
-        :* return ([]      :: [CustomMetadata])
-        :* Nil
+    uninitResponseHeaders = return [] :* Nil
 
-    (    updCompression
-      :* updAcceptCompression
-      :* updCustom
-      :* Nil ) = partialUpdates (Proxy @ResponseHeaders)
+    (updCustom :* Nil) = partialUpdates (Proxy @ResponseHeaders)
 
 {-------------------------------------------------------------------------------
   > Trailers → Status [Status-Message] *Custom-Metadata

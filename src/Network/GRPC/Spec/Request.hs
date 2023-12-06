@@ -17,7 +17,6 @@ module Network.GRPC.Spec.Request (
 
 import Data.ByteString.Char8 qualified as BS.Strict.C8
 import Data.List (intersperse)
-import Data.List.NonEmpty (NonEmpty)
 import Data.Maybe (catMaybes)
 import Data.SOP
 import Data.Version
@@ -27,7 +26,6 @@ import Network.HTTP.Types qualified as HTTP
 import Text.Show.Pretty
 
 import Network.GRPC.Spec.Common
-import Network.GRPC.Spec.Compression (CompressionId)
 import Network.GRPC.Spec.CustomMetadata
 import Network.GRPC.Spec.PercentEncoding qualified as PercentEncoding
 import Network.GRPC.Spec.RPC
@@ -49,16 +47,6 @@ data RequestHeaders = RequestHeaders {
 
       -- | Custom metadata
     , requestMetadata :: [CustomMetadata]
-
-      -- | Compression used for outgoing messages
-    , requestCompression :: Maybe CompressionId
-
-      -- | Accepted compression algorithms for incoming messages
-      --
-      -- @Maybe (NonEmpty ..)@ is perhaps a bit strange (why not just @[]@), but
-      -- it emphasizes the specification: /if/ the header is present, it must be
-      -- a non-empty list.
-    , requestAcceptCompression :: Maybe (NonEmpty CompressionId)
     }
   deriving stock (Show, Eq)
   deriving stock (GHC.Generic)
@@ -121,8 +109,6 @@ callDefinition proxy = \hdrs -> catMaybes [
     , Just $ buildTe
     , Just $ buildContentType proxy
     , Just $ buildMessageType
-    , buildMessageEncoding       <$> requestCompression       hdrs
-    , buildMessageAcceptEncoding <$> requestAcceptCompression hdrs
     , Just $ buildUserAgent
     ]
   where
@@ -214,12 +200,10 @@ parseRequestHeaders proxy =
       = return () -- TODO
 
       | name == "grpc-encoding"
-      = update updCompression $ \_ ->
-          Just <$> parseMessageEncoding hdr
+      = return () -- ignore
 
       | name == "grpc-accept-encoding"
-      = update updAcceptCompression $ \_ ->
-          Just <$> parseMessageAcceptEncoding hdr
+      = return () -- ignore
 
       -- /If/ the @te@ header is present we check its value, but we do not
       -- insist that it is present (technically this is not conform spec).
@@ -251,13 +235,9 @@ parseRequestHeaders proxy =
     uninitRequestHeaders =
            Right (Nothing :: Maybe Timeout)
         :* Right ([]      :: [CustomMetadata])
-        :* Right (Nothing :: Maybe CompressionId)
-        :* Right (Nothing :: Maybe (NonEmpty CompressionId))
         :* Nil
 
     (    _updTimeout
       :* updCustom
-      :* updCompression
-      :* updAcceptCompression
       :* Nil ) = partialUpdates (Proxy @RequestHeaders)
 

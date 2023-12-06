@@ -34,13 +34,6 @@ module Network.GRPC.Spec (
   , mkClientStreaming
   , mkServerStreaming
   , mkBiDiStreaming
-    -- * Compression
-  , CompressionId(..)
-  , Compression(..)
-    -- ** Compression algorithms
-  , noCompression
-  , gzip
-  , allSupportedCompression
     -- * Requests
   , RequestHeaders(..)
     -- ** Parameters
@@ -103,7 +96,6 @@ module Network.GRPC.Spec (
   ) where
 
 import Network.GRPC.Spec.Call
-import Network.GRPC.Spec.Compression
 import Network.GRPC.Spec.CustomMetadata
 import Network.GRPC.Spec.LengthPrefixed
 import Network.GRPC.Spec.PseudoHeaders

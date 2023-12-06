@@ -6,11 +6,9 @@ module Network.GRPC.Server.Session (
   ) where
 
 import Control.Exception
-import Data.List.NonEmpty (NonEmpty)
 import Data.Proxy
 import Network.HTTP.Types qualified as HTTP
 
-import Network.GRPC.Common.Compression qualified as Compr
 import Network.GRPC.Spec
 import Network.GRPC.Util.Session
 
@@ -18,9 +16,7 @@ import Network.GRPC.Util.Session
   Definition
 -------------------------------------------------------------------------------}
 
-data ServerSession rpc = ServerSession {
-      serverCompression :: Compr.Negotation
-    }
+data ServerSession rpc = ServerSession
 
 {-------------------------------------------------------------------------------
   Instances
@@ -31,8 +27,7 @@ data ServerOutbound rpc
 
 instance IsRPC rpc => DataFlow (ServerInbound rpc) where
   data Headers (ServerInbound rpc) = InboundHeaders {
-        inbHeaders     :: RequestHeaders
-      , inbCompression :: Compression
+        inbHeaders :: RequestHeaders
       }
     deriving (Show)
 
@@ -44,8 +39,7 @@ instance IsRPC rpc => DataFlow (ServerInbound rpc) where
 
 instance IsRPC rpc => DataFlow (ServerOutbound rpc) where
   data Headers (ServerOutbound rpc) = OutboundHeaders {
-        outHeaders     :: ResponseHeaders
-      , outCompression :: Compression
+        outHeaders :: ResponseHeaders
       }
     deriving (Show)
 
@@ -60,23 +54,18 @@ instance IsRPC rpc => IsSession (ServerSession rpc) where
   parseInboundTrailers _ = \_ -> return NoMetadata
   buildOutboundTrailers _ = buildProperTrailers
 
-  parseMsg _ = parseInput  (Proxy @rpc) . inbCompression
-  buildMsg _ = buildOutput (Proxy @rpc) . outCompression
+  parseMsg _ _ = parseInput  (Proxy @rpc)
+  buildMsg _ _ = buildOutput (Proxy @rpc)
 
 instance IsRPC rpc => AcceptSession (ServerSession rpc) where
-  parseRequestRegular server info = do
+  parseRequestRegular _server info = do
       requestHeaders :: RequestHeaders <-
         case parseRequestHeaders (Proxy @rpc) (requestHeaders info) of
           Left  err  -> throwIO $ RequestInvalidHeaders err
           Right hdrs -> return hdrs
 
-      cIn :: Compression <-
-        Compr.getSupported (serverCompression server) $
-          requestCompression requestHeaders
-
       return InboundHeaders {
-          inbHeaders    = requestHeaders
-        , inbCompression = cIn
+          inbHeaders = requestHeaders
         }
 
   parseRequestNoMessages _ info =
@@ -101,11 +90,5 @@ instance IsRPC rpc => AcceptSession (ServerSession rpc) where
 data InvalidRequest =
     -- | We failed to parse the request headers
     RequestInvalidHeaders String
-
-    -- | The client chose an unsupported compression algorithm
-  | RequestUnsupportedInboundCompression CompressionId
-
-    -- | We don't support any of the client's requested compression algorithms
-  | RequestUnsupportedOutboundCompression (NonEmpty CompressionId)
   deriving stock (Show)
   deriving anyclass (Exception)

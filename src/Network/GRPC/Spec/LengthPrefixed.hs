@@ -21,7 +21,6 @@ import Data.ByteString.Lazy qualified as Lazy (ByteString)
 import Data.Proxy
 import Data.Word
 
-import Network.GRPC.Spec.Compression
 import Network.GRPC.Spec.RPC
 import Network.GRPC.Util.Parser (Parser(..))
 
@@ -67,26 +66,26 @@ getMessagePrefix = do
 -- > Message-Length  → {length of Message}
 -- >                     # encoded as 4 byte unsigned integer (big endian)
 -- > Message         → *{binary octet}
-buildInput :: IsRPC rpc => Proxy rpc -> Compression -> Input rpc -> Builder
+buildInput :: IsRPC rpc => Proxy rpc -> Input rpc -> Builder
 buildInput = buildMsg . serializeInput
 
 -- | Serialize RPC output
-buildOutput :: IsRPC rpc => Proxy rpc -> Compression -> Output rpc -> Builder
+buildOutput :: IsRPC rpc => Proxy rpc -> Output rpc -> Builder
 buildOutput = buildMsg . serializeOutput
 
 -- | Generalization of 'buildInput' and 'buildOutput'
-buildMsg :: (x -> Lazy.ByteString) -> Compression -> x -> Builder
-buildMsg build compr x = mconcat [
+buildMsg :: (x -> Lazy.ByteString) -> x -> Builder
+buildMsg build x = mconcat [
       buildMessagePrefix prefix
     , Builder.lazyByteString compressed
     ]
   where
     compressed :: Lazy.ByteString
-    compressed = compress compr $ build x
+    compressed = build x
 
     prefix :: MessagePrefix
     prefix = MessagePrefix {
-          msgIsCompressed = not $ compressionIsIdentity compr
+          msgIsCompressed = False
         , msgLength       = fromIntegral $ BS.Lazy.length compressed
         }
 
@@ -98,17 +97,16 @@ buildMsg build compr x = mconcat [
   larger library, testing 'Network.GRPC.Call.Peer.receiveMessages'.
 -------------------------------------------------------------------------------}
 
-parseInput :: IsRPC rpc => Proxy rpc -> Compression -> Parser (Input rpc)
+parseInput :: IsRPC rpc => Proxy rpc -> Parser (Input rpc)
 parseInput = parseMsg . deserializeInput
 
-parseOutput :: IsRPC rpc => Proxy rpc -> Compression -> Parser (Output rpc)
+parseOutput :: IsRPC rpc => Proxy rpc -> Parser (Output rpc)
 parseOutput = parseMsg . deserializeOutput
 
 parseMsg :: forall x.
      (Lazy.ByteString -> Either String x)
-  -> Compression
   -> Parser x
-parseMsg parse compr =
+parseMsg parse =
     waitForPrefix BS.Lazy.empty
   where
     waitForPrefix :: Lazy.ByteString -> Parser x
@@ -131,7 +129,7 @@ parseMsg parse compr =
       | otherwise
       = let (msg, rest) = BS.Lazy.splitAt (fromIntegral $ msgLength prefix) acc
             serialized  = if msgIsCompressed prefix
-                            then decompress compr msg
+                            then error "parseMsg: compression unsupported"
                             else msg
         in case parse serialized of
              Left err -> ParserError err

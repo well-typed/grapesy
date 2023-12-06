@@ -44,7 +44,6 @@ import Network.HTTP2.Internal qualified as HTTP2
 import Network.HTTP2.Server qualified as HTTP2
 
 import Network.GRPC.Common
-import Network.GRPC.Common.Compression qualified as Compr
 import Network.GRPC.Common.StreamElem qualified as StreamElem
 import Network.GRPC.Server.Connection (Connection(..))
 import Network.GRPC.Server.Connection qualified as Connection
@@ -210,12 +209,7 @@ acceptCall params conn k = do
     runHandler setupResponseChannel handler
   where
     callSession :: ServerSession rpc
-    callSession = ServerSession {
-          serverCompression = compr
-        }
-
-    compr :: Compr.Negotation
-    compr = Context.serverCompression $ Context.params $ connectionContext conn
+    callSession = ServerSession
 
     tracer :: Tracer IO Context.ServerDebugMsg
     tracer = Context.serverDebugTracer $ Context.params $ connectionContext conn
@@ -248,26 +242,11 @@ acceptCall params conn k = do
         -- Session start
         case kickoff of
           KickoffRegular -> do
-            cOut :: Compression <-
-              case requestAcceptCompression inboundHeaders of
-                 Nothing   -> return noCompression
-                 Just cids ->
-                   -- If the requests explicitly lists compression algorithms,
-                   -- and that list does /not/ include @identity@, then we
-                   -- should not default to 'noCompression', even if all other
-                   -- algorithms are unsupported. This gives the client the
-                   -- option to /insist/ on compression.
-                   case Compr.choose compr cids of
-                     Right c   -> return c
-                     Left  err -> throwM err
-            traceIO $ "mkOutboundHeaders 5" ++ show cOut
+            traceIO $ "mkOutboundHeaders 5"
             return $ Session.FlowStartRegular $ OutboundHeaders {
                 outHeaders = ResponseHeaders {
-                    responseCompression       = Just $ Compr.compressionId cOut
-                  , responseAcceptCompression = Just $ Compr.offer compr
-                  , responseMetadata          = responseMetadata
+                    responseMetadata = responseMetadata
                   }
-              , outCompression = cOut
               }
           KickoffTrailersOnly trailers -> do
             traceIO $ "mkOutboundHeaders 6"

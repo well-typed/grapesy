@@ -26,7 +26,6 @@ import Control.Monad.Catch
 import Control.Tracer
 import Data.Default
 import Data.Foldable (asum)
-import Data.Maybe (fromMaybe)
 import Data.Proxy
 import GHC.Stack
 import Network.HPACK qualified as HPACK
@@ -37,11 +36,7 @@ import Network.Socket
 import System.Random
 import Text.Show.Pretty
 
-import Network.GRPC.Client.Meta (Meta)
-import Network.GRPC.Client.Meta qualified as Meta
 import Network.GRPC.Client.Session
-import Network.GRPC.Common.Compression qualified as Compr
-import Network.GRPC.Common.Compression qualified as Compression
 import Network.GRPC.Spec
 import Network.GRPC.Util.Concurrency
 import Network.GRPC.Util.HTTP2.Stream (ServerDisconnected(..))
@@ -72,9 +67,6 @@ import Network.GRPC.Util.TLS qualified as Util.TLS
 data Connection = Connection {
       -- | Configuration
       connParams :: ConnParams
-
-      -- | Information about the open connection
-    , metaVar :: MVar Meta
 
       -- | Open new channel to the server
       --
@@ -112,9 +104,6 @@ data ConnParams = ConnParams {
       -- disable logging.
       connDebugTracer :: Tracer IO ClientDebugMsg
 
-      -- | Compression negotation
-    , connCompression :: Compr.Negotation
-
       -- | Default timeout
       --
       -- Individual RPC calls can override this through 'CallParams'.
@@ -135,7 +124,6 @@ data ConnParams = ConnParams {
 instance Default ConnParams where
   def = ConnParams {
         connDebugTracer     = nullTracer
-      , connCompression     = def
       , connDefaultTimeout  = Nothing
       , connReconnectPolicy = def
       }
@@ -257,15 +245,7 @@ withConnection ::
   -> (Connection -> IO a)
   -> IO a
 withConnection connParams server k = do
-    metaVar <- newMVar $ Meta.init
     connVar <- newTVarIO ConnectionNotReady
-
-    let currentMeta :: IO Meta
-        currentMeta = readMVar metaVar
-
-        updateMeta :: ResponseHeaders -> IO ()
-        updateMeta hdrs =
-            modifyMVar_ metaVar $ Meta.update (connCompression connParams) hdrs
 
     let startRPC :: forall rpc.
              (IsRPC rpc, HasCallStack)
@@ -282,11 +262,9 @@ withConnection connParams server k = do
                   ConnectionAbandoned err          -> throwSTM err
                   ConnectionClosed                 -> error "impossible"
 
-            cOut <- Meta.outboundCompression <$> currentMeta
             let flowStart :: Session.FlowStart (ClientOutbound rpc)
                 flowStart = Session.FlowStartRegular $ OutboundHeaders {
-                    outHeaders     = requestHeaders cOut
-                  , outCompression = fromMaybe noCompression cOut
+                    outHeaders = requestHeaders
                   }
 
             channel <-
@@ -310,8 +288,8 @@ withConnection connParams server k = do
 
             return $ Call callSession channel
           where
-            requestHeaders :: Maybe Compression -> RequestHeaders
-            requestHeaders cOut = RequestHeaders{
+            requestHeaders :: RequestHeaders
+            requestHeaders = RequestHeaders{
                   requestTimeout =
                     asum [
                         callTimeout callParams
@@ -319,17 +297,10 @@ withConnection connParams server k = do
                       ]
                 , requestMetadata =
                     callRequestMetadata callParams
-                , requestCompression =
-                    compressionId <$> cOut
-                , requestAcceptCompression = Just $
-                    Compression.offer $ connCompression connParams
                 }
 
             callSession :: ClientSession rpc
-            callSession = ClientSession {
-                  clientCompression = connCompression connParams
-                , clientUpdateMeta  = updateMeta
-                }
+            callSession = ClientSession
 
             tracer :: Tracer IO (Session.DebugMsg (ClientSession rpc))
             tracer = contramap (ClientDebugMsg @rpc) $
@@ -344,7 +315,7 @@ withConnection connParams server k = do
     -- when we no longer need the connection (which we indicate by writing to
     -- connCanClose).
     void $ forkIO $ stayConnectedThread
-    k Connection {connParams, metaVar, startRPC}
+    k Connection {connParams, startRPC}
       `finally` putMVar connCanClose ()
 
 {-------------------------------------------------------------------------------

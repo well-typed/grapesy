@@ -17,21 +17,13 @@ module Network.GRPC.Spec.Common (
   , buildMessageAcceptEncoding
     -- * Parsing
   , parseContentType
-  , parseMessageEncoding
-  , parseMessageAcceptEncoding
   ) where
 
 import Control.Monad.Except
-import Data.ByteString qualified as BS.Strict
-import Data.Foldable (toList)
-import Data.List (intersperse)
-import Data.List.NonEmpty (NonEmpty(..))
 import Data.Proxy
 import Network.HTTP.Types qualified as HTTP
 
-import Network.GRPC.Spec.Compression
 import Network.GRPC.Spec.RPC
-import Network.GRPC.Util.ByteString
 import Network.GRPC.Util.Partial
 
 {-------------------------------------------------------------------------------
@@ -63,36 +55,19 @@ parseContentType proxy hdr =
   > Content-Coding → "identity" / "gzip" / "deflate" / "snappy" / {custom}
 -------------------------------------------------------------------------------}
 
-buildMessageEncoding :: CompressionId -> HTTP.Header
-buildMessageEncoding compr = (
+buildMessageEncoding :: HTTP.Header
+buildMessageEncoding = (
       "grpc-encoding"
-    , serializeCompressionId compr
+    , "identity"
     )
-
-parseMessageEncoding ::
-     MonadError String m
-  => HTTP.Header
-  -> m CompressionId
-parseMessageEncoding (_name, value) =
-    return $ deserializeCompressionId value
 
 {-------------------------------------------------------------------------------
   > Message-Accept-Encoding →
   >   "grpc-accept-encoding" Content-Coding *("," Content-Coding)
 -------------------------------------------------------------------------------}
 
-buildMessageAcceptEncoding :: NonEmpty CompressionId -> HTTP.Header
-buildMessageAcceptEncoding compr = (
+buildMessageAcceptEncoding :: HTTP.Header
+buildMessageAcceptEncoding = (
       "grpc-accept-encoding"
-    , mconcat . intersperse "," . map serializeCompressionId $ toList compr
+    , "identity"
     )
-
-parseMessageAcceptEncoding ::
-     MonadError String m
-  => HTTP.Header
-  -> m (NonEmpty CompressionId)
-parseMessageAcceptEncoding (_name, value) =
-      expectAtLeastOne
-    . map (deserializeCompressionId . strip)
-    . BS.Strict.splitWith (== ascii ',')
-    $ value
