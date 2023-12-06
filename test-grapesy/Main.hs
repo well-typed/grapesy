@@ -105,8 +105,6 @@ serverHandlerLockHook (ServerHandlerLock lock) server request aux respond =
       result <- try $ unmask $ server request aux respond
       -- We don't rethrow the exception (instead 'waitForHandlerTermination' will)
       unregister result
-      tid <- myThreadId
-      (\st -> putStrLn $ "lock state in " ++ show tid ++ " after " ++ show result ++ ": " ++ show st) =<< atomically (readTVar lock)
   where
     register :: IO ()
     register = atomically $ modifyTVar lock $ bimap id succ
@@ -145,15 +143,10 @@ clientLocal1 ::
   -> (forall a. (Client.Connection -> IO a) -> IO a)
   -> IO ()
 clientLocal1 testClock withConn = handle showExceptions $ do
-    putStrLn "clientLocal1: 1"
     waitForTestClockTick testClock 0
-    putStrLn "clientLocal1: 2"
     withConn $ \conn -> do
-      putStrLn "clientLocal1: 3"
       Client.withRPC conn def (Proxy @TestRpc1) $ \_call -> do
-        putStrLn "clientLocal1: 4"
         waitForTestClockTick testClock 2
-        putStrLn "clientLocal1: 5"
         throwIO $ userError "this models some kind of client exception"
   where
     showExceptions :: SomeException -> IO ()
@@ -167,21 +160,13 @@ clientLocal2 ::
   -> (forall a. (Client.Connection -> IO a) -> IO a)
   -> IO ()
 clientLocal2 testClock withConn = handle showExceptions $ do
-    putStrLn "clientLocal2: 1"
     waitForTestClockTick testClock 1
-    putStrLn "clientLocal2: 2"
     withConn $ \conn -> do
-      putStrLn "clientLocal2: 3"
       Client.withRPC conn def (Proxy @TestRpc2) $ \call -> do
-        putStrLn "clientLocal2: 4"
         waitForTestClockTick testClock 3
-        putStrLn "clientLocal2: 5"
         Client.Binary.sendInput call (NoMoreElems NoMetadata :: (StreamElem NoMetadata Int))
-        putStrLn "clientLocal2: 6"
         _ :: StreamElem [CustomMetadata] Int <- Client.Binary.recvOutput call
-        putStrLn "clientLocal2: 7"
         advanceTestClock testClock
-        putStrLn "clientLocal2: 8"
   where
     showExceptions :: SomeException -> IO ()
     showExceptions err = do
@@ -221,23 +206,16 @@ serverLocal1 ::
   -> Server.Call (BinaryRpc serv meth)
   -> IO ()
 serverLocal1 testClock call = handle showExceptions $ do
-    tid <- myThreadId
-    putStrLn $ "serverLocal1: 1: " ++ show tid
     advanceTestClock testClock
-    putStrLn "serverLocal1: 2"
 
     -- Wait for client early termination to become visible
     atomically $ do
       healthy <- Server.isCallHealthy call
       when healthy $ retry
 
-    putStrLn "serverLocal1: 3"
-
     -- At this point, sending anything should fail
     waitForTestClockTick testClock 4
-    putStrLn "serverLocal1: 4"
     Server.Binary.sendOutput call (NoMoreElems [] :: (StreamElem [CustomMetadata] Int))
-    putStrLn "serverLocal1: 5"
   where
     showExceptions :: SomeException -> IO ()
     showExceptions err = do
@@ -249,22 +227,15 @@ serverLocal2 ::
   -> Server.Call (BinaryRpc serv meth)
   -> IO ()
 serverLocal2 testClock call = handle showExceptions $ do
-    tid <- myThreadId
-    putStrLn $ "serverLocal2: 1: " ++ show tid
     advanceTestClock testClock
-    putStrLn "serverLocal2: 2"
 
     -- Wait for client to tell us they will send no more elements
     _ :: StreamElem NoMetadata Int <- Server.Binary.recvInput call
-    putStrLn "serverLocal2: 3"
     advanceTestClock testClock
-    putStrLn "serverLocal2: 4"
 
     -- Tell the client we won't send them more elements either
     waitForTestClockTick testClock 5
-    putStrLn "serverLocal2: 5"
     Server.Binary.sendOutput call (NoMoreElems [] :: (StreamElem [CustomMetadata] Int))
-    putStrLn "serverLocal2: 6"
   where
     showExceptions :: SomeException -> IO ()
     showExceptions err = do
