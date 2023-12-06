@@ -27,8 +27,11 @@ import Control.Monad
 import Control.Tracer
 import Data.Default
 import Data.Proxy
+import Data.Text qualified as Text
+import Data.Void
 import Debug.Trace
 import GHC.Stack
+import GHC.TypeLits
 
 import Network.GRPC.Client.Call qualified as Client
 import Network.GRPC.Client.Connection qualified as Client
@@ -37,9 +40,6 @@ import Network.GRPC.Server qualified as Server
 import Network.GRPC.Server.Run qualified as Server
 import Network.GRPC.Spec
 import Network.GRPC.Util.Concurrency
-import GHC.TypeLits
-import Data.Void
-import Data.Text qualified as Text
 
 -- ========================================================================== --
 
