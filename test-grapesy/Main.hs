@@ -31,7 +31,6 @@ import Debug.Trace
 import GHC.Stack
 
 import Network.GRPC.Client qualified as Client
-import Network.GRPC.Client.Binary qualified as Client.Binary
 import Network.GRPC.Common
 import Network.GRPC.Common.Binary
 import Network.GRPC.Common.Compression qualified as Compr
@@ -114,8 +113,8 @@ clientLocal2 testClock withConn = handle showExceptions $ do
     withConn $ \conn -> do
       Client.withRPC conn def (Proxy @TestRpc2) $ \call -> do
         waitForTestClockTick testClock 3
-        Client.Binary.sendInput call (NoMoreElems NoMetadata :: (StreamElem NoMetadata Int))
-        _ :: StreamElem [CustomMetadata] Int <- Client.Binary.recvOutput call
+        Client.sendInput call $ NoMoreElems NoMetadata
+        _ <- Client.recvOutput call
         advanceTestClock testClock
   where
     showExceptions :: SomeException -> IO ()

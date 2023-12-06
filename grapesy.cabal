@@ -75,7 +75,6 @@ library
       -Wprepositive-qualified-module
   exposed-modules:
       Network.GRPC.Client
-      Network.GRPC.Client.Binary
       Network.GRPC.Client.StreamType
       Network.GRPC.Client.StreamType.Pipes
       Network.GRPC.Common
@@ -212,7 +211,6 @@ test-suite test-grapesy
       -- External dependencies
     , contra-tracer >= 0.2 && < 0.3
     , data-default  >= 0.7 && < 0.8
-    , http2
 
 Flag build-demo
   description: Build the demo
