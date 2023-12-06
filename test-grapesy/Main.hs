@@ -28,6 +28,7 @@ import Control.Tracer
 import Data.Bifunctor
 import Data.Default
 import Data.Proxy
+import GHC.Stack
 import Network.HTTP2.Internal qualified as HTTP2
 import Network.HTTP2.Server qualified as HTTP2
 import System.Exit
@@ -41,17 +42,42 @@ import Network.GRPC.Server qualified as Server
 import Network.GRPC.Server.Binary qualified as Server.Binary
 import Network.GRPC.Server.Run qualified as Server
 
-import Test.Driver.Dialogue.TestClock
-import Test.Util.PrettyVal
-
 import Debug.Trace
 
 import Network.GRPC.Util.Concurrency
 
+
+
 -- ========================================================================== --
 
 _traceLabelled :: Show a => String -> a -> a
-_traceLabelled label x = trace (label ++ ": " ++ show x) x
+_traceLabelled lbl x = trace (lbl ++ ": " ++ show x) x
+
+-- ========================================================================== --
+
+{-------------------------------------------------------------------------------
+  Test clock
+
+  These are concurrent tests, looking at the behaviour of @n@ concurrent
+  connections between a client and a server. To make the interleaving of actions
+  easier to see, we introduce a global "test clock". Every test action is
+  annotated with a particular "test tick" on this clock. The clock is advanced
+  after each step: this is a logical clock, unrelated to the passing of time.
+-------------------------------------------------------------------------------}
+
+type TestClock     = TVar TestClockTick
+type TestClockTick = Int
+
+newTestClock :: IO TestClock
+newTestClock = newTVarIO 0
+
+waitForTestClockTick :: HasCallStack => TestClock -> TestClockTick -> IO ()
+waitForTestClockTick clock tick = atomically $ do
+    currentTick <- readTVar clock
+    unless (currentTick == tick) retry
+
+advanceTestClock :: TestClock -> IO ()
+advanceTestClock clock = atomically $ modifyTVar clock succ
 
 -- ========================================================================== --
 
@@ -120,13 +146,13 @@ clientLocal1 ::
   -> IO ()
 clientLocal1 testClock withConn = handle showExceptions $ do
     putStrLn "clientLocal1: 1"
-    waitForTestClockTick testClock $ TestClockTick 0
+    waitForTestClockTick testClock 0
     putStrLn "clientLocal1: 2"
     withConn $ \conn -> do
       putStrLn "clientLocal1: 3"
       Client.withRPC conn def (Proxy @TestRpc1) $ \_call -> do
         putStrLn "clientLocal1: 4"
-        waitForTestClockTick testClock $ TestClockTick 2
+        waitForTestClockTick testClock 2
         putStrLn "clientLocal1: 5"
         throwIO $ userError "this models some kind of client exception"
   where
@@ -142,13 +168,13 @@ clientLocal2 ::
   -> IO ()
 clientLocal2 testClock withConn = handle showExceptions $ do
     putStrLn "clientLocal2: 1"
-    waitForTestClockTick testClock $ TestClockTick 1
+    waitForTestClockTick testClock 1
     putStrLn "clientLocal2: 2"
     withConn $ \conn -> do
       putStrLn "clientLocal2: 3"
       Client.withRPC conn def (Proxy @TestRpc2) $ \call -> do
         putStrLn "clientLocal2: 4"
-        waitForTestClockTick testClock $ TestClockTick 3
+        waitForTestClockTick testClock 3
         putStrLn "clientLocal2: 5"
         Client.Binary.sendInput call (NoMoreElems NoMetadata :: (StreamElem NoMetadata Int))
         putStrLn "clientLocal2: 6"
@@ -208,7 +234,7 @@ serverLocal1 testClock call = handle showExceptions $ do
     putStrLn "serverLocal1: 3"
 
     -- At this point, sending anything should fail
-    waitForTestClockTick testClock $ TestClockTick 4
+    waitForTestClockTick testClock 4
     putStrLn "serverLocal1: 4"
     Server.Binary.sendOutput call (NoMoreElems [] :: (StreamElem [CustomMetadata] Int))
     putStrLn "serverLocal1: 5"
@@ -235,7 +261,7 @@ serverLocal2 testClock call = handle showExceptions $ do
     putStrLn "serverLocal2: 4"
 
     -- Tell the client we won't send them more elements either
-    waitForTestClockTick testClock $ TestClockTick 5
+    waitForTestClockTick testClock 5
     putStrLn "serverLocal2: 5"
     Server.Binary.sendOutput call (NoMoreElems [] :: (StreamElem [CustomMetadata] Int))
     putStrLn "serverLocal2: 6"

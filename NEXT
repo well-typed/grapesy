@@ -1,4 +1,0 @@
-Why is the whole process stalled? And why is the lock state in .. thread ID
-different from the thread IDs of the two server handlers? Is it around the
-wrong thread somehow? Something to do with exception propagation from the
-main handler thread to the parent thread in 'runHandler'.

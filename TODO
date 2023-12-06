@@ -22,6 +22,9 @@ In both server and client code, we need to install an exception handler that
 ensures that the clock is stepped correctly when the client is interrupted
 See also this explanation:
 
+(Not essential for the reproducer, as we are still getting the exception; the
+fact that the process is stalled doesn't really matter.)
+
 ```
 clientGlobal ::
      TestClock
@@ -59,4 +62,10 @@ asyncWithUnmask ::
   -> IO (Async a)
 asyncWithUnmask k = Async.asyncWithUnmask $ \unmask ->
     wrapThreadBody (k unmask)
+```
+
+This comment is basically obsolete:
+
+```
+                 -- Relies on https://github.com/kazu-yamamoto/http2/pull/82
 ```
