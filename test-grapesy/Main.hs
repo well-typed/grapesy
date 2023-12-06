@@ -33,10 +33,8 @@ import GHC.Stack
 import Network.GRPC.Client.Call qualified as Client
 import Network.GRPC.Client.Connection qualified as Client
 import Network.GRPC.Common
-import Network.GRPC.Common.Binary
 import Network.GRPC.Common.Compression qualified as Compr
 import Network.GRPC.Server qualified as Server
-import Network.GRPC.Server.Binary qualified as Server.Binary
 import Network.GRPC.Server.Run qualified as Server
 import Network.GRPC.Spec
 import Network.GRPC.Util.Concurrency
@@ -45,6 +43,8 @@ import Network.GRPC.Util.Concurrency
 
 _traceLabelled :: Show a => String -> a -> a
 _traceLabelled lbl x = trace (lbl ++ ": " ++ show x) x
+
+-- ========================================================================== --
 
 
 -- ========================================================================== --
@@ -167,7 +167,7 @@ serverLocal1 testClock call = handle showExceptions $ do
 
     -- At this point, sending anything should fail
     waitForTestClockTick testClock 4
-    Server.Binary.sendOutput call (NoMoreElems [] :: (StreamElem [CustomMetadata] Int))
+    Server.sendOutput call $ NoMoreElems []
   where
     showExceptions :: SomeException -> IO ()
     showExceptions err = do
@@ -182,12 +182,12 @@ serverLocal2 testClock call = handle showExceptions $ do
     advanceTestClock testClock
 
     -- Wait for client to tell us they will send no more elements
-    _ :: StreamElem NoMetadata Int <- Server.Binary.recvInput call
+    _ <- Server.recvInput call
     advanceTestClock testClock
 
     -- Tell the client we won't send them more elements either
     waitForTestClockTick testClock 5
-    Server.Binary.sendOutput call (NoMoreElems [] :: (StreamElem [CustomMetadata] Int))
+    Server.sendOutput call $ NoMoreElems []
   where
     showExceptions :: SomeException -> IO ()
     showExceptions err = do

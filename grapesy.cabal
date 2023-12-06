@@ -76,12 +76,10 @@ library
   exposed-modules:
       Network.GRPC.Client.StreamType
       Network.GRPC.Common
-      Network.GRPC.Common.Binary
       Network.GRPC.Common.Compression
       Network.GRPC.Common.StreamElem
       Network.GRPC.Common.StreamType
       Network.GRPC.Server
-      Network.GRPC.Server.Binary
       Network.GRPC.Server.Protobuf
       Network.GRPC.Server.Run
       Network.GRPC.Server.StreamType
