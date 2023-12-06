@@ -24,8 +24,7 @@ module Main (main) where
 
 import Control.Exception
 import Control.Monad
-import Control.Monad.Catch (MonadMask(..), ExitCase)
-import Control.Monad.IO.Class
+import Control.Monad.Catch (ExitCase(..), generalBracket)
 import Control.Tracer
 import Data.Bifunctor
 import Data.Default
@@ -35,14 +34,19 @@ import Data.Void
 import Debug.Trace
 import GHC.Stack
 import GHC.TypeLits
+import Network.HPACK qualified as HPACK
+import Network.HTTP2.Client qualified as HTTP2.Client
+import Network.Run.TCP qualified as Run
+import Network.Socket
 
-import Network.GRPC.Client.Connection qualified as Client
+import Network.GRPC.Client.Session
 import Network.GRPC.Common
 import Network.GRPC.Common.StreamElem qualified as StreamElem
 import Network.GRPC.Server qualified as Server
 import Network.GRPC.Server.Run qualified as Server
 import Network.GRPC.Spec
 import Network.GRPC.Util.Concurrency
+import Network.GRPC.Util.HTTP2.Stream (ServerDisconnected(..))
 import Network.GRPC.Util.Session qualified as Session
 
 -- ========================================================================== --
@@ -54,12 +58,12 @@ _traceLabelled lbl x = trace (lbl ++ ": " ++ show x) x
 
 clientWithRPC :: forall rpc a.
      (IsRPC rpc, HasCallStack)
-  => Client.Connection -> CallParams -> Proxy rpc -> (Client.Call rpc -> IO a) -> IO a
+  => ClientConnection -> CallParams -> Proxy rpc -> (ClientCall rpc -> IO a) -> IO a
 clientWithRPC conn callParams proxy k =
     (throwUnclean =<<) $
       generalBracket
-        (liftIO $ Client.startRPC conn proxy callParams)
-        (\call -> liftIO . clientCloseRPC call)
+        (clientStartRPC conn proxy callParams)
+        (\call -> clientCloseRPC call)
         k
   where
     throwUnclean :: (a, Maybe ChannelUncleanClose) -> IO a
@@ -68,34 +72,163 @@ clientWithRPC conn callParams proxy k =
 
 clientCloseRPC ::
      HasCallStack
-  => Client.Call rpc -> ExitCase a -> IO (Maybe ChannelUncleanClose)
-clientCloseRPC = Session.close . Client.callChannel
+  => ClientCall rpc -> ExitCase a -> IO (Maybe ChannelUncleanClose)
+clientCloseRPC = Session.close . clientCallChannel
 
 clientSendInput ::
-     (HasCallStack, MonadIO m)
-  => Client.Call rpc
+     HasCallStack
+  => ClientCall rpc
   -> StreamElem NoMetadata (Input rpc)
-  -> m ()
-clientSendInput call msg = liftIO $ do
-    atomically $ Session.send (Client.callChannel call) msg
+  -> IO ()
+clientSendInput call msg = do
+    atomically $ Session.send (clientCallChannel call) msg
     StreamElem.whenDefinitelyFinal msg $ \_ ->
-      void $ Session.waitForOutbound (Client.callChannel call)
+      void $ Session.waitForOutbound (clientCallChannel call)
 
 clientRecvOutput ::
-     MonadIO m
-  => Client.Call rpc
-  -> m (StreamElem [CustomMetadata] (Output rpc))
-clientRecvOutput call =
-    liftIO $ atomically $ recvOutputSTM call
-
-recvOutputSTM :: Client.Call rpc -> STM (StreamElem [CustomMetadata] (Output rpc))
-recvOutputSTM = fmap (first collapseTrailers) . Session.recv . Client.callChannel
+     ClientCall rpc
+  -> IO (StreamElem [CustomMetadata] (Output rpc))
+clientRecvOutput call = atomically $
+    first collapseTrailers <$> Session.recv (clientCallChannel call)
   where
     -- No difference between 'ProperTrailers' and 'TrailersOnly'
     collapseTrailers ::
          Either [CustomMetadata] [CustomMetadata]
       -> [CustomMetadata]
     collapseTrailers = either id id
+
+-- ========================================================================== --
+
+data ClientConnection = ClientConnection {
+      clientConnState :: TVar ConnectionState
+    }
+
+data ClientCall rpc = IsRPC rpc => ClientCall {
+      clientCallChannel :: Session.Channel (ClientSession rpc)
+    }
+
+clientWithConnection ::
+     HasCallStack
+  => Authority -- ^ What to connect to
+  -> (ClientConnection -> IO a)
+  -> IO a
+clientWithConnection server k = do
+    clientConnState <- newTVarIO ConnectionNotReady
+
+    connCanClose <- newEmptyMVar
+    let stayConnectedThread :: IO ()
+        stayConnectedThread =
+          clientStayConnected server clientConnState connCanClose
+
+    void $ forkIO $ stayConnectedThread
+    k ClientConnection{clientConnState}
+      `finally` putMVar connCanClose ()
+
+clientStartRPC :: forall rpc.
+     (IsRPC rpc, HasCallStack)
+  => ClientConnection
+  -> Proxy rpc
+  -> CallParams
+  -> IO (ClientCall rpc)
+clientStartRPC ClientConnection{clientConnState} _proxy callParams = do
+    (connClosed, conn) <-
+      atomically $ do
+        connState <- readTVar clientConnState
+        case connState of
+          ConnectionNotReady              -> retry
+          ConnectionReady connClosed conn -> return (connClosed, conn)
+          ConnectionAbandoned err         -> throwSTM err
+          ConnectionClosed                -> error "impossible"
+
+    let flowStart :: Session.FlowStart (ClientOutbound rpc)
+        flowStart = Session.FlowStartRegular $ OutboundHeaders {
+            outHeaders = requestHeaders
+          }
+
+    channel <-
+      Session.setupRequestChannel
+        callSession
+        tracer
+        conn
+        flowStart
+
+    _ <- forkIO $ do
+      mErr <- atomically $ readTMVar connClosed
+      let exitReason :: ExitCase ()
+          exitReason =
+            case mErr of
+              Nothing -> ExitCaseSuccess ()
+              Just exitWithException ->
+                ExitCaseException . toException $
+                  ServerDisconnected exitWithException
+      _mAlreadyClosed <- Session.close channel exitReason
+      return ()
+
+    return $ ClientCall channel
+  where
+    requestHeaders :: RequestHeaders
+    requestHeaders = RequestHeaders{
+          requestMetadata = callRequestMetadata callParams
+        }
+
+    callSession :: ClientSession rpc
+    callSession = ClientSession
+
+    tracer :: Tracer IO (Session.DebugMsg (ClientSession rpc))
+    tracer = nullTracer
+
+data ConnectionState =
+    ConnectionNotReady
+  | ConnectionReady (TMVar (Maybe SomeException)) Session.ConnectionToServer
+  | ConnectionAbandoned SomeException
+  | ConnectionClosed
+
+clientStayConnected ::
+     Authority
+  -> TVar ConnectionState
+  -> MVar ()
+  -> IO ()
+clientStayConnected auth connVar connCanClose =
+    loop
+  where
+    loop :: IO ()
+    loop = do
+        connClosed <- newEmptyTMVarIO
+
+        mRes <- try $
+          runTCPClient $ \sock ->
+            bracket (HTTP2.Client.allocSimpleConfig sock writeBufferSize)
+                    HTTP2.Client.freeSimpleConfig $ \conf ->
+              HTTP2.Client.run
+                    (clientConfig Http)
+                    conf
+                  $ \sendRequest _aux -> do
+                let conn = Session.ConnectionToServer sendRequest
+                atomically $ writeTVar connVar $ ConnectionReady connClosed conn
+                takeMVar connCanClose
+
+        atomically $ putTMVar connClosed $ either Just (\() -> Nothing) mRes
+
+        atomically $ do
+          case mRes of
+            Right () -> writeTVar connVar $ ConnectionClosed
+            Left err -> writeTVar connVar $ ConnectionAbandoned err
+
+    runTCPClient :: (Socket -> IO a) -> IO a
+    runTCPClient =
+        Run.runTCPClient (authorityHost auth) (show $ authorityPort auth)
+
+    writeBufferSize :: HPACK.BufferSize
+    writeBufferSize = 4096
+
+    clientConfig :: Scheme -> HTTP2.Client.ClientConfig
+    clientConfig scheme = HTTP2.Client.defaultClientConfig {
+          HTTP2.Client.scheme    = rawScheme serverPseudoHeaders
+        , HTTP2.Client.authority = rawAuthority serverPseudoHeaders
+        }
+      where
+        serverPseudoHeaders :: RawServerHeaders
+        serverPseudoHeaders = buildServerHeaders $ ServerHeaders scheme auth
 
 -- ========================================================================== --
 
@@ -158,7 +291,7 @@ type TestRpc2 = TrivialRpc "test2"
 clientLocal1 ::
      HasCallStack
   => TestClock
-  -> (forall a. (Client.Connection -> IO a) -> IO a)
+  -> (forall a. (ClientConnection -> IO a) -> IO a)
   -> IO ()
 clientLocal1 testClock withConn = handle showExceptions $ do
     waitForTestClockTick testClock 0
@@ -175,7 +308,7 @@ clientLocal1 testClock withConn = handle showExceptions $ do
 clientLocal2 ::
      HasCallStack
   => TestClock
-  -> (forall a. (Client.Connection -> IO a) -> IO a)
+  -> (forall a. (ClientConnection -> IO a) -> IO a)
   -> IO ()
 clientLocal2 testClock withConn = handle showExceptions $ do
     waitForTestClockTick testClock 1
@@ -193,7 +326,7 @@ clientLocal2 testClock withConn = handle showExceptions $ do
 
 clientGlobal ::
      TestClock
-  -> (forall a. (Client.Connection -> IO a) -> IO a)
+  -> (forall a. (ClientConnection -> IO a) -> IO a)
   -> IO ()
 clientGlobal testClock withConn =
     -- The bug is /very/ sensitive to what exactly we do here. The bug does not
@@ -301,21 +434,10 @@ main = do
     -- We run this in its own thread, so we can catch its exceptions separately
     -- from the one from the server (see below)
     _client <- async $ do
-      let clientParams :: Client.ConnParams
-          clientParams = Client.ConnParams {
-                connDebugTracer     = nullTracer
-              , connDefaultTimeout  = Nothing
-              , connReconnectPolicy = def
-              }
+      let auth :: Authority
+          auth = Authority "localhost" 50051
 
-          clientServer :: Client.Server
-          clientServer = Client.ServerInsecure clientAuthority
-
-          clientAuthority :: Authority
-          clientAuthority = Authority "localhost" 50051
-
-      clientGlobal testClock $
-        Client.withConnection clientParams clientServer
+      clientGlobal testClock $ clientWithConnection auth
 
     -- Wait for the test clock to reach 4 (which it won't)
     -- (This just prevents the test from terminating too soon)

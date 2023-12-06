@@ -17,7 +17,6 @@ module Network.GRPC.Spec.Request (
 
 import Data.ByteString.Char8 qualified as BS.Strict.C8
 import Data.List (intersperse)
-import Data.Maybe (catMaybes)
 import Data.SOP
 import Data.Version
 import Generics.SOP qualified as SOP
@@ -29,7 +28,6 @@ import Network.GRPC.Spec.Common
 import Network.GRPC.Spec.CustomMetadata
 import Network.GRPC.Spec.PercentEncoding qualified as PercentEncoding
 import Network.GRPC.Spec.RPC
-import Network.GRPC.Spec.Timeout
 import Network.GRPC.Util.Partial
 
 import Paths_grapesy qualified as Grapesy
@@ -42,11 +40,8 @@ import Paths_grapesy qualified as Grapesy
 --
 -- This is constructed internally; it is not part of the public API.
 data RequestHeaders = RequestHeaders {
-      -- | Timeout
-      requestTimeout :: Maybe Timeout
-
       -- | Custom metadata
-    , requestMetadata :: [CustomMetadata]
+      requestMetadata :: [CustomMetadata]
     }
   deriving stock (Show, Eq)
   deriving stock (GHC.Generic)
@@ -104,39 +99,13 @@ buildRequestHeaders proxy callParams@RequestHeaders{requestMetadata} = concat [
 -- the reserved headers here /at all/, as they are automatically added by
 -- `http2`.
 callDefinition :: IsRPC rpc => Proxy rpc -> RequestHeaders -> [HTTP.Header]
-callDefinition proxy = \hdrs -> catMaybes [
-      hdrTimeout <$> requestTimeout hdrs
-    , Just $ buildTe
-    , Just $ buildContentType proxy
-    , Just $ buildMessageType
-    , Just $ buildUserAgent
+callDefinition proxy _ = [
+      buildTe
+    , buildContentType proxy
+    , buildMessageType
+    , buildUserAgent
     ]
   where
-    -- > Timeout      → "grpc-timeout" TimeoutValue TimeoutUnit
-    -- > TimeoutValue → {positive integer as ASCII string of at most 8 digits}
-    -- > TimeoutUnit  → Hour / Minute / Second / Millisecond / Microsecond / Nanosecond
-    -- > Hour         → "H"
-    -- > Minute       → "M"
-    -- > Second       → "S"
-    -- > Millisecond  → "m"
-    -- > Microsecond  → "u"
-    -- > Nanosecond   → "n"
-    hdrTimeout :: Timeout -> HTTP.Header
-    hdrTimeout (Timeout unit val) = (
-          "grpc-timeout"
-        , mconcat [
-              BS.Strict.C8.pack $ show $ getTimeoutValue val
-            , " "
-            , case unit of
-                Hour        -> "H"
-                Minute      -> "M"
-                Second      -> "S"
-                Millisecond -> "m"
-                Microsecond -> "u"
-                Nanosecond  -> "n"
-            ]
-        )
-
     -- > TE → "te" "trailers" # Used to detect incompatible proxies
     buildTe :: HTTP.Header
     buildTe  = ("te", "trailers")
@@ -232,12 +201,7 @@ parseRequestHeaders proxy =
 
     -- All of these headers are optional
     uninitRequestHeaders :: Partial (Either String) RequestHeaders
-    uninitRequestHeaders =
-           Right (Nothing :: Maybe Timeout)
-        :* Right ([]      :: [CustomMetadata])
-        :* Nil
+    uninitRequestHeaders = Right [] :* Nil
 
-    (    _updTimeout
-      :* updCustom
-      :* Nil ) = partialUpdates (Proxy @RequestHeaders)
+    (updCustom :* Nil) = partialUpdates (Proxy @RequestHeaders)
 

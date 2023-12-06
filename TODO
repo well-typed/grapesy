@@ -71,3 +71,14 @@ This comment is basically obsolete:
 ```
 
 It might be nice if `ServerCOnfig` has a `Default` instance (insecure, 50051).
+
+Is the `startRPC` method of `ClientConnection` the right one? Do we ever
+instantiate it to more tahn one value anywhere? If not, might be clearer to just
+have the implementation of `startRPC` as a regular function and have
+`ClientConnection` just record the required state? This might suffice:
+
+```haskell
+data ClientConnection = ClientConnection {
+      clientConnState :: TVar ConnectionState
+    }
+```

@@ -82,7 +82,6 @@ library
 
   -- other-modules:
 
-      Network.GRPC.Client.Connection
       Network.GRPC.Client.Session
       Network.GRPC.Server.Call
       Network.GRPC.Server.Connection
@@ -140,7 +139,6 @@ library
     , network-byte-order   >= 0.1  && < 0.2
     , network-run          >= 0.2  && < 0.3
     , pretty-show          >= 1.10 && < 1.11
-    , random               >= 1.2  && < 1.3
     , sop-core             >= 0.5  && < 0.6
     , stm                  >= 2.5  && < 2.6
     , text                 >= 1.2  && < 2.1
@@ -194,6 +192,10 @@ test-suite test-grapesy
 
     , exceptions
     , text
+    , http2
+    , network
+    , network-run
+
 
 Flag build-demo
   description: Build the demo
