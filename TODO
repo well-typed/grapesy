@@ -69,3 +69,5 @@ This comment is basically obsolete:
 ```
                  -- Relies on https://github.com/kazu-yamamoto/http2/pull/82
 ```
+
+It might be nice if `ServerCOnfig` has a `Default` instance (insecure, 50051).

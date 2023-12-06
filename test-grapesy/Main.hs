@@ -25,13 +25,10 @@ module Main (main) where
 import Control.Exception
 import Control.Monad
 import Control.Tracer
-import Data.Bifunctor
 import Data.Default
 import Data.Proxy
+import Debug.Trace
 import GHC.Stack
-import Network.HTTP2.Internal qualified as HTTP2
-import Network.HTTP2.Server qualified as HTTP2
-import System.Exit
 
 import Network.GRPC.Client qualified as Client
 import Network.GRPC.Client.Binary qualified as Client.Binary
@@ -41,12 +38,7 @@ import Network.GRPC.Common.Compression qualified as Compr
 import Network.GRPC.Server qualified as Server
 import Network.GRPC.Server.Binary qualified as Server.Binary
 import Network.GRPC.Server.Run qualified as Server
-
-import Debug.Trace
-
 import Network.GRPC.Util.Concurrency
-
-
 
 -- ========================================================================== --
 
@@ -80,48 +72,6 @@ advanceTestClock :: TestClock -> IO ()
 advanceTestClock clock = atomically $ modifyTVar clock succ
 
 -- ========================================================================== --
-
-{-------------------------------------------------------------------------------
-  Server handler lock
--------------------------------------------------------------------------------}
-
-newtype ServerHandlerLock = ServerHandlerLock (TVar (Either SomeException Int))
-
-newServerHandlerLock :: IO ServerHandlerLock
-newServerHandlerLock = ServerHandlerLock <$> newTVarIO (Right 0)
-
-waitForHandlerTermination :: ServerHandlerLock -> STM (Either SomeException ())
-waitForHandlerTermination (ServerHandlerLock lock) = do
-    mActiveHandlers <- readTVar lock
-    case mActiveHandlers of
-      Left err -> return $ Left err
-      Right 0  -> return $ Right ()
-      Right _  -> retry
-
-serverHandlerLockHook :: ServerHandlerLock -> HTTP2.Server -> HTTP2.Server
-serverHandlerLockHook (ServerHandlerLock lock) server request aux respond =
-    mask $ \unmask -> do
-      register
-      result <- try $ unmask $ server request aux respond
-      -- We don't rethrow the exception (instead 'waitForHandlerTermination' will)
-      unregister result
-  where
-    register :: IO ()
-    register = atomically $ modifyTVar lock $ bimap id succ
-
-    unregister :: Either SomeException () -> IO ()
-    unregister result = atomically $ modifyTVar lock $ either Left $
-        case result of
-          Right () ->
-            Right . pred
-          Left e ->
-            case fromException e of
-              Just (HTTP2.KilledByHttp2ThreadManager _) ->
-                -- If we are shutting down because of a test failure, we don't
-                -- want to get confused by any other handlers being shut down
-                Right . pred
-              Nothing ->
-                const (Left e)
 
 {-------------------------------------------------------------------------------
   Endpoints
@@ -248,106 +198,58 @@ main :: IO ()
 main = do
     testClock <- newTestClock
 
-    mRes :: Either SomeException () <- try $ do
-      -- Start server
-      handlerLock <- newServerHandlerLock
+    _server <- async $ do
+      let serverHandlers :: [Server.RpcHandler IO]
+          serverHandlers = [
+                Server.mkRpcHandler (Proxy @TestRpc1) $ serverLocal1 testClock
+              , Server.mkRpcHandler (Proxy @TestRpc2) $ serverLocal2 testClock
+              ]
 
-      server <- async $ do
-        let serverHandlers :: [Server.RpcHandler IO]
-            serverHandlers = [
-                  Server.mkRpcHandler (Proxy @TestRpc1) $ serverLocal1 testClock
-                , Server.mkRpcHandler (Proxy @TestRpc2) $ serverLocal2 testClock
-                ]
+          serverConfig :: Server.ServerConfig
+          serverConfig = Server.ServerConfig {
+                serverSetup    = def
+              , serverInsecure = Just Server.InsecureConfig {
+                    insecureHost = Nothing
+                  , insecurePort = "50051"
+                  }
+              , serverSecure   = Nothing
+              }
 
-            serverSetup :: Server.ServerSetup
-            serverSetup = def {
-                  Server.serverHandlerHook = serverHandlerLockHook handlerLock
-                }
+          serverParams :: Server.ServerParams
+          serverParams = def {
+                -- Don't print exceptions (to avoid confusing test output)
+                Server.serverExceptionTracer = nullTracer
+              }
 
-            serverConfig :: Server.ServerConfig
-            serverConfig = Server.ServerConfig {
-                  serverSetup    = serverSetup
-                , serverInsecure = Just Server.InsecureConfig {
-                      insecureHost = Nothing
-                    , insecurePort = "50051"
-                    }
-                , serverSecure   = Nothing
-                }
+      Server.withServer serverParams serverHandlers $
+        Server.runServer serverConfig
 
-            serverParams :: Server.ServerParams
-            serverParams = def {
-                  -- Don't print exceptions (to avoid confusing test output)
-                  Server.serverExceptionTracer = nullTracer
-                }
+    -- Give the server a chance to start
+    -- (We can automatically reconnect, but this keeps the test simpler)
+    threadDelay 500_000
 
-        Server.withServer serverParams serverHandlers $
-          Server.runServer serverConfig
+    -- Start client
+    --
+    -- We run this in its own thread, so we can catch its exceptions separately
+    -- from the one from the server (see below)
+    _client <- async $ do
+      let clientParams :: Client.ConnParams
+          clientParams = Client.ConnParams {
+                connDebugTracer     = nullTracer
+              , connCompression     = Compr.none
+              , connDefaultTimeout  = Nothing
+              , connReconnectPolicy = def
+              }
 
-      -- Give the server a chance to start
-      -- (We can automatically reconnect, but this keeps the test simpler)
-      threadDelay 500_000
+          clientServer :: Client.Server
+          clientServer = Client.ServerInsecure clientAuthority
 
-      -- Start client
-      --
-      -- We run this in its own thread, so we can catch its exceptions separately
-      -- from the one from the server (see below)
-      client <- async $ do
-        let clientParams :: Client.ConnParams
-            clientParams = Client.ConnParams {
-                  connDebugTracer     = nullTracer
-                , connCompression     = Compr.none
-                , connDefaultTimeout  = Nothing
-                , connReconnectPolicy = def
-                }
+          clientAuthority :: Client.Authority
+          clientAuthority = Client.Authority "localhost" 50051
 
-            clientServer :: Client.Server
-            clientServer = Client.ServerInsecure clientAuthority
+      clientGlobal testClock $
+        Client.withConnection clientParams clientServer
 
-            clientAuthority :: Client.Authority
-            clientAuthority = Client.Authority "localhost" 50051
-
-        clientGlobal testClock $
-          Client.withConnection clientParams clientServer
-
-      -- The server never shuts down under normal circumstances; so we wait for
-      -- the client to terminate, then wait for any potential still-running
-      -- server handlers to terminate, monitoring for exceptions, and then shut
-      -- down the server.
-      clientRes <- waitCatch client
-      putStrLn $ "clientRes: " ++ show clientRes
-      serverRes <- atomically $ waitForHandlerTermination handlerLock
-      putStrLn $ "serverRes: " ++ show serverRes
-      cancel server
-
-      case (serverRes, clientRes) of
-        (Right (), Right a) ->
-          return a
-        (Left serverErr, Right _) ->
-          throwIO serverErr
-        (Right (), Left clientErr) ->
-          throwIO clientErr
-        (Left serverErr, Left clientErr) ->
-            -- We are hunting for BlockedIndefinitelyOnSTM
-            case (fromException serverErr, fromException clientErr) of
-              (Just BlockedIndefinitelyOnSTM{}, _) ->
-                throwIO serverErr
-              (_, Just BlockedIndefinitelyOnSTM{}) ->
-                throwIO clientErr
-              _otherwise ->
-                -- doesn't really matter which one we throw
-                throwIO clientErr
-
-
-    case mRes of
-      Left err | Just err'@BlockedIndefinitelyOnSTM{} <- fromException err -> do
-        putStrLn "Got STM exception!"
-        print err'
-        exitWith $ ExitFailure 1
-      Left err -> do
-        putStrLn "Got another exception"
-        print err
-        exitWith $ ExitSuccess
-      _otherwise -> do
-        putStrLn "No expection was thrown"
-        exitWith $ ExitSuccess
-
+    -- Wait for the test clock to reach 4 (which it won't)
+    -- (This just prevents the test from terminating too soon)
+    waitForTestClockTick testClock 4
