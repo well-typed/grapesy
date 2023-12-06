@@ -79,7 +79,6 @@ library
       Network.GRPC.Common.StreamElem
       Network.GRPC.Common.StreamType
       Network.GRPC.Server
-      Network.GRPC.Server.Protobuf
       Network.GRPC.Server.Run
       Network.GRPC.Server.StreamType
       Network.GRPC.Spec
@@ -103,7 +102,6 @@ library
       Network.GRPC.Spec.Request
       Network.GRPC.Spec.Response
       Network.GRPC.Spec.RPC
-      Network.GRPC.Spec.RPC.Protobuf
       Network.GRPC.Spec.RPC.StreamType
       Network.GRPC.Spec.Status
       Network.GRPC.Spec.Timeout

@@ -29,9 +29,6 @@ module Network.GRPC.Server (
   , sendTrailersOnly
   , isCallHealthy
 
-    -- * Common serialization formats
-  , Protobuf
-
     -- * Exceptions
   , ClientDisconnected(..)
 
