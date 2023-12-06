@@ -37,14 +37,14 @@ import Network.GRPC.Server qualified as Server
 import Network.GRPC.Server.Run qualified as Server
 import Network.GRPC.Spec
 import Network.GRPC.Util.Concurrency
+import GHC.TypeLits
+import Data.Void
+import Data.Text qualified as Text
 
 -- ========================================================================== --
 
 _traceLabelled :: Show a => String -> a -> a
 _traceLabelled lbl x = trace (lbl ++ ": " ++ show x) x
-
--- ========================================================================== --
-
 
 -- ========================================================================== --
 
@@ -78,8 +78,24 @@ advanceTestClock clock = atomically $ modifyTVar clock succ
   Endpoints
 -------------------------------------------------------------------------------}
 
-type TestRpc1 = BinaryRpc "dialogue" "test1"
-type TestRpc2 = BinaryRpc "dialogue" "test2"
+-- RPC calls that exchange no data
+data TrivialRpc (endpoint :: Symbol)
+
+instance KnownSymbol endpoint => IsRPC (TrivialRpc endpoint) where
+  type Input  (TrivialRpc endpoint) = Void
+  type Output (TrivialRpc endpoint) = Void
+
+  serializationFormat _ = "trivial"
+  serviceName         _ = "trivial"
+  methodName          _ = Text.pack $ symbolVal (Proxy @endpoint)
+  messageType         _ = "Void"
+  serializeInput      _ = absurd
+  serializeOutput     _ = absurd
+  deserializeInput    _ = const $ Left "Unexpected value of type Void"
+  deserializeOutput   _ = const $ Left "Unexpected value of type Void"
+
+type TestRpc1 = TrivialRpc "test1"
+type TestRpc2 = TrivialRpc "test2"
 
 {-------------------------------------------------------------------------------
   Client-side interpretation
@@ -154,7 +170,7 @@ clientGlobal testClock withConn =
 
 serverLocal1 ::
      TestClock
-  -> Server.Call (BinaryRpc serv meth)
+  -> Server.Call (TrivialRpc meth)
   -> IO ()
 serverLocal1 testClock call = handle showExceptions $ do
     advanceTestClock testClock
@@ -175,7 +191,7 @@ serverLocal1 testClock call = handle showExceptions $ do
 
 serverLocal2 ::
      TestClock
-  -> Server.Call (BinaryRpc serv meth)
+  -> Server.Call (TrivialRpc meth)
   -> IO ()
 serverLocal2 testClock call = handle showExceptions $ do
     advanceTestClock testClock

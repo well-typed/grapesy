@@ -103,7 +103,6 @@ library
       Network.GRPC.Spec.Request
       Network.GRPC.Spec.Response
       Network.GRPC.Spec.RPC
-      Network.GRPC.Spec.RPC.Binary
       Network.GRPC.Spec.RPC.Protobuf
       Network.GRPC.Spec.RPC.StreamType
       Network.GRPC.Spec.Status
@@ -200,6 +199,8 @@ test-suite test-grapesy
       -- External dependencies
     , contra-tracer >= 0.2 && < 0.3
     , data-default  >= 0.7 && < 0.8
+
+    , text
 
 Flag build-demo
   description: Build the demo
