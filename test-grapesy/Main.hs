@@ -231,32 +231,6 @@ instance KnownSymbol meth => Session.InitiateSession (TrivialClient meth) where
 
 -- ========================================================================== --
 
-{-------------------------------------------------------------------------------
-  Test clock
-
-  These are concurrent tests, looking at the behaviour of @n@ concurrent
-  connections between a client and a server. To make the interleaving of actions
-  easier to see, we introduce a global "test clock". Every test action is
-  annotated with a particular "test tick" on this clock. The clock is advanced
-  after each step: this is a logical clock, unrelated to the passing of time.
--------------------------------------------------------------------------------}
-
-type TestClock     = TVar TestClockTick
-type TestClockTick = Int
-
-newTestClock :: IO TestClock
-newTestClock = newTVarIO 0
-
-waitForTestClockTick :: HasCallStack => TestClock -> TestClockTick -> IO ()
-waitForTestClockTick clock tick = atomically $ do
-    currentTick <- readTVar clock
-    unless (currentTick == tick) retry
-
-advanceTestClock :: TestClock -> IO ()
-advanceTestClock clock = atomically $ modifyTVar clock succ
-
--- ========================================================================== --
-
 data ServerConfig = ServerConfig ServiceName
 
 runServer :: ServerConfig -> HTTP2.Server -> IO ()
@@ -378,6 +352,32 @@ grpcUnimplemented path = GrpcException {
                               ]
     , grpcErrorMetadata = []
     }
+
+-- ========================================================================== --
+
+{-------------------------------------------------------------------------------
+  Test clock
+
+  These are concurrent tests, looking at the behaviour of @n@ concurrent
+  connections between a client and a server. To make the interleaving of actions
+  easier to see, we introduce a global "test clock". Every test action is
+  annotated with a particular "test tick" on this clock. The clock is advanced
+  after each step: this is a logical clock, unrelated to the passing of time.
+-------------------------------------------------------------------------------}
+
+type TestClock     = TVar TestClockTick
+type TestClockTick = Int
+
+newTestClock :: IO TestClock
+newTestClock = newTVarIO 0
+
+waitForTestClockTick :: HasCallStack => TestClock -> TestClockTick -> IO ()
+waitForTestClockTick clock tick = atomically $ do
+    currentTick <- readTVar clock
+    unless (currentTick == tick) retry
+
+advanceTestClock :: TestClock -> IO ()
+advanceTestClock clock = atomically $ modifyTVar clock succ
 
 -- ========================================================================== --
 
