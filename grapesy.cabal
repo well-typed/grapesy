@@ -80,7 +80,6 @@ library
 
   -- other-modules:
 
-      Network.GRPC.Server.Connection
       Network.GRPC.Server.Context
       Network.GRPC.Server.Session
       Network.GRPC.Spec.Call

@@ -27,33 +27,36 @@ import Control.Monad
 import Control.Monad.Catch (ExitCase(..))
 import Control.Tracer
 import Data.Bifunctor
+import Data.ByteString qualified as Strict (ByteString)
+import Data.ByteString.Builder (Builder)
+import Data.ByteString.Builder qualified as Builder
 import Data.ByteString.Char8 qualified as BS.C8
 import Data.Default
+import Data.Maybe (fromMaybe)
 import Data.Proxy
 import Data.Text qualified as Text
 import Data.Void
 import Debug.Trace
 import GHC.Stack
 import GHC.TypeLits
+import Network.HTTP.Types qualified as HTTP
 import Network.HTTP2.Client qualified as HTTP2.Client
+import Network.HTTP2.Internal qualified as HTTP2
 import Network.HTTP2.Server qualified as HTTP2
 import Network.Run.TCP (runTCPServer)
 import Network.Run.TCP qualified as Run
 import Network.Socket
-import Network.HTTP.Types qualified as HTTP
-import Network.HTTP2.Internal qualified as HTTP2
 
 import Network.GRPC.Common
 import Network.GRPC.Common.StreamElem qualified as StreamElem
-import Network.GRPC.Server.Connection (Connection(..), withConnection)
-import Network.GRPC.Server.Connection qualified as Connection
-import Network.GRPC.Server.Context (ServerParams)
+import Network.GRPC.Server.Context
 import Network.GRPC.Server.Context qualified as Context
 import Network.GRPC.Server.Session
 import Network.GRPC.Spec
 import Network.GRPC.Util.Concurrency
 import Network.GRPC.Util.HTTP2.Stream (ClientDisconnected(..))
 import Network.GRPC.Util.Parser
+import Network.GRPC.Util.Session (ConnectionToClient(..))
 import Network.GRPC.Util.Session qualified as Session
 import Network.GRPC.Util.Session.Server qualified as Server
 
@@ -281,7 +284,7 @@ handleRequest ::
      HasCallStack
   => ServerParams
   -> HandlerMap
-  -> Connection -> IO ()
+  -> ServerConnection -> IO ()
 handleRequest params handlers conn = do
     -- TODO: Proper "Apache style" logging (in addition to the debug logging)
     traceWith tracer $ Context.ServerDebugRequest path
@@ -292,13 +295,13 @@ handleRequest params handlers conn = do
       RpcHandler h -> serverAcceptCall params conn h
   where
     path :: Path
-    path = Connection.path conn
+    path = serverPath conn
 
     tracer :: Tracer IO Context.ServerDebugMsg
     tracer =
           Context.serverDebugTracer
         $ Context.params
-        $ connectionContext conn
+        $ serverConnectionContext conn
 
 -- ========================================================================== --
 
@@ -362,7 +365,7 @@ data Kickoff =
 serverAcceptCall :: forall rpc.
      (IsRPC rpc, HasCallStack)
   => Context.ServerParams
-  -> Connection
+  -> ServerConnection
   -> (ServerCall rpc -> IO ())
   -> IO ()
 serverAcceptCall params conn k = do
@@ -375,7 +378,7 @@ serverAcceptCall params conn k = do
             Session.setupResponseChannel
               callSession
               (contramap (Context.ServerDebugMsg @rpc) tracer)
-              (Connection.connectionClient conn)
+              (serverConnectionClient conn)
               (   handle sendErrorResponse
                 . mkOutboundHeaders
                     callRequestMetadata
@@ -456,7 +459,7 @@ serverAcceptCall params conn k = do
     callSession = ServerSession
 
     tracer :: Tracer IO Context.ServerDebugMsg
-    tracer = Context.serverDebugTracer $ Context.params $ connectionContext conn
+    tracer = Context.serverDebugTracer $ Context.params $ serverConnectionContext conn
 
     mkOutboundHeaders ::
          TMVar [CustomMetadata]
@@ -502,7 +505,7 @@ serverAcceptCall params conn k = do
     sendErrorResponse :: forall x. SomeException -> IO x
     sendErrorResponse err = do
         traceWith tracer $ Context.ServerDebugAcceptFailed err
-        Server.respond (connectionClient conn) $
+        Server.respond (serverConnectionClient conn) $
           HTTP2.responseNoBody
             HTTP.ok200 -- gRPC uses HTTP 200 even when there are gRPC errors
             (buildTrailersOnly $ TrailersOnly $ ProperTrailers {
@@ -743,6 +746,147 @@ sendProperTrailers ServerCall{callResponseKickoff, callChannel} trailers = do
       -- we cannot make use of the Trailers-Only case.
       atomically $ Session.send callChannel (NoMoreElems trailers)
 
+-- ========================================================================== --
+
+{-------------------------------------------------------------------------------
+  Connection API
+
+  Unlike 'Network.GRPC.Client.Connection.Connection', this connection is
+  short-lived (@http2@ gives us each request separately, without identifying
+  which requests come from the same client).
+
+  Conversely, on the client side, we maintain some meta information (such as
+  supported compression algorithms) about the connection to the server. The
+  equivalent on the server side is 'Network.GRPC.Server.Context.ServerContext',
+  but this is maintained for the full lifetime of the server.
+-------------------------------------------------------------------------------}
+
+-- | Open connection to a client (for one specific request)
+data ServerConnection = ServerConnection {
+      serverConnectionContext  :: ServerContext
+    , serverConnectionResource :: ResourceHeaders
+    , serverConnectionClient   :: ConnectionToClient
+    }
+
+{-------------------------------------------------------------------------------
+  Setup a new connection
+-------------------------------------------------------------------------------}
+
+withConnection :: ServerContext -> (ServerConnection -> IO ()) -> HTTP2.Server
+withConnection context k request _aux respond' = do
+    -- TODO: We should log these out-of-spec responses
+    case getResourceHeaders request of
+      Left  err             -> respond $ outOfSpecResponse err
+      Right resourceHeaders -> do
+        let conn :: ServerConnection
+            conn = ServerConnection{
+                serverConnectionContext  = context
+              , serverConnectionResource = resourceHeaders
+              , serverConnectionClient   = connectionToClient
+              }
+
+        k conn
+  where
+    connectionToClient :: ConnectionToClient
+    connectionToClient = ConnectionToClient{request, respond}
+
+    -- gRPC does not make use of push promises
+    respond :: HTTP2.Response -> IO ()
+    respond = flip respond' []
+
+{-------------------------------------------------------------------------------
+  Query
+-------------------------------------------------------------------------------}
+
+serverPath :: ServerConnection -> Path
+serverPath = resourcePath . serverConnectionResource
+
+{-------------------------------------------------------------------------------
+  Pseudo headers
+-------------------------------------------------------------------------------}
+
+getResourceHeaders :: HTTP2.Request -> Either OutOfSpecError ResourceHeaders
+getResourceHeaders req =
+    -- TODO: We should not parse the full pseudo headers
+    case parsePseudoHeaders (rawPseudoHeaders req) of
+      Left (InvalidScheme    x) -> Left $ bad "invalid scheme"    x
+      Left (InvalidAuthority x) -> Left $ bad "invalid authority" x
+      Left (InvalidPath      x) -> Left $ bad "invalid path"      x
+      Left (InvalidMethod    x) -> Left $ httpMethodNotAllowed    x
+      Right hdrs                -> return hdrs
+  where
+    bad :: Builder -> Strict.ByteString -> OutOfSpecError
+    bad msg arg = httpBadRequest $ mconcat [
+          msg
+        , ": "
+        , Builder.byteString arg
+        ]
+
+rawPseudoHeaders :: HTTP2.Request -> RawPseudoHeaders
+rawPseudoHeaders req = RawPseudoHeaders {
+      rawServerHeaders = RawServerHeaders {
+          rawScheme    = fromMaybe "" $ HTTP2.requestScheme    req
+        , rawAuthority = fromMaybe "" $ HTTP2.requestAuthority req
+        }
+    , rawResourceHeaders = RawResourceHeaders {
+          rawPath   = fromMaybe "" $ HTTP2.requestPath   req
+        , rawMethod = fromMaybe "" $ HTTP2.requestMethod req
+        }
+    }
+
+{-------------------------------------------------------------------------------
+  Out-of-spec errors
+-------------------------------------------------------------------------------}
+
+-- | The request did not conform to the gRPC specification
+--
+-- The gRPC spec mandates that we /always/ return HTTP 200 OK, but it does
+-- not explicitly say what to do when the request is mal-formed (not
+-- conform the gRPC specification). We choose to return HTTP errors in
+-- this case.
+--
+-- See <https://datatracker.ietf.org/doc/html/rfc7231#section-6.5> for
+-- a discussion of the HTTP error codes.
+--
+-- Testing out-of-spec errors can be bit awkward. One option is @curl@:
+--
+-- > curl --verbose --http2 --http2-prior-knowledge http://localhost:50051/
+data OutOfSpecError = OutOfSpecError {
+      outOfSpecStatus  :: HTTP.Status
+    , outOfSpecHeaders :: [HTTP.Header]
+    , outOfSpecBody    :: Builder
+    }
+
+outOfSpecResponse :: OutOfSpecError -> HTTP2.Response
+outOfSpecResponse err =
+    HTTP2.responseBuilder
+      (outOfSpecStatus  err)
+      (outOfSpecHeaders err)
+      (outOfSpecBody    err)
+
+-- | 405 Method Not Allowed
+--
+-- <https://datatracker.ietf.org/doc/html/rfc7231#section-6.5.5>
+-- <https://datatracker.ietf.org/doc/html/rfc7231#section-7.4.1>
+httpMethodNotAllowed :: Strict.ByteString -> OutOfSpecError
+httpMethodNotAllowed method = OutOfSpecError {
+      outOfSpecStatus  = HTTP.methodNotAllowed405
+    , outOfSpecHeaders = [("Allow", "POST")]
+    , outOfSpecBody    = mconcat [
+          "Unexpected :method " <> Builder.byteString method <> ".\n"
+        , "The only method supported by gRPC is POST.\n"
+        ]
+    }
+
+-- | 400 Bad Request
+--
+-- <https://datatracker.ietf.org/doc/html/rfc7231#section-6.5.1>
+httpBadRequest :: Builder -> OutOfSpecError
+httpBadRequest body = OutOfSpecError {
+      outOfSpecStatus  = HTTP.badRequest400
+    , outOfSpecHeaders = []
+    , outOfSpecBody    = body
+    }
 
 -- ========================================================================== --
 
