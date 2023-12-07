@@ -164,12 +164,10 @@ test-suite test-grapesy
 
     , bytestring
     , exceptions
-    , http-types
     , http2
     , network
     , network-run
     , text
-    , unordered-containers
 
 Flag build-demo
   description: Build the demo

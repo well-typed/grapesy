@@ -40,7 +40,6 @@ import Network.HTTP2.Server qualified as HTTP2
 import Network.Run.TCP (runTCPServer)
 import Network.Run.TCP qualified as Run
 import Network.Socket
-import Network.HTTP.Types qualified as HTTP
 
 import Network.GRPC.Common
 import Network.GRPC.Common.StreamElem qualified as StreamElem
@@ -53,10 +52,6 @@ import Network.GRPC.Spec
 import Network.GRPC.Util.Concurrency
 import Network.GRPC.Util.Parser
 import Network.GRPC.Util.Session qualified as Session
-import Network.GRPC.Util.Session.Server qualified as Session.Server
-
-import Data.HashMap.Strict (HashMap)
-import Data.HashMap.Strict qualified as HashMap
 
 -- ========================================================================== --
 
@@ -242,47 +237,38 @@ runServer (ServerConfig port) server =
 
 -- ========================================================================== --
 
-data RpcHandler m = forall rpc. IsRPC rpc => RpcHandler {
+data RpcHandler = forall rpc. IsRPC rpc => RpcHandler {
       -- | Handler proper
-      runRpcHandler :: Server.Call rpc -> m ()
+      runRpcHandler :: Server.Call rpc -> IO ()
     }
 
-mkRpcHandler :: IsRPC rpc => Proxy rpc -> (Server.Call rpc -> m ()) -> RpcHandler m
+mkRpcHandler :: IsRPC rpc => Proxy rpc -> (Server.Call rpc -> IO ()) -> RpcHandler
 mkRpcHandler _ = RpcHandler
 
-newtype HandlerMap m = Map {
-      getMap :: HashMap Path (RpcHandler m)
-    }
+type HandlerMap = [(Path, RpcHandler)]
 
-constructHandlerMap :: [RpcHandler m] -> HandlerMap m
-constructHandlerMap = Map . HashMap.fromList . map (\h -> (handlerPath h, h))
+constructHandlerMap :: [RpcHandler] -> HandlerMap
+constructHandlerMap = map (\h -> (handlerPath h, h))
 
-handlerLookup :: Path -> HandlerMap m -> Maybe (RpcHandler m)
-handlerLookup p = HashMap.lookup p . getMap
-
-handlerPath :: forall m. RpcHandler m -> Path
+handlerPath :: RpcHandler -> Path
 handlerPath RpcHandler{runRpcHandler} = aux runRpcHandler
   where
-    aux :: forall rpc. IsRPC rpc => (Server.Call rpc -> m ()) -> Path
+    aux :: forall rpc. IsRPC rpc => (Server.Call rpc -> IO ()) -> Path
     aux _ = rpcPath (Proxy @rpc)
 
 -- ========================================================================== --
-
-{-------------------------------------------------------------------------------
-  Server proper
--------------------------------------------------------------------------------}
 
 -- | Construct server
 --
 -- The server can be run using the standard infrastructure offered by the
 -- @http2@ package, but "Network.GRPC.Server.Run" provides some convenience
 -- functions.
-withServer :: ServerParams -> [RpcHandler IO] -> (HTTP2.Server -> IO a) -> IO a
+withServer :: ServerParams -> [RpcHandler] -> (HTTP2.Server -> IO a) -> IO a
 withServer params handlers k =
     Context.withContext params $
       k . server (constructHandlerMap handlers)
   where
-    server :: HandlerMap IO -> Context.ServerContext -> HTTP2.Server
+    server :: HandlerMap -> Context.ServerContext -> HTTP2.Server
     server handlerMap ctxt =
         withConnection ctxt $
           handleRequest params handlerMap
@@ -290,17 +276,16 @@ withServer params handlers k =
 handleRequest ::
      HasCallStack
   => ServerParams
-  -> HandlerMap IO
+  -> HandlerMap
   -> Connection -> IO ()
 handleRequest params handlers conn = do
     -- TODO: Proper "Apache style" logging (in addition to the debug logging)
     traceWith tracer $ Context.ServerDebugRequest path
-    withHandler params handlers path conn $ \(RpcHandler h) -> do
-      -- TODO: Timeouts
-      --
-      -- Wait-for-ready semantics makes this more complicated, maybe.
-      -- See example in the grpc-repo (python/wait_for_ready).
-      Server.acceptCall params conn h
+    let handler = case lookup path handlers of
+                    Just h  -> h
+                    Nothing -> error "withHandler: unknown path"
+    case handler of
+      RpcHandler h -> Server.acceptCall params conn h
   where
     path :: Path
     path = Connection.path conn
@@ -310,48 +295,6 @@ handleRequest params handlers conn = do
           Context.serverDebugTracer
         $ Context.params
         $ connectionContext conn
-
-{-------------------------------------------------------------------------------
-  Get handler for the request
--------------------------------------------------------------------------------}
-
-withHandler ::
-     ServerParams
-  -> HandlerMap m
-  -> Path
-  -> Connection
-  -> (RpcHandler m -> IO ()) -> IO ()
-withHandler params handlers path conn k =
-    case handlerLookup path handlers of
-      Just h  -> k h
-      Nothing -> do
-        traceWith (Context.serverExceptionTracer params) (toException err)
-        Session.Server.respond conn' $
-          HTTP2.responseNoBody
-            HTTP.ok200
-            (buildTrailersOnly trailers)
-  where
-    conn' :: Session.Server.ConnectionToClient
-    conn' = connectionClient conn
-
-    err :: GrpcException
-    err = grpcUnimplemented path
-
-    trailers :: TrailersOnly
-    trailers = TrailersOnly $ grpcExceptionToTrailers err
-
-grpcUnimplemented :: Path -> GrpcException
-grpcUnimplemented path = GrpcException {
-      grpcError         = GrpcUnimplemented
-    , grpcErrorMessage  = Just $ mconcat [
-                                "Method "
-                              , pathService path
-                              , "."
-                              , pathMethod path
-                              , " not implemented"
-                              ]
-    , grpcErrorMetadata = []
-    }
 
 -- ========================================================================== --
 
@@ -514,7 +457,7 @@ main = do
     testClock <- newTestClock
 
     _server <- async $ do
-      let serverHandlers :: [RpcHandler IO]
+      let serverHandlers :: [RpcHandler]
           serverHandlers = [
                 mkRpcHandler (Proxy @TestRpc1) $ serverLocal1 testClock
               , mkRpcHandler (Proxy @TestRpc2) $ serverLocal2 testClock
