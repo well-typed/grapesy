@@ -196,7 +196,6 @@ test-suite test-grapesy
     , network-run
     , text
 
-
 Flag build-demo
   description: Build the demo
   default: False

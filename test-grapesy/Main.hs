@@ -35,19 +35,19 @@ import Data.Void
 import Debug.Trace
 import GHC.Stack
 import GHC.TypeLits
-import Network.HPACK qualified as HPACK
 import Network.HTTP2.Client qualified as HTTP2.Client
+import Network.HTTP2.Server qualified as HTTP2
+import Network.Run.TCP (runTCPServer)
 import Network.Run.TCP qualified as Run
 import Network.Socket
 
 import Network.GRPC.Common
 import Network.GRPC.Common.StreamElem qualified as StreamElem
 import Network.GRPC.Server qualified as Server
-import Network.GRPC.Server.Run qualified as Server
 import Network.GRPC.Spec
 import Network.GRPC.Util.Concurrency
-import Network.GRPC.Util.Session qualified as Session
 import Network.GRPC.Util.Parser
+import Network.GRPC.Util.Session qualified as Session
 
 -- ========================================================================== --
 
@@ -144,7 +144,7 @@ clientStayConnected auth connVar connCanClose =
 
         mRes <- try $
           runTCPClient $ \sock ->
-            bracket (HTTP2.Client.allocSimpleConfig sock writeBufferSize)
+            bracket (HTTP2.Client.allocSimpleConfig sock 4096)
                     HTTP2.Client.freeSimpleConfig $ \conf ->
               HTTP2.Client.run
                     (clientConfig Http)
@@ -164,9 +164,6 @@ clientStayConnected auth connVar connCanClose =
     runTCPClient :: (Socket -> IO a) -> IO a
     runTCPClient =
         Run.runTCPClient (authorityHost auth) (show $ authorityPort auth)
-
-    writeBufferSize :: HPACK.BufferSize
-    writeBufferSize = 4096
 
     clientConfig :: Scheme -> HTTP2.Client.ClientConfig
     clientConfig scheme = HTTP2.Client.defaultClientConfig {
@@ -248,6 +245,17 @@ waitForTestClockTick clock tick = atomically $ do
 
 advanceTestClock :: TestClock -> IO ()
 advanceTestClock clock = atomically $ modifyTVar clock succ
+
+-- ========================================================================== --
+
+data ServerConfig = ServerConfig ServiceName
+
+runServer :: ServerConfig -> HTTP2.Server -> IO ()
+runServer (ServerConfig port) server =
+    runTCPServer Nothing port $ \sock -> do
+      bracket (HTTP2.allocSimpleConfig sock 4096)
+              HTTP2.freeSimpleConfig $ \config ->
+        HTTP2.run HTTP2.defaultServerConfig config server
 
 -- ========================================================================== --
 
@@ -390,16 +398,6 @@ main = do
               , Server.mkRpcHandler (Proxy @TestRpc2) $ serverLocal2 testClock
               ]
 
-          serverConfig :: Server.ServerConfig
-          serverConfig = Server.ServerConfig {
-                serverSetup    = def
-              , serverInsecure = Just Server.InsecureConfig {
-                    insecureHost = Nothing
-                  , insecurePort = "50051"
-                  }
-              , serverSecure   = Nothing
-              }
-
           serverParams :: Server.ServerParams
           serverParams = def {
                 -- Don't print exceptions (to avoid confusing test output)
@@ -407,7 +405,7 @@ main = do
               }
 
       Server.withServer serverParams serverHandlers $
-        Server.runServer serverConfig
+        runServer (ServerConfig "50051")
 
     -- Give the server a chance to start
     -- (We can automatically reconnect, but this keeps the test simpler)
