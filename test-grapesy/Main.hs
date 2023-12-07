@@ -27,6 +27,7 @@ import Control.Monad
 import Control.Monad.Catch (ExitCase(..))
 import Control.Tracer
 import Data.Bifunctor
+import Data.ByteString.Char8 qualified as BS.C8
 import Data.Default
 import Data.Proxy
 import Data.Text qualified as Text
@@ -38,7 +39,6 @@ import Network.HPACK qualified as HPACK
 import Network.HTTP2.Client qualified as HTTP2.Client
 import Network.Run.TCP qualified as Run
 import Network.Socket
-import Network.HTTP.Types qualified as HTTP
 
 import Network.GRPC.Common
 import Network.GRPC.Common.StreamElem qualified as StreamElem
@@ -47,6 +47,7 @@ import Network.GRPC.Server.Run qualified as Server
 import Network.GRPC.Spec
 import Network.GRPC.Util.Concurrency
 import Network.GRPC.Util.Session qualified as Session
+import Network.GRPC.Util.Parser
 
 -- ========================================================================== --
 
@@ -55,10 +56,13 @@ _traceLabelled lbl x = trace (lbl ++ ": " ++ show x) x
 
 -- ========================================================================== --
 
-clientWithRPC :: forall rpc.
-     (IsRPC rpc, HasCallStack)
-  => ClientConnection -> CallParams -> Proxy rpc -> (ClientCall rpc -> IO ()) -> IO ()
-clientWithRPC ClientConnection{clientConnState} callParams _proxy k =
+clientWithRPC ::
+     (HasCallStack, KnownSymbol meth)
+  => ClientConnection
+  -> Proxy (TrivialRpc meth)
+  -> (ClientCall meth -> IO ())
+  -> IO ()
+clientWithRPC ClientConnection{clientConnState} _proxy k =
     mask $ \unmask -> do
       (_, conn) <-
         atomically $ do
@@ -71,7 +75,7 @@ clientWithRPC ClientConnection{clientConnState} callParams _proxy k =
 
       channel <-
         Session.setupRequestChannel
-          ClientSession
+          TrivialClient
           nullTracer
           conn
           flowStart
@@ -81,36 +85,17 @@ clientWithRPC ClientConnection{clientConnState} callParams _proxy k =
       either throwIO return mb
   where
     flowStart :: Session.FlowStart (ClientOutbound rpc)
-    flowStart = Session.FlowStartRegular $ OutboundHeaders {
-        outHeaders = requestHeaders
-      }
+    flowStart = Session.FlowStartRegular ClientOutboundHeaders
 
-    requestHeaders :: RequestHeaders
-    requestHeaders = RequestHeaders{
-          requestMetadata = callRequestMetadata callParams
-        }
-
-clientSendInput ::
-     HasCallStack
-  => ClientCall rpc
-  -> StreamElem NoMetadata (Input rpc)
-  -> IO ()
+clientSendInput :: HasCallStack => ClientCall meth -> StreamElem () Void -> IO ()
 clientSendInput call msg = do
     atomically $ Session.send (clientCallChannel call) msg
     StreamElem.whenDefinitelyFinal msg $ \_ ->
       void $ Session.waitForOutbound (clientCallChannel call)
 
-clientRecvOutput ::
-     ClientCall rpc
-  -> IO (StreamElem [CustomMetadata] (Output rpc))
+clientRecvOutput :: ClientCall meth -> IO (StreamElem () Void)
 clientRecvOutput call = atomically $
-    first collapseTrailers <$> Session.recv (clientCallChannel call)
-  where
-    -- No difference between 'ProperTrailers' and 'TrailersOnly'
-    collapseTrailers ::
-         Either [CustomMetadata] [CustomMetadata]
-      -> [CustomMetadata]
-    collapseTrailers = either id id
+    first (const ()) <$> Session.recv (clientCallChannel call)
 
 -- ========================================================================== --
 
@@ -118,8 +103,8 @@ data ClientConnection = ClientConnection {
       clientConnState :: TVar ConnectionState
     }
 
-data ClientCall rpc = IsRPC rpc => ClientCall {
-      clientCallChannel :: Session.Channel (ClientSession rpc)
+data ClientCall meth =  ClientCall {
+      clientCallChannel :: Session.Channel (TrivialClient meth)
     }
 
 clientWithConnection ::
@@ -198,130 +183,45 @@ clientStayConnected auth connVar connCanClose =
   Definition
 -------------------------------------------------------------------------------}
 
-data ClientSession rpc = ClientSession
+data TrivialClient (meth :: Symbol) = TrivialClient
 
 {-------------------------------------------------------------------------------
   Instances
 -------------------------------------------------------------------------------}
 
-data ClientInbound rpc
-data ClientOutbound rpc
+data ClientInbound  (meth :: Symbol)
+data ClientOutbound (meth :: Symbol)
 
-instance IsRPC rpc => Session.DataFlow (ClientInbound rpc) where
-  data Headers (ClientInbound rpc) = InboundHeaders {
-        inbHeaders :: ResponseHeaders
+instance Session.DataFlow (ClientInbound meth) where
+  data Headers    (ClientInbound meth) = ClientInboundHeaders deriving (Show)
+  type Message    (ClientInbound meth) = Void
+  type Trailers   (ClientInbound meth) = ()
+  type NoMessages (ClientInbound meth) = ()
+
+instance Session.DataFlow (ClientOutbound meth) where
+  data Headers    (ClientOutbound meth) = ClientOutboundHeaders deriving (Show)
+  type Message    (ClientOutbound meth) = Void
+  type Trailers   (ClientOutbound meth) = ()
+  type NoMessages (ClientOutbound meth) = Void
+
+instance Session.IsSession (TrivialClient meth) where
+  type Inbound  (TrivialClient meth) = ClientInbound  meth
+  type Outbound (TrivialClient meth) = ClientOutbound meth
+
+  buildOutboundTrailers _ _ = []
+  parseInboundTrailers  _ _ = return ()
+  parseMsg              _ _ = ParserError "Unexpected message of type Void"
+  buildMsg              _ _ = absurd
+
+instance KnownSymbol meth => Session.InitiateSession (TrivialClient meth) where
+  parseResponseRegular    _ _ = return ClientInboundHeaders
+  parseResponseNoMessages _ _ = return ()
+
+  buildRequestInfo _ _ = Session.RequestInfo {
+        requestMethod  = "POST"
+      , requestPath    = "/trivial/" <> BS.C8.pack (symbolVal (Proxy @meth))
+      , requestHeaders = []
       }
-    deriving (Show)
-
-  type Message    (ClientInbound rpc) = Output rpc
-  type Trailers   (ClientInbound rpc) = [CustomMetadata]
-  type NoMessages (ClientInbound rpc) = [CustomMetadata]
-
-instance IsRPC rpc => Session.DataFlow (ClientOutbound rpc) where
-  data Headers (ClientOutbound rpc) = OutboundHeaders {
-        outHeaders :: RequestHeaders
-      }
-    deriving (Show)
-
-  type Message  (ClientOutbound rpc) = Input rpc
-  type Trailers (ClientOutbound rpc) = NoMetadata
-
-  -- gRPC does not support request trailers, but does not require that a request
-  -- has any messages at all. When it does not, the request can be terminated
-  -- immediately after the initial set of headers; this makes it essentially a
-  -- 'Trailers-Only' case, but the headers are just the normal headers.
-  type NoMessages (ClientOutbound rpc) = RequestHeaders
-
-instance IsRPC rpc => Session.IsSession (ClientSession rpc) where
-  type Inbound  (ClientSession rpc) = ClientInbound  rpc
-  type Outbound (ClientSession rpc) = ClientOutbound rpc
-
-  buildOutboundTrailers _client = \NoMetadata -> []
-  parseInboundTrailers _client =
-      processResponseTrailers $ parseProperTrailers (Proxy @rpc)
-
-  parseMsg _ _ = parseOutput (Proxy @rpc)
-  buildMsg _ _ = buildInput  (Proxy @rpc)
-
-instance IsRPC rpc => Session.InitiateSession (ClientSession rpc) where
-  parseResponseRegular _client info = do
-      unless (HTTP.statusCode (Session.responseStatus info) == 200) $
-        throwIO $ ResponseInvalidStatus (Session.responseStatus info)
-
-      responseHeaders :: ResponseHeaders <-
-        case parseResponseHeaders (Proxy @rpc) (Session.responseHeaders info) of
-          Left  err    -> throwIO $ ResponseInvalidHeaders err
-          Right parsed -> return parsed
-
-      return $ InboundHeaders {
-          inbHeaders = responseHeaders
-        }
-
-  parseResponseNoMessages _ info = do
-      unless (HTTP.statusCode (Session.responseStatus info) == 200) $
-        throwIO $ ResponseInvalidStatus (Session.responseStatus info)
-      processResponseTrailers
-        (fmap getTrailersOnly . parseTrailersOnly (Proxy @rpc))
-        (Session.responseHeaders info)
-
-  buildRequestInfo _ start = Session.RequestInfo {
-        requestMethod  = rawMethod resourceHeaders
-      , requestPath    = rawPath resourceHeaders
-      , requestHeaders = buildRequestHeaders (Proxy @rpc) $
-            case start of
-              Session.FlowStartRegular    headers -> outHeaders headers
-              Session.FlowStartNoMessages headers ->            headers
-      }
-    where
-      resourceHeaders :: RawResourceHeaders
-      resourceHeaders = buildResourceHeaders $ ResourceHeaders {
-            resourceMethod = Post
-          , resourcePath   = rpcPath (Proxy @rpc)
-          }
-
--- | Process response trailers
---
--- The gRPC spec states that
---
--- > Trailers-Only is permitted for calls that produce an immediate error
---
--- However, in practice gRPC servers can also respond with @Trailers-Only@ in
--- non-error cases, simply indicating that the server considers the
--- conversation over. To distinguish, we look at 'trailerGrpcStatus'.
---
--- TODO: We are throwing away 'trailerGrpcMessage' in case of 'GrpcOk'; not
--- sure if that is problematic.
-processResponseTrailers ::
-     ([HTTP.Header] -> Either String ProperTrailers)
-  -> [HTTP.Header]
-  -> IO [CustomMetadata]
-processResponseTrailers parse raw =
-    case parse raw of
-      Left  err      -> throwIO $ ResponseInvalidTrailers err
-      Right trailers -> case grpcExceptionFromTrailers trailers of
-                          Left (_msg, metadata) -> return metadata
-                          Right err -> throwIO err
-
-{-------------------------------------------------------------------------------
-  Exceptions
--------------------------------------------------------------------------------}
-
-data InvalidResponse =
-    -- | Server sent a HTTP status other than 200 OK
-    --
-    -- The spec explicitly disallows this; if a particular method is not
-    -- supported, then the server will respond with HTTP 200 and then a
-    -- grpc-status of 'GrpcUnimplemented'.
-    ResponseInvalidStatus HTTP.Status
-
-    -- | We failed to parse the response headers
-  | ResponseInvalidHeaders String
-
-    -- | We failed to parse the response trailers
-  | ResponseInvalidTrailers String
-  deriving stock (Show)
-  deriving anyclass (Exception)
-
 
 -- ========================================================================== --
 
@@ -353,18 +253,20 @@ advanceTestClock clock = atomically $ modifyTVar clock succ
 
 {-------------------------------------------------------------------------------
   Endpoints
+
+  Once we have inlined and simplified the server stuff also, this can go.
 -------------------------------------------------------------------------------}
 
 -- RPC calls that exchange no data
-data TrivialRpc (endpoint :: Symbol)
+data TrivialRpc (meth :: Symbol)
 
-instance KnownSymbol endpoint => IsRPC (TrivialRpc endpoint) where
-  type Input  (TrivialRpc endpoint) = Void
-  type Output (TrivialRpc endpoint) = Void
+instance KnownSymbol meth => IsRPC (TrivialRpc meth) where
+  type Input  (TrivialRpc meth) = Void
+  type Output (TrivialRpc meth) = Void
 
   serializationFormat _ = "trivial"
   serviceName         _ = "trivial"
-  methodName          _ = Text.pack $ symbolVal (Proxy @endpoint)
+  methodName          _ = Text.pack $ symbolVal (Proxy @meth)
   messageType         _ = "Void"
   serializeInput      _ = absurd
   serializeOutput     _ = absurd
@@ -385,7 +287,7 @@ clientLocal1 :: HasCallStack => TestClock -> Authority -> IO ()
 clientLocal1 testClock auth = handle showExceptions $ do
     waitForTestClockTick testClock 0
     clientWithConnection auth $ \conn -> do
-      clientWithRPC conn def (Proxy @TestRpc1) $ \_call -> do
+      clientWithRPC conn (Proxy @TestRpc1) $ \_call -> do
         waitForTestClockTick testClock 2
         throwIO $ userError "this models some kind of client exception"
   where
@@ -398,9 +300,9 @@ clientLocal2 :: HasCallStack => TestClock -> Authority -> IO ()
 clientLocal2 testClock auth = handle showExceptions $ do
     waitForTestClockTick testClock 1
     clientWithConnection auth $ \conn -> do
-      clientWithRPC conn def (Proxy @TestRpc2) $ \call -> do
+      clientWithRPC conn (Proxy @TestRpc2) $ \call -> do
         waitForTestClockTick testClock 3
-        clientSendInput call $ NoMoreElems NoMetadata
+        clientSendInput call $ NoMoreElems ()
         _ <- clientRecvOutput call
         advanceTestClock testClock
   where

@@ -189,12 +189,12 @@ test-suite test-grapesy
     , contra-tracer >= 0.2 && < 0.3
     , data-default  >= 0.7 && < 0.8
 
+    , bytestring
     , exceptions
-    , text
     , http2
     , network
     , network-run
-    , http-types
+    , text
 
 
 Flag build-demo
