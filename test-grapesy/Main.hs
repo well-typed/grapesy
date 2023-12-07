@@ -49,13 +49,14 @@ import Network.GRPC.Server.Connection (Connection(..), withConnection)
 import Network.GRPC.Server.Connection qualified as Connection
 import Network.GRPC.Server.Context (ServerParams)
 import Network.GRPC.Server.Context qualified as Context
-import Network.GRPC.Server.Handler (RpcHandler(..))
-import Network.GRPC.Server.Handler qualified as Handler
 import Network.GRPC.Spec
 import Network.GRPC.Util.Concurrency
 import Network.GRPC.Util.Parser
 import Network.GRPC.Util.Session qualified as Session
 import Network.GRPC.Util.Session.Server qualified as Session.Server
+
+import Data.HashMap.Strict (HashMap)
+import Data.HashMap.Strict qualified as HashMap
 
 -- ========================================================================== --
 
@@ -267,6 +268,32 @@ runServer (ServerConfig port) server =
 
 -- ========================================================================== --
 
+data RpcHandler m = forall rpc. IsRPC rpc => RpcHandler {
+      -- | Handler proper
+      runRpcHandler :: Server.Call rpc -> m ()
+    }
+
+mkRpcHandler :: IsRPC rpc => Proxy rpc -> (Server.Call rpc -> m ()) -> RpcHandler m
+mkRpcHandler _ = RpcHandler
+
+newtype HandlerMap m = Map {
+      getMap :: HashMap Path (RpcHandler m)
+    }
+
+constructHandlerMap :: [RpcHandler m] -> HandlerMap m
+constructHandlerMap = Map . HashMap.fromList . map (\h -> (handlerPath h, h))
+
+handlerLookup :: Path -> HandlerMap m -> Maybe (RpcHandler m)
+handlerLookup p = HashMap.lookup p . getMap
+
+handlerPath :: forall m. RpcHandler m -> Path
+handlerPath RpcHandler{runRpcHandler} = aux runRpcHandler
+  where
+    aux :: forall rpc. IsRPC rpc => (Server.Call rpc -> m ()) -> Path
+    aux _ = rpcPath (Proxy @rpc)
+
+-- ========================================================================== --
+
 {-------------------------------------------------------------------------------
   Server proper
 -------------------------------------------------------------------------------}
@@ -279,9 +306,9 @@ runServer (ServerConfig port) server =
 withServer :: ServerParams -> [RpcHandler IO] -> (HTTP2.Server -> IO a) -> IO a
 withServer params handlers k =
     Context.withContext params $
-      k . server (Handler.constructMap handlers)
+      k . server (constructHandlerMap handlers)
   where
-    server :: Handler.Map IO -> Context.ServerContext -> HTTP2.Server
+    server :: HandlerMap IO -> Context.ServerContext -> HTTP2.Server
     server handlerMap ctxt =
         withConnection ctxt $
           handleRequest params handlerMap
@@ -289,7 +316,7 @@ withServer params handlers k =
 handleRequest ::
      HasCallStack
   => ServerParams
-  -> Handler.Map IO
+  -> HandlerMap IO
   -> Connection -> IO ()
 handleRequest params handlers conn = do
     -- TODO: Proper "Apache style" logging (in addition to the debug logging)
@@ -316,12 +343,12 @@ handleRequest params handlers conn = do
 
 withHandler ::
      ServerParams
-  -> Handler.Map m
+  -> HandlerMap m
   -> Path
   -> Connection
   -> (RpcHandler m -> IO ()) -> IO ()
 withHandler params handlers path conn k =
-    case Handler.lookup path handlers of
+    case handlerLookup path handlers of
       Just h  -> k h
       Nothing -> do
         traceWith (Context.serverExceptionTracer params) (toException err)
@@ -489,8 +516,8 @@ main = do
     _server <- async $ do
       let serverHandlers :: [RpcHandler IO]
           serverHandlers = [
-                Handler.mkRpcHandler (Proxy @TestRpc1) $ serverLocal1 testClock
-              , Handler.mkRpcHandler (Proxy @TestRpc2) $ serverLocal2 testClock
+                mkRpcHandler (Proxy @TestRpc1) $ serverLocal1 testClock
+              , mkRpcHandler (Proxy @TestRpc2) $ serverLocal2 testClock
               ]
 
           serverParams :: ServerParams
