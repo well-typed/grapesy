@@ -12,6 +12,7 @@ module Network.GRPC.Util.Concurrency (
   , asyncWithUnmask
     -- * @Control.Concurrent.STM@
   , module ReexportSTM
+  , atomically
   ) where
 
 import Prelude hiding (id)
@@ -28,10 +29,13 @@ import Control.Concurrent.Async as ReexportAsync hiding (
   , async
   , asyncWithUnmask
   )
-import Control.Concurrent.STM as ReexportSTM
+import Control.Concurrent.STM as ReexportSTM hiding (
+    atomically
+  )
 
 import Control.Concurrent       qualified as Concurrent
 import Control.Concurrent.Async qualified as Async
+import Control.Concurrent.STM   qualified as STM
 
 {-------------------------------------------------------------------------------
   Wrap thread spawning
@@ -70,3 +74,20 @@ wrapThreadBody body = do
 {-------------------------------------------------------------------------------
   STM
 -------------------------------------------------------------------------------}
+
+atomically :: forall a. HasCallStack => STM a -> IO a
+atomically = STM.atomically
+
+{-
+atomically :: forall a. HasCallStack => STM a -> IO a
+atomically stm = go 2
+  where
+    go ::
+         Int   -- ^ Number of guarded attempts left
+      -> IO a
+    go 0 = run
+    go n = run `catch` \BlockedIndefinitelyOnSTM{} -> go (n - 1)
+
+    run :: IO a
+    run = STM.atomically stm
+-}
