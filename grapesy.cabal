@@ -80,7 +80,6 @@ library
 
   -- other-modules:
 
-      Network.GRPC.Server.Call
       Network.GRPC.Server.Connection
       Network.GRPC.Server.Context
       Network.GRPC.Server.Session
@@ -164,6 +163,7 @@ test-suite test-grapesy
 
     , bytestring
     , exceptions
+    , http-types
     , http2
     , network
     , network-run
