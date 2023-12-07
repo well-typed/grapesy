@@ -82,7 +82,6 @@ library
 
   -- other-modules:
 
-      Network.GRPC.Client.Session
       Network.GRPC.Server.Call
       Network.GRPC.Server.Connection
       Network.GRPC.Server.Context
@@ -195,6 +194,7 @@ test-suite test-grapesy
     , http2
     , network
     , network-run
+    , http-types
 
 
 Flag build-demo
