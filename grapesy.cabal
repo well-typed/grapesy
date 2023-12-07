@@ -76,7 +76,6 @@ library
   exposed-modules:
       Network.GRPC.Common
       Network.GRPC.Common.StreamElem
-      Network.GRPC.Server
       Network.GRPC.Spec
 
   -- other-modules:
@@ -171,6 +170,8 @@ test-suite test-grapesy
     , network
     , network-run
     , text
+
+    , http-types
 
 Flag build-demo
   description: Build the demo

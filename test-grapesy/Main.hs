@@ -40,14 +40,22 @@ import Network.HTTP2.Server qualified as HTTP2
 import Network.Run.TCP (runTCPServer)
 import Network.Run.TCP qualified as Run
 import Network.Socket
+import Network.HTTP.Types qualified as HTTP
 
 import Network.GRPC.Common
 import Network.GRPC.Common.StreamElem qualified as StreamElem
-import Network.GRPC.Server qualified as Server
+import Network.GRPC.Server.Call qualified as Server
+import Network.GRPC.Server.Connection (Connection(..), withConnection)
+import Network.GRPC.Server.Connection qualified as Connection
+import Network.GRPC.Server.Context (ServerParams)
+import Network.GRPC.Server.Context qualified as Context
+import Network.GRPC.Server.Handler (RpcHandler(..))
+import Network.GRPC.Server.Handler qualified as Handler
 import Network.GRPC.Spec
 import Network.GRPC.Util.Concurrency
 import Network.GRPC.Util.Parser
 import Network.GRPC.Util.Session qualified as Session
+import Network.GRPC.Util.Session.Server qualified as Session.Server
 
 -- ========================================================================== --
 
@@ -112,13 +120,13 @@ clientWithConnection ::
   => Authority -- ^ What to connect to
   -> (ClientConnection -> IO a)
   -> IO a
-clientWithConnection server k = do
+clientWithConnection auth k = do
     clientConnState <- newTVarIO ConnectionNotReady
 
     connCanClose <- newEmptyMVar
     let stayConnectedThread :: IO ()
         stayConnectedThread =
-          clientStayConnected server clientConnState connCanClose
+          clientStayConnected auth clientConnState connCanClose
 
     void $ forkIO $ stayConnectedThread
     k ClientConnection{clientConnState}
@@ -260,6 +268,93 @@ runServer (ServerConfig port) server =
 -- ========================================================================== --
 
 {-------------------------------------------------------------------------------
+  Server proper
+-------------------------------------------------------------------------------}
+
+-- | Construct server
+--
+-- The server can be run using the standard infrastructure offered by the
+-- @http2@ package, but "Network.GRPC.Server.Run" provides some convenience
+-- functions.
+withServer :: ServerParams -> [RpcHandler IO] -> (HTTP2.Server -> IO a) -> IO a
+withServer params handlers k =
+    Context.withContext params $
+      k . server (Handler.constructMap handlers)
+  where
+    server :: Handler.Map IO -> Context.ServerContext -> HTTP2.Server
+    server handlerMap ctxt =
+        withConnection ctxt $
+          handleRequest params handlerMap
+
+handleRequest ::
+     HasCallStack
+  => ServerParams
+  -> Handler.Map IO
+  -> Connection -> IO ()
+handleRequest params handlers conn = do
+    -- TODO: Proper "Apache style" logging (in addition to the debug logging)
+    traceWith tracer $ Context.ServerDebugRequest path
+    withHandler params handlers path conn $ \(RpcHandler h) -> do
+      -- TODO: Timeouts
+      --
+      -- Wait-for-ready semantics makes this more complicated, maybe.
+      -- See example in the grpc-repo (python/wait_for_ready).
+      Server.acceptCall params conn h
+  where
+    path :: Path
+    path = Connection.path conn
+
+    tracer :: Tracer IO Context.ServerDebugMsg
+    tracer =
+          Context.serverDebugTracer
+        $ Context.params
+        $ connectionContext conn
+
+{-------------------------------------------------------------------------------
+  Get handler for the request
+-------------------------------------------------------------------------------}
+
+withHandler ::
+     ServerParams
+  -> Handler.Map m
+  -> Path
+  -> Connection
+  -> (RpcHandler m -> IO ()) -> IO ()
+withHandler params handlers path conn k =
+    case Handler.lookup path handlers of
+      Just h  -> k h
+      Nothing -> do
+        traceWith (Context.serverExceptionTracer params) (toException err)
+        Session.Server.respond conn' $
+          HTTP2.responseNoBody
+            HTTP.ok200
+            (buildTrailersOnly trailers)
+  where
+    conn' :: Session.Server.ConnectionToClient
+    conn' = connectionClient conn
+
+    err :: GrpcException
+    err = grpcUnimplemented path
+
+    trailers :: TrailersOnly
+    trailers = TrailersOnly $ grpcExceptionToTrailers err
+
+grpcUnimplemented :: Path -> GrpcException
+grpcUnimplemented path = GrpcException {
+      grpcError         = GrpcUnimplemented
+    , grpcErrorMessage  = Just $ mconcat [
+                                "Method "
+                              , pathService path
+                              , "."
+                              , pathMethod path
+                              , " not implemented"
+                              ]
+    , grpcErrorMetadata = []
+    }
+
+-- ========================================================================== --
+
+{-------------------------------------------------------------------------------
   Endpoints
 
   Once we have inlined and simplified the server stuff also, this can go.
@@ -392,19 +487,19 @@ main = do
     testClock <- newTestClock
 
     _server <- async $ do
-      let serverHandlers :: [Server.RpcHandler IO]
+      let serverHandlers :: [RpcHandler IO]
           serverHandlers = [
-                Server.mkRpcHandler (Proxy @TestRpc1) $ serverLocal1 testClock
-              , Server.mkRpcHandler (Proxy @TestRpc2) $ serverLocal2 testClock
+                Handler.mkRpcHandler (Proxy @TestRpc1) $ serverLocal1 testClock
+              , Handler.mkRpcHandler (Proxy @TestRpc2) $ serverLocal2 testClock
               ]
 
-          serverParams :: Server.ServerParams
+          serverParams :: ServerParams
           serverParams = def {
                 -- Don't print exceptions (to avoid confusing test output)
-                Server.serverExceptionTracer = nullTracer
+                Context.serverExceptionTracer = nullTracer
               }
 
-      Server.withServer serverParams serverHandlers $
+      withServer serverParams serverHandlers $
         runServer (ServerConfig "50051")
 
     -- Give the server a chance to start
