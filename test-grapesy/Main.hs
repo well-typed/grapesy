@@ -46,12 +46,10 @@ import Network.HTTP2.Server qualified as HTTP2
 import Network.Run.TCP (runTCPServer)
 import Network.Run.TCP qualified as Run
 import Network.Socket
+import Text.Show.Pretty
 
 import Network.GRPC.Common
 import Network.GRPC.Common.StreamElem qualified as StreamElem
-import Network.GRPC.Server.Context
-import Network.GRPC.Server.Context qualified as Context
-import Network.GRPC.Server.Session
 import Network.GRPC.Spec
 import Network.GRPC.Util.Concurrency
 import Network.GRPC.Util.HTTP2.Stream (ClientDisconnected(..))
@@ -272,10 +270,10 @@ handlerPath RpcHandler{runRpcHandler} = aux runRpcHandler
 -- functions.
 withServer :: ServerParams -> [RpcHandler] -> (HTTP2.Server -> IO a) -> IO a
 withServer params handlers k =
-    Context.withContext params $
+    withContext params $
       k . server (constructHandlerMap handlers)
   where
-    server :: HandlerMap -> Context.ServerContext -> HTTP2.Server
+    server :: HandlerMap -> ServerContext -> HTTP2.Server
     server handlerMap ctxt =
         withConnection ctxt $
           handleRequest params handlerMap
@@ -287,7 +285,7 @@ handleRequest ::
   -> ServerConnection -> IO ()
 handleRequest params handlers conn = do
     -- TODO: Proper "Apache style" logging (in addition to the debug logging)
-    traceWith tracer $ Context.ServerDebugRequest path
+    traceWith tracer $ ServerDebugRequest path
     let handler = case lookup path handlers of
                     Just h  -> h
                     Nothing -> error "withHandler: unknown path"
@@ -297,10 +295,10 @@ handleRequest params handlers conn = do
     path :: Path
     path = serverPath conn
 
-    tracer :: Tracer IO Context.ServerDebugMsg
+    tracer :: Tracer IO ServerDebugMsg
     tracer =
-          Context.serverDebugTracer
-        $ Context.params
+          serverDebugTracer
+        $ contextParams
         $ serverConnectionContext conn
 
 -- ========================================================================== --
@@ -364,7 +362,7 @@ data Kickoff =
 -- to the client (and then rethrow the exception).
 serverAcceptCall :: forall rpc.
      (IsRPC rpc, HasCallStack)
-  => Context.ServerParams
+  => ServerParams
   -> ServerConnection
   -> (ServerCall rpc -> IO ())
   -> IO ()
@@ -377,7 +375,7 @@ serverAcceptCall params conn k = do
         setupResponseChannel =
             Session.setupResponseChannel
               callSession
-              (contramap (Context.ServerDebugMsg @rpc) tracer)
+              (contramap (ServerDebugMsg @rpc) tracer)
               (serverConnectionClient conn)
               (   handle sendErrorResponse
                 . mkOutboundHeaders
@@ -400,7 +398,7 @@ serverAcceptCall params conn k = do
                 Left err -> do
                   -- The handler threw an exception. /Try/ to tell the client
                   -- (but see discussion of 'forwardException')
-                  traceWith (Context.serverExceptionTracer params) err
+                  traceWith (serverExceptionTracer params) err
                   forwardException call err
                   Session.close callChannel $ ExitCaseException err
 
@@ -433,7 +431,7 @@ serverAcceptCall params conn k = do
                 -- and nothing else. (We should not rethrow it, as doing so will
                 -- cause http2 to reset the stream, which is not always the
                 -- right thing to do (for example, in case (1)).
-                traceWith (Context.serverExceptionTracer params) $
+                traceWith (serverExceptionTracer params) $
                   toException err
 
     let handler ::
@@ -458,8 +456,8 @@ serverAcceptCall params conn k = do
     callSession :: ServerSession rpc
     callSession = ServerSession
 
-    tracer :: Tracer IO Context.ServerDebugMsg
-    tracer = Context.serverDebugTracer $ Context.params $ serverConnectionContext conn
+    tracer :: Tracer IO ServerDebugMsg
+    tracer = serverDebugTracer $ contextParams $ serverConnectionContext conn
 
     mkOutboundHeaders ::
          TMVar [CustomMetadata]
@@ -504,7 +502,7 @@ serverAcceptCall params conn k = do
     -- TODO: Some duplication with 'forwardException' (and 'withHandler').
     sendErrorResponse :: forall x. SomeException -> IO x
     sendErrorResponse err = do
-        traceWith tracer $ Context.ServerDebugAcceptFailed err
+        traceWith tracer $ ServerDebugAcceptFailed err
         Server.respond (serverConnectionClient conn) $
           HTTP2.responseNoBody
             HTTP.ok200 -- gRPC uses HTTP 200 even when there are gRPC errors
@@ -757,7 +755,7 @@ sendProperTrailers ServerCall{callResponseKickoff, callChannel} trailers = do
 
   Conversely, on the client side, we maintain some meta information (such as
   supported compression algorithms) about the connection to the server. The
-  equivalent on the server side is 'Network.GRPC.Server.Context.ServerContext',
+  equivalent on the server side is 'Network.GRPC.Server.ServerContext',
   but this is maintained for the full lifetime of the server.
 -------------------------------------------------------------------------------}
 
@@ -887,6 +885,148 @@ httpBadRequest body = OutOfSpecError {
     , outOfSpecHeaders = []
     , outOfSpecBody    = body
     }
+
+-- ========================================================================== --
+
+{-------------------------------------------------------------------------------
+  Definition
+-------------------------------------------------------------------------------}
+
+data ServerSession rpc = ServerSession
+
+{-------------------------------------------------------------------------------
+  Instances
+-------------------------------------------------------------------------------}
+
+data ServerInbound rpc
+data ServerOutbound rpc
+
+instance IsRPC rpc => Session.DataFlow (ServerInbound rpc) where
+  data Headers (ServerInbound rpc) = InboundHeaders {
+        inbHeaders :: RequestHeaders
+      }
+    deriving (Show)
+
+  type Message  (ServerInbound rpc) = Input rpc
+  type Trailers (ServerInbound rpc) = NoMetadata
+
+  -- See discussion of 'TrailersOnly' in 'ClientOutbound'
+  type NoMessages (ServerInbound rpc) = RequestHeaders
+
+instance IsRPC rpc => Session.DataFlow (ServerOutbound rpc) where
+  data Headers (ServerOutbound rpc) = OutboundHeaders {
+        outHeaders :: ResponseHeaders
+      }
+    deriving (Show)
+
+  type Message    (ServerOutbound rpc) = Output rpc
+  type Trailers   (ServerOutbound rpc) = ProperTrailers
+  type NoMessages (ServerOutbound rpc) = TrailersOnly
+
+instance IsRPC rpc => Session.IsSession (ServerSession rpc) where
+  type Inbound  (ServerSession rpc) = ServerInbound rpc
+  type Outbound (ServerSession rpc) = ServerOutbound rpc
+
+  parseInboundTrailers _ = \_ -> return NoMetadata
+  buildOutboundTrailers _ = buildProperTrailers
+
+  parseMsg _ _ = parseInput  (Proxy @rpc)
+  buildMsg _ _ = buildOutput (Proxy @rpc)
+
+instance IsRPC rpc => Session.AcceptSession (ServerSession rpc) where
+  parseRequestRegular _server info = do
+      requestHeaders :: RequestHeaders <-
+        case parseRequestHeaders (Proxy @rpc) (Session.requestHeaders info) of
+          Left  err  -> throwIO $ RequestInvalidHeaders err
+          Right hdrs -> return hdrs
+
+      return InboundHeaders {
+          inbHeaders = requestHeaders
+        }
+
+  parseRequestNoMessages _ info =
+      case parseRequestHeaders (Proxy @rpc) (Session.requestHeaders info) of
+        Left  err  -> throwIO $ RequestInvalidHeaders err
+        Right hdrs -> return hdrs
+
+  buildResponseInfo _ start = Session.ResponseInfo {
+        responseStatus  = HTTP.ok200
+      , responseHeaders =
+          case start of
+            Session.FlowStartRegular headers ->
+              buildResponseHeaders (Proxy @rpc) (outHeaders headers)
+            Session.FlowStartNoMessages trailers ->
+              buildTrailersOnly trailers
+      }
+
+{-------------------------------------------------------------------------------
+  Exceptions
+-------------------------------------------------------------------------------}
+
+data InvalidRequest =
+    -- | We failed to parse the request headers
+    RequestInvalidHeaders String
+  deriving stock (Show)
+  deriving anyclass (Exception)
+
+-- ========================================================================== --
+
+{-------------------------------------------------------------------------------
+  Context
+
+  TODO: Stats
+-------------------------------------------------------------------------------}
+
+data ServerContext = ServerContext {
+      contextParams :: ServerParams
+    }
+
+withContext :: ServerParams -> (ServerContext -> IO a) -> IO a
+withContext contextParams k = k $ ServerContext{contextParams}
+
+{-------------------------------------------------------------------------------
+  Configuration
+-------------------------------------------------------------------------------}
+
+data ServerParams = ServerParams {
+      -- | Tracer for exceptions thrown by handlers
+      --
+      -- The default uses 'stdoutTracer'.
+      serverExceptionTracer :: Tracer IO SomeException
+
+      -- | Tracer for debug messages
+      --
+      -- This is prmarily for debugging @grapesy@ itself; most client code will
+      -- probably want to use 'nullTracer' here.
+    , serverDebugTracer :: Tracer IO ServerDebugMsg
+    }
+
+instance Default ServerParams where
+  def = ServerParams {
+        serverExceptionTracer = contramap show stdoutTracer
+      , serverDebugTracer     = nullTracer
+      }
+
+{-------------------------------------------------------------------------------
+  Logging
+-------------------------------------------------------------------------------}
+
+data ServerDebugMsg =
+    -- | New request
+    ServerDebugRequest Path
+
+    -- | Message on existing connection
+  | forall rpc.
+          IsRPC rpc
+       => ServerDebugMsg (Session.DebugMsg (ServerSession rpc))
+
+     -- | Could not connect to the client
+  | ServerDebugAcceptFailed SomeException
+
+deriving instance Show ServerDebugMsg
+
+instance PrettyVal ServerDebugMsg where
+  prettyVal = String . show
 
 -- ========================================================================== --
 
@@ -1058,7 +1198,7 @@ main = do
           serverParams :: ServerParams
           serverParams = def {
                 -- Don't print exceptions (to avoid confusing test output)
-                Context.serverExceptionTracer = nullTracer
+                serverExceptionTracer = nullTracer
               }
 
       withServer serverParams serverHandlers $

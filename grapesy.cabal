@@ -80,8 +80,6 @@ library
 
   -- other-modules:
 
-      Network.GRPC.Server.Context
-      Network.GRPC.Server.Session
       Network.GRPC.Spec.Call
       Network.GRPC.Spec.Common
       Network.GRPC.Spec.CustomMetadata
@@ -167,6 +165,7 @@ test-suite test-grapesy
     , network
     , network-run
     , text
+    , pretty-show
 
 Flag build-demo
   description: Build the demo
