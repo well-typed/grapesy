@@ -49,7 +49,10 @@ import Network.GRPC.Spec
 import Network.GRPC.Util.Concurrency
 import Network.GRPC.Util.HTTP2.Stream (ClientDisconnected(..))
 import Network.GRPC.Util.Parser
-import Network.GRPC.Util.Session qualified as Session
+import Network.GRPC.Util.Session.API qualified as Session
+import Network.GRPC.Util.Session.Channel qualified as Session
+import Network.GRPC.Util.Session.Client qualified as Client
+import Network.GRPC.Util.Session.Server qualified as Server
 
 -- ========================================================================== --
 
@@ -75,7 +78,7 @@ clientWithRPC clientConnState _proxy k =
             ConnectionAbandoned err         -> throwSTM err
             ConnectionClosed                -> error "impossible"
 
-      channel <- Session.setupRequestChannel TrivialClient nullTracer conn flowStart
+      channel <- Client.setupRequestChannel TrivialClient nullTracer conn flowStart
 
       mb :: Either SomeException () <- unmask $ try $ k channel
       _ <- Session.close channel (ExitCaseSuccess ()) -- simplification
@@ -117,7 +120,7 @@ clientWithConnection auth k = do
 
 data ConnectionState =
     ConnectionNotReady
-  | ConnectionReady (TMVar (Maybe SomeException)) Session.ConnectionToServer
+  | ConnectionReady (TMVar (Maybe SomeException)) Client.ConnectionToServer
   | ConnectionAbandoned SomeException
   | ConnectionClosed
 
@@ -141,7 +144,7 @@ clientStayConnected auth connVar connCanClose =
                     (clientConfig Http)
                     conf
                   $ \sendRequest _aux -> do
-                let conn = Session.ConnectionToServer sendRequest
+                let conn = Client.ConnectionToServer sendRequest
                 atomically $ writeTVar connVar $ ConnectionReady connClosed conn
                 takeMVar connCanClose
 
@@ -268,7 +271,7 @@ serverAcceptCall :: ServerConnection -> (ServerCall -> IO ()) -> IO ()
 serverAcceptCall (_path, conn) k = do
     let setupResponseChannel :: IO (Session.Channel TrivialServer)
         setupResponseChannel =
-            Session.setupResponseChannel
+            Server.setupResponseChannel
               callSession
               nullTracer
               conn
@@ -343,14 +346,14 @@ serverIsCallHealthy = Session.isChannelHealthy
 
 -- ========================================================================== --
 
-type ServerConnection = (Strict.ByteString, Session.ConnectionToClient)
+type ServerConnection = (Strict.ByteString, Server.ConnectionToClient)
 
 withServerConnection ::  (ServerConnection -> IO ()) -> HTTP2.Server
 withServerConnection k request _aux respond' =
     k conn
   where
-    connectionToClient :: Session.ConnectionToClient
-    connectionToClient = Session.ConnectionToClient{request, respond}
+    connectionToClient :: Server.ConnectionToClient
+    connectionToClient = Server.ConnectionToClient{request, respond}
 
     conn :: ServerConnection
     conn = (

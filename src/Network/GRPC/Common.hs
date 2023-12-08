@@ -27,20 +27,12 @@ module Network.GRPC.Common (
   , GrpcException(..)
   , GrpcError(..)
   , ProtocolException(..)
-
-    -- ** Low-level
-  , Session.ChannelClosed(..)
-  , Session.ChannelUncleanClose(..)
-  , Thread.ThreadCancelled(..)
-  , Thread.ThreadInterfaceUnavailable(..)
   ) where
 
 import Control.Exception
 
 import Network.GRPC.Common.StreamElem (StreamElem(..))
 import Network.GRPC.Spec
-import Network.GRPC.Util.Session qualified as Session
-import Network.GRPC.Util.Thread qualified as Thread
 
 {-------------------------------------------------------------------------------
   Exceptions

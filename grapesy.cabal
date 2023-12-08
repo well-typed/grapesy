@@ -100,7 +100,6 @@ library
       Network.GRPC.Util.Partial
       Network.GRPC.Util.PrettyVal
       Network.GRPC.Util.RedundantConstraint
-      Network.GRPC.Util.Session
       Network.GRPC.Util.Session.API
       Network.GRPC.Util.Session.Channel
       Network.GRPC.Util.Session.Client
