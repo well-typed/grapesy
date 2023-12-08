@@ -88,3 +88,16 @@ This line in `withRPC` deserves a comment. Why is this impossible..?
 ```haskell
             ConnectionClosed                -> error "impossible"
 ```
+
+Useful addition to `Network.GRPC.Util.Parser`:
+
+```haskell
+-- | Parser for 'Void'
+--
+-- Since there /are/ no values of type 'Void', we wait until we have evidence
+-- of the impossible, and then error out.
+parseVoid :: Parser Void
+parseVoid =
+    ParserNeedsData mempty $ \_ ->
+    ParserError "Unexpected message of type Void"
+```

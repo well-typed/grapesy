@@ -155,17 +155,13 @@ test-suite test-grapesy
     , grapesy
   build-depends:
       -- External dependencies
-    , contra-tracer >= 0.2 && < 0.3
-    , data-default  >= 0.7 && < 0.8
-
     , bytestring
+    , contra-tracer
     , exceptions
     , http-types
     , http2
     , network
     , network-run
-    , text
-    , pretty-show
 
 Flag build-demo
   description: Build the demo
