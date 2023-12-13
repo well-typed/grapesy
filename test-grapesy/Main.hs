@@ -25,7 +25,6 @@ module Main (main) where
 import Control.Exception
 import Control.Monad
 import Control.Monad.Catch (ExitCase(..))
-import Control.Tracer
 import Data.ByteString qualified as Strict (ByteString)
 import Data.ByteString.Char8 qualified as BS.C8
 import Data.ByteString.Lazy qualified as BS.Lazy
@@ -74,7 +73,7 @@ clientWithRPC clientConnState _proxy k =
             ConnectionAbandoned err         -> throwSTM err
             ConnectionClosed                -> error "impossible"
 
-      channel <- setupRequestChannel TrivialClient nullTracer conn flowStart
+      channel <- setupRequestChannel TrivialClient conn flowStart
 
       mb :: Either SomeException () <- unmask $ try $ k channel
       _ <- sessionClose channel (ExitCaseSuccess ()) -- simplification
@@ -226,7 +225,6 @@ serverAcceptCall (_path, conn) k = do
         setupResponseChannel' =
             setupResponseChannel
               callSession
-              nullTracer
               conn
               (\_ -> return ServerOutboundHeaders)
 
@@ -773,22 +771,12 @@ data ChannelClosed =
 -- Should be called with exceptions masked.
 sendMessageLoop :: forall sess.
      (forall x. IO x -> IO x) -- ^ Unmask
-  -> Tracer IO (DebugMsg sess)
+  -> Proxy sess
   -> RegularFlowState (Outbound sess)
   -> IO ()
-sendMessageLoop unmask tracer st =
-    go
-  where
-    go :: IO ()
-    go = do
-        trailers <- loop
-        atomically $ putTMVar (flowTerminated st) trailers
-      where
-        loop :: IO ()
-        loop = do
-            traceWith tracer $ NodeSendAwaitMsg
-            unmask $ atomically $ takeTMVar (flowMsg st)
-            traceWith tracer $ NodeSendMsg ()
+sendMessageLoop unmask _proxy st = do
+    unmask $ atomically $ takeTMVar (flowMsg st)
+    atomically $ putTMVar (flowTerminated st) ()
 
 -- | Receive all messages sent by the node's peer
 --
@@ -798,17 +786,16 @@ sendMessageLoop unmask tracer st =
 -- (But fixing this requires a patch to http2.)
 recvMessageLoop :: forall sess.
      (forall x. IO x -> IO x) -- ^ Unmask
-  -> Tracer IO (DebugMsg sess)
+  -> Proxy sess
   -> RegularFlowState (Inbound sess)
   -> InputStream
   -> IO ()
-recvMessageLoop unmask tracer st stream = do
+recvMessageLoop unmask _proxy st stream = do
     go
   where
     go :: IO ()
     go = do
         loop
-        traceWith tracer $ NodeRecvFinal ()
         atomically $ putTMVar (flowTerminated st) $ ()
         atomically $ putTMVar (flowMsg        st) $ ()
       where
@@ -872,7 +859,6 @@ data ConnectionToClient = ConnectionToClient {
 setupResponseChannel :: forall sess.
      (AcceptSession sess, HasCallStack)
   => sess
-  -> Tracer IO (DebugMsg sess)
   -> ConnectionToClient
   -> (FlowStart (Inbound sess) -> IO (FlowStart (Outbound sess)))
   -- ^ Construct headers for the initial response
@@ -885,7 +871,7 @@ setupResponseChannel :: forall sess.
   --   allows the function to send a response of its own (typically, some kind
   --   of error response).
   -> IO (Channel sess)
-setupResponseChannel sess tracer conn startOutbound = do
+setupResponseChannel sess conn startOutbound = do
     channel <- initChannel
 
     let requestHeaders = fromHeaderTable $ Server.requestHeaders (request conn)
@@ -903,7 +889,7 @@ setupResponseChannel sess tracer conn startOutbound = do
       regular <- initFlowStateRegular
       stream  <- serverInputStream (request conn)
       atomically $ putTMVar stVar regular
-      recvMessageLoop unmask tracer regular stream
+      recvMessageLoop unmask (Proxy @sess) regular stream
 
     forkThread (channelOutbound channel) newEmptyTMVarIO $ \unmask stVar -> do
       outboundStart <- startOutbound inboundStart
@@ -916,7 +902,7 @@ setupResponseChannel sess tracer conn startOutbound = do
                        (responseHeaders responseInfo)
                $ \write' flush' -> do
                     _stream <- serverOutputStream write' flush'
-                    sendMessageLoop unmask tracer regular
+                    sendMessageLoop unmask (Proxy @sess) regular
       respond conn resp
 
     return channel
@@ -979,11 +965,10 @@ data ConnectionToServer = ConnectionToServer {
 setupRequestChannel :: forall sess.
      InitiateSession sess
   => sess
-  -> Tracer IO (DebugMsg sess)
   -> ConnectionToServer
   -> FlowStart (Outbound sess)
   -> IO (Channel sess)
-setupRequestChannel sess tracer ConnectionToServer{sendRequest} outboundStart = do
+setupRequestChannel sess ConnectionToServer{sendRequest} outboundStart = do
     channel <- initChannel
     let requestInfo = buildRequestInfo sess outboundStart
 
@@ -999,7 +984,7 @@ setupRequestChannel sess tracer ConnectionToServer{sendRequest} outboundStart = 
                             (newTMVarIO regular)
                           $ \_stVar -> do
                    _stream <- clientOutputStream write' flush'
-                   sendMessageLoop unmask tracer regular
+                   sendMessageLoop unmask (Proxy @sess) regular
     forkRequest channel req
 
     return channel
@@ -1011,7 +996,7 @@ setupRequestChannel sess tracer ConnectionToServer{sendRequest} outboundStart = 
             regular <- initFlowStateRegular
             stream  <- clientInputStream resp
             atomically $ putTMVar stVar regular
-            recvMessageLoop unmask tracer regular stream
+            recvMessageLoop unmask (Proxy @sess) regular stream
 
           case setup of
             Right () -> return ()

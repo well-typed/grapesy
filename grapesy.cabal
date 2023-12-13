@@ -114,7 +114,6 @@ test-suite test-grapesy
   build-depends:
       -- External dependencies
     , bytestring
-    , contra-tracer
     , exceptions
     , http-types
     , http2
