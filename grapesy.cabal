@@ -78,15 +78,11 @@ library
 
   -- other-modules:
 
-      Network.GRPC.Util.AccumulatedByteString
-      Network.GRPC.Util.ByteString
       Network.GRPC.Util.Concurrency
       Network.GRPC.Util.HTTP2
       Network.GRPC.Util.HTTP2.Stream
       Network.GRPC.Util.Parser
-      Network.GRPC.Util.Partial
       Network.GRPC.Util.PrettyVal
-      Network.GRPC.Util.RedundantConstraint
       Network.GRPC.Util.Session.API
       Network.GRPC.Util.Session.Channel
       Network.GRPC.Util.Session.Client
@@ -101,13 +97,9 @@ library
     , bytestring    >= 0.10 && < 0.12
     , contra-tracer >= 0.2  && < 0.3
     , exceptions    >= 0.10 && < 0.11
-    , generics-sop  >= 0.5  && < 0.6
     , http-types    >= 0.12 && < 0.13
-    , mtl           >= 2.2  && < 2.4
     , pretty-show   >= 1.10 && < 1.11
-    , sop-core      >= 0.5  && < 0.6
     , stm           >= 2.5  && < 2.6
-    , transformers  >= 0.5  && < 0.7
 
     -- We need an unreleased version of http2 right now
     , http2

@@ -8,19 +8,12 @@
 -- but none of the operations on 'StreamElem'.
 module Network.GRPC.Common.StreamElem (
     StreamElem(..)
-  , value
   , whenDefinitelyFinal
-  , mapM_
-  , collect
   ) where
 
 import Prelude hiding (mapM_)
 
-import Control.Monad.State (StateT, execStateT, modify)
-import Control.Monad.Trans.Class
-import Data.Bifoldable
 import Data.Bifunctor
-import Data.Bitraversable
 import GHC.Generics qualified as GHC
 import Text.Show.Pretty
 
@@ -69,28 +62,6 @@ instance Bifunctor StreamElem where
   bimap g _ (NoMoreElems   b) = NoMoreElems       (g b)
   bimap _ f (StreamElem  a  ) = StreamElem  (f a)
 
-instance Bifoldable StreamElem where
-  bifoldMap g f (FinalElem   a b) = f a <> g b
-  bifoldMap g _ (NoMoreElems   b) =        g b
-  bifoldMap _ f (StreamElem  a  ) = f a
-
-instance Bitraversable StreamElem where
-  bitraverse g f (FinalElem   a b) = FinalElem   <$> f a <*> g b
-  bitraverse g _ (NoMoreElems   b) = NoMoreElems <$>         g b
-  bitraverse _ f (StreamElem  a  ) = StreamElem  <$> f a
-
--- | Value of the element, if one is present
---
--- Returns 'Nothing' in case of 'NoMoreElems'
---
--- Using this function loses the information whether the item was the final
--- item; this information can be recovered using 'definitelyFinal'.
-value :: StreamElem b a -> Maybe a
-value = \case
-    StreamElem a   -> Just a
-    FinalElem  a _ -> Just a
-    NoMoreElems  _ -> Nothing
-
 -- | Do we have evidence that this element is the final one?
 --
 -- A 'False' result does not mean the element is not final; see 'StreamElem' for
@@ -102,24 +73,3 @@ whenDefinitelyFinal msg k =
       FinalElem   _ b -> k b
       NoMoreElems   b -> k b
 
--- | Map over all elements
-mapM_ :: forall m a b. Monad m => m (StreamElem b a) -> (a -> m ()) -> m ()
-mapM_ recv f = loop
-  where
-    loop :: m ()
-    loop = do
-        x <- recv
-        case x of
-          StreamElem a   -> f a >> loop
-          FinalElem  a _ -> f a
-          NoMoreElems  _ -> return ()
-
--- | Collect all elements
---
--- Returns the elements in the order they were received.
-collect :: forall m a b. Monad m => m (StreamElem b a) -> m [a]
-collect recv =
-    reverse <$> execStateT go []
-  where
-    go :: StateT [a] m ()
-    go = mapM_ (lift recv) $ modify . (:)
