@@ -57,9 +57,9 @@ clientWithRPC ::
      (HasCallStack, KnownSymbol meth)
   => ClientConnection
   -> Proxy meth
-  -> (ClientCall meth -> IO ())
+  -> (Channel -> IO ())
   -> IO ()
-clientWithRPC clientConnState _proxy k =
+clientWithRPC clientConnState proxy k =
     mask $ \unmask -> do
       (_, conn) <-
         atomically $ do
@@ -70,24 +70,23 @@ clientWithRPC clientConnState _proxy k =
             ConnectionAbandoned err         -> throwSTM err
             ConnectionClosed                -> error "impossible"
 
-      channel <- setupRequestChannel TrivialClient conn
+      channel <- setupRequestChannel proxy conn
 
       mb :: Either SomeException () <- unmask $ try $ k channel
       _ <- sessionClose channel (ExitCaseSuccess ()) -- simplification
       either throwIO return mb
 
-clientSendInput :: HasCallStack => ClientCall meth -> IO ()
+clientSendInput :: HasCallStack => Channel -> IO ()
 clientSendInput channel = do
     atomically $ sessionSend channel
     void $ sessionWaitForOutbound channel
 
-clientRecvOutput :: ClientCall meth -> IO ()
+clientRecvOutput :: Channel -> IO ()
 clientRecvOutput channel = atomically $ sessionRecv channel
 
 -- ========================================================================== --
 
 type ClientConnection = TVar ConnectionState
-type ClientCall meth  = Channel (TrivialClient meth)
 
 clientWithConnection :: HasCallStack => (ClientConnection -> IO a) -> IO a
 clientWithConnection k = do
@@ -142,17 +141,6 @@ clientStayConnected connVar connCanClose =
 
 -- ========================================================================== --
 
-data TrivialClient  (meth :: Symbol) = TrivialClient
-
-instance KnownSymbol meth => InitiateSession (TrivialClient meth) where
-  buildRequestInfo _ = RequestInfo {
-        requestMethod  = "POST"
-      , requestPath    = "/trivial/" <> BS.C8.pack (symbolVal (Proxy @meth))
-      , requestHeaders = []
-      }
-
--- ========================================================================== --
-
 runServer :: ServiceName -> HTTP2.Server -> IO ()
 runServer port server =
     runTCPServer Nothing port $ \sock -> do
@@ -162,7 +150,7 @@ runServer port server =
 
 -- ========================================================================== --
 
-type RpcHandler = ServerCall -> IO ()
+type RpcHandler = Channel -> IO ()
 type HandlerMap = [(Strict.ByteString, RpcHandler)]
 
 mkServer :: HandlerMap -> HTTP2.Server
@@ -179,21 +167,19 @@ handleRequest handlers conn@(path, _) =
 
 -- ========================================================================== --
 
-type ServerCall = Channel ()
-
-serverAcceptCall :: ServerConnection -> (ServerCall -> IO ()) -> IO ()
+serverAcceptCall :: ServerConnection -> (Channel -> IO ()) -> IO ()
 serverAcceptCall (_path, conn) k = do
-    let setupResponseChannel' :: IO (Channel ())
+    let setupResponseChannel' :: IO Channel
         setupResponseChannel' = setupResponseChannel conn
 
-        handlerTeardown :: ServerCall -> Either SomeException () -> IO ()
+        handlerTeardown :: Channel -> Either SomeException () -> IO ()
         handlerTeardown channel mRes = void $
             case mRes of
               Right () -> sessionClose channel $ ExitCaseSuccess ()
               Left err -> sessionClose channel $ ExitCaseException err
 
     let handler ::
-             Channel ()
+             Channel
           -> (forall a. IO a -> IO a)
           -> IO ()
         handler channel unmask = do
@@ -203,8 +189,8 @@ serverAcceptCall (_path, conn) k = do
     runHandler setupResponseChannel' handler
 
 runHandler ::
-     IO (Channel ())
-  -> (Channel () -> (forall a. IO a -> IO a) -> IO ())
+     IO Channel
+  -> (Channel -> (forall a. IO a -> IO a) -> IO ())
   -> IO ()
 runHandler setupResponseChannel' handler = do
     mask $ \unmask -> do
@@ -237,15 +223,15 @@ runHandler setupResponseChannel' handler = do
 
       loop
 
-serverRecvInput :: ServerCall -> IO ()
+serverRecvInput :: Channel -> IO ()
 serverRecvInput channel = atomically $ sessionRecv channel
 
-serverSendOutput :: ServerCall -> IO ()
+serverSendOutput :: Channel -> IO ()
 serverSendOutput channel = do
     atomically $ sessionSend channel
     void $ sessionWaitForOutbound channel
 
-serverIsCallHealthy :: ServerCall -> STM Bool
+serverIsCallHealthy :: Channel -> STM Bool
 serverIsCallHealthy = sessionIsChannelHealthy
 
 -- ========================================================================== --
@@ -285,13 +271,6 @@ data ResponseInfo = ResponseInfo {
       responseStatus  :: HTTP.Status
     , responseHeaders :: [HTTP.Header]
     }
-
-{-------------------------------------------------------------------------------
-  Main definition
--------------------------------------------------------------------------------}
-
-class InitiateSession sess where
-  buildRequestInfo :: sess -> RequestInfo
 
 {-------------------------------------------------------------------------------
   Exceptions
@@ -348,7 +327,7 @@ data PeerException =
 -- is precisely to abstract over that difference.
 --
 -- Each channel is constructed for a /single/ session (request/response).
-data Channel sess = Channel {
+data Channel = Channel {
       -- | Thread state of the thread receiving messages from the peer
       channelInbound :: TVar (ThreadState (TMVar RegularFlowState))
 
@@ -417,7 +396,7 @@ data RegularFlowState = RegularFlowState {
   Initialization
 -------------------------------------------------------------------------------}
 
-initChannel :: IO (Channel sess)
+initChannel :: IO Channel
 initChannel =
     Channel
       <$> newThreadState
@@ -435,7 +414,7 @@ initFlowStateRegular = do
   Status check
 -------------------------------------------------------------------------------}
 
-data ChannelStatus sess = ChannelStatus {
+data ChannelStatus = ChannelStatus {
       channelStatusInbound   :: FlowStatus
     , channelStatusOutbound  :: FlowStatus
     , channelStatusSentFinal :: Bool
@@ -454,7 +433,7 @@ data FlowStatus =
 -- connection to the peer has already been broken but we haven't noticed yet,
 -- or that the connection will be broken immediately after this call and before
 -- whatever the next call is.
-checkChannelStatus :: Channel sess -> STM (ChannelStatus sess)
+checkChannelStatus :: Channel -> STM ChannelStatus
 checkChannelStatus Channel{ channelInbound
                    , channelOutbound
                    , channelSentFinal
@@ -491,7 +470,7 @@ checkChannelStatus Channel{ channelInbound
 -- * returns 'False' if the flow in either direction has been terminated,
 --   or has failed
 -- * returns 'True' otherwise.
-sessionIsChannelHealthy :: Channel sess -> STM Bool
+sessionIsChannelHealthy :: Channel -> STM Bool
 sessionIsChannelHealthy channel = do
     status <- checkChannelStatus channel
     case (channelStatusInbound status, channelStatusOutbound status) of
@@ -516,7 +495,7 @@ sessionIsChannelHealthy channel = do
 -- result in a 'SendAfterFinal' exception.
 sessionSend ::
      HasCallStack
-  => Channel sess
+  => Channel
   -> STM ()
 sessionSend Channel{channelOutbound, channelSentFinal} = do
     -- By checking that we haven't sent the final message yet, we know that this
@@ -536,10 +515,7 @@ sessionSend Channel{channelOutbound, channelSentFinal} = do
 --
 -- It is a bug to call 'recv' again after receiving the final message; Doing so
 -- will result in a 'RecvAfterFinal' exception.
-sessionRecv ::
-     HasCallStack
-  => Channel sess
-  -> STM ()
+sessionRecv :: Channel -> STM ()
 sessionRecv Channel{channelInbound, channelRecvFinal} = do
     iface <- getThreadInterface channelInbound
     regular <- readTMVar iface
@@ -578,7 +554,7 @@ data RecvAfterFinal =
 -- | Wait for the outbound thread to terminate
 --
 -- See 'forceClose' for discussion.
-sessionWaitForOutbound :: Channel sess -> IO (RegularFlowState)
+sessionWaitForOutbound :: Channel -> IO (RegularFlowState)
 sessionWaitForOutbound Channel{channelOutbound} = atomically $
     readTMVar =<< waitForThread channelOutbound
 
@@ -606,7 +582,7 @@ sessionWaitForOutbound Channel{channelOutbound} = atomically $
 -- the server keeps sending data and we're not listening.)
 sessionClose ::
      HasCallStack
-  => Channel sess
+  => Channel
   -> ExitCase a    -- ^ The reason why the channel is being closed
   -> IO (Maybe ChannelUncleanClose)
 sessionClose Channel{channelOutbound} reason = do
@@ -659,12 +635,11 @@ data ChannelClosed =
 -- | Send all messages to the node's peer
 --
 -- Should be called with exceptions masked.
-sendMessageLoop :: forall sess.
+sendMessageLoop ::
      (forall x. IO x -> IO x) -- ^ Unmask
-  -> Proxy sess
   -> RegularFlowState
   -> IO ()
-sendMessageLoop unmask _proxy st = do
+sendMessageLoop unmask st = do
     unmask $ atomically $ takeTMVar (flowMsg st)
     atomically $ putTMVar (flowTerminated st) ()
 
@@ -674,13 +649,12 @@ sendMessageLoop unmask _proxy st = do
 --
 -- TODO: This is wrong, we are never marking the final element as final.
 -- (But fixing this requires a patch to http2.)
-recvMessageLoop :: forall sess.
+recvMessageLoop ::
      (forall x. IO x -> IO x) -- ^ Unmask
-  -> Proxy sess
   -> RegularFlowState
   -> InputStream
   -> IO ()
-recvMessageLoop unmask _proxy st stream = do
+recvMessageLoop unmask st stream = do
     go
   where
     go :: IO ()
@@ -697,7 +671,7 @@ recvMessageLoop unmask _proxy st stream = do
               Right _ -> error "unexpected chunk"
 
 
-outboundTrailersMaker :: Channel sess -> HTTP2.TrailersMaker
+outboundTrailersMaker :: Channel -> HTTP2.TrailersMaker
 outboundTrailersMaker channel = go
   where
     go :: HTTP2.TrailersMaker
@@ -726,7 +700,7 @@ data ConnectionToClient = ConnectionToClient {
 -- | Setup response channel
 --
 -- The actual response will not immediately be initiated; see below.
-setupResponseChannel :: forall sess. ConnectionToClient -> IO (Channel sess)
+setupResponseChannel :: ConnectionToClient -> IO Channel
 setupResponseChannel conn = do
     channel <- initChannel
 
@@ -734,7 +708,7 @@ setupResponseChannel conn = do
       regular <- initFlowStateRegular
       stream  <- serverInputStream (request conn)
       atomically $ putTMVar stVar regular
-      recvMessageLoop unmask (Proxy @sess) regular stream
+      recvMessageLoop unmask regular stream
 
     forkThread (channelOutbound channel) newEmptyTMVarIO $ \unmask stVar -> do
       let responseInfo = ResponseInfo HTTP.ok200 []
@@ -746,7 +720,7 @@ setupResponseChannel conn = do
                        (responseHeaders responseInfo)
                $ \write' flush' -> do
                     _stream <- serverOutputStream write' flush'
-                    sendMessageLoop unmask (Proxy @sess) regular
+                    sendMessageLoop unmask regular
       respond conn resp
 
     return channel
@@ -806,14 +780,13 @@ data ConnectionToServer = ConnectionToServer {
 -- | Setup request channel
 --
 -- This initiate a new request.
-setupRequestChannel :: forall sess.
-     InitiateSession sess
-  => sess
+setupRequestChannel :: forall meth.
+     KnownSymbol meth
+  => Proxy meth
   -> ConnectionToServer
-  -> IO (Channel sess)
-setupRequestChannel sess ConnectionToServer{sendRequest} = do
+  -> IO Channel
+setupRequestChannel _proxy ConnectionToServer{sendRequest} = do
     channel <- initChannel
-    let requestInfo = buildRequestInfo sess
 
     regular <- initFlowStateRegular
     let req :: Client.Request
@@ -827,19 +800,26 @@ setupRequestChannel sess ConnectionToServer{sendRequest} = do
                             (newTMVarIO regular)
                           $ \_stVar -> do
                    _stream <- clientOutputStream write' flush'
-                   sendMessageLoop unmask (Proxy @sess) regular
+                   sendMessageLoop unmask regular
     forkRequest channel req
 
     return channel
   where
-    forkRequest :: Channel sess -> Client.Request -> IO ()
+    requestInfo :: RequestInfo
+    requestInfo = RequestInfo {
+          requestMethod  = "POST"
+        , requestPath    = "/trivial/" <> BS.C8.pack (symbolVal (Proxy @meth))
+        , requestHeaders = []
+        }
+
+    forkRequest :: Channel -> Client.Request -> IO ()
     forkRequest channel req =
         forkThread (channelInbound channel) newEmptyTMVarIO $ \unmask stVar -> do
           setup <- try $ sendRequest req $ \resp -> do
             regular <- initFlowStateRegular
             stream  <- clientInputStream resp
             atomically $ putTMVar stVar regular
-            recvMessageLoop unmask (Proxy @sess) regular stream
+            recvMessageLoop unmask regular stream
 
           case setup of
             Right () -> return ()
@@ -851,9 +831,7 @@ setupRequestChannel sess ConnectionToServer{sendRequest} = do
    Auxiliary http2
 -------------------------------------------------------------------------------}
 
-setRequestTrailers ::
-     Channel sess
-  -> Client.Request -> Client.Request
+setRequestTrailers :: Channel -> Client.Request -> Client.Request
 setRequestTrailers channel req =
     Client.setRequestTrailersMaker req $
       outboundTrailersMaker channel
@@ -922,7 +900,7 @@ clientGlobal testClock =
     withAsync (clientLocal1 testClock) $ \thread1 ->
     mapM_ wait [thread1, thread2]
 
-serverLocal1 :: TestClock -> ServerCall -> IO ()
+serverLocal1 :: TestClock -> Channel -> IO ()
 serverLocal1 testClock call = handle showExceptions $ do
     advanceTestClock testClock
 
@@ -940,7 +918,7 @@ serverLocal1 testClock call = handle showExceptions $ do
         putStrLn $ "serverLocal1: " ++ show err
         throwIO err
 
-serverLocal2 :: TestClock -> ServerCall -> IO ()
+serverLocal2 :: TestClock -> Channel -> IO ()
 serverLocal2 testClock call = handle showExceptions $ do
     advanceTestClock testClock
 
