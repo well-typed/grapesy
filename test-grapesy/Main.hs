@@ -25,7 +25,6 @@ module Main (main) where
 import Control.Exception
 import Control.Monad
 import Control.Monad.Catch (ExitCase(..))
-import Data.Bifunctor
 import Data.ByteString qualified as Strict
 import Data.ByteString.Char8 qualified as BS.C8
 import Data.Maybe (fromMaybe)
@@ -33,8 +32,6 @@ import Data.Proxy
 import Debug.Trace
 import GHC.Stack
 import GHC.TypeLits
-import Network.HPACK qualified as HPACK
-import Network.HPACK.Token qualified as HPACK
 import Network.HTTP.Types qualified as HTTP
 import Network.HTTP2.Client qualified as Client
 import Network.HTTP2.Client qualified as HTTP2.Client
@@ -47,65 +44,6 @@ import Network.Socket
 
 import Network.GRPC.Util.Concurrency
 import Network.GRPC.Util.Thread
-
--- ========================================================================== --
-
-fromHeaderTable :: HPACK.HeaderTable -> [HTTP.Header]
-fromHeaderTable = map (first HPACK.tokenKey) . fst
-
-data InputStream = InputStream {
-      _getChunk    :: HasCallStack => IO Strict.ByteString
-    , _getTrailers :: HasCallStack => IO [HTTP.Header]
-    }
-
-getChunk :: HasCallStack => InputStream -> IO Strict.ByteString
-getChunk = _getChunk
-
-serverInputStream :: Server.Request -> IO InputStream
-serverInputStream req = do
-    return InputStream {
-        _getChunk    = wrapStreamExceptionsWith ClientDisconnected $
-                         Server.getRequestBodyChunk req
-      , _getTrailers = wrapStreamExceptionsWith ClientDisconnected $
-                         maybe [] fromHeaderTable <$>
-                           Server.getRequestTrailers req
-      }
-
-clientInputStream :: Client.Response -> IO InputStream
-clientInputStream resp = do
-    return InputStream {
-        _getChunk    = wrapStreamExceptionsWith ServerDisconnected $
-                         Client.getResponseBodyChunk resp
-      , _getTrailers = wrapStreamExceptionsWith ServerDisconnected $
-                         maybe [] fromHeaderTable <$>
-                           Client.getResponseTrailers resp
-      }
-
-{-------------------------------------------------------------------------------
-  Exceptions
--------------------------------------------------------------------------------}
-
-data StreamException = StreamException SomeException CallStack
-  deriving stock (Show)
-  deriving anyclass (Exception)
-
--- | Client disconnected unexpectedly
-data ClientDisconnected = ClientDisconnected SomeException
-  deriving stock (Show)
-  deriving anyclass (Exception)
-
--- | Server disconnected unexpectedly
-data ServerDisconnected = ServerDisconnected SomeException
-  deriving stock (Show)
-  deriving anyclass (Exception)
-
-wrapStreamExceptionsWith ::
-     (HasCallStack, Exception e)
-  => (SomeException -> e)
-  -> IO a -> IO a
-wrapStreamExceptionsWith f action =
-    action `catch` \err ->
-      throwIO $ f $ toException $ StreamException err callStack
 
 -- ========================================================================== --
 
@@ -272,10 +210,8 @@ runHandler setupResponseChannel' handler = do
                      let exitReason :: ExitCase ()
                          exitReason =
                            case mErr of
-                             Nothing -> ExitCaseSuccess ()
-                             Just exitWithException ->
-                               ExitCaseException . toException $
-                                 ClientDisconnected exitWithException
+                             Nothing   -> ExitCaseSuccess ()
+                             Just err' -> ExitCaseException err'
                      _mAlreadyClosed <- sessionClose callChannel exitReason
                      loop
                    Nothing -> do
@@ -595,9 +531,9 @@ sendMessageLoop unmask st = do
 recvMessageLoop ::
      (forall x. IO x -> IO x) -- ^ Unmask
   -> RegularFlowState
-  -> InputStream
+  -> IO Strict.ByteString
   -> IO ()
-recvMessageLoop unmask st stream = do
+recvMessageLoop unmask st getChunk = do
     go
   where
     go :: IO ()
@@ -608,7 +544,7 @@ recvMessageLoop unmask st stream = do
       where
         loop :: IO ()
         loop = do
-            mbs <- unmask $ try $ getChunk stream
+            mbs <- unmask $ try getChunk
             case mbs of
               Left (err :: SomeException) -> throwIO err
               Right _ -> error "unexpected chunk"
@@ -649,9 +585,8 @@ setupResponseChannel conn = do
 
     forkThread (channelInbound channel) newEmptyTMVarIO $ \unmask stVar -> do
       regular <- initFlowStateRegular
-      stream  <- serverInputStream (request conn)
       atomically $ putTMVar stVar regular
-      recvMessageLoop unmask regular stream
+      recvMessageLoop unmask regular (Server.getRequestBodyChunk $ request conn)
 
     forkThread (channelOutbound channel) newEmptyTMVarIO $ \unmask stVar -> do
       regular <- initFlowStateRegular
@@ -748,9 +683,8 @@ setupRequestChannel _proxy ConnectionToServer{sendRequest} = do
         forkThread (channelInbound channel) newEmptyTMVarIO $ \unmask stVar -> do
           setup <- try $ sendRequest req $ \resp -> do
             regular <- initFlowStateRegular
-            stream  <- clientInputStream resp
             atomically $ putTMVar stVar regular
-            recvMessageLoop unmask regular stream
+            recvMessageLoop unmask regular (Client.getResponseBodyChunk resp)
 
           case setup of
             Right () -> return ()
