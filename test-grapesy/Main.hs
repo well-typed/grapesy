@@ -27,8 +27,6 @@ import Control.Monad
 import Control.Monad.Catch (ExitCase(..))
 import Data.ByteString qualified as Strict (ByteString)
 import Data.ByteString.Char8 qualified as BS.C8
-import Data.ByteString.Lazy qualified as BS.Lazy
-import Data.Kind
 import Data.Maybe (fromMaybe)
 import Data.Proxy
 import Debug.Trace
@@ -45,7 +43,6 @@ import Network.Run.TCP qualified as Run
 import Network.Socket
 
 import Network.GRPC.Util.Concurrency
-import Network.GRPC.Util.HTTP2 (fromHeaderTable)
 import Network.GRPC.Util.HTTP2.Stream
 import Network.GRPC.Util.Thread
 
@@ -73,14 +70,11 @@ clientWithRPC clientConnState _proxy k =
             ConnectionAbandoned err         -> throwSTM err
             ConnectionClosed                -> error "impossible"
 
-      channel <- setupRequestChannel TrivialClient conn flowStart
+      channel <- setupRequestChannel TrivialClient conn
 
       mb :: Either SomeException () <- unmask $ try $ k channel
       _ <- sessionClose channel (ExitCaseSuccess ()) -- simplification
       either throwIO return mb
-  where
-    flowStart :: FlowStart (ClientOutbound rpc)
-    flowStart = ClientOutboundHeaders
 
 clientSendInput :: HasCallStack => ClientCall meth -> IO ()
 clientSendInput channel = do
@@ -149,21 +143,9 @@ clientStayConnected connVar connCanClose =
 -- ========================================================================== --
 
 data TrivialClient  (meth :: Symbol) = TrivialClient
-data ClientInbound  (meth :: Symbol)
-data ClientOutbound (meth :: Symbol)
-
-instance DataFlow (ClientInbound meth) where
-  data Headers (ClientInbound meth) = ClientInboundHeaders deriving (Show)
-
-instance DataFlow (ClientOutbound meth) where
-  data Headers (ClientOutbound meth) = ClientOutboundHeaders deriving (Show)
-
-instance IsSession (TrivialClient meth) where
-  type Inbound  (TrivialClient meth) = ClientInbound  meth
-  type Outbound (TrivialClient meth) = ClientOutbound meth
 
 instance KnownSymbol meth => InitiateSession (TrivialClient meth) where
-  buildRequestInfo _ _ = RequestInfo {
+  buildRequestInfo _ = RequestInfo {
         requestMethod  = "POST"
       , requestPath    = "/trivial/" <> BS.C8.pack (symbolVal (Proxy @meth))
       , requestHeaders = []
@@ -172,22 +154,9 @@ instance KnownSymbol meth => InitiateSession (TrivialClient meth) where
 -- ========================================================================== --
 
 data TrivialServer = TrivialServer
-data ServerInbound
-data ServerOutbound
-
-instance DataFlow ServerInbound where
-  data Headers ServerInbound = ServerInboundHeaders deriving (Show)
-
-instance DataFlow ServerOutbound where
-  data Headers ServerOutbound = ServerOutboundHeaders deriving (Show)
-
-instance IsSession TrivialServer where
-  type Inbound  TrivialServer = ServerInbound
-  type Outbound TrivialServer = ServerOutbound
 
 instance AcceptSession TrivialServer where
-  parseRequestRegular _ _ = return ServerInboundHeaders
-  buildResponseInfo   _ _ = ResponseInfo HTTP.ok200 []
+  buildResponseInfo _ = ResponseInfo HTTP.ok200 []
 
 -- ========================================================================== --
 
@@ -222,11 +191,7 @@ type ServerCall = Channel TrivialServer
 serverAcceptCall :: ServerConnection -> (ServerCall -> IO ()) -> IO ()
 serverAcceptCall (_path, conn) k = do
     let setupResponseChannel' :: IO (Channel TrivialServer)
-        setupResponseChannel' =
-            setupResponseChannel
-              callSession
-              conn
-              (\_ -> return ServerOutboundHeaders)
+        setupResponseChannel' = setupResponseChannel callSession conn
 
         handlerTeardown :: ServerCall -> Either SomeException () -> IO ()
         handlerTeardown channel mRes = void $
@@ -335,73 +300,11 @@ data ResponseInfo = ResponseInfo {
   Main definition
 -------------------------------------------------------------------------------}
 
--- | Flow of data in a session
---
--- This describes the flow of data in /one/ direction. The normal flow of data
--- is as follows:
---
--- 1. (Proper) Headers
--- 2. Messages
--- 3. Trailers
---
--- However, in the case that there /are/ no messages, this whole thing collapses
--- and we just have headers (in gRPC this is referred to as the Trailers-Only
--- case, but we avoid that terminology here).
---
--- * It looks different on the wire: in the regular case, we will have /two/
---   HTTP @Headers@ frames, but in the absence of messages we only have one.
--- * Applications may in turn treat this case special, using a different set of
---   headers (specifically, this is the case for gRPC).
-class Show (Headers flow) => DataFlow flow where
-  data Headers flow :: Type
+class InitiateSession sess where
+  buildRequestInfo :: sess -> RequestInfo
 
--- | Start of data flow
---
--- See 'DataFlow' for discussion.
-type FlowStart flow = Headers flow
-
--- | Session between two nodes in the network
---
--- The session is described from the point of view of /this/ node, who is
--- talking to a peer node. For example, if this node is a client, then the peer
--- is a server, the outbound headers correspond to a request and the inbound
--- headers correspond to a response (see also 'InitiateSession').
---
--- We avoid referring to \"inputs\" or \"outputs\" here, but instead talk about
--- \"inbound\" or \"outbound\". When we are dealing with gRPC, \"inputs\" are
--- outbound for the client and inbound for the server, and \"outputs\" are
--- inbound for the client and outbound for the server.
-class ( DataFlow (Inbound  sess)
-      , DataFlow (Outbound sess)
-      ) => IsSession sess where
-  type Inbound  sess :: Type
-  type Outbound sess :: Type
-
--- | Initiate new session
---
--- A client node connects to a server, and initiates the request.
-class IsSession sess => InitiateSession sess where
-  -- | Build 'RequestInfo' for the server
-  buildRequestInfo ::
-       sess
-    -> FlowStart (Outbound sess) -> RequestInfo
-
--- | Accept session
---
--- A server node listens and accepts incoming requests from client nodes.
-class IsSession sess => AcceptSession sess where
-  -- | Parse 'RequestInfo' from the client, regular case
-  --
-  -- See 'parseRequestTrailersOnly' for the Trailers-Only case.
-  parseRequestRegular ::
-       sess
-    -> RequestInfo -> IO (Headers (Inbound sess))
-
-  -- | Build 'ResponseInfo' for the client
-  buildResponseInfo ::
-       sess
-    -> FlowStart (Outbound sess)
-    -> ResponseInfo
+class AcceptSession sess where
+  buildResponseInfo :: sess -> ResponseInfo
 
 {-------------------------------------------------------------------------------
   Exceptions
@@ -460,10 +363,10 @@ data PeerException =
 -- Each channel is constructed for a /single/ session (request/response).
 data Channel sess = Channel {
       -- | Thread state of the thread receiving messages from the peer
-      channelInbound :: TVar (ThreadState (TMVar (RegularFlowState (Inbound sess))))
+      channelInbound :: TVar (ThreadState (TMVar RegularFlowState))
 
       -- | Thread state of the thread sending messages to the peer
-    , channelOutbound :: TVar (ThreadState (TMVar (RegularFlowState (Outbound sess))))
+    , channelOutbound :: TVar (ThreadState (TMVar RegularFlowState))
 
       -- | 'CallStack' of the final call to 'send'
       --
@@ -479,7 +382,7 @@ data Channel sess = Channel {
     }
 
 -- | Regular (streaming) flow state
-data RegularFlowState flow = RegularFlowState {
+data RegularFlowState = RegularFlowState {
       -- | Messages
       --
       -- This TMVar is written to for incoming messages ('recvMessageLoop') and
@@ -535,7 +438,7 @@ initChannel =
       <*> newTVarIO Nothing
       <*> newTVarIO Nothing
 
-initFlowStateRegular :: IO (RegularFlowState flow)
+initFlowStateRegular :: IO RegularFlowState
 initFlowStateRegular = do
     RegularFlowState
       <$> newEmptyTMVarIO
@@ -546,15 +449,15 @@ initFlowStateRegular = do
 -------------------------------------------------------------------------------}
 
 data ChannelStatus sess = ChannelStatus {
-      channelStatusInbound   :: FlowStatus (Inbound sess)
-    , channelStatusOutbound  :: FlowStatus (Outbound sess)
+      channelStatusInbound   :: FlowStatus
+    , channelStatusOutbound  :: FlowStatus
     , channelStatusSentFinal :: Bool
     , channelStatusRecvFinal :: Bool
     }
 
-data FlowStatus flow =
+data FlowStatus =
     FlowNotYetEstablished
-  | FlowEstablished (RegularFlowState flow)
+  | FlowEstablished RegularFlowState
   | FlowTerminated
   | FlowFailed SomeException
 
@@ -583,7 +486,7 @@ checkChannelStatus Channel{ channelInbound
       , channelStatusRecvFinal
       }
   where
-    go :: ThreadState (TMVar (RegularFlowState flow)) -> STM (FlowStatus flow)
+    go :: ThreadState (TMVar RegularFlowState) -> STM FlowStatus
     go ThreadNotStarted       = return FlowNotYetEstablished
     go (ThreadInitializing _) = return FlowNotYetEstablished
     go (ThreadRunning _ a)    = FlowEstablished <$> readTMVar a
@@ -688,7 +591,7 @@ data RecvAfterFinal =
 -- | Wait for the outbound thread to terminate
 --
 -- See 'forceClose' for discussion.
-sessionWaitForOutbound :: HasCallStack => Channel sess -> IO (RegularFlowState (Outbound sess))
+sessionWaitForOutbound :: Channel sess -> IO (RegularFlowState)
 sessionWaitForOutbound Channel{channelOutbound} = atomically $
     readTMVar =<< waitForThread channelOutbound
 
@@ -772,7 +675,7 @@ data ChannelClosed =
 sendMessageLoop :: forall sess.
      (forall x. IO x -> IO x) -- ^ Unmask
   -> Proxy sess
-  -> RegularFlowState (Outbound sess)
+  -> RegularFlowState
   -> IO ()
 sendMessageLoop unmask _proxy st = do
     unmask $ atomically $ takeTMVar (flowMsg st)
@@ -787,7 +690,7 @@ sendMessageLoop unmask _proxy st = do
 recvMessageLoop :: forall sess.
      (forall x. IO x -> IO x) -- ^ Unmask
   -> Proxy sess
-  -> RegularFlowState (Inbound sess)
+  -> RegularFlowState
   -> InputStream
   -> IO ()
 recvMessageLoop unmask _proxy st stream = do
@@ -817,26 +720,6 @@ outboundTrailersMaker channel = go
         ()      <- atomically $ readTMVar $ flowTerminated regular
         return $ HTTP2.Trailers []
 
-data DebugMsg sess =
-    -- | Thread sending messages is awaiting a message
-    NodeSendAwaitMsg
-
-    -- | Thread sending message will send a message
-  | NodeSendMsg ()
-
-    -- | Receive thread requires data
-    --
-    -- We also record the data already received
-  | NodeNeedsData BS.Lazy.ByteString
-
-    -- | Receive thread received a message
-  | NodeRecvMsg ()
-
-    -- | Receive thread received the trailers
-  | NodeRecvFinal ()
-
-deriving instance IsSession sess => Show (DebugMsg sess)
-
 -- ========================================================================== --
 
 {-------------------------------------------------------------------------------
@@ -860,30 +743,9 @@ setupResponseChannel :: forall sess.
      (AcceptSession sess, HasCallStack)
   => sess
   -> ConnectionToClient
-  -> (FlowStart (Inbound sess) -> IO (FlowStart (Outbound sess)))
-  -- ^ Construct headers for the initial response
-  --
-  -- This function has quite a bit of control over how the outbound part of
-  -- the channel gets established:
-  --
-  -- * If it blocks, the response will not be initiated until it returns.
-  -- * If it throws an exception, no response will be attempted at all. This
-  --   allows the function to send a response of its own (typically, some kind
-  --   of error response).
   -> IO (Channel sess)
-setupResponseChannel sess conn startOutbound = do
+setupResponseChannel sess conn = do
     channel <- initChannel
-
-    let requestHeaders = fromHeaderTable $ Server.requestHeaders (request conn)
-    requestMethod <- case Server.requestMethod (request conn) of
-                       Just x  -> return x
-                       Nothing -> throwIO PeerMissingPseudoHeaderMethod
-    requestPath   <- case Server.requestPath (request conn) of
-                       Just x  -> return x
-                       Nothing -> throwIO PeerMissingPseudoHeaderPath
-    let requestInfo = RequestInfo {requestHeaders, requestMethod, requestPath}
-
-    inboundStart <- parseRequestRegular sess requestInfo
 
     forkThread (channelInbound channel) newEmptyTMVarIO $ \unmask stVar -> do
       regular <- initFlowStateRegular
@@ -892,8 +754,7 @@ setupResponseChannel sess conn startOutbound = do
       recvMessageLoop unmask (Proxy @sess) regular stream
 
     forkThread (channelOutbound channel) newEmptyTMVarIO $ \unmask stVar -> do
-      outboundStart <- startOutbound inboundStart
-      let responseInfo = buildResponseInfo sess outboundStart
+      let responseInfo = buildResponseInfo sess
       regular <- initFlowStateRegular
       atomically $ putTMVar stVar regular
       let resp :: Server.Response
@@ -966,11 +827,10 @@ setupRequestChannel :: forall sess.
      InitiateSession sess
   => sess
   -> ConnectionToServer
-  -> FlowStart (Outbound sess)
   -> IO (Channel sess)
-setupRequestChannel sess ConnectionToServer{sendRequest} outboundStart = do
+setupRequestChannel sess ConnectionToServer{sendRequest} = do
     channel <- initChannel
-    let requestInfo = buildRequestInfo sess outboundStart
+    let requestInfo = buildRequestInfo sess
 
     regular <- initFlowStateRegular
     let req :: Client.Request
