@@ -43,9 +43,8 @@ import Network.Run.TCP (runTCPServer)
 import Network.Run.TCP qualified as Run
 import Network.Socket
 
-import Network.GRPC.Common
+import Network.GRPC.Common.StreamElem (StreamElem(..))
 import Network.GRPC.Common.StreamElem qualified as StreamElem
-import Network.GRPC.Spec
 import Network.GRPC.Util.Concurrency
 import Network.GRPC.Util.HTTP2.Stream (ClientDisconnected(..))
 import Network.GRPC.Util.Parser
@@ -102,18 +101,13 @@ clientRecvOutput channel = atomically $
 type ClientConnection = TVar ConnectionState
 type ClientCall meth  = Session.Channel (TrivialClient meth)
 
-clientWithConnection ::
-     HasCallStack
-  => Authority -- ^ What to connect to
-  -> (ClientConnection -> IO a)
-  -> IO a
-clientWithConnection auth k = do
+clientWithConnection :: HasCallStack => (ClientConnection -> IO a) -> IO a
+clientWithConnection k = do
     clientConnState <- newTVarIO ConnectionNotReady
 
     connCanClose <- newEmptyMVar
     let stayConnectedThread :: IO ()
-        stayConnectedThread =
-          clientStayConnected auth clientConnState connCanClose
+        stayConnectedThread = clientStayConnected clientConnState connCanClose
 
     void $ forkIO $ stayConnectedThread
     k clientConnState `finally` putMVar connCanClose ()
@@ -124,12 +118,8 @@ data ConnectionState =
   | ConnectionAbandoned SomeException
   | ConnectionClosed
 
-clientStayConnected ::
-     Authority
-  -> TVar ConnectionState
-  -> MVar ()
-  -> IO ()
-clientStayConnected auth connVar connCanClose =
+clientStayConnected :: TVar ConnectionState -> MVar () -> IO ()
+clientStayConnected connVar connCanClose =
     loop
   where
     loop :: IO ()
@@ -140,10 +130,7 @@ clientStayConnected auth connVar connCanClose =
           runTCPClient $ \sock ->
             bracket (HTTP2.Client.allocSimpleConfig sock 4096)
                     HTTP2.Client.freeSimpleConfig $ \conf ->
-              HTTP2.Client.run
-                    (clientConfig Http)
-                    conf
-                  $ \sendRequest _aux -> do
+              HTTP2.Client.run clientConfig conf $ \sendRequest _aux -> do
                 let conn = Client.ConnectionToServer sendRequest
                 atomically $ writeTVar connVar $ ConnectionReady connClosed conn
                 takeMVar connCanClose
@@ -157,16 +144,13 @@ clientStayConnected auth connVar connCanClose =
 
     runTCPClient :: (Socket -> IO a) -> IO a
     runTCPClient =
-        Run.runTCPClient (authorityHost auth) (show $ authorityPort auth)
+        Run.runTCPClient "localhost" "50051"
 
-    clientConfig :: Scheme -> HTTP2.Client.ClientConfig
-    clientConfig scheme = HTTP2.Client.defaultClientConfig {
-          HTTP2.Client.scheme    = rawScheme serverPseudoHeaders
-        , HTTP2.Client.authority = rawAuthority serverPseudoHeaders
+    clientConfig :: HTTP2.Client.ClientConfig
+    clientConfig = HTTP2.Client.defaultClientConfig {
+          HTTP2.Client.scheme    = "http"
+        , HTTP2.Client.authority = "localhost"
         }
-      where
-        serverPseudoHeaders :: RawServerHeaders
-        serverPseudoHeaders = buildServerHeaders $ ServerHeaders scheme auth
 
 -- ========================================================================== --
 
@@ -382,10 +366,10 @@ advanceTestClock clock = atomically $ modifyTVar clock succ
 
 -- ========================================================================== --
 
-clientLocal1 :: HasCallStack => TestClock -> Authority -> IO ()
-clientLocal1 testClock auth = handle showExceptions $ do
+clientLocal1 :: HasCallStack => TestClock -> IO ()
+clientLocal1 testClock = handle showExceptions $ do
     waitForTestClockTick testClock 0
-    clientWithConnection auth $ \conn -> do
+    clientWithConnection $ \conn -> do
       clientWithRPC conn (Proxy @"test1") $ \_call -> do
         waitForTestClockTick testClock 2
         throwIO $ userError "this models some kind of client exception"
@@ -395,10 +379,10 @@ clientLocal1 testClock auth = handle showExceptions $ do
         putStrLn $ "clientLocal1: " ++ show err
         throwIO err
 
-clientLocal2 :: HasCallStack => TestClock -> Authority -> IO ()
-clientLocal2 testClock auth = handle showExceptions $ do
+clientLocal2 :: HasCallStack => TestClock -> IO ()
+clientLocal2 testClock = handle showExceptions $ do
     waitForTestClockTick testClock 1
-    clientWithConnection auth $ \conn -> do
+    clientWithConnection $ \conn -> do
       clientWithRPC conn (Proxy @"test2") $ \call -> do
         waitForTestClockTick testClock 3
         clientSendInput call $ NoMoreElems ()
@@ -410,8 +394,8 @@ clientLocal2 testClock auth = handle showExceptions $ do
         putStrLn $ "clientLocal2: " ++ show err
         throwIO err
 
-clientGlobal :: TestClock -> Authority -> IO ()
-clientGlobal testClock auth =
+clientGlobal :: TestClock -> IO ()
+clientGlobal testClock =
     -- The bug is /very/ sensitive to what exactly we do here. The bug does not
     -- materialize if we
     --
@@ -424,8 +408,8 @@ clientGlobal testClock auth =
     -- disappearing causes the recv in serverLocal2 to become impossible
     -- (though we get get the blocked indefinitely exception in STM is still
     -- unclear, of course).
-    withAsync (clientLocal2 testClock auth) $ \thread2 ->
-    withAsync (clientLocal1 testClock auth) $ \thread1 ->
+    withAsync (clientLocal2 testClock) $ \thread2 ->
+    withAsync (clientLocal1 testClock) $ \thread1 ->
     mapM_ wait [thread1, thread2]
 
 serverLocal1 :: TestClock -> ServerCall -> IO ()
@@ -481,7 +465,7 @@ main = do
     -- Give the server a chance to start
     threadDelay 500_000
 
-    _client <- async $ clientGlobal testClock (Authority "localhost" 50051)
+    _client <- async $ clientGlobal testClock
 
     -- Wait for the test clock to reach 4 (which it won't)
     -- (This just prevents the test from terminating too soon)
