@@ -83,10 +83,6 @@ library
       Network.GRPC.Util.HTTP2.Stream
       Network.GRPC.Util.Parser
       Network.GRPC.Util.PrettyVal
-      Network.GRPC.Util.Session.API
-      Network.GRPC.Util.Session.Channel
-      Network.GRPC.Util.Session.Client
-      Network.GRPC.Util.Session.Server
       Network.GRPC.Util.Thread
       Paths_grapesy
   hs-source-dirs:
@@ -95,8 +91,6 @@ library
     , async         >= 2.2  && < 2.3
     , binary        >= 0.8  && < 0.9
     , bytestring    >= 0.10 && < 0.12
-    , contra-tracer >= 0.2  && < 0.3
-    , exceptions    >= 0.10 && < 0.11
     , http-types    >= 0.12 && < 0.13
     , pretty-show   >= 1.10 && < 1.11
     , stm           >= 2.5  && < 2.6
