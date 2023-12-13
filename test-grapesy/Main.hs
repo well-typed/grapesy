@@ -26,7 +26,6 @@ import Control.Exception
 import Control.Monad
 import Control.Monad.Catch (ExitCase(..))
 import Control.Tracer
-import Data.Bifunctor
 import Data.ByteString qualified as Strict (ByteString)
 import Data.ByteString.Char8 qualified as BS.C8
 import Data.ByteString.Lazy qualified as BS.Lazy
@@ -47,8 +46,6 @@ import Network.Run.TCP (runTCPServer)
 import Network.Run.TCP qualified as Run
 import Network.Socket
 
-import Network.GRPC.Common.StreamElem (StreamElem(..))
-import Network.GRPC.Common.StreamElem qualified as StreamElem
 import Network.GRPC.Util.Concurrency
 import Network.GRPC.Util.HTTP2 (fromHeaderTable)
 import Network.GRPC.Util.HTTP2.Stream
@@ -58,6 +55,58 @@ import Network.GRPC.Util.Thread
 
 _traceLabelled :: Show a => String -> a -> a
 _traceLabelled lbl x = trace (lbl ++ ": " ++ show x) x
+
+-- ========================================================================== --
+
+-- | An element positioned in a stream
+data StreamElem b a =
+    -- | Element in the stream
+    --
+    -- The final element in a stream may or may not be marked as final; if it is
+    -- not, we will only discover /after/ receiving the final element that it
+    -- was in fact final. Moreover, we do not know ahead of time whether or not
+    -- the final element will be marked.
+    --
+    -- When we receive an element and it is not marked final, this might
+    -- therefore mean one of two things, without being able to tell which:
+    --
+    -- * We are dealing with a stream in which the final element is not marked.
+    --
+    --   In this case, the element may or may not be the final element; if it
+    --   is, the next value will be 'NoMore' (but waiting for the next value
+    --   might mean a blocking call).
+    --
+    -- * We are dealing with a stream in which the final element /is/ marked.
+    --
+    --   In this case, this element is /not/ final (and the final element, when
+    --   we receive it, will be tagged as 'Final').
+    StreamElem a
+
+    -- | We received the final element
+    --
+    -- The final element is annotated with some additional information.
+  | FinalElem a b
+
+    -- | There are no more elements
+    --
+    -- This is used in two situations:
+    --
+    -- * The stream didn't contain any elements at all.
+    -- * The final element was not marked as final.
+    --   See 'StreamElem' for detailed additional discussion.
+  | NoMoreElems b
+  deriving stock (Show, Eq, Functor, Foldable, Traversable)
+
+-- | Do we have evidence that this element is the final one?
+--
+-- A 'False' result does not mean the element is not final; see 'StreamElem' for
+-- detailed discussion.
+whenDefinitelyFinal :: Applicative m => StreamElem b a -> (b -> m ()) -> m ()
+whenDefinitelyFinal msg k =
+    case msg of
+      StreamElem  _   -> pure ()
+      FinalElem   _ b -> k b
+      NoMoreElems   b -> k b
 
 -- ========================================================================== --
 
@@ -90,12 +139,11 @@ clientWithRPC clientConnState _proxy k =
 clientSendInput :: HasCallStack => ClientCall meth -> StreamElem () Void -> IO ()
 clientSendInput channel msg = do
     atomically $ sessionSend channel msg
-    StreamElem.whenDefinitelyFinal msg $ \_ ->
+    whenDefinitelyFinal msg $ \_ ->
       void $ sessionWaitForOutbound channel
 
 clientRecvOutput :: ClientCall meth -> IO (StreamElem () Void)
-clientRecvOutput channel = atomically $
-    first (const ()) <$> sessionRecv channel
+clientRecvOutput channel = atomically $ sessionRecv channel
 
 -- ========================================================================== --
 
@@ -293,13 +341,12 @@ runHandler setupResponseChannel' handler = do
       loop
 
 serverRecvInput :: ServerCall -> IO (StreamElem () Void)
-serverRecvInput channel = atomically $
-    first (const ()) <$> sessionRecv channel
+serverRecvInput channel = atomically $ sessionRecv channel
 
 serverSendOutput :: ServerCall -> StreamElem () Void -> IO ()
 serverSendOutput channel msg = do
     atomically $ sessionSend channel msg
-    StreamElem.whenDefinitelyFinal msg $ \_ ->
+    whenDefinitelyFinal msg $ \_ ->
       void $ sessionWaitForOutbound channel
 
 serverIsCallHealthy :: ServerCall -> STM Bool
@@ -679,7 +726,7 @@ sessionSend Channel{channelOutbound, channelSentFinal} msg = do
       Just cs -> throwSTM $ SendAfterFinal cs
       Nothing -> do
         regular <- readTMVar =<< getThreadInterface channelOutbound
-        StreamElem.whenDefinitelyFinal msg $ \_trailers ->
+        whenDefinitelyFinal msg $ \_trailers ->
           writeTVar channelSentFinal $ Just callStack
         putTMVar (flowMsg regular) msg
 
@@ -695,7 +742,7 @@ sessionRecv Channel{channelInbound, channelRecvFinal} = do
     iface <- getThreadInterface channelInbound
     regular <- readTMVar iface
     msg <- takeTMVar (flowMsg regular)
-    StreamElem.whenDefinitelyFinal msg $ \_trailers ->
+    whenDefinitelyFinal msg $ \_trailers ->
       writeTVar channelRecvFinal $ Just callStack
     return msg
 

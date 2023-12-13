@@ -74,10 +74,6 @@ library
       -- does not use ImportQualifiedPost.
       -Wprepositive-qualified-module
   exposed-modules:
-      Network.GRPC.Common.StreamElem
-
-  -- other-modules:
-
       Network.GRPC.Util.Concurrency
       Network.GRPC.Util.HTTP2
       Network.GRPC.Util.HTTP2.Stream
