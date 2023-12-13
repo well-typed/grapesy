@@ -77,7 +77,6 @@ library
       Network.GRPC.Util.Concurrency
       Network.GRPC.Util.Parser
       Network.GRPC.Util.PrettyVal
-      Network.GRPC.Util.Thread
       Paths_grapesy
   hs-source-dirs:
       src
