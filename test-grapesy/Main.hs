@@ -254,18 +254,6 @@ withServerConnection k request _aux respond' =
     respond :: HTTP2.Response -> IO ()
     respond = flip respond' []
 
-
--- ========================================================================== --
-
-{-------------------------------------------------------------------------------
-  Preliminaries
--------------------------------------------------------------------------------}
-
-data ResponseInfo = ResponseInfo {
-      responseStatus  :: HTTP.Status
-    , responseHeaders :: [HTTP.Header]
-    }
-
 -- ========================================================================== --
 
 {-------------------------------------------------------------------------------
@@ -678,13 +666,10 @@ setupResponseChannel conn = do
       recvMessageLoop unmask regular stream
 
     forkThread (channelOutbound channel) newEmptyTMVarIO $ \unmask stVar -> do
-      let responseInfo = ResponseInfo HTTP.ok200 []
       regular <- initFlowStateRegular
       atomically $ putTMVar stVar regular
       let resp :: Server.Response
-          resp = Server.responseStreaming
-                       (responseStatus  responseInfo)
-                       (responseHeaders responseInfo)
+          resp = Server.responseStreaming HTTP.ok200 []
                $ \write' flush' -> do
                     _stream <- serverOutputStream write' flush'
                     sendMessageLoop unmask regular
