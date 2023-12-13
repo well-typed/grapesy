@@ -737,7 +737,10 @@ recvMessageLoop unmask st getChunk = do
             mbs <- unmask $ try getChunk
             case mbs of
               Left (err :: SomeException) -> throwIO err
-              Right _ -> error "unexpected chunk"
+              Right bs ->
+                if bs == ""
+                  then return ()
+                  else error "unexpected chunk"
 
 
 outboundTrailersMaker :: Channel -> HTTP2.TrailersMaker
