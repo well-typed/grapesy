@@ -32,7 +32,6 @@ import Data.ByteString.Lazy qualified as BS.Lazy
 import Data.Kind
 import Data.Maybe (fromMaybe)
 import Data.Proxy
-import Data.Void
 import Debug.Trace
 import GHC.Stack
 import GHC.TypeLits
@@ -55,58 +54,6 @@ import Network.GRPC.Util.Thread
 
 _traceLabelled :: Show a => String -> a -> a
 _traceLabelled lbl x = trace (lbl ++ ": " ++ show x) x
-
--- ========================================================================== --
-
--- | An element positioned in a stream
-data StreamElem b a =
-    -- | Element in the stream
-    --
-    -- The final element in a stream may or may not be marked as final; if it is
-    -- not, we will only discover /after/ receiving the final element that it
-    -- was in fact final. Moreover, we do not know ahead of time whether or not
-    -- the final element will be marked.
-    --
-    -- When we receive an element and it is not marked final, this might
-    -- therefore mean one of two things, without being able to tell which:
-    --
-    -- * We are dealing with a stream in which the final element is not marked.
-    --
-    --   In this case, the element may or may not be the final element; if it
-    --   is, the next value will be 'NoMore' (but waiting for the next value
-    --   might mean a blocking call).
-    --
-    -- * We are dealing with a stream in which the final element /is/ marked.
-    --
-    --   In this case, this element is /not/ final (and the final element, when
-    --   we receive it, will be tagged as 'Final').
-    StreamElem a
-
-    -- | We received the final element
-    --
-    -- The final element is annotated with some additional information.
-  | FinalElem a b
-
-    -- | There are no more elements
-    --
-    -- This is used in two situations:
-    --
-    -- * The stream didn't contain any elements at all.
-    -- * The final element was not marked as final.
-    --   See 'StreamElem' for detailed additional discussion.
-  | NoMoreElems b
-  deriving stock (Show, Eq, Functor, Foldable, Traversable)
-
--- | Do we have evidence that this element is the final one?
---
--- A 'False' result does not mean the element is not final; see 'StreamElem' for
--- detailed discussion.
-whenDefinitelyFinal :: Applicative m => StreamElem b a -> (b -> m ()) -> m ()
-whenDefinitelyFinal msg k =
-    case msg of
-      StreamElem  _   -> pure ()
-      FinalElem   _ b -> k b
-      NoMoreElems   b -> k b
 
 -- ========================================================================== --
 
@@ -136,13 +83,12 @@ clientWithRPC clientConnState _proxy k =
     flowStart :: FlowStart (ClientOutbound rpc)
     flowStart = ClientOutboundHeaders
 
-clientSendInput :: HasCallStack => ClientCall meth -> StreamElem () Void -> IO ()
-clientSendInput channel msg = do
-    atomically $ sessionSend channel msg
-    whenDefinitelyFinal msg $ \_ ->
-      void $ sessionWaitForOutbound channel
+clientSendInput :: HasCallStack => ClientCall meth -> IO ()
+clientSendInput channel = do
+    atomically $ sessionSend channel
+    void $ sessionWaitForOutbound channel
 
-clientRecvOutput :: ClientCall meth -> IO (StreamElem () Void)
+clientRecvOutput :: ClientCall meth -> IO ()
 clientRecvOutput channel = atomically $ sessionRecv channel
 
 -- ========================================================================== --
@@ -218,8 +164,6 @@ instance IsSession (TrivialClient meth) where
   type Outbound (TrivialClient meth) = ClientOutbound meth
 
 instance KnownSymbol meth => InitiateSession (TrivialClient meth) where
-  parseResponseRegular _ _ = return ClientInboundHeaders
-
   buildRequestInfo _ _ = RequestInfo {
         requestMethod  = "POST"
       , requestPath    = "/trivial/" <> BS.C8.pack (symbolVal (Proxy @meth))
@@ -340,14 +284,13 @@ runHandler setupResponseChannel' handler = do
 
       loop
 
-serverRecvInput :: ServerCall -> IO (StreamElem () Void)
+serverRecvInput :: ServerCall -> IO ()
 serverRecvInput channel = atomically $ sessionRecv channel
 
-serverSendOutput :: ServerCall -> StreamElem () Void -> IO ()
-serverSendOutput channel msg = do
-    atomically $ sessionSend channel msg
-    whenDefinitelyFinal msg $ \_ ->
-      void $ sessionWaitForOutbound channel
+serverSendOutput :: ServerCall -> IO ()
+serverSendOutput channel = do
+    atomically $ sessionSend channel
+    void $ sessionWaitForOutbound channel
 
 serverIsCallHealthy :: ServerCall -> STM Bool
 serverIsCallHealthy = sessionIsChannelHealthy
@@ -445,13 +388,6 @@ class IsSession sess => InitiateSession sess where
        sess
     -> FlowStart (Outbound sess) -> RequestInfo
 
-  -- | Parse 'ResponseInfo' from the server, regular case
-  --
-  -- See 'parseResponseTrailersOnly' for the Trailers-Only case.
-  parseResponseRegular ::
-       sess
-    -> ResponseInfo -> IO (Headers (Inbound sess))
-
 -- | Accept session
 --
 -- A server node listens and accepts incoming requests from client nodes.
@@ -546,19 +482,6 @@ data Channel sess = Channel {
 
 -- | Regular (streaming) flow state
 data RegularFlowState flow = RegularFlowState {
-      -- | Headers
-      --
-      -- On the client side, the outbound headers are specified when the request
-      -- is made ('callRequestMetadata'), and the inbound headers are recorded
-      -- once the responds starts to come in; clients can block-and-wait for
-      -- these headers ('getInboundHeaders').
-      --
-      -- On the server side, the inbound headers are recorded when the request
-      -- comes in, and the outbound headers are specified
-      -- ('setResponseMetadata') before the response is initiated
-      -- ('initiateResponse'/'sendTrailersOnly').
-      flowHeaders :: Headers flow
-
       -- | Messages
       --
       -- This TMVar is written to for incoming messages ('recvMessageLoop') and
@@ -567,7 +490,7 @@ data RegularFlowState flow = RegularFlowState {
       --
       -- TODO: It might make sense to generalize this to an @N@-place buffer,
       -- for configurable @N@. This might result in better latency masking.
-    , flowMsg :: TMVar (StreamElem () Void)
+      flowMsg :: TMVar ()
 
       -- | Trailers
       --
@@ -602,13 +525,6 @@ data RegularFlowState flow = RegularFlowState {
     , flowTerminated :: TMVar ()
     }
 
--- | 'Show' instance is useful in combination with @stm-debug@ only
-deriving instance (
-    Show (Headers flow)
-  , Show (TMVar (StreamElem () Void))
-  , Show (TMVar ())
-  ) => Show (RegularFlowState flow)
-
 {-------------------------------------------------------------------------------
   Initialization
 -------------------------------------------------------------------------------}
@@ -621,9 +537,9 @@ initChannel =
       <*> newTVarIO Nothing
       <*> newTVarIO Nothing
 
-initFlowStateRegular :: Headers flow -> IO (RegularFlowState flow)
-initFlowStateRegular headers = do
-    RegularFlowState headers
+initFlowStateRegular :: IO (RegularFlowState flow)
+initFlowStateRegular = do
+    RegularFlowState
       <$> newEmptyTMVarIO
       <*> newEmptyTMVarIO
 
@@ -713,9 +629,8 @@ sessionIsChannelHealthy channel = do
 sessionSend ::
      HasCallStack
   => Channel sess
-  -> StreamElem () Void
   -> STM ()
-sessionSend Channel{channelOutbound, channelSentFinal} msg = do
+sessionSend Channel{channelOutbound, channelSentFinal} = do
     -- By checking that we haven't sent the final message yet, we know that this
     -- call to 'putMVar' will not block indefinitely: the thread that sends
     -- messages to the peer will get to it eventually (unless it dies, in which
@@ -726,9 +641,8 @@ sessionSend Channel{channelOutbound, channelSentFinal} msg = do
       Just cs -> throwSTM $ SendAfterFinal cs
       Nothing -> do
         regular <- readTMVar =<< getThreadInterface channelOutbound
-        whenDefinitelyFinal msg $ \_trailers ->
-          writeTVar channelSentFinal $ Just callStack
-        putTMVar (flowMsg regular) msg
+        writeTVar channelSentFinal $ Just callStack
+        putTMVar (flowMsg regular) ()
 
 -- | Receive a message from the node's peer
 --
@@ -737,14 +651,12 @@ sessionSend Channel{channelOutbound, channelSentFinal} msg = do
 sessionRecv ::
      HasCallStack
   => Channel sess
-  -> STM (StreamElem () Void)
+  -> STM ()
 sessionRecv Channel{channelInbound, channelRecvFinal} = do
     iface <- getThreadInterface channelInbound
     regular <- readTMVar iface
-    msg <- takeTMVar (flowMsg regular)
-    whenDefinitelyFinal msg $ \_trailers ->
-      writeTVar channelRecvFinal $ Just callStack
-    return msg
+    takeTMVar (flowMsg regular)
+    writeTVar channelRecvFinal $ Just callStack
 
 -- | Thrown by 'send'
 --
@@ -875,15 +787,8 @@ sendMessageLoop unmask tracer st =
         loop :: IO ()
         loop = do
             traceWith tracer $ NodeSendAwaitMsg
-            -- Technically the call to unmask is necessary here, as takeTMVar
-            -- is interuptible.
-            msg <- unmask $ atomically $ takeTMVar (flowMsg st)
-            traceWith tracer $ NodeSendMsg msg
-
-            case msg of
-              StreamElem x -> absurd x
-              FinalElem x _ -> absurd x
-              NoMoreElems trailers -> return trailers
+            unmask $ atomically $ takeTMVar (flowMsg st)
+            traceWith tracer $ NodeSendMsg ()
 
 -- | Receive all messages sent by the node's peer
 --
@@ -905,7 +810,7 @@ recvMessageLoop unmask tracer st stream = do
         loop
         traceWith tracer $ NodeRecvFinal ()
         atomically $ putTMVar (flowTerminated st) $ ()
-        atomically $ putTMVar (flowMsg        st) $ NoMoreElems ()
+        atomically $ putTMVar (flowMsg        st) $ ()
       where
         loop :: IO ()
         loop = do
@@ -930,7 +835,7 @@ data DebugMsg sess =
     NodeSendAwaitMsg
 
     -- | Thread sending message will send a message
-  | NodeSendMsg (StreamElem () Void)
+  | NodeSendMsg ()
 
     -- | Receive thread requires data
     --
@@ -938,7 +843,7 @@ data DebugMsg sess =
   | NodeNeedsData BS.Lazy.ByteString
 
     -- | Receive thread received a message
-  | NodeRecvMsg (StreamElem () Void)
+  | NodeRecvMsg ()
 
     -- | Receive thread received the trailers
   | NodeRecvFinal ()
@@ -995,7 +900,7 @@ setupResponseChannel sess tracer conn startOutbound = do
     inboundStart <- parseRequestRegular sess requestInfo
 
     forkThread (channelInbound channel) newEmptyTMVarIO $ \unmask stVar -> do
-      regular <- initFlowStateRegular inboundStart
+      regular <- initFlowStateRegular
       stream  <- serverInputStream (request conn)
       atomically $ putTMVar stVar regular
       recvMessageLoop unmask tracer regular stream
@@ -1003,7 +908,7 @@ setupResponseChannel sess tracer conn startOutbound = do
     forkThread (channelOutbound channel) newEmptyTMVarIO $ \unmask stVar -> do
       outboundStart <- startOutbound inboundStart
       let responseInfo = buildResponseInfo sess outboundStart
-      regular <- initFlowStateRegular outboundStart
+      regular <- initFlowStateRegular
       atomically $ putTMVar stVar regular
       let resp :: Server.Response
           resp = Server.responseStreaming
@@ -1082,7 +987,7 @@ setupRequestChannel sess tracer ConnectionToServer{sendRequest} outboundStart = 
     channel <- initChannel
     let requestInfo = buildRequestInfo sess outboundStart
 
-    regular <- initFlowStateRegular outboundStart
+    regular <- initFlowStateRegular
     let req :: Client.Request
         req = setRequestTrailers channel
             $ Client.requestStreamingUnmask
@@ -1103,15 +1008,7 @@ setupRequestChannel sess tracer ConnectionToServer{sendRequest} outboundStart = 
     forkRequest channel req =
         forkThread (channelInbound channel) newEmptyTMVarIO $ \unmask stVar -> do
           setup <- try $ sendRequest req $ \resp -> do
-            responseStatus <- case Client.responseStatus resp of
-                                Just x  -> return x
-                                Nothing -> throwIO PeerMissingPseudoHeaderStatus
-            let responseHeaders = fromHeaderTable $ Client.responseHeaders resp
-                responseInfo    = ResponseInfo {responseHeaders, responseStatus}
-
-            inboundStart <- parseResponseRegular sess responseInfo
-
-            regular <- initFlowStateRegular inboundStart
+            regular <- initFlowStateRegular
             stream  <- clientInputStream resp
             atomically $ putTMVar stVar regular
             recvMessageLoop unmask tracer regular stream
@@ -1170,7 +1067,7 @@ clientLocal2 testClock = handle showExceptions $ do
     clientWithConnection $ \conn -> do
       clientWithRPC conn (Proxy @"test2") $ \call -> do
         waitForTestClockTick testClock 3
-        clientSendInput call $ NoMoreElems ()
+        clientSendInput call
         _ <- clientRecvOutput call
         advanceTestClock testClock
   where
@@ -1208,7 +1105,7 @@ serverLocal1 testClock call = handle showExceptions $ do
 
     -- At this point, sending anything should fail
     waitForTestClockTick testClock 4
-    serverSendOutput call $ NoMoreElems ()
+    serverSendOutput call
   where
     showExceptions :: SomeException -> IO ()
     showExceptions err = do
@@ -1225,7 +1122,7 @@ serverLocal2 testClock call = handle showExceptions $ do
 
     -- Tell the client we won't send them more elements either
     waitForTestClockTick testClock 5
-    serverSendOutput call $ NoMoreElems ()
+    serverSendOutput call
   where
     showExceptions :: SomeException -> IO ()
     showExceptions err = do
