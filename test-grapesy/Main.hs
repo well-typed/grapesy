@@ -256,50 +256,12 @@ withServerConnection k request _aux respond' =
 
 -- ========================================================================== --
 
-{-------------------------------------------------------------------------------
-  Definitions
-
-  The fields of 'Channel' are its /implementation/, not its interface. It is
-  kept opaque in the top-level @.Peer@ module.
-
-  Implementation note: it is tempting to try and define 'Channel' purely in
-  terms of bytestrings, and deal with serialization and deserialization to and
-  from messages in a higher layer. However, this does not work:
-
-  - For deserialization, if we make chunks of messages available in the 'TMVar',
-    then if multiple threads are reading from that one 'TMVar', one thread might
-    get the first chunk of a message and another thread the second.
-  - Similarly, for serialization, if multiple threads are trying to write to the
-    'TMVar', we might get interleaving of fragments of messages.
-
-  Thus, to ensure thread safety, we work at the level of messages, not bytes.
--------------------------------------------------------------------------------}
-
--- | Bidirectional open channel on a node to a peer node
---
--- The node might be a client (and its peer a server), or the node might be
--- a server (and its peer a client); the main purpose of this abstraction
--- is precisely to abstract over that difference.
---
--- Each channel is constructed for a /single/ session (request/response).
 data Channel = Channel {
       -- | Thread state of the thread receiving messages from the peer
       channelInbound :: TVar (ThreadState (TMVar RegularFlowState))
 
       -- | Thread state of the thread sending messages to the peer
     , channelOutbound :: TVar (ThreadState (TMVar RegularFlowState))
-
-      -- | 'CallStack' of the final call to 'send'
-      --
-      -- The sole purpose of this 'TVar' is catching user mistakes: if there is
-      -- another 'send' after the final message, we can throw an exception,
-      -- rather than the message simply being lost or blockng indefinitely.
-    , channelSentFinal :: TVar (Maybe CallStack)
-
-      -- | 'CallStack' of the final call to 'recv'
-      --
-      -- This is just to improve the user experience; see 'channelSentFinal'.
-    , channelRecvFinal :: TVar (Maybe CallStack)
     }
 
 -- | Regular (streaming) flow state
@@ -352,12 +314,7 @@ data RegularFlowState = RegularFlowState {
 -------------------------------------------------------------------------------}
 
 initChannel :: IO Channel
-initChannel =
-    Channel
-      <$> newThreadState
-      <*> newThreadState
-      <*> newTVarIO Nothing
-      <*> newTVarIO Nothing
+initChannel = Channel <$> newThreadState <*> newThreadState
 
 initFlowStateRegular :: IO RegularFlowState
 initFlowStateRegular = do
@@ -372,8 +329,6 @@ initFlowStateRegular = do
 data ChannelStatus = ChannelStatus {
       channelStatusInbound   :: FlowStatus
     , channelStatusOutbound  :: FlowStatus
-    , channelStatusSentFinal :: Bool
-    , channelStatusRecvFinal :: Bool
     }
 
 data FlowStatus =
@@ -391,20 +346,14 @@ data FlowStatus =
 checkChannelStatus :: Channel -> STM ChannelStatus
 checkChannelStatus Channel{ channelInbound
                    , channelOutbound
-                   , channelSentFinal
-                   , channelRecvFinal
                    } = do
     stInbound  <- readTVar channelInbound
     stOutbound <- readTVar channelOutbound
     channelStatusInbound   <- go stInbound
     channelStatusOutbound  <- go stOutbound
-    channelStatusSentFinal <- isFinal <$> readTVar channelSentFinal
-    channelStatusRecvFinal <- isFinal <$> readTVar channelRecvFinal
     return ChannelStatus{
         channelStatusInbound
       , channelStatusOutbound
-      , channelStatusSentFinal
-      , channelStatusRecvFinal
       }
   where
     go :: ThreadState (TMVar RegularFlowState) -> STM FlowStatus
@@ -413,9 +362,6 @@ checkChannelStatus Channel{ channelInbound
     go (ThreadRunning _ a)    = FlowEstablished <$> readTMVar a
     go (ThreadDone _)         = return $ FlowTerminated
     go (ThreadException e)    = return $ FlowFailed e
-
-    isFinal :: Maybe CallStack -> Bool
-    isFinal = maybe False (const True)
 
 -- | Check if the channel is healthy
 --
@@ -443,39 +389,20 @@ sessionIsChannelHealthy channel = do
   Working with an open channel
 -------------------------------------------------------------------------------}
 
--- | Send a message to the node's peer
---
--- It is a bug to call 'send' again after the final message (that is, a message
--- which 'StreamElem.definitelyFinal' considers to be final). Doing so will
--- result in a 'SendAfterFinal' exception.
-sessionSend ::
-     HasCallStack
-  => Channel
-  -> STM ()
-sessionSend Channel{channelOutbound, channelSentFinal} = do
-    -- By checking that we haven't sent the final message yet, we know that this
-    -- call to 'putMVar' will not block indefinitely: the thread that sends
-    -- messages to the peer will get to it eventually (unless it dies, in which
-    -- case the thread status will change and the call to 'getThreadInterface'
-    -- will be retried).
-    sentFinal <- readTVar channelSentFinal
-    case sentFinal of
-      Just cs -> throwSTM $ SendAfterFinal cs
-      Nothing -> do
-        regular <- readTMVar =<< getThreadInterface channelOutbound
-        writeTVar channelSentFinal $ Just callStack
-        putTMVar (flowMsg regular) ()
+sessionSend :: Channel -> STM ()
+sessionSend Channel{channelOutbound} = do
+    regular <- readTMVar =<< getThreadInterface channelOutbound
+    putTMVar (flowMsg regular) ()
 
 -- | Receive a message from the node's peer
 --
 -- It is a bug to call 'recv' again after receiving the final message; Doing so
 -- will result in a 'RecvAfterFinal' exception.
 sessionRecv :: Channel -> STM ()
-sessionRecv Channel{channelInbound, channelRecvFinal} = do
+sessionRecv Channel{channelInbound} = do
     iface <- getThreadInterface channelInbound
     regular <- readTMVar iface
     takeTMVar (flowMsg regular)
-    writeTVar channelRecvFinal $ Just callStack
 
 -- | Thrown by 'send'
 --
