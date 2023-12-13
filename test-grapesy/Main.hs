@@ -581,40 +581,11 @@ sessionSend Channel{channelOutbound} = do
     regular <- readTMVar =<< getThreadInterface channelOutbound
     putTMVar (flowMsg regular) ()
 
--- | Receive a message from the node's peer
---
--- It is a bug to call 'recv' again after receiving the final message; Doing so
--- will result in a 'RecvAfterFinal' exception.
 sessionRecv :: Channel -> STM ()
 sessionRecv Channel{channelInbound} = do
     iface <- getThreadInterface channelInbound
     regular <- readTMVar iface
     takeTMVar (flowMsg regular)
-
--- | Thrown by 'send'
---
--- The 'CallStack' is the callstack of the final call to 'send'.
---
--- See 'send' for additional discussion.
-data SendAfterFinal =
-    -- | Call to 'send' after the final message was sent
-    SendAfterFinal CallStack
-
-    -- | Call to 'send', but we are in the Trailers-Only case
-  | SendButTrailersOnly
-  deriving stock (Show)
-  deriving anyclass (Exception)
-
--- | Thrown by 'recv'
---
--- The 'CallStack' is the callstack of the final call to 'recv'.
---
--- See 'recv' for additional discussion.
-data RecvAfterFinal =
-     -- | Call to 'recv' after the final message was already received
-     RecvAfterFinal CallStack
-  deriving stock (Show)
-  deriving anyclass (Exception)
 
 {-------------------------------------------------------------------------------
   Closing
