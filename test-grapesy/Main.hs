@@ -153,13 +153,6 @@ instance KnownSymbol meth => InitiateSession (TrivialClient meth) where
 
 -- ========================================================================== --
 
-data TrivialServer = TrivialServer
-
-instance AcceptSession TrivialServer where
-  buildResponseInfo _ = ResponseInfo HTTP.ok200 []
-
--- ========================================================================== --
-
 runServer :: ServiceName -> HTTP2.Server -> IO ()
 runServer port server =
     runTCPServer Nothing port $ \sock -> do
@@ -186,12 +179,12 @@ handleRequest handlers conn@(path, _) =
 
 -- ========================================================================== --
 
-type ServerCall = Channel TrivialServer
+type ServerCall = Channel ()
 
 serverAcceptCall :: ServerConnection -> (ServerCall -> IO ()) -> IO ()
 serverAcceptCall (_path, conn) k = do
-    let setupResponseChannel' :: IO (Channel TrivialServer)
-        setupResponseChannel' = setupResponseChannel callSession conn
+    let setupResponseChannel' :: IO (Channel ())
+        setupResponseChannel' = setupResponseChannel conn
 
         handlerTeardown :: ServerCall -> Either SomeException () -> IO ()
         handlerTeardown channel mRes = void $
@@ -200,7 +193,7 @@ serverAcceptCall (_path, conn) k = do
               Left err -> sessionClose channel $ ExitCaseException err
 
     let handler ::
-             Channel TrivialServer
+             Channel ()
           -> (forall a. IO a -> IO a)
           -> IO ()
         handler channel unmask = do
@@ -208,13 +201,10 @@ serverAcceptCall (_path, conn) k = do
             handlerTeardown channel mRes
 
     runHandler setupResponseChannel' handler
-  where
-    callSession :: TrivialServer
-    callSession = TrivialServer
 
 runHandler ::
-     IO (Channel TrivialServer)
-  -> (Channel TrivialServer -> (forall a. IO a -> IO a) -> IO ())
+     IO (Channel ())
+  -> (Channel () -> (forall a. IO a -> IO a) -> IO ())
   -> IO ()
 runHandler setupResponseChannel' handler = do
     mask $ \unmask -> do
@@ -302,9 +292,6 @@ data ResponseInfo = ResponseInfo {
 
 class InitiateSession sess where
   buildRequestInfo :: sess -> RequestInfo
-
-class AcceptSession sess where
-  buildResponseInfo :: sess -> ResponseInfo
 
 {-------------------------------------------------------------------------------
   Exceptions
@@ -739,12 +726,8 @@ data ConnectionToClient = ConnectionToClient {
 -- | Setup response channel
 --
 -- The actual response will not immediately be initiated; see below.
-setupResponseChannel :: forall sess.
-     (AcceptSession sess, HasCallStack)
-  => sess
-  -> ConnectionToClient
-  -> IO (Channel sess)
-setupResponseChannel sess conn = do
+setupResponseChannel :: forall sess. ConnectionToClient -> IO (Channel sess)
+setupResponseChannel conn = do
     channel <- initChannel
 
     forkThread (channelInbound channel) newEmptyTMVarIO $ \unmask stVar -> do
@@ -754,7 +737,7 @@ setupResponseChannel sess conn = do
       recvMessageLoop unmask (Proxy @sess) regular stream
 
     forkThread (channelOutbound channel) newEmptyTMVarIO $ \unmask stVar -> do
-      let responseInfo = buildResponseInfo sess
+      let responseInfo = ResponseInfo HTTP.ok200 []
       regular <- initFlowStateRegular
       atomically $ putTMVar stVar regular
       let resp :: Server.Response
