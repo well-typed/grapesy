@@ -261,43 +261,10 @@ withServerConnection k request _aux respond' =
   Preliminaries
 -------------------------------------------------------------------------------}
 
-data RequestInfo = RequestInfo {
-      requestMethod  :: HTTP.Method
-    , requestPath    :: HTTP2.Path
-    , requestHeaders :: [HTTP.Header]
-    }
-
 data ResponseInfo = ResponseInfo {
       responseStatus  :: HTTP.Status
     , responseHeaders :: [HTTP.Header]
     }
-
-{-------------------------------------------------------------------------------
-  Exceptions
--------------------------------------------------------------------------------}
-
--- | Misbehaving peer
---
--- Although this exception could in principle be caught, there is not much that
--- can be done to rectify the situation: probably this peer should just be
--- avoided (although perhaps one can hope that the problem was transient).
-data PeerException =
-    -- | Peer sent a malformed message (parser returned an error)
-    PeerSentMalformedMessage String
-
-    -- | Peer sent an incomplete message (parser did not consume all data)
-  | PeerSentIncompleteMessage
-
-    -- | HTTP request missing @:method@ pseudo-header
-  | PeerMissingPseudoHeaderMethod
-
-    -- | HTTP request missing @:path@ pseudo-header
-  | PeerMissingPseudoHeaderPath
-
-    -- | HTTP response missing @:status@ pseudo-header
-  | PeerMissingPseudoHeaderStatus
-  deriving stock (Show)
-  deriving anyclass (Exception)
 
 -- ========================================================================== --
 
@@ -792,9 +759,9 @@ setupRequestChannel _proxy ConnectionToServer{sendRequest} = do
     let req :: Client.Request
         req = setRequestTrailers channel
             $ Client.requestStreamingUnmask
-                (requestMethod  requestInfo)
-                (requestPath    requestInfo)
-                (requestHeaders requestInfo)
+                "POST"
+                ("/trivial/" <> BS.C8.pack (symbolVal (Proxy @meth)))
+                []
             $ \unmask write' flush' -> unmask $ do
                  threadBody (channelOutbound channel)
                             (newTMVarIO regular)
@@ -805,13 +772,6 @@ setupRequestChannel _proxy ConnectionToServer{sendRequest} = do
 
     return channel
   where
-    requestInfo :: RequestInfo
-    requestInfo = RequestInfo {
-          requestMethod  = "POST"
-        , requestPath    = "/trivial/" <> BS.C8.pack (symbolVal (Proxy @meth))
-        , requestHeaders = []
-        }
-
     forkRequest :: Channel -> Client.Request -> IO ()
     forkRequest channel req =
         forkThread (channelInbound channel) newEmptyTMVarIO $ \unmask stVar -> do
