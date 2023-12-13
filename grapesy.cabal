@@ -106,7 +106,6 @@ test-suite test-grapesy
     , grapesy
   build-depends:
       -- External dependencies
-    , binary
     , bytestring
     , exceptions
     , http-types
