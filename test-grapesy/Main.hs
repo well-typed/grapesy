@@ -43,6 +43,7 @@ import Network.Run.TCP qualified as Run
 import Network.Socket
 
 import Network.GRPC.Util.Concurrency
+import Foreign (newStablePtr)
 
 -- ========================================================================== --
 
@@ -109,6 +110,10 @@ threadBody ::
   -> IO ()
 threadBody state initThread body = do
     tid <- myThreadId
+
+    -- <https://github.com/simonmar/async/issues/14#issuecomment-51029321>
+    _ <- newStablePtr tid
+
     shouldStart <- atomically $ do
       st <- readTVar state
       case st of
@@ -121,6 +126,7 @@ threadBody state initThread body = do
       iface <- initThread
       atomically $ writeTVar state $ ThreadRunning tid iface
       res <- try $ body iface
+      traceM $ "threadBody: " ++ show res
       atomically $ writeTVar state $
         case res of
           Left  e  -> ThreadException e

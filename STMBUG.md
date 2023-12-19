@@ -14,12 +14,12 @@ while (cabal run test-grapesy -- -p earlyTermination3 2>log); do date; done
 ```
 
 You should hit the "blocked indefinitely" very quickly (usually already on the
-first run). 
+first run).
 
 Critical pieces of code:
 
 * The "blocked indefinitely" exception is raised by running a call to `recv`
-  (src/Network/GRPC/Util/Session/Channel.hs). 
+  (src/Network/GRPC/Util/Session/Channel.hs).
 
 * This first gets the "thread interface" (call to `getThreadInterface`) which,
   when this is first called, will return an `TMVar` containing `FlowStateRegular`
@@ -44,7 +44,7 @@ Critical pieces of code:
 
 Related reports:
 
-* https://gitlab.haskell.org/ghc/ghc/-/issues/9401 /
+* https://gitlab.haskell.org/ghc/ghc/-/issues/9401
   https://github.com/simonmar/async/issues/14
   Different to our case: this is about _two_ threads both being deadlocked, and
   an attempt to resolve the deadlock by catching `BlockedIndefinitelyOnSTM`.
@@ -60,4 +60,4 @@ Related reports:
   This is to do with the other reference to the `T(M)Var` being from a
   finalizer. Also not the case in our example.
 
-  
+
