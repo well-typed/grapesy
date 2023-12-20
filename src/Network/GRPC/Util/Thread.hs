@@ -19,6 +19,7 @@ import Control.Exception
 import Control.Monad
 import GHC.Stack
 
+import Network.GRPC.Internal
 import Network.GRPC.Util.Concurrency
 
 {-------------------------------------------------------------------------------
@@ -153,7 +154,10 @@ data ThreadCancelled = ThreadCancelled {
     , threadCancelledReason :: SomeException
     }
   deriving stock (Show)
-  deriving anyclass (Exception)
+  deriving Exception via ExceptionWrapper ThreadCancelled
+
+instance HasNestedException ThreadCancelled where
+  getNestedException = threadCancelledReason
 
 {-------------------------------------------------------------------------------
   Interacting with the thread
@@ -206,4 +210,7 @@ data ThreadInterfaceUnavailable = ThreadInterfaceUnavailable {
     , threadInterfaceException :: SomeException
     }
   deriving stock (Show)
-  deriving anyclass (Exception)
+  deriving Exception via ExceptionWrapper ThreadInterfaceUnavailable
+
+instance HasNestedException ThreadInterfaceUnavailable where
+  getNestedException = threadInterfaceException

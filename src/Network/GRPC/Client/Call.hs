@@ -39,6 +39,7 @@ import Network.GRPC.Common.StreamElem qualified as StreamElem
 import Network.GRPC.Spec
 import Network.GRPC.Util.Concurrency
 import Network.GRPC.Util.Session qualified as Session
+import Network.GRPC.Util.Session.Channel (ChannelUncleanClose(..))
 
 {-------------------------------------------------------------------------------
   Definition

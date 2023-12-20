@@ -32,20 +32,14 @@ module Network.GRPC.Common (
   , ProtocolException(..)
 
     -- ** Low-level
-  , Session.ChannelClosed(..)
-  , Session.ChannelUncleanClose(..)
-  , STMException(..)
-  , Thread.ThreadCancelled(..)
-  , Thread.ThreadInterfaceUnavailable(..)
+  , Session.ChannelDiscarded(..)
   ) where
 
 import Control.Exception
 
 import Network.GRPC.Common.StreamElem (StreamElem(..))
 import Network.GRPC.Spec
-import Network.GRPC.Util.Concurrency (STMException(..))
 import Network.GRPC.Util.Session qualified as Session
-import Network.GRPC.Util.Thread qualified as Thread
 import Network.GRPC.Util.TLS
 
 {-------------------------------------------------------------------------------

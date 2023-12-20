@@ -151,13 +151,6 @@ assessCustomException err
     = CustomExceptionExpected $ ExpectedForwardedToClient grpc
 
     --
-    -- Custom wrappers
-    --
-
-    | Just (AnnotatedServerException err' _ _) <- fromException err
-    = CustomExceptionNested err'
-
-    --
     -- Catch-all
     --
 

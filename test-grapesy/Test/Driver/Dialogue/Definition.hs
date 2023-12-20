@@ -24,6 +24,7 @@ import GHC.Generics qualified as GHC
 import Text.Show.Pretty
 
 import Network.GRPC.Common
+import Network.GRPC.Internal
 
 import Test.Driver.Dialogue.TestClock
 import Test.Util.PrettyVal
@@ -133,8 +134,12 @@ data AnnotatedServerException = AnnotatedServerException {
      , serverGlobalExceptionCallStack :: PrettyCallStack
      }
   deriving stock (GHC.Generic)
-  deriving anyclass (Exception, PrettyVal)
+  deriving anyclass (PrettyVal)
   deriving Show via ShowAsPretty AnnotatedServerException
+  deriving Exception via ExceptionWrapper AnnotatedServerException
+
+instance HasNestedException AnnotatedServerException where
+  getNestedException = serverGlobalException
 
 {-------------------------------------------------------------------------------
   Utility

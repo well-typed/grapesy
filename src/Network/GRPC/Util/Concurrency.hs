@@ -25,6 +25,8 @@ import Control.Concurrent       qualified as Concurrent
 import Control.Concurrent.Async qualified as Async
 import Control.Concurrent.STM   qualified as STM
 
+import Network.GRPC.Internal
+
 {-------------------------------------------------------------------------------
   Wrap thread spawning
 -------------------------------------------------------------------------------}
@@ -55,7 +57,10 @@ wrapThreadBody = id
 
 data STMException = STMException CallStack SomeException
   deriving stock (Show)
-  deriving anyclass (Exception)
+  deriving Exception via ExceptionWrapper STMException
+
+instance HasNestedException STMException where
+  getNestedException (STMException _ e) = e
 
 -- | Rethrow STM exceptions with a callstakc
 --

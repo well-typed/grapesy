@@ -42,6 +42,7 @@ import Network.GRPC.Client qualified as Client
 import Network.GRPC.Common
 import Network.GRPC.Common.Compression (CompressionNegotationFailed)
 import Network.GRPC.Common.Compression qualified as Compr
+import Network.GRPC.Internal
 import Network.GRPC.Server qualified as Server
 import Network.GRPC.Server.Run qualified as Server
 
@@ -217,10 +218,9 @@ isExpectedException cfg assessCustomException topLevel =
       -- Wrappers
       --
 
-      | Just (ClientException err' _logs) <- fromException err
+      | Just err' <- maybeNestedException err
       = go err'
-      | Just (ServerException err' _logs) <- fromException err
-      = go err'
+
       | Just (DoubleException { doubleExceptionClient
                               , doubleExceptionServer
                               }) <- fromException err
@@ -233,17 +233,6 @@ isExpectedException cfg assessCustomException topLevel =
               , doubleExceptionServer = expected'
               , doubleExceptionAnnotation = ()
               }
-
-      | Just (STMException _stack err' ) <- fromException err
-      = go err'
-      | Just (ThreadInterfaceUnavailable  _stack err') <- fromException err
-      = go err'
-      | Just (ThreadCancelled _stack err') <- fromException err
-      = go err'
-      | Just (ChannelException _stack err') <- fromException err
-      = go err'
-      | Just (ChannelUncleanClose err') <- fromException err
-      = go err'
 
       --
       -- Custom exceptions
@@ -514,16 +503,24 @@ data ServerException = ServerException {
     , serverExceptionLogs :: [LogMsg]
     }
   deriving stock (GHC.Generic)
-  deriving anyclass (Exception, PrettyVal)
+  deriving anyclass (PrettyVal)
   deriving Show via ShowAsPretty ServerException
+  deriving Exception via ExceptionWrapper ServerException
+
+instance HasNestedException ServerException where
+  getNestedException = serverException
 
 data ClientException = ClientException {
       clientException     :: SomeException
     , clientExceptionLogs :: [LogMsg]
     }
   deriving stock (GHC.Generic)
-  deriving anyclass (Exception, PrettyVal)
+  deriving anyclass (PrettyVal)
   deriving Show via ShowAsPretty ClientException
+  deriving Exception via ExceptionWrapper ClientException
+
+instance HasNestedException ClientException where
+  getNestedException = clientException
 
 data DoubleException e = forall a. (Show a, PrettyVal a) => DoubleException {
       doubleExceptionClient     :: e

@@ -20,7 +20,9 @@ module Network.GRPC.Util.Session.Channel (
   , waitForOutbound
   , close
   , ChannelUncleanClose(..)
-  , ChannelClosed(..)
+  , ChannelDiscarded(..)
+  , ChannelException(..)
+  , ChannelAborted(..)
     -- ** Exceptions
     -- * Constructing channels
   , sendMessageLoop
@@ -48,6 +50,7 @@ import Network.HTTP2.Internal qualified as HTTP2
 
 import Network.GRPC.Common.StreamElem (StreamElem(..))
 import Network.GRPC.Common.StreamElem qualified as StreamElem
+import Network.GRPC.Internal
 import Network.GRPC.Util.Concurrency
 import Network.GRPC.Util.HTTP2.Stream
 import Network.GRPC.Util.Parser
@@ -404,42 +407,49 @@ close Channel{channelOutbound} reason = do
     -- We leave the inbound thread running. Although the channel is closed,
     -- there might still be unprocessed messages in the queue. The inbound
     -- thread will terminate once it reaches the end of the queue
-    -- (this relies on nhttps://github.com/kazu-yamamoto/http2/pull/83).
-     outbound <- cancelThread channelOutbound $ toException channelClosed
+     outbound <- cancelThread channelOutbound channelClosed
      case outbound of
        Right _   -> return $ Nothing
        Left  err -> return $ Just (ChannelUncleanClose err)
   where
-    channelClosed :: ChannelClosed
+    channelClosed :: SomeException
     channelClosed =
         case reason of
-          ExitCaseSuccess _   -> ChannelDiscarded callStack
-          ExitCaseException e -> ChannelException callStack e
-          ExitCaseAbort       -> ChannelAborted   callStack
+          ExitCaseSuccess _   -> toException $ ChannelDiscarded callStack
+          ExitCaseException e -> toException $ ChannelException callStack e
+          ExitCaseAbort       -> toException $ ChannelAborted   callStack
 
 -- | Thrown by 'close' if not all outbound messages have been processed
 --
 -- See 'close' for discussion.
 data ChannelUncleanClose = ChannelUncleanClose SomeException
   deriving stock (Show)
+  deriving Exception via ExceptionWrapper ChannelUncleanClose
+
+instance HasNestedException ChannelUncleanClose where
+  getNestedException (ChannelUncleanClose e) = e
+
+-- | Channel was closed because it was discarded
+--
+-- This typically corresponds to leaving the scope of 'acceptCall' or
+-- 'withRPC' (without throwing an exception).
+data ChannelDiscarded = ChannelDiscarded CallStack
+  deriving stock (Show)
   deriving anyclass (Exception)
 
--- | Thrown to the inbound and outbound threads by 'close'
-data ChannelClosed =
-    -- | Channel was closed because it was discarded
-    --
-    -- This typically corresponds to leaving the scope of 'acceptCall' or
-    -- 'withRPC' (without throwing an exception).
-    ChannelDiscarded CallStack
+-- | Channel was closed with an exception
+data ChannelException = ChannelException CallStack SomeException
+  deriving stock (Show)
+  deriving Exception via ExceptionWrapper ChannelException
 
-    -- | Channel was closed with an exception
-  | ChannelException CallStack SomeException
+instance HasNestedException ChannelException where
+  getNestedException (ChannelException _ e) = e
 
-    -- | Channel was closed for an unknown reason
-    --
-    -- This will only be used in monad stacks that have error mechanisms other
-    -- than exceptions.
-  | ChannelAborted CallStack
+-- | Channel was closed for an unknown reason
+--
+-- This will only be used in monad stacks that have error mechanisms other
+-- than exceptions.
+data ChannelAborted = ChannelAborted CallStack
   deriving stock (Show)
   deriving anyclass (Exception)
 
