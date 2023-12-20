@@ -64,5 +64,4 @@ data STMException = STMException CallStack SomeException
 -- Implementation note: To catch such exceptions, we /must/ have the exception
 -- handler /outside/ of the STM transaction.
 atomically :: HasCallStack => STM a -> IO a
-atomically action =
-    STM.atomically action `catch` (throwIO . STMException callStack )
+atomically act = STM.atomically act `catch` (throwIO . STMException callStack)
