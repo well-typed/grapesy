@@ -12,7 +12,8 @@ import Data.Proxy
 import Network.GRPC.Client
 import Network.GRPC.Common.StreamType
 import Network.GRPC.Spec
-import Network.GRPC.Util.Concurrency
+
+import Debug.Concurrent
 
 {-------------------------------------------------------------------------------
   Obtain handler for specific RPC call

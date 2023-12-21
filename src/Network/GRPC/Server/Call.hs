@@ -51,10 +51,11 @@ import Network.GRPC.Server.Connection qualified as Connection
 import Network.GRPC.Server.Context qualified as Context
 import Network.GRPC.Server.Session
 import Network.GRPC.Spec
-import Network.GRPC.Util.Concurrency
 import Network.GRPC.Util.HTTP2.Stream (ClientDisconnected(..))
 import Network.GRPC.Util.Session qualified as Session
 import Network.GRPC.Util.Session.Server qualified as Server
+
+import Debug.Concurrent
 
 {-------------------------------------------------------------------------------
   Definition

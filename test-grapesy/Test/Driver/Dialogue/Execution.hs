@@ -4,9 +4,6 @@ module Test.Driver.Dialogue.Execution (
     execGlobalSteps
   ) where
 
-import Control.Concurrent
-import Control.Concurrent.Async
-import Control.Concurrent.STM
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.State
@@ -29,6 +26,8 @@ import Network.GRPC.Common
 import Network.GRPC.Common.Binary
 import Network.GRPC.Server qualified as Server
 import Network.GRPC.Server.Binary qualified as Server.Binary
+
+import Debug.Concurrent
 
 import Test.Driver.ClientServer
 import Test.Driver.Dialogue.Definition

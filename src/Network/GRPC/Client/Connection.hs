@@ -34,6 +34,7 @@ import Network.HTTP2.Client qualified as HTTP2.Client
 import Network.HTTP2.TLS.Client qualified as HTTP2.TLS.Client
 import Network.Run.TCP qualified as Run
 import Network.Socket
+import Network.TLS (TLSException)
 import System.Random
 import Text.Show.Pretty
 
@@ -43,12 +44,12 @@ import Network.GRPC.Client.Session
 import Network.GRPC.Common.Compression qualified as Compr
 import Network.GRPC.Common.Compression qualified as Compression
 import Network.GRPC.Spec
-import Network.GRPC.Util.Concurrency
 import Network.GRPC.Util.HTTP2.Stream (ServerDisconnected(..))
 import Network.GRPC.Util.Session qualified as Session
 import Network.GRPC.Util.TLS (ServerValidation(..), SslKeyLog(..))
 import Network.GRPC.Util.TLS qualified as Util.TLS
-import Network.TLS (TLSException)
+
+import Debug.Concurrent
 
 {-------------------------------------------------------------------------------
   Connection API

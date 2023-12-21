@@ -1,6 +1,6 @@
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
 
-module Network.GRPC.Util.Concurrency (
+module Debug.Concurrent (
     -- * @Control.Concurrent@
     module ReexportConcurrent
   , forkIO

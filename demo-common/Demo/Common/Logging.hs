@@ -3,10 +3,11 @@ module Demo.Common.Logging (
   , logMsg
   ) where
 
-import Control.Concurrent
 import Control.Monad.IO.Class
 import Control.Tracer
 import GHC.IO (unsafePerformIO)
+
+import Debug.Concurrent
 
 tracingLock :: MVar ()
 {-# NOINLINE tracingLock #-}

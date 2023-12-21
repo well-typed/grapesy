@@ -20,7 +20,8 @@ import Control.Monad
 import GHC.Stack
 
 import Network.GRPC.Internal
-import Network.GRPC.Util.Concurrency
+
+import Debug.Concurrent
 
 {-------------------------------------------------------------------------------
   State

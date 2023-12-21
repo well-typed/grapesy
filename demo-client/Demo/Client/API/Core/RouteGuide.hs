@@ -2,13 +2,14 @@ module Demo.Client.API.Core.RouteGuide (
     listFeatures
   ) where
 
-import Control.Concurrent.STM
 import Data.Default
 import Data.Proxy
 
 import Network.GRPC.Client
 
 import Proto.RouteGuide
+
+import Debug.Concurrent
 
 import Demo.Common.Logging
 

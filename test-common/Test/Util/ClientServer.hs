@@ -22,9 +22,6 @@ module Test.Util.ClientServer (
   , runTestServer
   ) where
 
-import Control.Concurrent
-import Control.Concurrent.Async
-import Control.Concurrent.STM
 import Control.Exception
 import Control.Monad
 import Control.Monad.IO.Class
@@ -45,6 +42,8 @@ import Network.GRPC.Common.Compression qualified as Compr
 import Network.GRPC.Internal
 import Network.GRPC.Server qualified as Server
 import Network.GRPC.Server.Run qualified as Server
+
+import Debug.Concurrent
 
 import Test.Util.PrettyVal
 

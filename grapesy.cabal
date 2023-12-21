@@ -118,7 +118,6 @@ library
       Network.GRPC.Spec.Timeout
       Network.GRPC.Util.AccumulatedByteString
       Network.GRPC.Util.ByteString
-      Network.GRPC.Util.Concurrency
       Network.GRPC.Util.HTTP2
       Network.GRPC.Util.HTTP2.Stream
       Network.GRPC.Util.Parser
@@ -134,6 +133,8 @@ library
       Network.GRPC.Util.TLS
 
       Paths_grapesy
+
+      Debug.Concurrent
   hs-source-dirs:
       src
       debug
@@ -202,10 +203,10 @@ test-suite test-grapesy
   hs-source-dirs:
       test-grapesy
       test-common
+      debug
   main-is:
       Main.hs
   other-modules:
-      Paths_grapesy
       Test.Driver.ClientServer
       Test.Driver.Dialogue
       Test.Driver.Dialogue.Definition
@@ -218,6 +219,10 @@ test-suite test-grapesy
       Test.Sanity.StreamingType.NonStreaming
       Test.Util.ClientServer
       Test.Util.PrettyVal
+
+      Paths_grapesy
+
+      Debug.Concurrent
   build-depends:
       -- Internal dependencies
     , grapesy
@@ -247,6 +252,7 @@ executable demo-client
       demo-client
       demo-common
       proto
+      debug
   main-is:
       Main.hs
   ghc-options:
@@ -261,10 +267,13 @@ executable demo-client
       Demo.Client.Cmdline
       Demo.Client.Util.DelayOr
       Demo.Common.Logging
+
       Proto.Helloworld
       Proto.Helloworld_Fields
       Proto.RouteGuide
       Proto.RouteGuide_Fields
+
+      Debug.Concurrent
   build-depends:
       -- Internal dependencies
     , grapesy
@@ -293,6 +302,7 @@ executable demo-server
       demo-server
       demo-common
       proto
+      debug
   main-is:
       Main.hs
   ghc-options:
@@ -303,17 +313,22 @@ executable demo-server
       Demo.Server.Cmdline
       Demo.Server.Service.Greeter
       Demo.Server.Service.RouteGuide
+
       Proto.Helloworld
       Proto.Helloworld_Fields
       Proto.RouteGuide
       Proto.RouteGuide_Fields
+
       Paths_grapesy
+
+      Debug.Concurrent
   build-depends:
       -- Internal dependencies
     , grapesy
   build-depends:
       -- External dependencies
     , aeson                >= 1.5  && < 2.2
+    , async                >= 2.2  && < 2.3
     , containers           >= 0.6  && < 0.7
     , contra-tracer        >= 0.2  && < 0.3
     , data-default         >= 0.7  && < 0.8
@@ -323,6 +338,7 @@ executable demo-server
     , optparse-applicative >= 0.16 && < 0.19
     , proto-lens           >= 0.7  && < 0.8
     , proto-lens-runtime   >= 0.7  && < 0.8
+    , stm                  >= 2.5  && < 2.6
     , text                 >= 1.2  && < 2.1
     , time                 >= 1.9  && < 1.13
     , transformers         >= 0.5  && < 0.7
@@ -337,6 +353,7 @@ executable test-stress
   hs-source-dirs:
       test-stress
       test-common
+      debug
   main-is:
       Main.hs
   ghc-options:
@@ -345,7 +362,10 @@ executable test-stress
       Test.Stress.Cmdline
       Test.Util.ClientServer
       Test.Util.PrettyVal
+
       Paths_grapesy
+
+      Debug.Concurrent
   build-depends:
       -- Internal dependencies
     , grapesy

@@ -14,7 +14,6 @@ module Test.Driver.Dialogue.TestClock (
 
 import Prelude hiding (id)
 
-import Control.Concurrent.STM
 import Control.Exception
 import Control.Monad
 import Data.List.NonEmpty (NonEmpty(..))
@@ -26,6 +25,8 @@ import GHC.Generics qualified as GHC
 import GHC.Stack
 import Test.QuickCheck
 import Text.Show.Pretty
+
+import Debug.Concurrent
 
 {-------------------------------------------------------------------------------
   Test clock
@@ -52,12 +53,12 @@ newTestClock :: IO TestClock
 newTestClock = TestClock <$> newTVarIO (TestClockTick 0)
 
 waitForTestClockTick :: HasCallStack => TestClock -> TestClockTick -> IO ()
-waitForTestClockTick (TestClock clock) tick = do
-    atomically $
-      wait `catchSTM` \err -> throwSTM $ TestClockException err callStack
+waitForTestClockTick (TestClock clock) tick = atomically $
+    waitForTick `catchSTM` \err ->
+      throwSTM $ TestClockException err callStack
   where
-    wait :: STM ()
-    wait = do
+    waitForTick :: STM ()
+    waitForTick = do
       currentTick <- readTVar clock
       unless (currentTick == tick) retry
 

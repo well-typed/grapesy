@@ -20,9 +20,10 @@ import Network.Run.TCP (runTCPServer)
 import Network.Socket (HostName, ServiceName, PortNumber)
 import Network.TLS qualified as TLS
 
-import Network.GRPC.Util.Concurrency
 import Network.GRPC.Util.TLS (SslKeyLog(..))
 import Network.GRPC.Util.TLS qualified as Util.TLS
+
+import Debug.Concurrent
 
 {-------------------------------------------------------------------------------
   Configuration

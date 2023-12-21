@@ -2,13 +2,14 @@ module Demo.Client.API.Core.Greeter (
     sayHelloStreamReply
   ) where
 
-import Control.Concurrent.STM
 import Data.Default
 import Data.Proxy
 
 import Network.GRPC.Client
 
 import Proto.Helloworld
+
+import Debug.Concurrent
 
 import Demo.Common.Logging
 
