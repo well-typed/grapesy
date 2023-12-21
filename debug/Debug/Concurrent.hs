@@ -8,6 +8,8 @@ module Debug.Concurrent (
     -- * @Control.Concurrent.Async@
   , module ReexportAsync
   , withAsync
+  , async
+  , asyncWithUnmask
     -- * @Control.Concurrent.STM@
   , module ReexportSTM
   , atomically
@@ -17,9 +19,18 @@ module Debug.Concurrent (
 import Control.Exception
 import GHC.Stack
 
-import Control.Concurrent       as ReexportConcurrent hiding (forkIO, forkIOWithUnmask)
-import Control.Concurrent.Async as ReexportAsync      hiding (withAsync)
-import Control.Concurrent.STM   as ReexportSTM        hiding (atomically)
+import Control.Concurrent as ReexportConcurrent hiding (
+    forkIO
+  , forkIOWithUnmask
+  )
+import Control.Concurrent.Async as ReexportAsync hiding (
+    withAsync
+  , async
+  , asyncWithUnmask
+  )
+import Control.Concurrent.STM as ReexportSTM hiding (
+    atomically
+  )
 
 import Control.Concurrent       qualified as Concurrent
 import Control.Concurrent.Async qualified as Async
@@ -43,6 +54,16 @@ forkIOWithUnmask k = Concurrent.forkIOWithUnmask $ \unmask ->
 
 withAsync :: HasCallStack => IO a -> (Async a -> IO b) -> IO b
 withAsync = Async.withAsync . wrapThreadBody
+
+async :: HasCallStack => IO a -> IO (Async a)
+async = Async.async . wrapThreadBody
+
+asyncWithUnmask ::
+     HasCallStack
+  => ((forall b. IO b -> IO b) -> IO a)
+  -> IO (Async a)
+asyncWithUnmask k = Async.asyncWithUnmask $ \unmask ->
+    wrapThreadBody (k unmask)
 
 wrapThreadBody :: HasCallStack => IO a -> IO a
 wrapThreadBody = id
