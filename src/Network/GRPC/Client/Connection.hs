@@ -273,17 +273,17 @@ withConnection connParams server k = do
     connMetaVar  <- newMVar $ Meta.init
     connStateVar <- newTVarIO ConnectionNotReady
 
-    connCanClose <- newEmptyMVar
+    connOutOfScope <- newEmptyMVar
     let stayConnectedThread :: IO ()
         stayConnectedThread =
-            stayConnected connParams server connStateVar connCanClose
+            stayConnected connParams server connStateVar connOutOfScope
 
     -- We don't use withAsync because we want the thread to terminate cleanly
     -- when we no longer need the connection (which we indicate by writing to
-    -- connCanClose).
+    -- connOutOfScope).
     void $ forkIO $ stayConnectedThread
     k Connection {connParams, connMetaVar, connStateVar}
-      `finally` putMVar connCanClose ()
+      `finally` putMVar connOutOfScope ()
 
 -- | Open new channel to the server
 --
@@ -303,10 +303,10 @@ startRPC Connection{connMetaVar, connParams, connStateVar} _ callParams = do
       atomically $ do
         connState <- readTVar connStateVar
         case connState of
-          ConnectionNotReady               -> retry
+          ConnectionNotReady              -> retry
           ConnectionReady connClosed conn -> return (connClosed, conn)
-          ConnectionAbandoned err          -> throwSTM err
-          ConnectionClosed                 -> error "impossible"
+          ConnectionAbandoned err         -> throwSTM err
+          ConnectionOutOfScope            -> error "impossible"
 
     cOut <- Meta.outboundCompression <$> currentMeta
     let flowStart :: Session.FlowStart (ClientOutbound rpc)
@@ -385,7 +385,7 @@ data ConnectionState =
   | ConnectionAbandoned SomeException
 
     -- | The connection was closed because it is no longer needed.
-  | ConnectionClosed
+  | ConnectionOutOfScope
 
 -- | Stay connected to the server
 stayConnected ::
@@ -394,7 +394,7 @@ stayConnected ::
   -> TVar ConnectionState
   -> MVar ()
   -> IO ()
-stayConnected connParams server connStateVar connCanClose =
+stayConnected connParams server connStateVar connOutOfScope =
     loop (connReconnectPolicy connParams)
   where
     loop :: ReconnectPolicy -> IO ()
@@ -426,7 +426,7 @@ stayConnected connParams server connStateVar connCanClose =
                   let conn = Session.ConnectionToServer sendRequest
                   atomically $
                     writeTVar connStateVar $ ConnectionReady connClosed conn
-                  takeMVar connCanClose
+                  takeMVar connOutOfScope
             ServerSecure validation sslKeyLog auth -> do
               keyLogger <- Util.TLS.keyLogger sslKeyLog
               caStore   <- Util.TLS.validationCAStore validation
@@ -450,7 +450,7 @@ stayConnected connParams server connStateVar connCanClose =
                 let conn = Session.ConnectionToServer sendRequest
                 atomically $
                   writeTVar connStateVar $ ConnectionReady connClosed conn
-                takeMVar connCanClose
+                takeMVar connOutOfScope
 
         thisReconnectPolicy <- atomically $ do
           putTMVar connClosed $ either Just (\() -> Nothing) mRes
@@ -467,7 +467,7 @@ stayConnected connParams server connStateVar connCanClose =
         case mRes of
           Right () -> do
             traceWith tracer $ ClientDebugConnectionClosed
-            atomically $ writeTVar connStateVar $ ConnectionClosed
+            atomically $ writeTVar connStateVar $ ConnectionOutOfScope
           Left err -> do
             case (isFinalException err, thisReconnectPolicy) of
               (Just fatal, _) -> do
