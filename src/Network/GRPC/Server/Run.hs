@@ -44,6 +44,14 @@ data ServerConfig = ServerConfig {
     , serverSecure :: Maybe SecureConfig
     }
 
+instance Default ServerConfig where
+  def = ServerConfig {
+      serverSetup    = def
+    , serverInsecure = Just def
+    , serverSecure   = Nothing
+    }
+
+
 data ServerSetup = ServerSetup {
       -- | Low-level handler hook
       --
@@ -59,6 +67,9 @@ instance Default ServerSetup where
         serverHandlerHook = id
       }
 
+-- | Offer insecure connection (no TLS)
+--
+-- 'ServerConfig' defaults to an insecure connection on @localhost:50051@.
 data InsecureConfig = InsecureConfig {
       -- | Hostname
       insecureHost :: Maybe HostName
@@ -68,6 +79,13 @@ data InsecureConfig = InsecureConfig {
     }
   deriving (Show)
 
+instance Default InsecureConfig where
+  def = InsecureConfig {
+      insecureHost = Nothing
+    , insecurePort = "50051"
+    }
+
+-- | Offer secure connection (over TLS)
 data SecureConfig = SecureConfig {
       -- | Hostname
       secureHost :: HostName
