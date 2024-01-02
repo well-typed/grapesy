@@ -52,8 +52,10 @@ main = do
           , serverSecure   = cmdSecure cmdline
           }
 
-    withServer (serverParams cmdline) (fromServices $ services cmdline db) $
-      runServer serverConfig
+    server <- mkGrpcServer
+               (serverParams cmdline)
+               (fromServices $ services cmdline db)
+    runServer serverConfig server
 
 getRouteGuideDb :: IO [Feature]
 getRouteGuideDb = do

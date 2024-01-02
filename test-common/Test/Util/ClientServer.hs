@@ -339,8 +339,8 @@ runTestServer cfg serverExceptions serverTracer handlerLock serverHandlers = do
             , serverDebugTracer     = serverTracer
             }
 
-    Server.withServer serverParams serverHandlers $
-      Server.runServer serverConfig
+    server <- Server.mkGrpcServer serverParams serverHandlers
+    Server.runServer serverConfig server
 
 {-------------------------------------------------------------------------------
   Client

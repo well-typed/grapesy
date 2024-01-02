@@ -7,7 +7,7 @@
 module Network.GRPC.Server.Context (
     -- * Context
     ServerContext -- opaque
-  , withContext
+  , new
   , params
     -- * Configuration
   , ServerParams(..)
@@ -27,15 +27,16 @@ import Network.GRPC.Util.Session qualified as Session
 {-------------------------------------------------------------------------------
   Context
 
-  TODO: Stats
+  TODO: The server context is more of a placeholder at the moment. The plan is
+  to use it to keep things like server usage statistics etc.
 -------------------------------------------------------------------------------}
 
 data ServerContext = ServerContext {
       params :: ServerParams
     }
 
-withContext :: ServerParams -> (ServerContext -> IO a) -> IO a
-withContext params k = k $ ServerContext{params}
+new :: ServerParams -> IO ServerContext
+new params = return ServerContext{params}
 
 {-------------------------------------------------------------------------------
   Configuration

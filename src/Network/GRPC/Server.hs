@@ -3,7 +3,7 @@
 module Network.GRPC.Server (
     -- * Server proper
     ServerParams(..)
-  , withServer
+  , mkGrpcServer
 
     -- * Handlers
   , Call       -- opaque
@@ -66,10 +66,10 @@ import Network.GRPC.Util.Session.Server qualified as Session.Server
 -- The server can be run using the standard infrastructure offered by the
 -- @http2@ package, but "Network.GRPC.Server.Run" provides some convenience
 -- functions.
-withServer :: ServerParams -> [RpcHandler IO] -> (HTTP2.Server -> IO a) -> IO a
-withServer params handlers k =
-    Context.withContext params $
-      k . server params (Handler.constructMap handlers)
+mkGrpcServer :: ServerParams -> [RpcHandler IO] -> IO HTTP2.Server
+mkGrpcServer params handlers = do
+    ctxt <- Context.new params
+    return $ server params (Handler.constructMap handlers) ctxt
 
 server ::
      ServerParams
