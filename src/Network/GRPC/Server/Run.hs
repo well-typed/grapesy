@@ -4,11 +4,11 @@
 module Network.GRPC.Server.Run (
     -- * Configuration
     ServerConfig(..)
-  , ServerSetup(..)
   , InsecureConfig(..)
   , SecureConfig(..)
     -- * Run the server
   , runServer
+  , runServerWithHandlers
   ) where
 
 import Control.Exception
@@ -20,6 +20,7 @@ import Network.Run.TCP (runTCPServer)
 import Network.Socket (HostName, ServiceName, PortNumber)
 import Network.TLS qualified as TLS
 
+import Network.GRPC.Server (mkGrpcServer, ServerParams, RpcHandler)
 import Network.GRPC.Util.TLS (SslKeyLog(..))
 import Network.GRPC.Util.TLS qualified as Util.TLS
 
@@ -30,13 +31,10 @@ import Debug.Concurrent
 -------------------------------------------------------------------------------}
 
 data ServerConfig = ServerConfig {
-      -- | General settings
-      serverSetup :: ServerSetup
-
       -- | Configuration for insecure communication (without TLS)
       --
       -- Set to 'Nothing' to disable.
-    , serverInsecure :: Maybe InsecureConfig
+      serverInsecure :: Maybe InsecureConfig
 
       -- | Configuration for secure communication (over TLS)
       --
@@ -46,25 +44,8 @@ data ServerConfig = ServerConfig {
 
 instance Default ServerConfig where
   def = ServerConfig {
-      serverSetup    = def
-    , serverInsecure = Just def
-    , serverSecure   = Nothing
-    }
-
-
-data ServerSetup = ServerSetup {
-      -- | Low-level handler hook
-      --
-      -- This hook will be wrapped around each handler invocation, and can in
-      -- principle modify nearly every aspect of the handler execution.
-      --
-      -- Use with care.
-      serverHandlerHook :: HTTP2.Server -> HTTP2.Server
-    }
-
-instance Default ServerSetup where
-  def = ServerSetup {
-        serverHandlerHook = id
+        serverInsecure = Just def
+      , serverSecure   = Nothing
       }
 
 -- | Offer insecure connection (no TLS)
@@ -112,28 +93,38 @@ data SecureConfig = SecureConfig {
 -------------------------------------------------------------------------------}
 
 runServer :: ServerConfig -> HTTP2.Server -> IO ()
-runServer ServerConfig{serverSetup, serverInsecure, serverSecure} server =
+runServer ServerConfig{serverInsecure, serverSecure} server =
     concurrently_
-      (maybe (return ()) (runInsecure serverSetup server) serverInsecure)
-      (maybe (return ()) (runSecure   serverSetup server) serverSecure)
+      (maybe (return ()) (runInsecure server) serverInsecure)
+      (maybe (return ()) (runSecure   server) serverSecure)
+
+-- | Convenience function that combines 'runServer' with 'mkGrpcServer'
+runServerWithHandlers ::
+     ServerConfig
+  -> ServerParams
+  -> [RpcHandler IO]
+  -> IO ()
+runServerWithHandlers config params handlers = do
+    server <- mkGrpcServer params handlers
+    runServer config server
 
 {-------------------------------------------------------------------------------
   Insecure
 -------------------------------------------------------------------------------}
 
-runInsecure :: ServerSetup -> HTTP2.Server -> InsecureConfig -> IO ()
-runInsecure ServerSetup{serverHandlerHook} server cfg =
+runInsecure :: HTTP2.Server -> InsecureConfig -> IO ()
+runInsecure server cfg =
     runTCPServer (insecureHost cfg) (insecurePort cfg) $ \sock -> do
       bracket (HTTP2.allocSimpleConfig sock writeBufferSize)
               HTTP2.freeSimpleConfig $ \config ->
-        HTTP2.run HTTP2.defaultServerConfig config $ serverHandlerHook server
+        HTTP2.run HTTP2.defaultServerConfig config server
 
 {-------------------------------------------------------------------------------
   Secure (over TLS)
 -------------------------------------------------------------------------------}
 
-runSecure :: ServerSetup -> HTTP2.Server -> SecureConfig -> IO ()
-runSecure  ServerSetup{serverHandlerHook} server cfg = do
+runSecure :: HTTP2.Server -> SecureConfig -> IO ()
+runSecure server cfg = do
     cred :: TLS.Credential <-
           TLS.credentialLoadX509Chain
             (securePubCert    cfg)
@@ -154,7 +145,7 @@ runSecure  ServerSetup{serverHandlerHook} server cfg = do
       (TLS.Credentials [cred])
       (secureHost cfg)
       (securePort cfg)
-      (serverHandlerHook server)
+      server
 
 {-------------------------------------------------------------------------------
   Constants

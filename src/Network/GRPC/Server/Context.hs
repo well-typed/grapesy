@@ -12,11 +12,14 @@ module Network.GRPC.Server.Context (
     -- * Configuration
   , ServerParams(..)
   , ServerDebugMsg(..)
+  , RequestHandler
   ) where
 
 import Control.Exception
 import Control.Tracer
 import Data.Default
+import Network.HTTP2.Server qualified as HTTP2
+import System.IO
 import Text.Show.Pretty
 
 import Network.GRPC.Common.Compression qualified as Compr
@@ -42,28 +45,57 @@ new params = return ServerContext{params}
   Configuration
 -------------------------------------------------------------------------------}
 
+-- | HTTP2 request handler
+--
+-- The request handler should not throw any exceptions. Most of the time we will
+-- therefore work with
+--
+-- > RequestHandler (Either SomeException ())
+--
+-- It is passed a function to unmask asynchronous exceptions when it is ready.
+--
+-- Technical note: handlers should never throw exceptions, as doing so will
+-- cause @http2@ to reset the stream, which is not always the right thing to do
+-- (see detailed comments in 'acceptCall').
+type RequestHandler a =
+     (forall x. IO x -> IO x)
+  -> HTTP2.Request
+  -> (HTTP2.Response -> IO ())
+  -> IO a
+
 data ServerParams = ServerParams {
       -- | Server compression preferences
       serverCompression :: Compr.Negotation
-
-      -- | Tracer for exceptions thrown by handlers
-      --
-      -- The default uses 'stdoutTracer'.
-    , serverExceptionTracer :: Tracer IO SomeException
 
       -- | Tracer for debug messages
       --
       -- This is prmarily for debugging @grapesy@ itself; most client code will
       -- probably want to use 'nullTracer' here.
     , serverDebugTracer :: Tracer IO ServerDebugMsg
+
+      -- | Top-level hook for request handlers
+      --
+      -- The default merely logs any exceptions to stderr.
+    , serverTopLevel ::
+           RequestHandler (Either SomeException ())
+        -> RequestHandler ()
     }
 
 instance Default ServerParams where
   def = ServerParams {
-        serverCompression     = def
-      , serverExceptionTracer = contramap show stdoutTracer
-      , serverDebugTracer     = nullTracer
+        serverCompression = def
+      , serverDebugTracer = nullTracer
+      , serverTopLevel    = defaultServerTopLevel
       }
+    where
+      defaultServerTopLevel ::
+           RequestHandler (Either SomeException ())
+        -> RequestHandler ()
+      defaultServerTopLevel h unmask req respond = do
+          res <- h unmask req respond
+          case res of
+            Left err -> hPrint stderr err
+            Right () -> return ()
 
 {-------------------------------------------------------------------------------
   Logging

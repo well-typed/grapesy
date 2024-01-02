@@ -113,14 +113,14 @@ data Kickoff =
 -- | Accept incoming call
 --
 -- If an exception is thrown during call setup, we will send an error response
--- to the client (and then rethrow the exception).
+-- to the client and then return it.
 acceptCall :: forall rpc.
      (IsRPC rpc, HasCallStack)
-  => Context.ServerParams
+  => (forall x. IO x -> IO x)
   -> Connection
   -> (Call rpc -> IO ())
-  -> IO ()
-acceptCall params conn k = do
+  -> IO (Either SomeException ())
+acceptCall unmaskTopLevel conn k = do
     callRequestMetadata  <- newEmptyTMVarIO
     callResponseMetadata <- newTVarIO []
     callResponseKickoff  <- newEmptyTMVarIO
@@ -143,7 +143,7 @@ acceptCall params conn k = do
           -> Either SomeException ()
           -> IO ()
         handlerTeardown call@Call{callChannel} mRes = do
-            mUnclean <-
+            _mUnclean <-
               case mRes of
                 Right () ->
                   -- Handler terminated successfully
@@ -152,49 +152,43 @@ acceptCall params conn k = do
                 Left err -> do
                   -- The handler threw an exception. /Try/ to tell the client
                   -- (but see discussion of 'forwardException')
-                  traceWith (Context.serverExceptionTracer params) err
                   forwardException call err
                   Session.close callChannel $ ExitCaseException err
 
-            case mUnclean of
-              Nothing  -> return () -- Channel was closed cleanly
-              Just err ->
-                -- An unclean shutdown can have 3 causes:
-                --
-                -- 1. We failed to set up the call.
-                --
-                --    If the failure is due to network comms, we definitely have
-                --    no way of communicating with the client. If the failure
-                --    was due to a setup failure in 'mkOutboundHeaders', then
-                --    the client has /already/ been notified of the problem.
-                --
-                -- 2. We lost communication during the call.
-                --
-                --    In this case we also have no way of telling the client
-                --    that something went wrong.
-                --
-                -- 3. The handler failed to properly terminate the communication
-                --    (send the final message and call 'waitForOutbound').
-                --
-                --    This is the trickiest case. We don't really know what
-                --    state the handler left the channel in; for example, we
-                --    might have killed the thread halfway through sending a
-                --    message.
-                --
-                -- So the only thing we really can do here is log the error,
-                -- and nothing else. (We should not rethrow it, as doing so will
-                -- cause http2 to reset the stream, which is not always the
-                -- right thing to do (for example, in case (1)).
-                traceWith (Context.serverExceptionTracer params) $
-                  toException err
+            -- An unclean shutdown can have 3 causes:
+            --
+            -- 1. We failed to set up the call.
+            --
+            --    If the failure is due to network comms, we definitely have no
+            --    way of communicating with the client. If the failure was due
+            --    to a setup failure in 'mkOutboundHeaders', then the client has
+            --    /already/ been notified of the problem.
+            --
+            -- 2. We lost communication during the call.
+            --
+            --    In this case we also have no way of telling the client that
+            --    something went wrong.
+            --
+            -- 3. The handler failed to properly terminate the communication
+            --    (send the final message and call 'waitForOutbound').
+            --
+            --    This is the trickiest case. We don't really know what state
+            --    the handler left the channel in; for example, we might have
+            --    killed the thread halfway through sending a message.
+            --
+            -- So there not really anything we can do here (except perhaps show
+            -- the exception in 'serverTopLevel').
+            return ()
 
+    -- The handler itself will run in a separate thread (see 'runHandler')
     let handler ::
              Session.Channel (ServerSession rpc)
           -> (forall a. IO a -> IO a)
-          -> IO ()
-        handler callChannel unmask = do
-            mRes <- try $ unmask $ k call
+          -> IO (Either SomeException ())
+        handler callChannel unmaskInThread = do
+            mRes <- try $ unmaskInThread $ k call
             handlerTeardown call mRes
+            return mRes
           where
             call :: Call rpc
             call = Call{
@@ -205,7 +199,7 @@ acceptCall params conn k = do
               , callResponseKickoff
               }
 
-    runHandler setupResponseChannel handler
+    runHandler unmaskTopLevel setupResponseChannel handler
   where
     callSession :: ServerSession rpc
     callSession = ServerSession {
@@ -315,39 +309,42 @@ acceptCall params conn k = do
 -- library: exceptions will only be raised synchronously when communication is
 -- attempted, not asynchronously when we notice a problem.
 runHandler ::
-     IO (Session.Channel (ServerSession rpc))
-  -> (Session.Channel (ServerSession rpc) -> (forall a. IO a -> IO a) -> IO ())
-  -> IO ()
-runHandler setupResponseChannel handler = do
-    mask $ \unmask -> do
-      -- This sets up the channel but no response is sent yet
-      callChannel   <- setupResponseChannel
-      handlerThread <- asyncWithUnmask $ handler callChannel
+     (forall x. IO x -> IO x)
+  -> IO (Session.Channel (ServerSession rpc))
+  -> (    Session.Channel (ServerSession rpc)
+       -> (forall a. IO a -> IO a)
+       -> IO (Either SomeException ())
+     )
+  -> IO (Either SomeException ())
+runHandler unmaskTopLevel setupResponseChannel handler = do
+    -- This sets up the channel but no response is sent yet
+    callChannel   <- setupResponseChannel
+    handlerThread <- asyncWithUnmask $ handler callChannel
 
-      let loop :: IO ()
-          loop = do
-             -- We do not need to use 'waitCatch': the handler installs its
-             -- own exception handler and will not throw any exceptions.
-             mRes <- try $ unmask $ wait handlerThread
-             case mRes of
-               Right ()  -> return ()
-               Left  err -> do
-                 case fromException err of
-                   Just (HTTP2.KilledByHttp2ThreadManager mErr) -> do
-                     let exitReason :: ExitCase ()
-                         exitReason =
-                           case mErr of
-                             Nothing -> ExitCaseSuccess ()
-                             Just exitWithException ->
-                               ExitCaseException . toException $
-                                 ClientDisconnected exitWithException
-                     _mAlreadyClosed <- Session.close callChannel exitReason
-                     loop
-                   Nothing -> do
-                     cancelWith handlerThread err
-                     throwM err
+    let loop :: IO (Either SomeException ())
+        loop = do
+           -- We do not need to use 'waitCatch': the handler installs its
+           -- own exception handler and will not throw any exceptions.
+           mRes <- try $ unmaskTopLevel $ wait handlerThread
+           case mRes of
+             Right res -> return res
+             Left  err -> do
+               case fromException err of
+                 Just (HTTP2.KilledByHttp2ThreadManager mErr) -> do
+                   let exitReason :: ExitCase ()
+                       exitReason =
+                         case mErr of
+                           Nothing -> ExitCaseSuccess ()
+                           Just exitWithException ->
+                             ExitCaseException . toException $
+                               ClientDisconnected exitWithException
+                   _mAlreadyClosed <- Session.close callChannel exitReason
+                   loop
+                 Nothing -> do
+                   cancelWith handlerThread err
+                   return $ Left err
 
-      loop
+    loop
 
 -- | Process exception thrown by a handler
 --

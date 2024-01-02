@@ -55,7 +55,6 @@ runServer = do
     serverHandlerLock <- newServerHandlerLock
     runTestServer
       def
-      (contramap show stdoutTracer)
       nullTracer
       serverHandlerLock
       [

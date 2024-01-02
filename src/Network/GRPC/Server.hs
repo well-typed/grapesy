@@ -2,8 +2,11 @@
 
 module Network.GRPC.Server (
     -- * Server proper
-    ServerParams(..)
-  , mkGrpcServer
+    mkGrpcServer
+
+    -- ** Configuration
+  , ServerParams(..)
+  , Context.RequestHandler
 
     -- * Handlers
   , Call       -- opaque
@@ -41,13 +44,12 @@ module Network.GRPC.Server (
 
 import Control.Exception
 import Control.Tracer
-import GHC.Stack
 import Network.HTTP.Types qualified as HTTP
 import Network.HTTP2.Server qualified as HTTP2
 
 import Network.GRPC.Common
 import Network.GRPC.Server.Call
-import Network.GRPC.Server.Connection (Connection(..), withConnection)
+import Network.GRPC.Server.Connection (Connection(..))
 import Network.GRPC.Server.Connection qualified as Connection
 import Network.GRPC.Server.Context (ServerParams)
 import Network.GRPC.Server.Context qualified as Context
@@ -76,24 +78,32 @@ server ::
   -> Handler.Map IO
   -> Context.ServerContext
   -> HTTP2.Server
-server params handlers ctxt =
-    withConnection ctxt $
-      handleRequest params handlers
+server Context.ServerParams{serverTopLevel} handlers ctxt req _aux respond =
+    -- We start by masking asynchronous exceptions. It is possible that
+    -- http2 kills us /before/ this call to @mask@, but if it does, no harm
+    -- is done: nothing has happened yet, so nothing is interrupted.
+    mask $ \unmask -> requestHandler unmask req (\resp -> respond resp [])
+  where
+    requestHandler :: Context.RequestHandler ()
+    requestHandler =
+          serverTopLevel
+        $ Connection.mkRequestHandler ctxt
+        $ handleRequest handlers
 
 handleRequest ::
-     HasCallStack
-  => ServerParams
-  -> Handler.Map IO
-  -> Connection -> IO ()
-handleRequest params handlers conn = do
+     Handler.Map IO
+  -> (forall x. IO x -> IO x)
+  -> Connection
+  -> IO (Either SomeException ())
+handleRequest handlers unmask conn = do
     -- TODO: Proper "Apache style" logging (in addition to the debug logging)
     traceWith tracer $ Context.ServerDebugRequest path
-    withHandler params handlers path conn $ \(RpcHandler h) -> do
+    withHandler handlers path conn $ \(RpcHandler h) -> do
       -- TODO: Timeouts
       --
       -- Wait-for-ready semantics makes this more complicated, maybe.
       -- See example in the grpc-repo (python/wait_for_ready).
-      acceptCall params conn h
+      acceptCall unmask conn h
   where
     path :: Path
     path = Connection.path conn
@@ -109,20 +119,20 @@ handleRequest params handlers conn = do
 -------------------------------------------------------------------------------}
 
 withHandler ::
-     ServerParams
-  -> Handler.Map m
+     Handler.Map m
   -> Path
   -> Connection
-  -> (RpcHandler m -> IO ()) -> IO ()
-withHandler params handlers path conn k =
+  -> (RpcHandler m -> IO (Either SomeException ()))
+  -> IO (Either SomeException ())
+withHandler handlers path conn k =
     case Handler.lookup path handlers of
       Just h  -> k h
       Nothing -> do
-        traceWith (Context.serverExceptionTracer params) (toException err)
         Session.Server.respond conn' $
           HTTP2.responseNoBody
             HTTP.ok200
             (buildTrailersOnly trailers)
+        return $ Left (toException err)
   where
     conn' :: Session.Server.ConnectionToClient
     conn' = connectionClient conn

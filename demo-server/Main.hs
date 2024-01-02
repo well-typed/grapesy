@@ -47,15 +47,14 @@ main = do
 
     let serverConfig :: ServerConfig
         serverConfig = ServerConfig {
-            serverSetup    = def
-          , serverInsecure = cmdInsecure cmdline
+            serverInsecure = cmdInsecure cmdline
           , serverSecure   = cmdSecure cmdline
           }
 
-    server <- mkGrpcServer
-               (serverParams cmdline)
-               (fromServices $ services cmdline db)
-    runServer serverConfig server
+    runServerWithHandlers
+      serverConfig
+      (serverParams cmdline)
+      (fromServices $ services cmdline db)
 
 getRouteGuideDb :: IO [Feature]
 getRouteGuideDb = do
