@@ -198,6 +198,7 @@ test-suite test-grapesy
   ghc-options:
       -Wprepositive-qualified-module
       -threaded
+      -rtsopts
   type:
       exitcode-stdio-1.0
   hs-source-dirs:
@@ -238,7 +239,7 @@ test-suite test-grapesy
     , pretty-show      >= 1.10 && < 1.11
     , QuickCheck       >= 2.14 && < 2.15
     , stm              >= 2.5  && < 2.6
-    , tasty            >= 1.4  && < 1.5
+    , tasty            >= 1.4  && < 1.6
     , tasty-hunit      >= 0.10 && < 0.11
     , tasty-quickcheck >= 0.10 && < 0.11
     , text             >= 1.2  && < 2.1
