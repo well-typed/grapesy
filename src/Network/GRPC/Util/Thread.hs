@@ -49,6 +49,7 @@ data ThreadState a =
 
     -- | Thread terminated with an exception
   | ThreadException SomeException
+  deriving (Show)
 
 {-------------------------------------------------------------------------------
   Creating threads

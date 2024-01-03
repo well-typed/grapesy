@@ -167,6 +167,13 @@ data RegularFlowState flow = RegularFlowState {
     , flowTerminated :: TMVar (Trailers flow)
     }
 
+-- | 'Show' instance is useful in combination with @stm-debug@ only
+deriving instance (
+    Show (Headers flow)
+  , Show (TMVar (StreamElem (Trailers flow) (Message flow)))
+  , Show (TMVar (Trailers flow))
+  ) => Show (RegularFlowState flow)
+
 {-------------------------------------------------------------------------------
   Initialization
 -------------------------------------------------------------------------------}
