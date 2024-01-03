@@ -384,7 +384,7 @@ data RecvAfterFinal =
 -- | Wait for the outbound thread to terminate
 --
 -- See 'forceClose' for discussion.
-waitForOutbound :: Channel sess -> IO (FlowState (Outbound sess))
+waitForOutbound :: HasCallStack => Channel sess -> IO (FlowState (Outbound sess))
 waitForOutbound Channel{channelOutbound} = atomically $
     readTMVar =<< waitForThread channelOutbound
 
