@@ -335,7 +335,11 @@ recv Channel{channelInbound, channelRecvFinal} = do
     case readFinal of
       Just cs -> throwSTM $ RecvAfterFinal cs
       Nothing -> do
-        st  <- readTMVar =<< getThreadInterface channelInbound
+        -- We get the TMVar in the same transaction as reading from it (below).
+        -- This means that /if/ the thread running 'recvMessageLoop' throws an
+        -- exception and is killed, the 'takeTMVar' below cannot block
+        -- indefinitely (because the transaction will be retried).
+        st <- readTMVar =<< getThreadInterface channelInbound
         case st of
           FlowStateRegular regular -> do
             msg <- takeTMVar (flowMsg regular)
@@ -463,6 +467,14 @@ data ChannelAborted = ChannelAborted CallStack
 
 {-------------------------------------------------------------------------------
   Constructing channels
+
+  Both 'sendMessageLoop' and 'recvMessageLoop' will be run in newly forked
+  threads, using the 'Thread' API from "Network.GRPC.Util.Thread". We are
+  therefore not particularly worried about these loops being interrupted by
+  asynchronous exceptions: this only happens if the threads are explicitly
+  terminated (when the corrresponding channels are closed), in which case any
+  attempt to interact with them after they have been killed will be handled by
+  'getThreadInterface' throwing 'ThreadInterfaceUnavailable'.
 -------------------------------------------------------------------------------}
 
 -- | Send all messages to the node's peer
@@ -502,8 +514,6 @@ sendMessageLoop sess tracer st stream =
                 return trailers
 
 -- | Receive all messages sent by the node's peer
---
--- Should be called with exceptions masked.
 --
 -- TODO: This is wrong, we are never marking the final element as final.
 -- (But fixing this requires a patch to http2.)
