@@ -229,13 +229,8 @@ parseCustomMetadata (name, value)
         return $ BinaryHeader name' (BinaryValue value')
 
   | otherwise
-  = case ( safeHeaderName (CI.foldedCase name)
-         , safeAsciiValue value
-         ) of
-      (Nothing, _) ->
-        throwError $ "Invalid header name: " ++ show name
-      (_, Nothing) ->
-        throwError $ "Invalid ASCII header value: " ++ show value
-      (Just name', Just value') ->
-        return $ AsciiHeader name' value'
-
+  = case safeHeaderName (CI.foldedCase name) of
+      Nothing -> throwError $ "Invalid header name: " ++ show name
+      -- We assume that by the time 'http2' gives us a header value, it is a
+      -- valid http2 header value.
+      Just name' -> return $ AsciiHeader name' (UnsafeAsciiValue value)

@@ -23,8 +23,9 @@ module Network.GRPC.Spec.Common (
 
 import Control.Monad.Except
 import Data.ByteString qualified as BS.Strict
+import Data.ByteString.Char8 qualified as BS.Strict.C8
 import Data.Foldable (toList)
-import Data.List (intersperse)
+import Data.List (intersperse, stripPrefix)
 import Data.List.NonEmpty (NonEmpty(..))
 import Data.Proxy
 import Network.HTTP.Types qualified as HTTP
@@ -52,11 +53,20 @@ parseContentType ::
   => Proxy rpc
   -> HTTP.Header
   -> m ()
-parseContentType proxy hdr =
-    expectHeaderValue hdr $ [
-        "application/grpc"
-      , "application/grpc+" <> serializationFormat proxy
+parseContentType proxy (name,hdr) = case stripPrefix "application/grpc" hdrAscii of
+    Just [] -> pure ()
+    Just ('+':_) -> pure ()
+    _ -> throwError $ concat [
+        "Unexpected value \""
+      , hdrAscii
+      , "\" for header"
+      , show name -- Show instance adds quotes
+      , ". Expected application/grpc or application/grpc+"
+      , BS.Strict.C8.unpack (serializationFormat proxy)
+      , ", or application/grpc+{...} also acceptable."
       ]
+  where
+    hdrAscii = BS.Strict.C8.unpack hdr
 
 {-------------------------------------------------------------------------------
   > Message-Encoding → "grpc-encoding" Content-Coding
