@@ -276,11 +276,17 @@ isChannelHealthy channel = do
 getInboundHeaders ::
      Channel sess
   -> IO (Either (NoMessages (Inbound sess)) (Headers (Inbound sess)))
-getInboundHeaders Channel{channelInbound} = atomically $ do
-    st <- readTMVar =<< getThreadInterface channelInbound
-    return $ case st of
-      FlowStateRegular    regular  -> Right $ flowHeaders regular
-      FlowStateNoMessages trailers -> Left trailers
+getInboundHeaders Channel{channelInbound} =
+    withThreadInterface channelInbound aux
+  where
+    aux :: forall flow.
+         TMVar (FlowState flow)
+      -> STM (Either (NoMessages flow) (Headers flow))
+    aux iface = do
+        st <- readTMVar iface
+        return $ case st of
+          FlowStateRegular    regular  -> Right $ flowHeaders regular
+          FlowStateNoMessages trailers -> Left trailers
 
 -- | Send a message to the node's peer
 --
@@ -292,8 +298,8 @@ send :: forall sess.
   => Channel sess
   -> StreamElem (Trailers (Outbound sess)) (Message (Outbound sess))
   -> IO ()
-send Channel{channelOutbound, channelSentFinal} msg = atomically $ do
-    aux =<< getThreadInterface channelOutbound
+send Channel{channelOutbound, channelSentFinal} msg =
+    withThreadInterface channelOutbound aux
   where
     aux :: TMVar (FlowState (Outbound sess)) -> STM ()
     aux iface = do
@@ -329,8 +335,8 @@ recv :: forall sess.
             (Either (NoMessages (Inbound sess)) (Trailers (Inbound sess)))
             (Message (Inbound sess))
         )
-recv Channel{channelInbound, channelRecvFinal} = atomically $ do
-    aux =<< getThreadInterface channelInbound
+recv Channel{channelInbound, channelRecvFinal} =
+    withThreadInterface channelInbound aux
   where
     aux ::
          TMVar (FlowState (Inbound sess))

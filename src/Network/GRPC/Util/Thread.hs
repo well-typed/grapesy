@@ -10,7 +10,7 @@ module Network.GRPC.Util.Thread (
     -- * Access thread state
   , cancelThread
   , waitForThread
-  , getThreadInterface
+  , withThreadInterface
   , ThreadCancelled(..)
   , ThreadInterfaceUnavailable(..)
   ) where
@@ -177,15 +177,24 @@ instance HasNestedException ThreadCancelled where
 -- doing so is inherently racy (we might return that the client is still
 -- running, and then it terminates before the calling code can do anything with
 -- that information).
-getThreadInterface :: HasCallStack => TVar (ThreadState a) -> STM a
-getThreadInterface state = do
-    st <- readTVar state
-    case st of
-      ThreadNotStarted     -> retry
-      ThreadInitializing _ -> retry
-      ThreadRunning _ a    -> return a
-      ThreadDone      a    -> return a
-      ThreadException e    -> throwSTM $ ThreadInterfaceUnavailable callStack e
+withThreadInterface :: forall a b.
+     HasCallStack
+  => TVar (ThreadState a)
+  -> (a -> STM b)
+  -> IO b
+withThreadInterface state k = do
+    atomically $ k =<< getThreadInterface
+  where
+    getThreadInterface :: STM a
+    getThreadInterface = do
+        st <- readTVar state
+        case st of
+          ThreadNotStarted     -> retry
+          ThreadInitializing _ -> retry
+          ThreadRunning _ a    -> return a
+          ThreadDone      a    -> return a
+          ThreadException e    -> throwSTM $
+                                    ThreadInterfaceUnavailable callStack e
 
 -- | Wait for the thread to terminate
 --
