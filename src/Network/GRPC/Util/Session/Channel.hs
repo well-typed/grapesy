@@ -275,8 +275,8 @@ isChannelHealthy channel = do
 -- Will block if the inbound headers have not yet been received.
 getInboundHeaders ::
      Channel sess
-  -> STM (Either (NoMessages (Inbound sess)) (Headers (Inbound sess)))
-getInboundHeaders Channel{channelInbound} = do
+  -> IO (Either (NoMessages (Inbound sess)) (Headers (Inbound sess)))
+getInboundHeaders Channel{channelInbound} = atomically $ do
     st <- readTMVar =<< getThreadInterface channelInbound
     return $ case st of
       FlowStateRegular    regular  -> Right $ flowHeaders regular

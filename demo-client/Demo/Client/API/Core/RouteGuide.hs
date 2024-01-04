@@ -9,8 +9,6 @@ import Network.GRPC.Client
 
 import Proto.RouteGuide
 
-import Debug.Concurrent
-
 import Demo.Common.Logging
 
 {-------------------------------------------------------------------------------
@@ -27,7 +25,7 @@ listFeatures conn r = do
       -- In the gRPC @Trailers-Only@ case (which will be triggered if there
       -- are zero features in the provided rectangle), this will also be the
       -- trailing custom metadata.
-      initMetadata <- atomically $ recvResponseMetadata call
+      initMetadata <- recvResponseMetadata call
       logMsg initMetadata
 
       finalMetadata <- recvAllOutputs call $ logMsg

@@ -192,7 +192,7 @@ clientLocal testClock call = \(LocalSteps steps) ->
         -> StateT (ServerHealth ()) IO ()
     reactToServer = \case
         Initiate expectedMetadata -> liftIO $ do
-          receivedMetadata <- atomically $ Client.recvResponseMetadata call
+          receivedMetadata <- Client.recvResponseMetadata call
           expect (== expectedMetadata) $ Set.fromList receivedMetadata
         Send (FinalElem a b) -> do
           -- Known bug (limitation in http2). See recvMessageLoop.

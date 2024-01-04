@@ -9,8 +9,6 @@ import Network.GRPC.Client
 
 import Proto.Helloworld
 
-import Debug.Concurrent
-
 import Demo.Common.Logging
 
 {-------------------------------------------------------------------------------
@@ -25,7 +23,7 @@ sayHelloStreamReply conn name =
 
       -- We should see the response metadata immediately, and the first output
       -- after a delay.
-      initMetadata <- atomically $ recvResponseMetadata call
+      initMetadata <- recvResponseMetadata call
       logMsg initMetadata
 
       -- For completeness, we also show the final metadata, although the

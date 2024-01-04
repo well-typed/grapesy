@@ -120,15 +120,14 @@ recvOutput Call{callChannel} = liftIO $
 -- The server might send additional metadata after the final output; see
 -- 'recvOutput'.
 --
--- This lives in STM because it might block: we need to wait until we receive
--- the metadata. The precise communication pattern will depend on the specifics
--- of each server:
+-- This can block: we need to wait until we receive the metadata. The precise
+-- communication pattern will depend on the specifics of each server:
 --
 -- * It might be necessary to send one or more inputs to the server before it
 --   returns any replies.
 -- * The response metadata /will/ be available before the first output from the
 --   server, and may indeed be available /well/ before.
-recvResponseMetadata :: Call rpc -> STM [CustomMetadata]
+recvResponseMetadata :: Call rpc -> IO [CustomMetadata]
 recvResponseMetadata Call{callChannel} =
     aux <$> Session.getInboundHeaders callChannel
   where
