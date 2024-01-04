@@ -22,11 +22,8 @@ module Network.GRPC.Server.Call (
   , sendTrailers
 
     -- ** Low-level API
-  , recvInputSTM
-  , sendOutputSTM
   , initiateResponse
   , sendTrailersOnly
-  , waitForOutbound
   , isCallHealthy
 
     -- ** Internal API
@@ -390,7 +387,11 @@ forwardException call err = do
 -- We do not return trailers, since gRPC does not support sending trailers from
 -- the client to the server (only from the server to the client).
 recvInput :: HasCallStack => Call rpc -> IO (StreamElem NoMetadata (Input rpc))
-recvInput call = atomically $ recvInputSTM call
+recvInput Call{callChannel} =
+    first ignoreTrailersOnly <$> Session.recv callChannel
+  where
+    ignoreTrailersOnly :: Either RequestHeaders NoMetadata -> NoMetadata
+    ignoreTrailersOnly _ = NoMetadata
 
 -- | Send RPC output to the client
 --
@@ -402,10 +403,23 @@ recvInput call = atomically $ recvInputSTM call
 -- This is a blocking call if this is the final message (i.e., the call will
 -- not return until the message has been written to the HTTP2 stream).
 sendOutput :: Call rpc -> StreamElem [CustomMetadata] (Output rpc) -> IO ()
-sendOutput call msg = do
+sendOutput call@Call{callChannel} msg = do
     _updated <- initiateResponse call
-    atomically $ sendOutputSTM call msg
-    StreamElem.whenDefinitelyFinal msg $ \_ -> waitForOutbound call
+    Session.send callChannel (first mkTrailers msg)
+
+    -- This /must/ be called before leaving the scope of 'acceptCall' (or we
+    -- risk that the HTTP2 stream is cancelled). We can't call 'waitForOutbound'
+    -- /in/ 'acceptCall', because if the handler for whatever reason never
+    -- writes the final message, such a call would block indefinitely.
+    StreamElem.whenDefinitelyFinal msg $ \_ ->
+      void $ Session.waitForOutbound callChannel
+  where
+    mkTrailers :: [CustomMetadata] -> ProperTrailers
+    mkTrailers metadata = ProperTrailers {
+          trailerGrpcStatus  = GrpcOk
+        , trailerGrpcMessage = Nothing
+        , trailerMetadata    = metadata
+        }
 
 -- | Get request metadata
 --
@@ -437,65 +451,12 @@ setResponseMetadata Call{ callResponseMetadata
 
 {-------------------------------------------------------------------------------
   Low-level API
-
-  'initiateResponse' and 'sendOutputSTM' /MUST NOT/ live in the same
-  transaction: in order to send a message, we need to know if the call is in
-  "regular" flow state or "trailers only" flow state, which we only know after
-  'initiateResponse'; so if these live in the same transaction, we will
-  deadlock.
 -------------------------------------------------------------------------------}
-
--- | STM version of 'recvInput'
---
--- This is a low-level API; most users can use 'recvInput' instead.
---
--- Most server handlers will deal with single clients, but in principle
--- 'recvInputSTM' could be used to wait for the first message from any number of
--- clients.
-recvInputSTM :: forall rpc.
-     HasCallStack
-  => Call rpc
-  -> STM (StreamElem NoMetadata (Input rpc))
-recvInputSTM Call{callChannel} =
-    first ignoreTrailersOnly <$> Session.recv callChannel
-  where
-    ignoreTrailersOnly ::
-         Either RequestHeaders NoMetadata
-      -> NoMetadata
-    ignoreTrailersOnly _ = NoMetadata
-
--- | STM version of 'sendOutput'
---
--- This is a low-level API; most users can use 'sendOutput' instead.
---
--- If you choose to use 'sendOutputSTM' instead, you have two responsibilities:
---
--- * You must call 'initiateResponse' before calling 'sendOutputSTM';
---   'sendOutputSTM' will throw 'ResponseNotInitiated' otherwise.
--- * You must call 'waitForOutbound' after sending the final message (and before
---   exiting the scope of 'acceptCall'); if you don't, you risk that the HTTP2
---   stream is cancelled.
---
--- Implementation note: we cannot call 'waitForOutbound' /in/ 'acceptCall': if
--- the handler for whatever reason never writes the final message, then such a
--- call would block indefinitely.
-sendOutputSTM :: Call rpc -> StreamElem [CustomMetadata] (Output rpc) -> STM ()
-sendOutputSTM Call{callChannel, callResponseKickoff} msg = do
-    mKickoff <- tryReadTMVar callResponseKickoff
-    case mKickoff of
-      Just _  -> Session.send callChannel (first mkTrailers msg)
-      Nothing -> throwSTM $ ResponseNotInitiated
-  where
-    mkTrailers :: [CustomMetadata] -> ProperTrailers
-    mkTrailers metadata = ProperTrailers {
-          trailerGrpcStatus  = GrpcOk
-        , trailerGrpcMessage = Nothing
-        , trailerMetadata    = metadata
-        }
 
 -- | Initiate the response
 --
--- See 'sendOutputSTM' for discusison.
+-- This will cause the initial response metadata to be sent
+-- (see also 'setResponseMetadata').
 --
 -- Returns 'False' if the response was already initiated.
 initiateResponse :: Call rpc -> IO Bool
@@ -537,17 +498,7 @@ sendTrailersOnly Call{callResponseKickoff} metadata = do
         , trailerMetadata    = metadata
         }
 
--- | Wait for all outbound messages to have been processed
---
--- This function /must/ be called before leaving the scope of 'acceptCall'.
--- However, 'sendOutput' will call 'waitForOutbound' when the last message is
--- sent, so you only need to worry about this if you are using 'sendOutputSTM'.
-waitForOutbound :: Call rpc -> IO ()
-waitForOutbound = void . Session.waitForOutbound . callChannel
-
-data ResponseKickoffException =
-    ResponseAlreadyInitiated
-  | ResponseNotInitiated
+data ResponseAlreadyInitiated = ResponseAlreadyInitiated
   deriving stock (Show)
   deriving anyclass (Exception)
 
@@ -619,4 +570,4 @@ sendProperTrailers Call{callResponseKickoff, callChannel} trailers = do
     unless updated $
       -- If we didn't update, then the response has already been initiated and
       -- we cannot make use of the Trailers-Only case.
-      atomically $ Session.send callChannel (NoMoreElems trailers)
+      Session.send callChannel (NoMoreElems trailers)

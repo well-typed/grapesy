@@ -291,8 +291,8 @@ send ::
      HasCallStack
   => Channel sess
   -> StreamElem (Trailers (Outbound sess)) (Message (Outbound sess))
-  -> STM ()
-send Channel{channelOutbound, channelSentFinal} msg = do
+  -> IO ()
+send Channel{channelOutbound, channelSentFinal} msg = atomically $ do
     -- By checking that we haven't sent the final message yet, we know that this
     -- call to 'putMVar' will not block indefinitely: the thread that sends
     -- messages to the peer will get to it eventually (unless it dies, in which
@@ -321,11 +321,11 @@ send Channel{channelOutbound, channelSentFinal} msg = do
 recv ::
      HasCallStack
   => Channel sess
-  -> STM ( StreamElem
-             (Either (NoMessages (Inbound sess)) (Trailers (Inbound sess)))
-             (Message (Inbound sess))
-         )
-recv Channel{channelInbound, channelRecvFinal} = do
+  -> IO ( StreamElem
+            (Either (NoMessages (Inbound sess)) (Trailers (Inbound sess)))
+            (Message (Inbound sess))
+        )
+recv Channel{channelInbound, channelRecvFinal} = atomically $ do
     -- By checking that we haven't received the final message yet, we know that
     -- this call to 'takeTMVar' will not block indefinitely: the thread that
     -- receives messages from the peer will get to it eventually (unless it

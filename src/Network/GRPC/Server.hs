@@ -26,8 +26,6 @@ module Network.GRPC.Server (
   , sendTrailers
 
     -- ** Low-level API
-  , recvInputSTM
-  , sendOutputSTM
   , initiateResponse
   , sendTrailersOnly
   , isCallHealthy

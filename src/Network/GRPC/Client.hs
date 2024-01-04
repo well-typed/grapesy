@@ -49,8 +49,6 @@ module Network.GRPC.Client (
   , recvAllOutputs
 
     -- ** Low-level API
-  , sendInputSTM
-  , recvOutputSTM
   , isCallHealthy
 
     -- * Common serialization formats
