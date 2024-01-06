@@ -155,6 +155,12 @@ data CustomException e =
 -- Returns 'Right' the expected exception if any (with any wrapper exceptions
 -- removed), 'Left' some (possibly nested) exception if the exception was
 -- unexpected.
+--
+-- NOTE: We /never/ expect the 'KilledByHttp2ThreadManager' exception from
+-- @http2@, as we protect the handler from this; see 'runHandler' for details
+-- (TL;DR: /if/ the handler tries to communicate after an
+-- 'KilledByHttp2ThreadManager' exception, it will find that the channel has
+-- been closed).
 isExpectedException :: forall e.
      ClientServerConfig
   -> (SomeException -> CustomException e)
