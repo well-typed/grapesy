@@ -577,3 +577,4 @@ sendProperTrailers Call{callResponseKickoff, callChannel} trailers = do
       -- If we didn't update, then the response has already been initiated and
       -- we cannot make use of the Trailers-Only case.
       Session.send callChannel (NoMoreElems trailers)
+    void $ Session.waitForOutbound callChannel

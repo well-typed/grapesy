@@ -36,6 +36,8 @@ tests = testGroup "Test.Prop.Dialogue" [
         , testCaseInfo "earlyTermination4" $ regression earlyTermination4
         , testCaseInfo "earlyTermination5" $ regression earlyTermination5
         , testCaseInfo "earlyTermination6" $ regression earlyTermination6
+        , testCaseInfo "earlyTermination7" $ regression earlyTermination7
+        , testCaseInfo "earlyTermination8" $ regression earlyTermination8
         ]
     , testGroup "Setup" [
           testProperty "shrinkingWellFounded" prop_shrinkingWellFounded
@@ -333,4 +335,21 @@ earlyTermination6 = Dialogue [
     , (0, ClientAction $ Send (StreamElem 0))
     , (0, ClientAction $ Terminate (Just (ExceptionId 0)))
     , (0, ServerAction $ Send (NoMoreElems (Set.fromList [])))
+    ]
+
+-- | Server-side early termination
+earlyTermination7 :: Dialogue
+earlyTermination7 = Dialogue [
+      (0, ServerAction $ Initiate (Set.fromList []))
+    , (0, ServerAction $ Terminate (Just (ExceptionId 0)))
+    ]
+
+-- | Server-side early termination, Trailers-Only case
+--
+-- This is like 'earlyTermination7', but in this case the server does not send
+-- the initial metadata, which causes the server handler to use the gRPC
+-- Trailers-Only case to send the error to the client.
+earlyTermination8 :: Dialogue
+earlyTermination8 = Dialogue [
+      (0, ServerAction $ Terminate (Just (ExceptionId 0)))
     ]
