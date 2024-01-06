@@ -539,8 +539,8 @@ serverGlobal testClock globalStepsVar call = do
   Top-level
 -------------------------------------------------------------------------------}
 
-execGlobalSteps :: GlobalSteps -> (ClientServerTest -> IO a) -> IO a
-execGlobalSteps steps k = do
+execGlobalSteps :: GlobalSteps -> IO ClientServerTest
+execGlobalSteps steps = do
     globalStepsVar <- newMVar (order steps)
     testClock      <- newTestClock
 
@@ -550,16 +550,13 @@ execGlobalSteps steps k = do
         handler rpc = Server.mkRpcHandler rpc $ \call ->
                         serverGlobal testClock globalStepsVar call
 
-    mRes :: Either SomeException a <- try $ k $ def {
+    return def {
         client = \conn -> clientGlobal testClock conn steps
       , server = [ handler (Proxy @TestRpc1)
                  , handler (Proxy @TestRpc2)
                  , handler (Proxy @TestRpc3)
                  ]
       }
-    case mRes of
-      Left err -> throwM err
-      Right a  -> return a
   where
     -- For 'clientGlobal' the order doesn't matter, because it spawns a thread
     -- for each 'LocalSteps'. The server however doesn't get this option; the

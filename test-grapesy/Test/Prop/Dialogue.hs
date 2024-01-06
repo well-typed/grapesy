@@ -71,7 +71,8 @@ _arbitraryWithExceptions (DialogueWithExceptions dialogue) =
 propDialogue :: Dialogue -> Property
 propDialogue dialogue =
     counterexample (show globalSteps) $
-      propClientServer assessCustomException $ execGlobalSteps globalSteps
+      propClientServer assessCustomException $
+        execGlobalSteps globalSteps
   where
     globalSteps :: GlobalSteps
     globalSteps = dialogueGlobalSteps dialogue
@@ -79,7 +80,7 @@ propDialogue dialogue =
 regression :: Dialogue -> IO String
 regression dialogue = do
     handle annotate $
-      testClientServer assessCustomException $
+      testClientServer assessCustomException =<<
         execGlobalSteps globalSteps
   where
     globalSteps :: GlobalSteps
