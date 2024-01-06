@@ -11,6 +11,7 @@ import Test.Tasty.HUnit
 import Test.Tasty.QuickCheck
 import Text.Show.Pretty
 
+import Network.GRPC.Client (ServerDisconnected(..))
 import Network.GRPC.Common
 import Network.GRPC.Server (ClientDisconnected(..))
 
@@ -38,6 +39,7 @@ tests = testGroup "Test.Prop.Dialogue" [
         , testCaseInfo "earlyTermination6" $ regression earlyTermination6
         , testCaseInfo "earlyTermination7" $ regression earlyTermination7
         , testCaseInfo "earlyTermination8" $ regression earlyTermination8
+        , testCaseInfo "earlyTermination9" $ regression earlyTermination9
         ]
     , testGroup "Setup" [
           testProperty "shrinkingWellFounded" prop_shrinkingWellFounded
@@ -105,6 +107,7 @@ data ExpectedUserException =
   | ExpectedServerException SomeServerException
   | ExpectedForwardedToClient GrpcException
   | ExpectedClientDisconnected SomeException
+  | ExpectedServerDisconnected SomeException
   | ExpectedEarlyTermination
   deriving stock (Show, GHC.Generic)
   deriving anyclass (PrettyVal)
@@ -135,6 +138,15 @@ assessCustomException err
     , Just msg <- grpcErrorMessage grpc
     , "SomeServerException" `Text.isInfixOf` msg
     = CustomExceptionExpected $ ExpectedForwardedToClient grpc
+
+    -- For when the server disconnects /without/ an exception
+    --
+    -- TODO: Ideally, we should really allow for this only if we have reason to
+    -- believe that this case can happen. Currently, this is hiding a previous
+    -- bug where the exception from the handler was reported as
+    -- 'ServerDisconnected' rather than a 'GrpcException'.
+    | Just (ServerDisconnected e) <- fromException err
+    = CustomExceptionExpected $ ExpectedServerDisconnected e
 
     -- Client-side exceptions are reported as 'ClientDisconnected', but without
     -- additional information (gRPC does not support client-to-server trailers
@@ -352,4 +364,11 @@ earlyTermination7 = Dialogue [
 earlyTermination8 :: Dialogue
 earlyTermination8 = Dialogue [
       (0, ServerAction $ Terminate (Just (ExceptionId 0)))
+    ]
+
+-- | Like 'earlyTermination7', but now without an exception
+earlyTermination9 :: Dialogue
+earlyTermination9 = Dialogue [
+      (0, ServerAction $ Initiate (Set.fromList []))
+    , (0, ServerAction $ Terminate Nothing)
     ]
