@@ -13,6 +13,7 @@ import Text.Show.Pretty
 
 import Network.GRPC.Client (ServerDisconnected(..))
 import Network.GRPC.Common
+import Network.GRPC.Internal
 import Network.GRPC.Server (ClientDisconnected(..))
 
 import Test.Driver.ClientServer
@@ -146,13 +147,15 @@ assessCustomException err
     -- bug where the exception from the handler was reported as
     -- 'ServerDisconnected' rather than a 'GrpcException'.
     | Just (ServerDisconnected e) <- fromException err
-    = CustomExceptionExpected $ ExpectedServerDisconnected e
+    = CustomExceptionExpected $
+        ExpectedServerDisconnected (innerNestedException e)
 
     -- Client-side exceptions are reported as 'ClientDisconnected', but without
     -- additional information (gRPC does not support client-to-server trailers
     -- so we have no way of informing the server about what went wrong).
     | Just (ClientDisconnected e) <- fromException err
-    = CustomExceptionExpected $ ExpectedClientDisconnected e
+    = CustomExceptionExpected $
+        ExpectedClientDisconnected (innerNestedException e)
 
     --
     -- Early termination
