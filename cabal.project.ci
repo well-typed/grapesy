@@ -4,3 +4,8 @@ package grapesy
   tests: True
   flags: +build-demo +build-stress-test
   ghc-options: -Werror
+
+source-repository-package
+  type: git
+  location: http://github.com/edsko/http2
+  tag: 8bd2ac2df4d57697d4dc4a7535ee02784e842425

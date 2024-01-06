@@ -10,7 +10,6 @@ import Control.Monad.State
 import Data.Bifunctor
 import Data.Default
 import Data.List (sortBy)
-import Data.Maybe (mapMaybe)
 import Data.Ord (comparing)
 import Data.Proxy
 import Data.Set qualified as Set
@@ -128,41 +127,146 @@ ifAlive :: (a -> Health e b) -> Health e a -> Health e b
 ifAlive = (=<<)
 
 {-------------------------------------------------------------------------------
+  Execution mode
+-------------------------------------------------------------------------------}
+
+-- | Execution mode
+--
+-- Each test involves one or more pairs of a client and a server engaged in an
+-- RPC call. Each call consists of a series of actions ("client sends initial
+-- metadata", "client sends a message", "server sends a message", etc.). We
+-- categorize such actions as either " passive " (such as receiving a message)
+-- or " active " (such as sending a message).
+--
+-- As part of the test generation, each action is assigned a (test) clock tick.
+-- This imposes a specific (but randomly generated) ordering; this matches the
+-- formal definition of the behaviour of concurrent systems: "for every
+-- interleaving, ...". Active actions wait until the test clock (essentially
+-- such an @MVar Int@) reaches their assigned tick before proceeding. The
+-- /advancement/ of the test clock depends on the mode (see below).
+data ExecutionMode =
+    -- | Conservative mode (used when tests involve early termination)
+    --
+    -- == Ordering
+    --
+    -- Consider a test that looks something like:
+    --
+    -- > clock tick 1: client sends message
+    -- > clock tick 2: client throws exception
+    --
+    -- We have to be careful to preserve ordering here: the exception thrown by
+    -- the client may or may not " overtake " the earlier send: the message may
+    -- or may not be send to the server, thereby making the tests flaky. In
+    -- conversative mode, therefore, the /passive/ participant is the one that
+    -- advances the test clock; in the example above, the /server/ advances the
+    -- test clock when it receives the message. The downside of this approach
+    -- is that we are excluding some valid behaviour from the tests: we're
+    -- effectively making every operation synchronous.
+    --
+    -- == Connection isolation
+    --
+    -- The tests assume that different calls are independent from each other.
+    -- This is mostly true, but not completely: when a client or a server
+    -- terminates early, the entire connection (supporting potentially many
+    -- calls) is reset. It's not entirely clear why; it feels like an
+    -- unnecessary limitation in @http2@. (TODO: Actually, this might be related
+    -- to an exception being thrown in 'outboundTrailersMaker'?)
+    --
+    -- Ideally, we would either (1) randomly assign connections to calls and
+    -- then test that an early termination only affects calls using the same
+    -- connection, or better yet, (2), remove this limitation from @http2@.
+    --
+    -- For now, we do neither: /if/ a test includes early termination, we give
+    -- each call its own connection, thereby regaining independence.
+    Conservative
+
+    -- | Aggressive mode (used when tests do not involve early termination)
+    --
+    -- == Ordering
+    --
+    -- Consider a test containing:
+    --
+    -- > clock tick 1: client sends message A
+    -- > clock tick 2: client sends message B
+    --
+    -- In aggressive mode it's the /active/ participant that advances the clock.
+    -- This means that we may well reach clock tick 2 before the server has
+    -- received message A, thus testing the asynchronous nature of the
+    -- operations that @grapesy@ offers
+    --
+    -- ## Connection isolation
+    --
+    -- In aggressive mode all calls from the client to the server share the
+    -- same connection.
+  | Aggressive
+  deriving (Show)
+
+determineExecutionMode :: GlobalSteps -> ExecutionMode
+determineExecutionMode steps =
+    if hasEarlyTermination steps
+      then Conservative
+      else Aggressive
+
+ifConservative :: Applicative m => ExecutionMode -> m () -> m ()
+ifConservative Conservative k = k
+ifConservative Aggressive   _ = pure ()
+
+ifAggressive :: Applicative m => ExecutionMode -> m () -> m ()
+ifAggressive Aggressive   k = k
+ifAggressive Conservative _ = pure ()
+
+-- | Advance the clock for all non-executed steps
+--
+-- When a client or a handler exits (due to an exception, perhaps), then it is
+-- important we still step the test clock at the appropriate times, to avoid the
+-- rest of the tests stalling.
+skipMissedSteps ::
+     TestClock
+  -> ExecutionMode
+  -> (ExecutionMode -> LocalStep -> Bool)
+  -> [(TestClockTick, LocalStep)]
+  -> IO ()
+skipMissedSteps testClock mode ourStep steps =
+    void $ forkIO $
+      advanceTestClockAtTimes testClock $
+        map fst $ filter (ourStep mode . snd) steps
+
+{-------------------------------------------------------------------------------
   Client-side interpretation
 -------------------------------------------------------------------------------}
 
 clientLocal ::
      HasCallStack
   => TestClock
+  -> ExecutionMode
   -> Client.Call (BinaryRpc meth srv)
   -> LocalSteps
   -> IO ()
-clientLocal testClock call = \(LocalSteps steps) ->
-    flip evalStateT (Alive ()) $ go steps
+clientLocal testClock mode call = \(LocalSteps steps) ->
+    evalStateT (go steps) (Alive ()) `finally`
+      skipMissedSteps testClock mode ourStep steps
   where
+    ourStep :: ExecutionMode -> LocalStep -> Bool
+    ourStep Aggressive   (ClientAction _) = True
+    ourStep Aggressive   (ServerAction _) = False
+    ourStep Conservative (ClientAction _) = False
+    ourStep Conservative (ServerAction _) = True
+
     go :: [(TestClockTick, LocalStep)] -> StateT (ServerHealth ()) IO ()
     go []                     = return ()
     go ((tick, step) : steps) = do
         waitFor "client"
         case step of
           ClientAction action -> do
-            liftIO $ waitForTestClockTick testClock tick
-            continue <-   clientAct action
-                        `finally`
-                          liftIO (advanceTestClock testClock)
-            if continue then
-              go steps
-            else do
-              -- See discussion in serverLocal
-              let ourStep :: (TestClockTick, LocalStep) -> Maybe TestClockTick
-                  ourStep (tick' , ClientAction _) = Just tick'
-                  ourStep (_     , ServerAction _) = Nothing
-              liftIO $ do
-                void $ forkIO $
-                  advanceTestClockAtTimes testClock $
-                    mapMaybe ourStep steps
+            _reachedTick <- liftIO $ waitForTestClockTick testClock tick
+            -- TODO: We could assert that _reachedTick is True
+            continue <-
+              clientAct action `finally`
+                liftIO (ifAggressive mode $ advanceTestClock testClock)
+            when continue $ go steps
           ServerAction action -> do
-            reactToServer action
+            reactToServer action `finally`
+              liftIO (ifConservative mode $ advanceTestClock testClock)
             go steps
 
     -- Client action
@@ -256,32 +360,23 @@ clientLocal testClock call = \(LocalSteps steps) ->
 
 clientGlobal ::
      TestClock
+  -> ExecutionMode
   -> (forall a. (Client.Connection -> IO a) -> IO a)
   -> GlobalSteps
   -> IO ()
-clientGlobal testClock withConn = \steps@(GlobalSteps globalSteps) ->
-    -- TODO: The tests assume that different calls are independent from each
-    -- other. This is mostly true, but not completely: when a client or a server
-    -- terminates early, the entire connection (supporting potentially many
-    -- calls) is reset. It's not entirely clear why; it feels like an
-    -- unnecessary limitation in @http2@.
-    --
-    -- Ideally, we would either (1) randomly assign connections to calls and
-    -- then test that an early termination only affects calls using the same
-    -- connection, or better yet, (2), remove this limitation from @http2@.
-    --
-    -- For now, we do neither: /if/ a test includes early termination, we give
-    -- each call its own connection, thereby regaining independence.
-    if hasEarlyTermination steps
-      then go Nothing [] globalSteps
-      else withConn $ \conn -> go (Just conn) [] globalSteps
+clientGlobal testClock mode withConn = \(GlobalSteps globalSteps) ->
+    case mode of
+      Aggressive   -> withConn $ \conn -> go (Just conn) [] globalSteps
+      Conservative -> go Nothing [] globalSteps
   where
     go :: Maybe Client.Connection -> [Async ()] -> [LocalSteps] -> IO ()
     go _ threads [] = do
-         -- Wait for all threads to finish
-         --
-         -- This also ensures that if any of these threads threw an exception,
-         -- that is now rethrown here in the main test.
+        -- Wait for all threads to finish
+        --
+        -- This also ensures that if any of these threads threw an exception,
+        -- that is now rethrown here in the main test. This will also cause us
+        -- to leave the scope of all enclosing calls to @withAsync@, thereby
+        -- cancelling all other concurrent threads.
         mapM_ wait threads
     go mConn threads (c:cs) =
         withAsync (runLocalSteps mConn c) $ \newThread ->
@@ -291,7 +386,8 @@ clientGlobal testClock withConn = \steps@(GlobalSteps globalSteps) ->
     runLocalSteps mConn (LocalSteps steps) = do
         case steps of
           (tick, ClientAction (Initiate (metadata, rpc))) : steps' -> do
-            waitForTestClockTick testClock tick
+            _reachedTick <- waitForTestClockTick testClock tick
+            -- TODO: We could assert that _reachedTick is True
 
             -- Timeouts are outside the scope of these tests: it's too finicky
             -- to relate timeouts (in seconds) to specific test execution.
@@ -308,16 +404,16 @@ clientGlobal testClock withConn = \steps@(GlobalSteps globalSteps) ->
                   Nothing   -> withConn) $ \conn ->
                 Client.withRPC conn params proxy $ \call -> do
                   -- We wait for the /server/ to advance the test clock (so that
-                  -- we are use the next step doesn't happen until the connection
-                  -- is established).
+                  -- we are sure the next step doesn't happen until the
+                  -- connection is established).
                   --
                   -- NOTE: We could instead wait for the server to send the
                   -- initial metadata; this too would provide evidence that the
-                  -- conneciton has been established. However, doing so precludes
-                  -- a class of correct behaviour: the server might not respond
-                  -- with that initial metadata until the client has sent some
-                  -- messages.
-                  clientLocal testClock call (LocalSteps steps')
+                  -- connection has been established. However, doing so
+                  -- precludes a class of correct behaviour: the server might
+                  -- not respond with that initial metadata until the client has
+                  -- sent some messages.
+                  clientLocal testClock mode call (LocalSteps steps')
 
           _otherwise ->
             error $ "clientGlobal: expected Initiate, got " ++ show steps
@@ -372,36 +468,34 @@ _waitForEnabled label = liftIO $ do
 
 serverLocal ::
      TestClock
+  -> ExecutionMode
   -> Server.Call (BinaryRpc serv meth)
   -> LocalSteps -> IO ()
-serverLocal testClock call = \(LocalSteps steps) -> do
-    flip evalStateT (Alive ()) $ go steps
+serverLocal testClock mode call = \(LocalSteps steps) -> do
+    evalStateT (go steps) (Alive ()) `finally`
+      skipMissedSteps testClock mode ourStep steps
   where
+    ourStep :: ExecutionMode -> LocalStep -> Bool
+    ourStep Aggressive   (ServerAction _) = True
+    ourStep Aggressive   (ClientAction _) = False
+    ourStep Conservative (ClientAction _) = False
+    ourStep Conservative (ServerAction _) = True
+
     go :: [(TestClockTick, LocalStep)] -> StateT (ClientHealth ()) IO ()
     go []                     = return ()
     go ((tick, step) : steps) = do
         waitFor "server"
         case step of
           ServerAction action -> do
-            liftIO $ waitForTestClockTick testClock tick
-            continue <-   serverAct action
-                        `finally`
-                          liftIO (advanceTestClock testClock)
-            if continue then
-              go steps
-            else do
-              -- We need to exit the scope of the handler, but we do want to
-              -- keep advancing the test clock when its our turn, so that we
-              -- don't interfere with the timing of other threads.
-              let ourStep :: (TestClockTick, LocalStep) -> Maybe TestClockTick
-                  ourStep (tick' , ServerAction _) = Just tick'
-                  ourStep (_     , ClientAction _) = Nothing
-              liftIO $ do
-                void $ forkIO $
-                  advanceTestClockAtTimes testClock $
-                    mapMaybe ourStep steps
+            _reachedTick <- liftIO $ waitForTestClockTick testClock tick
+            -- TODO: We could assert that _reachedTick is True
+            continue <-
+              serverAct action `finally`
+                liftIO (ifAggressive mode $ advanceTestClock testClock)
+            when continue $ go steps
           ClientAction action -> do
-            reactToClient action
+            reactToClient action `finally`
+              liftIO (ifConservative mode $ advanceTestClock testClock)
             go steps
 
     -- Server action
@@ -494,6 +588,7 @@ serverLocal testClock call = \(LocalSteps steps) -> do
 serverGlobal ::
      HasCallStack
   => TestClock
+  -> ExecutionMode
   -> MVar GlobalSteps
     -- ^ Unlike in the client case, the grapesy infrastructure spawns a new
     -- thread for each incoming connection. To know which part of the test this
@@ -502,7 +597,7 @@ serverGlobal ::
     -- thread, the order of these incoming requests is deterministic.
   -> Server.Call (BinaryRpc serv meth)
   -> IO ()
-serverGlobal testClock globalStepsVar call = do
+serverGlobal testClock mode globalStepsVar call = do
     steps <- modifyMVar globalStepsVar (getNextSteps . getGlobalSteps)
     -- See discussion in clientGlobal (runLocalSteps)
     advanceTestClock testClock
@@ -518,7 +613,7 @@ serverGlobal testClock globalStepsVar call = do
          -- exception.
          receivedMetadata <- Server.getRequestMetadata call
          expect (== metadata) $ Set.fromList receivedMetadata
-         serverLocal testClock call $ LocalSteps steps'
+         serverLocal testClock mode call $ LocalSteps steps'
        _otherwise ->
           error "serverGlobal: expected ClientInitiateRequest"
   where
@@ -548,16 +643,19 @@ execGlobalSteps steps = do
              IsRPC (BinaryRpc serv meth)
           => Proxy (BinaryRpc serv meth) -> Server.RpcHandler IO
         handler rpc = Server.mkRpcHandler rpc $ \call ->
-                        serverGlobal testClock globalStepsVar call
+                        serverGlobal testClock mode globalStepsVar call
 
     return def {
-        client = \conn -> clientGlobal testClock conn steps
+        client = \conn -> clientGlobal testClock mode conn steps
       , server = [ handler (Proxy @TestRpc1)
                  , handler (Proxy @TestRpc2)
                  , handler (Proxy @TestRpc3)
                  ]
       }
   where
+    mode :: ExecutionMode
+    mode = determineExecutionMode steps
+
     -- For 'clientGlobal' the order doesn't matter, because it spawns a thread
     -- for each 'LocalSteps'. The server however doesn't get this option; the
     -- threads /get/ spawnwed for each incoming connection, and must feel off
