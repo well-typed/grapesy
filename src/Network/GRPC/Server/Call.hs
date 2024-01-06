@@ -43,6 +43,7 @@ import Network.HTTP2.Server qualified as HTTP2
 import Network.GRPC.Common
 import Network.GRPC.Common.Compression qualified as Compr
 import Network.GRPC.Common.StreamElem qualified as StreamElem
+import Network.GRPC.Internal.NestedException
 import Network.GRPC.Server.Connection (Connection(..))
 import Network.GRPC.Server.Connection qualified as Connection
 import Network.GRPC.Server.Context qualified as Context
@@ -263,21 +264,14 @@ acceptCall unmaskTopLevel conn k = do
               Session.FlowStartNoMessages trailers ->            trailers
 
     -- | Send response when 'mkOutboundHeaders' fails
-    --
-    -- TODO: Some duplication with 'forwardException' (and 'withHandler').
     sendErrorResponse :: forall x. SomeException -> IO x
     sendErrorResponse err = do
         traceWith tracer $ Context.ServerDebugAcceptFailed err
         Server.respond (connectionClient conn) $
           HTTP2.responseNoBody
             HTTP.ok200 -- gRPC uses HTTP 200 even when there are gRPC errors
-            (buildTrailersOnly $ TrailersOnly $ ProperTrailers {
-                trailerGrpcStatus  = GrpcError GrpcUnknown
-                -- TODO: Potential security concern here
-                -- (showing the exception)?
-              , trailerGrpcMessage = Just $ Text.pack (show err)
-              , trailerMetadata    = []
-              })
+            (buildTrailersOnly . TrailersOnly $
+               serverExceptionToClientError err)
         throwM err
 
 -- | Run the handler
@@ -356,27 +350,39 @@ runHandler unmaskTopLevel setupResponseChannel handler = do
 --
 -- We therefore catch and suppress all exceptions here.
 forwardException :: Call rpc -> SomeException -> IO ()
-forwardException call err = do
-    handle ignoreExceptions $
-      sendProperTrailers call trailers
+forwardException call =
+      handle ignoreExceptions
+    . sendProperTrailers call
+    . serverExceptionToClientError
   where
-    trailers :: ProperTrailers
-    trailers
-      | Just (err' :: GrpcException) <- fromException err
-      = grpcExceptionToTrailers err'
-
-      -- TODO: There might be a security concern here (server-side exceptions
-      -- could potentially leak some sensitive data).
-      | otherwise
-      = ProperTrailers {
-            trailerGrpcStatus  = GrpcError GrpcUnknown
-          , trailerGrpcMessage = Just $ Text.pack (show err)
-          , trailerMetadata    = []
-          }
-
-    -- See discussion above.
     ignoreExceptions :: SomeException -> IO ()
     ignoreExceptions _ = return ()
+
+-- | Turn exception raised in server handler to error to be sent to the client
+--
+-- We strip off any decoration of the exception (such as callstacks), which are
+-- primarily intended for debugging the handler, and then 'show' the remaining
+-- exception to give the client a clue as to what happened.
+--
+-- TODO: There might be a security concern here (server-side exceptions could
+-- potentially leak some sensitive data).
+serverExceptionToClientError :: SomeException -> ProperTrailers
+serverExceptionToClientError wrappedError
+    | Just (err' :: GrpcException) <- fromException unwrappedError
+    = grpcExceptionToTrailers err'
+
+    -- TODO: There might be a security concern here (server-side exceptions
+    -- could potentially leak some sensitive data).
+    | otherwise
+    = ProperTrailers {
+          trailerGrpcStatus  = GrpcError GrpcUnknown
+        , trailerGrpcMessage = Just $ Text.pack (show unwrappedError)
+        , trailerMetadata    = []
+        }
+  where
+    unwrappedError :: SomeException
+    unwrappedError = innerNestedException wrappedError
+
 
 {-------------------------------------------------------------------------------
   Open (ongoing) call

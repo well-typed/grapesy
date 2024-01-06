@@ -2,6 +2,7 @@ module Network.GRPC.Internal.NestedException (
     -- * Wrapping exceptions
     HasNestedException(..)
   , maybeNestedException
+  , innerNestedException
     -- * Wrapped exceptions in the exception hierarchy
   , SomeExceptionWrapper(..)
   , isExceptionWrapper
@@ -43,6 +44,13 @@ maybeNestedException = fmap aux . isExceptionWrapper
   where
     aux :: SomeExceptionWrapper -> SomeException
     aux (SomeExceptionWrapper e) = getNestedException e
+
+-- | Strip off all nesting
+innerNestedException :: Exception e => e -> SomeException
+innerNestedException e =
+    case maybeNestedException e of
+      Nothing -> toException e
+      Just e' -> innerNestedException e'
 
 {-------------------------------------------------------------------------------
   Wrapped exceptions in the exception hierarchy
