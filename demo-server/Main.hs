@@ -47,13 +47,14 @@ main = do
 
     let serverConfig :: ServerConfig
         serverConfig = ServerConfig {
-            serverSetup    = def
-          , serverInsecure = cmdInsecure cmdline
+            serverInsecure = cmdInsecure cmdline
           , serverSecure   = cmdSecure cmdline
           }
 
-    withServer (serverParams cmdline) (fromServices $ services cmdline db) $
-      runServer serverConfig
+    runServerWithHandlers
+      serverConfig
+      (serverParams cmdline)
+      (fromServices $ services cmdline db)
 
 getRouteGuideDb :: IO [Feature]
 getRouteGuideDb = do

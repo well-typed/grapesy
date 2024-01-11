@@ -17,9 +17,6 @@ module Network.GRPC.Client.Call (
   , recvAllOutputs
 
     -- ** Low-level API
-  , sendInputSTM
-  , recvOutputSTM
-  , waitForOutbound
   , isCallHealthy
   ) where
 
@@ -37,8 +34,10 @@ import Network.GRPC.Client.Session
 import Network.GRPC.Common
 import Network.GRPC.Common.StreamElem qualified as StreamElem
 import Network.GRPC.Spec
-import Network.GRPC.Util.Concurrency
 import Network.GRPC.Util.Session qualified as Session
+import Network.GRPC.Util.Session.Channel (ChannelUncleanClose(..))
+
+import Debug.Concurrent
 
 {-------------------------------------------------------------------------------
   Definition
@@ -54,7 +53,7 @@ import Network.GRPC.Util.Session qualified as Session
 -- when the body is run. If you want to be sure that the call has been setup,
 -- you can call 'recvResponseMetadata'.
 withRPC :: forall m rpc a.
-     (MonadMask m, MonadIO m, IsRPC rpc)
+     (MonadMask m, MonadIO m, IsRPC rpc, HasCallStack)
   => Connection -> CallParams -> Proxy rpc -> (Call rpc -> m a) -> m a
 withRPC conn callParams proxy k =
     (throwUnclean =<<) $
@@ -89,9 +88,12 @@ sendInput ::
   => Call rpc
   -> StreamElem NoMetadata (Input rpc)
   -> m ()
-sendInput call msg = liftIO $ do
-    atomically $ sendInputSTM call msg
-    StreamElem.whenDefinitelyFinal msg $ \_ -> waitForOutbound call
+sendInput Call{callChannel} msg = liftIO $ do
+    Session.send callChannel msg
+
+    -- This should be called before exiting the scope of 'withRPC'.
+    StreamElem.whenDefinitelyFinal msg $ \_ ->
+      void $ Session.waitForOutbound callChannel
 
 -- | Receive an output from the peer
 --
@@ -104,23 +106,28 @@ recvOutput ::
      MonadIO m
   => Call rpc
   -> m (StreamElem [CustomMetadata] (Output rpc))
-recvOutput call =
-    liftIO $ atomically $ recvOutputSTM call
+recvOutput Call{callChannel} = liftIO $
+    first collapseTrailers <$> Session.recv callChannel
+  where
+    -- No difference between 'ProperTrailers' and 'TrailersOnly'
+    collapseTrailers ::
+         Either [CustomMetadata] [CustomMetadata]
+      -> [CustomMetadata]
+    collapseTrailers = either id id
 
 -- | The initial metadata that was included in the response headers
 --
 -- The server might send additional metadata after the final output; see
 -- 'recvOutput'.
 --
--- This lives in STM because it might block: we need to wait until we receive
--- the metadata. The precise communication pattern will depend on the specifics
--- of each server:
+-- This can block: we need to wait until we receive the metadata. The precise
+-- communication pattern will depend on the specifics of each server:
 --
 -- * It might be necessary to send one or more inputs to the server before it
 --   returns any replies.
 -- * The response metadata /will/ be available before the first output from the
 --   server, and may indeed be available /well/ before.
-recvResponseMetadata :: Call rpc -> STM [CustomMetadata]
+recvResponseMetadata :: Call rpc -> IO [CustomMetadata]
 recvResponseMetadata Call{callChannel} =
     aux <$> Session.getInboundHeaders callChannel
   where
@@ -133,53 +140,6 @@ recvResponseMetadata Call{callChannel} =
 {-------------------------------------------------------------------------------
   Low-level API
 -------------------------------------------------------------------------------}
-
--- | Send input
---
--- This is a low-level API; most users should use 'sendInput' instead.
---
--- The advantage of 'sendInputSTM' over 'sendInput' is the improved
--- compositionality of @STM@. For example, if the peer is currently busy then
--- 'sendInput' will block, but you can then use 'orElse' to provide an
--- alternative codepath.
---
--- If you choose to use 'sendInputSTM' over 'sendInput', you have some
--- responsibilities:
---
--- * You must call 'waitForOutbound' after sending the final message (and before
---   exiting the scope of 'withRPC').
--- * You should not enqueue multiple messages on the same call within the same
---   STM transaction; doing so will deadlock.
-sendInputSTM ::
-     HasCallStack
-  => Call rpc
-  -> StreamElem NoMetadata (Input rpc)
-  -> STM ()
-sendInputSTM = Session.send . callChannel
-
--- | Receive output
---
--- This is a low-level API; most users should use 'recvOutput' instead.
---
--- The improved compositionality of STM can for example be used to wait on
--- multiple clients and see which one responds first.
-recvOutputSTM :: Call rpc -> STM (StreamElem [CustomMetadata] (Output rpc))
-recvOutputSTM = fmap (first collapseTrailers) . Session.recv . callChannel
-  where
-    -- No difference between 'ProperTrailers' and 'TrailersOnly'
-    collapseTrailers ::
-         Either [CustomMetadata] [CustomMetadata]
-      -> [CustomMetadata]
-    collapseTrailers = either id id
-
--- | Wait for all outbound messages to have been processed
---
--- This should be called before exiting the scope of 'withRPC'. However,
--- 'sendOutput' will call this function when sending the final messages, so
--- you only need to worry about this if using 'sendOutputSTM'.
-waitForOutbound :: Call rpc -> IO ()
-waitForOutbound call = do
-    void $ Session.waitForOutbound (callChannel call)
 
 -- | Check if the connection is still OK
 --

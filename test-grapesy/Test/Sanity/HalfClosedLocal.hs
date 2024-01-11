@@ -31,7 +31,7 @@ tests = testGroup "Test.Sanity.HalfClosedLocal" [
 type Simple = BinaryRpc "HalfClosedLocal" "simple"
 
 test_simple :: IO String
-test_simple = testClientServer assessCustomException $ \k -> k def {
+test_simple = testClientServer assessCustomException $ def {
       client = \withConn -> withConn $ \conn ->
           Client.withRPC conn def (Proxy @Simple) $ \call -> do
             [] <- Client.recvAllOutputs call $ \_ -> error "unexpected output"
@@ -71,7 +71,7 @@ test_simple = testClientServer assessCustomException $ \k -> k def {
 type TrailersOnly = BinaryRpc "HalfClosedLocal" "trailersOnly"
 
 test_trailersOnly :: IO String
-test_trailersOnly = testClientServer assessCustomException $ \k -> k def {
+test_trailersOnly = testClientServer assessCustomException $ def {
       client = \withConn -> withConn $ \conn ->
           Client.withRPC conn def (Proxy @TrailersOnly) $ \call -> do
             [] <- Client.recvAllOutputs call $ \_ -> error "unexpected output"

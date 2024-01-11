@@ -11,7 +11,9 @@ import Test.Tasty.HUnit
 import Test.Tasty.QuickCheck
 import Text.Show.Pretty
 
+import Network.GRPC.Client (ServerDisconnected(..))
 import Network.GRPC.Common
+import Network.GRPC.Internal
 import Network.GRPC.Server (ClientDisconnected(..))
 
 import Test.Driver.ClientServer
@@ -21,20 +23,25 @@ import Test.Util.PrettyVal
 tests :: TestTree
 tests = testGroup "Test.Prop.Dialogue" [
       testGroup "Regression" [
-          testCaseInfo "trivial1"          $ regression trivial1
-        , testCaseInfo "trivial2"          $ regression trivial2
-        , testCaseInfo "trivial3"          $ regression trivial3
-        , testCaseInfo "concurrent1"       $ regression concurrent1
-        , testCaseInfo "concurrent2"       $ regression concurrent2
-        , testCaseInfo "concurrent3"       $ regression concurrent3
-        , testCaseInfo "concurrent4"       $ regression concurrent4
-        , testCaseInfo "exception1"        $ regression exception1
-        , testCaseInfo "exception2"        $ regression exception2
-        , testCaseInfo "earlyTermination1" $ regression earlyTermination1
-        , testCaseInfo "earlyTermination2" $ regression earlyTermination2
-        , testCaseInfo "earlyTermination3" $ regression earlyTermination3
-        , testCaseInfo "earlyTermination4" $ regression earlyTermination4
-        , testCaseInfo "earlyTermination5" $ regression earlyTermination5
+          testCaseInfo "trivial1"           $ regression trivial1
+        , testCaseInfo "trivial2"           $ regression trivial2
+        , testCaseInfo "trivial3"           $ regression trivial3
+        , testCaseInfo "concurrent1"        $ regression concurrent1
+        , testCaseInfo "concurrent2"        $ regression concurrent2
+        , testCaseInfo "concurrent3"        $ regression concurrent3
+        , testCaseInfo "concurrent4"        $ regression concurrent4
+        , testCaseInfo "exception1"         $ regression exception1
+        , testCaseInfo "exception2"         $ regression exception2
+        , testCaseInfo "earlyTermination01" $ regression earlyTermination01
+        , testCaseInfo "earlyTermination02" $ regression earlyTermination02
+        , testCaseInfo "earlyTermination03" $ regression earlyTermination03
+        , testCaseInfo "earlyTermination04" $ regression earlyTermination04
+        , testCaseInfo "earlyTermination05" $ regression earlyTermination05
+        , testCaseInfo "earlyTermination06" $ regression earlyTermination06
+        , testCaseInfo "earlyTermination07" $ regression earlyTermination07
+        , testCaseInfo "earlyTermination08" $ regression earlyTermination08
+        , testCaseInfo "earlyTermination09" $ regression earlyTermination09
+--        , testCaseInfo "earlyTermination10" $ regression earlyTermination10
         ]
     , testGroup "Setup" [
           testProperty "shrinkingWellFounded" prop_shrinkingWellFounded
@@ -71,7 +78,8 @@ _arbitraryWithExceptions (DialogueWithExceptions dialogue) =
 propDialogue :: Dialogue -> Property
 propDialogue dialogue =
     counterexample (show globalSteps) $
-      propClientServer assessCustomException $ execGlobalSteps globalSteps
+      propClientServer assessCustomException $
+        execGlobalSteps globalSteps
   where
     globalSteps :: GlobalSteps
     globalSteps = dialogueGlobalSteps dialogue
@@ -79,7 +87,7 @@ propDialogue dialogue =
 regression :: Dialogue -> IO String
 regression dialogue = do
     handle annotate $
-      testClientServer assessCustomException $
+      testClientServer assessCustomException =<<
         execGlobalSteps globalSteps
   where
     globalSteps :: GlobalSteps
@@ -101,6 +109,7 @@ data ExpectedUserException =
   | ExpectedServerException SomeServerException
   | ExpectedForwardedToClient GrpcException
   | ExpectedClientDisconnected SomeException
+  | ExpectedServerDisconnected SomeException
   | ExpectedEarlyTermination
   deriving stock (Show, GHC.Generic)
   deriving anyclass (PrettyVal)
@@ -132,11 +141,22 @@ assessCustomException err
     , "SomeServerException" `Text.isInfixOf` msg
     = CustomExceptionExpected $ ExpectedForwardedToClient grpc
 
+    -- For when the server disconnects /without/ an exception
+    --
+    -- TODO: Ideally, we should really allow for this only if we have reason to
+    -- believe that this case can happen. Currently, this is hiding a previous
+    -- bug where the exception from the handler was reported as
+    -- 'ServerDisconnected' rather than a 'GrpcException'.
+    | Just (ServerDisconnected e) <- fromException err
+    = CustomExceptionExpected $
+        ExpectedServerDisconnected (innerNestedException e)
+
     -- Client-side exceptions are reported as 'ClientDisconnected', but without
     -- additional information (gRPC does not support client-to-server trailers
     -- so we have no way of informing the server about what went wrong).
     | Just (ClientDisconnected e) <- fromException err
-    = CustomExceptionExpected $ ExpectedClientDisconnected e
+    = CustomExceptionExpected $
+        ExpectedClientDisconnected (innerNestedException e)
 
     --
     -- Early termination
@@ -149,13 +169,6 @@ assessCustomException err
     , Just msg <- grpcErrorMessage grpc
     , "ChannelDiscarded" `Text.isInfixOf` msg
     = CustomExceptionExpected $ ExpectedForwardedToClient grpc
-
-    --
-    -- Custom wrappers
-    --
-
-    | Just (AnnotatedServerException err' _ _) <- fromException err
-    = CustomExceptionNested err'
 
     --
     -- Catch-all
@@ -269,16 +282,16 @@ exception2 = Dialogue [
     ]
 
 -- | Server handler terminates before the client expects it
-earlyTermination1 :: Dialogue
-earlyTermination1 = Dialogue [
+earlyTermination01 :: Dialogue
+earlyTermination01 = Dialogue [
       (0, ClientAction (Initiate (Set.fromList [], RPC1)))
     , (0, ServerAction (Terminate Nothing))
     , (0, ClientAction (Send (NoMoreElems NoMetadata)))
     ]
 
 -- | Client terminates before the server handler expects it
-earlyTermination2 :: Dialogue
-earlyTermination2 = Dialogue [
+earlyTermination02 :: Dialogue
+earlyTermination02 = Dialogue [
       (0, ClientAction $ Initiate (Set.fromList [], RPC1))
     , (0, ClientAction $ Terminate Nothing)
     , (0, ServerAction $ Send (NoMoreElems (Set.fromList [])))
@@ -288,8 +301,8 @@ earlyTermination2 = Dialogue [
 -- different code path, where we get a stream error; in @grapesy@ these
 -- various kinds of exceptions we can get from @http2@ should all be reported
 -- in the same manner (as 'ClientDisconnected' exceptions).
-earlyTermination3 :: Dialogue
-earlyTermination3 = Dialogue [
+earlyTermination03 :: Dialogue
+earlyTermination03 = Dialogue [
       (1, ClientAction $ Initiate (Set.fromList [], RPC1 ))
     , (0, ClientAction $ Initiate (Set.fromList [], RPC1))
     , (1, ClientAction $ Terminate (Just (ExceptionId 0)))
@@ -298,10 +311,10 @@ earlyTermination3 = Dialogue [
     , (0, ServerAction $ Send (NoMoreElems (Set.fromList [])))
     ]
 
--- | Another minor variation on 'earlyTermination3', which tends to trigger yet
+-- | Another minor variation on 'earlyTermination03', which tends to trigger yet
 -- another codepath
-earlyTermination4 :: Dialogue
-earlyTermination4 = Dialogue [
+earlyTermination04 :: Dialogue
+earlyTermination04 = Dialogue [
       (0, ClientAction $ Initiate (Set.fromList [], RPC1))
     , (0, ServerAction $ Initiate (Set.fromList []))
     , (1, ClientAction $ Initiate (Set.fromList [], RPC1 ))
@@ -314,12 +327,61 @@ earlyTermination4 = Dialogue [
 -- Test that early termination in one call does not affect the other. This is
 -- currently /only/ true if they use separate connections; see discussion in
 -- 'clientGlobal'.
-earlyTermination5 :: Dialogue
-earlyTermination5 = Dialogue [
+earlyTermination05 :: Dialogue
+earlyTermination05 = Dialogue [
       (1, ClientAction $ Initiate (Set.fromList [],RPC1))
     , (1, ServerAction $ Terminate Nothing)
     , (0, ClientAction $ Initiate (Set.fromList [],RPC1))
     , (0, ClientAction $ Send (NoMoreElems NoMetadata))
     , (0, ServerAction $ Send (NoMoreElems (Set.fromList [])))
     , (1, ClientAction $ Send (NoMoreElems NoMetadata))
+    ]
+
+-- | Variation where the client does send some messages before throwing an
+-- exception
+--
+-- This is mostly a check on the test infrastructure itself. In a test case
+-- like this where a message is enqueued and then an exception is thrown, the
+-- exception might " overtake " that message and the server will never
+-- receive it. This motivates the " conservative " test mode where we test
+-- each operation in a synchronous manner.
+earlyTermination06 :: Dialogue
+earlyTermination06 = Dialogue [
+      (0, ClientAction $ Initiate (Set.fromList [], RPC1))
+    , (0, ClientAction $ Send (StreamElem 0))
+    , (0, ClientAction $ Terminate (Just (ExceptionId 0)))
+    , (0, ServerAction $ Send (NoMoreElems (Set.fromList [])))
+    ]
+
+-- | Server-side early termination
+earlyTermination07 :: Dialogue
+earlyTermination07 = Dialogue [
+      (0, ServerAction $ Initiate (Set.fromList []))
+    , (0, ServerAction $ Terminate (Just (ExceptionId 0)))
+    ]
+
+-- | Server-side early termination, Trailers-Only case
+--
+-- This is like 'earlyTermination07', but in this case the server does not send
+-- the initial metadata, which causes the server handler to use the gRPC
+-- Trailers-Only case to send the error to the client.
+earlyTermination08 :: Dialogue
+earlyTermination08 = Dialogue [
+      (0, ServerAction $ Terminate (Just (ExceptionId 0)))
+    ]
+
+-- | Like 'earlyTermination07', but now without an exception
+earlyTermination09 :: Dialogue
+earlyTermination09 = Dialogue [
+      (0, ServerAction $ Initiate (Set.fromList []))
+    , (0, ServerAction $ Terminate Nothing)
+    ]
+
+-- | Client throws after the server sends their initial metadata
+_earlyTermination10 :: Dialogue
+_earlyTermination10 = Dialogue [
+      (0, ClientAction $ Initiate (Set.fromList [], RPC1))
+    , (0, ServerAction $ Initiate (Set.fromList []))
+    , (0, ClientAction $ Terminate (Just (ExceptionId 1)))
+    , (0, ServerAction $ Send (NoMoreElems (Set.fromList [])))
     ]

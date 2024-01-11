@@ -28,6 +28,7 @@ import Network.HTTP2.Server qualified as Server
 
 import Network.GRPC.Util.HTTP2 (fromHeaderTable)
 import Text.Show.Pretty
+import Network.GRPC.Internal.NestedException
 
 {-------------------------------------------------------------------------------
   Streams
@@ -170,7 +171,10 @@ clientOutputStream writeChunk' flush' = do
 
 data StreamException = StreamException SomeException CallStack
   deriving stock (Show)
-  deriving anyclass (Exception)
+  deriving Exception via ExceptionWrapper StreamException
+
+instance HasNestedException StreamException where
+  getNestedException (StreamException e _) = e
 
 -- | Client disconnected unexpectedly
 data ClientDisconnected = ClientDisconnected SomeException

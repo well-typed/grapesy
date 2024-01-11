@@ -14,7 +14,6 @@ module Test.Driver.Dialogue.TestClock (
 
 import Prelude hiding (id)
 
-import Control.Concurrent.STM
 import Control.Exception
 import Control.Monad
 import Data.List.NonEmpty (NonEmpty(..))
@@ -26,6 +25,8 @@ import GHC.Generics qualified as GHC
 import GHC.Stack
 import Test.QuickCheck
 import Text.Show.Pretty
+
+import Debug.Concurrent
 
 {-------------------------------------------------------------------------------
   Test clock
@@ -51,23 +52,29 @@ data TestClockException = TestClockException SomeException CallStack
 newTestClock :: IO TestClock
 newTestClock = TestClock <$> newTVarIO (TestClockTick 0)
 
-waitForTestClockTick :: HasCallStack => TestClock -> TestClockTick -> IO ()
-waitForTestClockTick (TestClock clock) tick = do
-    atomically $
-      wait `catchSTM` \err -> throwSTM $ TestClockException err callStack
+-- | Wait for the specified clock tick
+--
+-- Returns @True@ if we reached the specified tick, or @False@ if the clock is
+-- already past the specified tick.
+waitForTestClockTick :: HasCallStack => TestClock -> TestClockTick -> IO Bool
+waitForTestClockTick (TestClock clock) tick = atomically $
+    waitForTick `catchSTM` \err ->
+      throwSTM $ TestClockException err callStack
   where
-    wait :: STM ()
-    wait = do
+    waitForTick :: STM Bool
+    waitForTick = do
       currentTick <- readTVar clock
-      unless (currentTick == tick) retry
+      if | currentTick >  tick -> return False -- clock already past
+         | currentTick == tick -> return True  -- reached specified tick
+         | otherwise           -> retry        -- time not yet reached
 
 advanceTestClock :: TestClock -> IO ()
 advanceTestClock (TestClock clock) = atomically (modifyTVar clock succ)
 
 advanceTestClockAtTime :: TestClock -> TestClockTick -> IO ()
 advanceTestClockAtTime clock tick = do
-    waitForTestClockTick clock tick
-    advanceTestClock clock
+    reachedTick <- waitForTestClockTick clock tick
+    when reachedTick $ advanceTestClock clock
 
 advanceTestClockAtTimes :: TestClock -> [TestClockTick] -> IO ()
 advanceTestClockAtTimes = mapM_ . advanceTestClockAtTime

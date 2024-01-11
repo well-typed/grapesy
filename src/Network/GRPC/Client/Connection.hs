@@ -34,6 +34,7 @@ import Network.HTTP2.Client qualified as HTTP2.Client
 import Network.HTTP2.TLS.Client qualified as HTTP2.TLS.Client
 import Network.Run.TCP qualified as Run
 import Network.Socket
+import Network.TLS (TLSException)
 import System.Random
 import Text.Show.Pretty
 
@@ -43,12 +44,12 @@ import Network.GRPC.Client.Session
 import Network.GRPC.Common.Compression qualified as Compr
 import Network.GRPC.Common.Compression qualified as Compression
 import Network.GRPC.Spec
-import Network.GRPC.Util.Concurrency
 import Network.GRPC.Util.HTTP2.Stream (ServerDisconnected(..))
 import Network.GRPC.Util.Session qualified as Session
 import Network.GRPC.Util.TLS (ServerValidation(..), SslKeyLog(..))
 import Network.GRPC.Util.TLS qualified as Util.TLS
-import Network.TLS (TLSException)
+
+import Debug.Concurrent
 
 {-------------------------------------------------------------------------------
   Connection API
@@ -75,20 +76,10 @@ data Connection = Connection {
       connParams :: ConnParams
 
       -- | Information about the open connection
-    , metaVar :: MVar Meta
+    , connMetaVar :: MVar Meta
 
-      -- | Open new channel to the server
-      --
-      -- This is a non-blocking call; the connection will be set up in a
-      -- background thread; if this takes time, then the first call to
-      -- 'sendInput' or 'recvOutput' will block, but the call to 'startRPC'
-      -- itself will not block. This non-blocking nature makes this safe to use
-      -- in 'bracket' patterns.
-    , startRPC :: forall rpc.
-           IsRPC rpc
-        => Proxy rpc
-        -> CallParams
-        -> IO (Call rpc)
+      -- | Connection state
+    , connStateVar :: TVar ConnectionState
     }
 
 -- | State of the call
@@ -279,95 +270,103 @@ withConnection ::
   -> (Connection -> IO a)
   -> IO a
 withConnection connParams server k = do
-    metaVar <- newMVar $ Meta.init
-    connVar <- newTVarIO ConnectionNotReady
+    connMetaVar  <- newMVar $ Meta.init
+    connStateVar <- newTVarIO ConnectionNotReady
 
-    let currentMeta :: IO Meta
-        currentMeta = readMVar metaVar
-
-        updateMeta :: ResponseHeaders -> IO ()
-        updateMeta hdrs =
-            modifyMVar_ metaVar $ Meta.update (connCompression connParams) hdrs
-
-    let startRPC :: forall rpc.
-             (IsRPC rpc, HasCallStack)
-          => Proxy rpc
-          -> CallParams
-          -> IO (Call rpc)
-        startRPC _proxy callParams = do
-            (connClosed, conn) <-
-              atomically $ do
-                connState <- readTVar connVar
-                case connState of
-                  ConnectionNotReady               -> retry
-                  ConnectionReady connClosed conn -> return (connClosed, conn)
-                  ConnectionAbandoned err          -> throwSTM err
-                  ConnectionClosed                 -> error "impossible"
-
-            cOut <- Meta.outboundCompression <$> currentMeta
-            let flowStart :: Session.FlowStart (ClientOutbound rpc)
-                flowStart = Session.FlowStartRegular $ OutboundHeaders {
-                    outHeaders     = requestHeaders cOut
-                  , outCompression = fromMaybe noCompression cOut
-                  }
-
-            channel <-
-              Session.setupRequestChannel
-                callSession
-                tracer
-                conn
-                flowStart
-
-            _ <- forkIO $ do
-              mErr <- atomically $ readTMVar connClosed
-              let exitReason :: ExitCase ()
-                  exitReason =
-                    case mErr of
-                      Nothing -> ExitCaseSuccess ()
-                      Just exitWithException ->
-                        ExitCaseException . toException $
-                          ServerDisconnected exitWithException
-              _mAlreadyClosed <- Session.close channel exitReason
-              return ()
-
-            return $ Call callSession channel
-          where
-            requestHeaders :: Maybe Compression -> RequestHeaders
-            requestHeaders cOut = RequestHeaders{
-                  requestTimeout =
-                    asum [
-                        callTimeout callParams
-                      , connDefaultTimeout connParams
-                      ]
-                , requestMetadata =
-                    callRequestMetadata callParams
-                , requestCompression =
-                    compressionId <$> cOut
-                , requestAcceptCompression = Just $
-                    Compression.offer $ connCompression connParams
-                }
-
-            callSession :: ClientSession rpc
-            callSession = ClientSession {
-                  clientCompression = connCompression connParams
-                , clientUpdateMeta  = updateMeta
-                }
-
-            tracer :: Tracer IO (Session.DebugMsg (ClientSession rpc))
-            tracer = contramap (ClientDebugMsg @rpc) $
-                       connDebugTracer connParams
-
-    connCanClose <- newEmptyMVar
+    connOutOfScope <- newEmptyMVar
     let stayConnectedThread :: IO ()
         stayConnectedThread =
-            stayConnected connParams server connVar connCanClose
+            stayConnected connParams server connStateVar connOutOfScope
 
     -- We don't use withAsync because we want the thread to terminate cleanly
     -- when we no longer need the connection (which we indicate by writing to
-    -- connCanClose).
+    -- connOutOfScope).
     void $ forkIO $ stayConnectedThread
-    k Connection {connParams, metaVar, startRPC}
-      `finally` putMVar connCanClose ()
+    k Connection {connParams, connMetaVar, connStateVar}
+      `finally` putMVar connOutOfScope ()
+
+-- | Open new channel to the server
+--
+-- This is a non-blocking call; the connection will be set up in a
+-- background thread; if this takes time, then the first call to
+-- 'sendInput' or 'recvOutput' will block, but the call to 'startRPC'
+-- itself will not block. This non-blocking nature makes this safe to use
+-- in 'bracket' patterns.
+startRPC :: forall rpc.
+     (IsRPC rpc, HasCallStack)
+  => Connection
+  -> Proxy rpc
+  -> CallParams
+  -> IO (Call rpc)
+startRPC Connection{connMetaVar, connParams, connStateVar} _ callParams = do
+    (connClosed, conn) <-
+      atomically $ do
+        connState <- readTVar connStateVar
+        case connState of
+          ConnectionNotReady              -> retry
+          ConnectionReady connClosed conn -> return (connClosed, conn)
+          ConnectionAbandoned err         -> throwSTM err
+          ConnectionOutOfScope            -> error "impossible"
+
+    cOut <- Meta.outboundCompression <$> currentMeta
+    let flowStart :: Session.FlowStart (ClientOutbound rpc)
+        flowStart = Session.FlowStartRegular $ OutboundHeaders {
+            outHeaders     = requestHeaders cOut
+          , outCompression = fromMaybe noCompression cOut
+          }
+
+    channel <-
+      Session.setupRequestChannel
+        callSession
+        tracer
+        conn
+        flowStart
+
+    _ <- forkIO $ do
+      mErr <- atomically $ readTMVar connClosed
+      let exitReason :: ExitCase ()
+          exitReason =
+            case mErr of
+              Nothing -> ExitCaseSuccess ()
+              Just exitWithException ->
+                ExitCaseException . toException $
+                  ServerDisconnected exitWithException
+      _mAlreadyClosed <- Session.close channel exitReason
+      return ()
+
+    return $ Call callSession channel
+  where
+    currentMeta :: IO Meta
+    currentMeta = readMVar connMetaVar
+
+    updateMeta :: ResponseHeaders -> IO ()
+    updateMeta hdrs =
+        modifyMVar_ connMetaVar $ Meta.update (connCompression connParams) hdrs
+
+    requestHeaders :: Maybe Compression -> RequestHeaders
+    requestHeaders cOut = RequestHeaders{
+          requestTimeout =
+            asum [
+                callTimeout callParams
+              , connDefaultTimeout connParams
+              ]
+        , requestMetadata =
+            callRequestMetadata callParams
+        , requestCompression =
+            compressionId <$> cOut
+        , requestAcceptCompression = Just $
+            Compression.offer $ connCompression connParams
+        }
+
+    callSession :: ClientSession rpc
+    callSession = ClientSession {
+          clientCompression = connCompression connParams
+        , clientUpdateMeta  = updateMeta
+        }
+
+    tracer :: Tracer IO (Session.DebugMsg (ClientSession rpc))
+    tracer = contramap (ClientDebugMsg @rpc) $
+               connDebugTracer connParams
 
 {-------------------------------------------------------------------------------
   Internal auxiliary
@@ -386,7 +385,7 @@ data ConnectionState =
   | ConnectionAbandoned SomeException
 
     -- | The connection was closed because it is no longer needed.
-  | ConnectionClosed
+  | ConnectionOutOfScope
 
 -- | Stay connected to the server
 stayConnected ::
@@ -395,7 +394,7 @@ stayConnected ::
   -> TVar ConnectionState
   -> MVar ()
   -> IO ()
-stayConnected connParams server connVar connCanClose =
+stayConnected connParams server connStateVar connOutOfScope =
     loop (connReconnectPolicy connParams)
   where
     loop :: ReconnectPolicy -> IO ()
@@ -425,8 +424,9 @@ stayConnected connParams server connVar connCanClose =
                     $ \sendRequest _aux -> do
                   traceWith tracer $ ClientDebugConnectedInsecure
                   let conn = Session.ConnectionToServer sendRequest
-                  atomically $ writeTVar connVar $ ConnectionReady connClosed conn
-                  takeMVar connCanClose
+                  atomically $
+                    writeTVar connStateVar $ ConnectionReady connClosed conn
+                  takeMVar connOutOfScope
             ServerSecure validation sslKeyLog auth -> do
               keyLogger <- Util.TLS.keyLogger sslKeyLog
               caStore   <- Util.TLS.validationCAStore validation
@@ -448,12 +448,13 @@ stayConnected connParams server connVar connCanClose =
                   $ \sendRequest _aux -> do
                 traceWith tracer $ ClientDebugConnectedSecure
                 let conn = Session.ConnectionToServer sendRequest
-                atomically $ writeTVar connVar $ ConnectionReady connClosed conn
-                takeMVar connCanClose
+                atomically $
+                  writeTVar connStateVar $ ConnectionReady connClosed conn
+                takeMVar connOutOfScope
 
         thisReconnectPolicy <- atomically $ do
           putTMVar connClosed $ either Just (\() -> Nothing) mRes
-          connState <- readTVar connVar
+          connState <- readTVar connStateVar
           return $ case connState of
             ConnectionReady{}->
               -- Suppose we have a maximum of 5x to try and connect to a server.
@@ -466,19 +467,19 @@ stayConnected connParams server connVar connCanClose =
         case mRes of
           Right () -> do
             traceWith tracer $ ClientDebugConnectionClosed
-            atomically $ writeTVar connVar $ ConnectionClosed
+            atomically $ writeTVar connStateVar $ ConnectionOutOfScope
           Left err -> do
             case (isFinalException err, thisReconnectPolicy) of
               (Just fatal, _) -> do
                 traceWith tracer $ ClientDebugFatal fatal
-                atomically $ writeTVar connVar $ ConnectionAbandoned err
+                atomically $ writeTVar connStateVar $ ConnectionAbandoned err
               (Nothing, DontReconnect) -> do
                 traceWith tracer $ ClientDebugDisconnected err
-                atomically $ writeTVar connVar $ ConnectionAbandoned err
+                atomically $ writeTVar connStateVar $ ConnectionAbandoned err
               (Nothing, ReconnectAfter (lo, hi) reconnectPolicy') -> do
                 delay <- randomRIO (lo, hi)
                 traceWith tracer $ ClientDebugReconnectingAfter err delay
-                atomically $ writeTVar connVar $ ConnectionNotReady
+                atomically $ writeTVar connStateVar $ ConnectionNotReady
                 threadDelay $ round $ delay * 1_000_000
                 loop reconnectPolicy'
 

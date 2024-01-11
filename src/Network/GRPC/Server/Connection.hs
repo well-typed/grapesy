@@ -6,15 +6,16 @@
 --
 -- Intended for qualified import.
 --
--- > import Network.GRPC.Server.Connection (Connection(..), withConnection)
+-- > import Network.GRPC.Server.Connection (Connection(..))
 -- > import Network.GRPC.Server.Connection qualified as Connection
 module Network.GRPC.Server.Connection (
     Connection(..)
-  , withConnection
+  , mkRequestHandler
     -- * Query
   , path
   ) where
 
+import Control.Exception
 import Data.ByteString qualified as Strict (ByteString)
 import Data.ByteString.Builder (Builder)
 import Data.ByteString.Builder qualified as Builder
@@ -50,11 +51,14 @@ data Connection = Connection {
   Setup a new connection
 -------------------------------------------------------------------------------}
 
-withConnection :: ServerContext -> (Connection -> IO ()) -> HTTP2.Server
-withConnection context k request _aux respond' = do
-    -- TODO: We should log these out-of-spec responses
+mkRequestHandler ::
+     ServerContext
+  -> ((forall x. IO x -> IO x) -> Connection -> IO (Either SomeException ()))
+  -> RequestHandler (Either SomeException ())
+mkRequestHandler context k unmask request respond = do
     case getResourceHeaders request of
-      Left  err             -> respond $ outOfSpecResponse err
+      Left err ->
+        try $ unmask $ respond $ outOfSpecResponse err
       Right resourceHeaders -> do
         let conn :: Connection
             conn = Connection{
@@ -63,14 +67,10 @@ withConnection context k request _aux respond' = do
               , connectionClient   = connectionToClient
               }
 
-        k conn
+        k unmask conn
   where
     connectionToClient :: ConnectionToClient
     connectionToClient = ConnectionToClient{request, respond}
-
-    -- gRPC does not make use of push promises
-    respond :: HTTP2.Response -> IO ()
-    respond = flip respond' []
 
 {-------------------------------------------------------------------------------
   Query

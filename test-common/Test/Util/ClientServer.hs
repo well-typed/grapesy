@@ -22,19 +22,15 @@ module Test.Util.ClientServer (
   , runTestServer
   ) where
 
-import Control.Concurrent
-import Control.Concurrent.Async
-import Control.Concurrent.STM
 import Control.Exception
-import Control.Monad
 import Control.Monad.IO.Class
 import Control.Tracer
 import Data.Default
+import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as Text
 import GHC.Generics qualified as GHC
-import Network.HTTP2.Server qualified as HTTP2
 import Network.TLS
 import Text.Show.Pretty
 
@@ -42,8 +38,11 @@ import Network.GRPC.Client qualified as Client
 import Network.GRPC.Common
 import Network.GRPC.Common.Compression (CompressionNegotationFailed)
 import Network.GRPC.Common.Compression qualified as Compr
+import Network.GRPC.Internal
 import Network.GRPC.Server qualified as Server
 import Network.GRPC.Server.Run qualified as Server
+
+import Debug.Concurrent
 
 import Test.Util.PrettyVal
 
@@ -156,6 +155,12 @@ data CustomException e =
 -- Returns 'Right' the expected exception if any (with any wrapper exceptions
 -- removed), 'Left' some (possibly nested) exception if the exception was
 -- unexpected.
+--
+-- NOTE: We /never/ expect the 'KilledByHttp2ThreadManager' exception from
+-- @http2@, as we protect the handler from this; see 'runHandler' for details
+-- (TL;DR: /if/ the handler tries to communicate after an
+-- 'KilledByHttp2ThreadManager' exception, it will find that the channel has
+-- been closed).
 isExpectedException :: forall e.
      ClientServerConfig
   -> (SomeException -> CustomException e)
@@ -217,10 +222,9 @@ isExpectedException cfg assessCustomException topLevel =
       -- Wrappers
       --
 
-      | Just (ClientException err' _logs) <- fromException err
+      | Just err' <- maybeNestedException err
       = go err'
-      | Just (ServerException err' _logs) <- fromException err
-      = go err'
+
       | Just (DoubleException { doubleExceptionClient
                               , doubleExceptionServer
                               }) <- fromException err
@@ -233,17 +237,6 @@ isExpectedException cfg assessCustomException topLevel =
               , doubleExceptionServer = expected'
               , doubleExceptionAnnotation = ()
               }
-
-      | Just (STMException _stack err' ) <- fromException err
-      = go err'
-      | Just (ThreadInterfaceUnavailable  _stack err') <- fromException err
-      = go err'
-      | Just (ThreadCancelled _stack err') <- fromException err
-      = go err'
-      | Just (ChannelException _stack err') <- fromException err
-      = go err'
-      | Just (ChannelUncleanClose err') <- fromException err
-      = go err'
 
       --
       -- Custom exceptions
@@ -270,26 +263,53 @@ isExpectedException cfg assessCustomException topLevel =
   We don't want to terminate the test when some of the server handlers are
   still running; this will result in those handlers being killed with a
   'KilledByHttp2ThreadManager' exception, confusing the test results.
+
+  Moreover, when a handler throws an exception, that request is simply aborted,
+  but the server does not shut down. However, for the sake of testing, if a
+  handler throws an unexpected exception, the test should fail. We therefore
+  monitor for these exceptions.
 -------------------------------------------------------------------------------}
 
-newtype ServerHandlerLock = ServerHandlerLock (TVar Int)
+data HandlerState =
+    HandlerActive
+  | HandlerDone
+  | HandlerError SomeException
+  deriving stock (Show)
+
+newtype ServerHandlerLock = ServerHandlerLock (TVar (Map ThreadId HandlerState))
 
 newServerHandlerLock :: IO ServerHandlerLock
-newServerHandlerLock = ServerHandlerLock <$> newTVarIO 0
+newServerHandlerLock = ServerHandlerLock <$> newTVarIO Map.empty
 
-waitForHandlerTermination :: ServerHandlerLock -> STM ()
+waitForHandlerTermination :: ServerHandlerLock -> STM (Either SomeException ())
 waitForHandlerTermination (ServerHandlerLock lock) = do
-    activeHandlers <- readTVar lock
-    unless (activeHandlers == 0) $ retry
-
-serverHandlerLockHook :: ServerHandlerLock -> HTTP2.Server -> HTTP2.Server
-serverHandlerLockHook (ServerHandlerLock lock) server request aux respond =
-    bracket_ register unregister $
-      server request aux respond
+    go [] =<< Map.toList <$> readTVar lock
   where
-    register, unregister :: IO ()
-    register   = atomically $ modifyTVar lock (\x -> x + 1)
-    unregister = atomically $ modifyTVar lock (\x -> x - 1)
+    -- We only want to retry if no handlers errored out
+    go ::
+         [ThreadId]                  -- Active
+      -> [(ThreadId, HandlerState)]  -- Still to consider
+      -> STM (Either SomeException ())
+    go active []           = if null active
+                               then return $ Right ()
+                               else retry
+    go active ((h, st):hs) = case st of
+                               HandlerActive  -> go (h:active) hs
+                               HandlerDone    -> go    active  hs
+                               HandlerError e -> return $ Left e
+
+topLevelWithHandlerLock ::
+     ServerHandlerLock
+  -> Server.RequestHandler (Either SomeException ())
+  -> Server.RequestHandler ()
+topLevelWithHandlerLock (ServerHandlerLock lock) handler unmask req respond = do
+    tid <- myThreadId
+    atomically $ modifyTVar lock $ Map.insert tid HandlerActive
+    res <- handler unmask req respond
+    atomically $ modifyTVar lock $ Map.insert tid $
+      case res of
+        Left err -> HandlerError err
+        Right () -> HandlerDone
 
 {-------------------------------------------------------------------------------
   Server
@@ -297,42 +317,33 @@ serverHandlerLockHook (ServerHandlerLock lock) server request aux respond =
 
 runTestServer ::
      ClientServerConfig
-  -> Tracer IO SomeException
   -> Tracer IO Server.ServerDebugMsg
   -> ServerHandlerLock
   -> [Server.RpcHandler IO]
   -> IO ()
-runTestServer cfg serverExceptions serverTracer handlerLock serverHandlers = do
+runTestServer cfg serverTracer handlerLock serverHandlers = do
     pubCert <- getDataFileName "grpc-demo.cert"
     privKey <- getDataFileName "grpc-demo.priv"
 
-    let serverSetup :: Server.ServerSetup
-        serverSetup = def {
-              Server.serverHandlerHook = serverHandlerLockHook handlerLock
-            }
-
-        serverConfig :: Server.ServerConfig
+    let serverConfig :: Server.ServerConfig
         serverConfig =
             case useTLS cfg of
               Nothing -> Server.ServerConfig {
-                  serverSetup    = serverSetup
-                , serverInsecure = Just Server.InsecureConfig {
+                  serverInsecure = Just Server.InsecureConfig {
                       insecureHost = Nothing
                     , insecurePort = "50051"
                     }
                 , serverSecure   = Nothing
                 }
               Just (TlsFail TlsFailUnsupported) -> Server.ServerConfig {
-                  serverSetup    = serverSetup
-                , serverInsecure = Just Server.InsecureConfig {
+                  serverInsecure = Just Server.InsecureConfig {
                       insecureHost = Nothing
                     , insecurePort = "50052"
                     }
                 , serverSecure   = Nothing
                 }
               Just _tlsSetup -> Server.ServerConfig {
-                  serverSetup    = serverSetup
-                , serverInsecure = Nothing
+                  serverInsecure = Nothing
                 , serverSecure   = Just $ Server.SecureConfig {
                       secureHost       = "localhost"
                     , securePort       = 50052
@@ -347,12 +358,11 @@ runTestServer cfg serverExceptions serverTracer handlerLock serverHandlers = do
         serverParams :: Server.ServerParams
         serverParams = Server.ServerParams {
               serverCompression     = serverCompr cfg
-            , serverExceptionTracer = serverExceptions
             , serverDebugTracer     = serverTracer
+            , serverTopLevel        = topLevelWithHandlerLock handlerLock
             }
 
-    Server.withServer serverParams serverHandlers $
-      Server.runServer serverConfig
+    Server.runServerWithHandlers serverConfig serverParams serverHandlers
 
 {-------------------------------------------------------------------------------
   Client
@@ -443,21 +453,11 @@ runTestClientServer cfg clientRun serverHandlers = do
     let logTracer :: Tracer IO LogMsg
         logTracer = collectLogMsgs logMsgVar
 
-    -- Normally, when a handler throws an exception, that request is simply
-    -- aborted, but the server does not shut down. However, for the sake of
-    -- testing, if a handler throws an unexpected exception, the test should
-    -- fail. We therefore monitor for these exceptions.
-    serverHandlerExceptions <- newEmptyTMVarIO
-    let serverExceptions :: Tracer IO SomeException
-        serverExceptions = arrow $ emit $ \err ->
-            atomically $ void $ tryPutTMVar serverHandlerExceptions err
-
     -- Start server
     serverHandlerLock <- newServerHandlerLock
     server <- async $ do
       runTestServer
         cfg
-        serverExceptions
         (contramap ServerLogMsg logTracer)
         serverHandlerLock
         serverHandlers
@@ -477,10 +477,7 @@ runTestClientServer cfg clientRun serverHandlers = do
     -- server handlers to terminate, monitoring for exceptions, and then shut
     -- down the server.
     clientRes <- waitCatch client
-    serverRes <- atomically $
-                     (Left <$> readTMVar serverHandlerExceptions)
-                   `orElse`
-                     (Right <$> waitForHandlerTermination serverHandlerLock)
+    serverRes <- atomically $ waitForHandlerTermination serverHandlerLock
     cancel server
 
     logMsgs <- reverse <$> readMVar logMsgVar
@@ -514,16 +511,24 @@ data ServerException = ServerException {
     , serverExceptionLogs :: [LogMsg]
     }
   deriving stock (GHC.Generic)
-  deriving anyclass (Exception, PrettyVal)
+  deriving anyclass (PrettyVal)
   deriving Show via ShowAsPretty ServerException
+  deriving Exception via ExceptionWrapper ServerException
+
+instance HasNestedException ServerException where
+  getNestedException = serverException
 
 data ClientException = ClientException {
       clientException     :: SomeException
     , clientExceptionLogs :: [LogMsg]
     }
   deriving stock (GHC.Generic)
-  deriving anyclass (Exception, PrettyVal)
+  deriving anyclass (PrettyVal)
   deriving Show via ShowAsPretty ClientException
+  deriving Exception via ExceptionWrapper ClientException
+
+instance HasNestedException ClientException where
+  getNestedException = clientException
 
 data DoubleException e = forall a. (Show a, PrettyVal a) => DoubleException {
       doubleExceptionClient     :: e

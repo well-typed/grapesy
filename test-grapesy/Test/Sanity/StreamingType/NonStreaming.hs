@@ -75,7 +75,7 @@ tests = testGroup "Test.Sanity.StreamingType.NonStreaming" [
 type BinaryIncrement = BinaryRpc "binary" "increment"
 
 test_increment :: ClientServerConfig -> IO String
-test_increment config = testClientServer assessCustomException $ \k -> k def {
+test_increment config = testClientServer assessCustomException $ def {
       config
     , client = \withConn -> withConn $ \conn -> do
         Client.withRPC conn def (Proxy @BinaryIncrement) $ \call -> do

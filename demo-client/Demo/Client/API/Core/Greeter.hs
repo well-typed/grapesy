@@ -2,7 +2,6 @@ module Demo.Client.API.Core.Greeter (
     sayHelloStreamReply
   ) where
 
-import Control.Concurrent.STM
 import Data.Default
 import Data.Proxy
 
@@ -24,7 +23,7 @@ sayHelloStreamReply conn name =
 
       -- We should see the response metadata immediately, and the first output
       -- after a delay.
-      initMetadata <- atomically $ recvResponseMetadata call
+      initMetadata <- recvResponseMetadata call
       logMsg initMetadata
 
       -- For completeness, we also show the final metadata, although the

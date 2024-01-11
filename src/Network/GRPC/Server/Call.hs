@@ -22,11 +22,8 @@ module Network.GRPC.Server.Call (
   , sendTrailers
 
     -- ** Low-level API
-  , recvInputSTM
-  , sendOutputSTM
   , initiateResponse
   , sendTrailersOnly
-  , waitForOutbound
   , isCallHealthy
 
     -- ** Internal API
@@ -46,15 +43,17 @@ import Network.HTTP2.Server qualified as HTTP2
 import Network.GRPC.Common
 import Network.GRPC.Common.Compression qualified as Compr
 import Network.GRPC.Common.StreamElem qualified as StreamElem
+import Network.GRPC.Internal.NestedException
 import Network.GRPC.Server.Connection (Connection(..))
 import Network.GRPC.Server.Connection qualified as Connection
 import Network.GRPC.Server.Context qualified as Context
 import Network.GRPC.Server.Session
 import Network.GRPC.Spec
-import Network.GRPC.Util.Concurrency
 import Network.GRPC.Util.HTTP2.Stream (ClientDisconnected(..))
 import Network.GRPC.Util.Session qualified as Session
 import Network.GRPC.Util.Session.Server qualified as Server
+
+import Debug.Concurrent
 
 {-------------------------------------------------------------------------------
   Definition
@@ -112,14 +111,14 @@ data Kickoff =
 -- | Accept incoming call
 --
 -- If an exception is thrown during call setup, we will send an error response
--- to the client (and then rethrow the exception).
+-- to the client and then return it.
 acceptCall :: forall rpc.
      (IsRPC rpc, HasCallStack)
-  => Context.ServerParams
+  => (forall x. IO x -> IO x)
   -> Connection
   -> (Call rpc -> IO ())
-  -> IO ()
-acceptCall params conn k = do
+  -> IO (Either SomeException ())
+acceptCall unmaskTopLevel conn k = do
     callRequestMetadata  <- newEmptyTMVarIO
     callResponseMetadata <- newTVarIO []
     callResponseKickoff  <- newEmptyTMVarIO
@@ -142,7 +141,7 @@ acceptCall params conn k = do
           -> Either SomeException ()
           -> IO ()
         handlerTeardown call@Call{callChannel} mRes = do
-            mUnclean <-
+            _mUnclean <-
               case mRes of
                 Right () ->
                   -- Handler terminated successfully
@@ -151,49 +150,43 @@ acceptCall params conn k = do
                 Left err -> do
                   -- The handler threw an exception. /Try/ to tell the client
                   -- (but see discussion of 'forwardException')
-                  traceWith (Context.serverExceptionTracer params) err
                   forwardException call err
                   Session.close callChannel $ ExitCaseException err
 
-            case mUnclean of
-              Nothing  -> return () -- Channel was closed cleanly
-              Just err ->
-                -- An unclean shutdown can have 3 causes:
-                --
-                -- 1. We failed to set up the call.
-                --
-                --    If the failure is due to network comms, we definitely have
-                --    no way of communicating with the client. If the failure
-                --    was due to a setup failure in 'mkOutboundHeaders', then
-                --    the client has /already/ been notified of the problem.
-                --
-                -- 2. We lost communication during the call.
-                --
-                --    In this case we also have no way of telling the client
-                --    that something went wrong.
-                --
-                -- 3. The handler failed to properly terminate the communication
-                --    (send the final message and call 'waitForOutbound').
-                --
-                --    This is the trickiest case. We don't really know what
-                --    state the handler left the channel in; for example, we
-                --    might have killed the thread halfway through sending a
-                --    message.
-                --
-                -- So the only thing we really can do here is log the error,
-                -- and nothing else. (We should not rethrow it, as doing so will
-                -- cause http2 to reset the stream, which is not always the
-                -- right thing to do (for example, in case (1)).
-                traceWith (Context.serverExceptionTracer params) $
-                  toException err
+            -- An unclean shutdown can have 3 causes:
+            --
+            -- 1. We failed to set up the call.
+            --
+            --    If the failure is due to network comms, we definitely have no
+            --    way of communicating with the client. If the failure was due
+            --    to a setup failure in 'mkOutboundHeaders', then the client has
+            --    /already/ been notified of the problem.
+            --
+            -- 2. We lost communication during the call.
+            --
+            --    In this case we also have no way of telling the client that
+            --    something went wrong.
+            --
+            -- 3. The handler failed to properly terminate the communication
+            --    (send the final message and call 'waitForOutbound').
+            --
+            --    This is the trickiest case. We don't really know what state
+            --    the handler left the channel in; for example, we might have
+            --    killed the thread halfway through sending a message.
+            --
+            -- So there not really anything we can do here (except perhaps show
+            -- the exception in 'serverTopLevel').
+            return ()
 
+    -- The handler itself will run in a separate thread (see 'runHandler')
     let handler ::
              Session.Channel (ServerSession rpc)
           -> (forall a. IO a -> IO a)
-          -> IO ()
-        handler callChannel unmask = do
-            mRes <- try $ unmask $ k call
+          -> IO (Either SomeException ())
+        handler callChannel unmaskInThread = do
+            mRes <- try $ unmaskInThread $ k call
             handlerTeardown call mRes
+            return mRes
           where
             call :: Call rpc
             call = Call{
@@ -204,7 +197,7 @@ acceptCall params conn k = do
               , callResponseKickoff
               }
 
-    runHandler setupResponseChannel handler
+    runHandler unmaskTopLevel setupResponseChannel handler
   where
     callSession :: ServerSession rpc
     callSession = ServerSession {
@@ -271,21 +264,14 @@ acceptCall params conn k = do
               Session.FlowStartNoMessages trailers ->            trailers
 
     -- | Send response when 'mkOutboundHeaders' fails
-    --
-    -- TODO: Some duplication with 'forwardException' (and 'withHandler').
     sendErrorResponse :: forall x. SomeException -> IO x
     sendErrorResponse err = do
         traceWith tracer $ Context.ServerDebugAcceptFailed err
         Server.respond (connectionClient conn) $
           HTTP2.responseNoBody
             HTTP.ok200 -- gRPC uses HTTP 200 even when there are gRPC errors
-            (buildTrailersOnly $ TrailersOnly $ ProperTrailers {
-                trailerGrpcStatus  = GrpcError GrpcUnknown
-                -- TODO: Potential security concern here
-                -- (showing the exception)?
-              , trailerGrpcMessage = Just $ Text.pack (show err)
-              , trailerMetadata    = []
-              })
+            (buildTrailersOnly . TrailersOnly $
+               serverExceptionToClientError err)
         throwM err
 
 -- | Run the handler
@@ -314,40 +300,42 @@ acceptCall params conn k = do
 -- library: exceptions will only be raised synchronously when communication is
 -- attempted, not asynchronously when we notice a problem.
 runHandler ::
-     IO (Session.Channel (ServerSession rpc))
-  -> (Session.Channel (ServerSession rpc) -> (forall a. IO a -> IO a) -> IO ())
-  -> IO ()
-runHandler setupResponseChannel handler = do
-    mask $ \unmask -> do
-      -- This sets up the channel but no response is sent yet
-      callChannel   <- setupResponseChannel
-      handlerThread <- asyncWithUnmask $ handler callChannel
+     (forall x. IO x -> IO x)
+  -> IO (Session.Channel (ServerSession rpc))
+  -> (    Session.Channel (ServerSession rpc)
+       -> (forall a. IO a -> IO a)
+       -> IO (Either SomeException ())
+     )
+  -> IO (Either SomeException ())
+runHandler unmaskTopLevel setupResponseChannel handler = do
+    -- This sets up the channel but no response is sent yet
+    callChannel   <- setupResponseChannel
+    handlerThread <- asyncWithUnmask $ handler callChannel
 
-      let loop :: IO ()
-          loop = do
-             -- We do not need to use 'waitCatch': the handler installs its
-             -- own exception handler and will not throw any exceptions.
-             mRes <- try $ unmask $ wait handlerThread
-             case mRes of
-               Right ()  -> return ()
-               Left  err -> do
-                 -- Relies on https://github.com/kazu-yamamoto/http2/pull/82
-                 case fromException err of
-                   Just (HTTP2.KilledByHttp2ThreadManager mErr) -> do
-                     let exitReason :: ExitCase ()
-                         exitReason =
-                           case mErr of
-                             Nothing -> ExitCaseSuccess ()
-                             Just exitWithException ->
-                               ExitCaseException . toException $
-                                 ClientDisconnected exitWithException
-                     _mAlreadyClosed <- Session.close callChannel exitReason
-                     loop
-                   Nothing -> do
-                     cancelWith handlerThread err
-                     throwM err
+    let loop :: IO (Either SomeException ())
+        loop = do
+           -- We do not need to use 'waitCatch': the handler installs its
+           -- own exception handler and will not throw any exceptions.
+           mRes <- try $ unmaskTopLevel $ wait handlerThread
+           case mRes of
+             Right res -> return res
+             Left  err -> do
+               case fromException err of
+                 Just (HTTP2.KilledByHttp2ThreadManager mErr) -> do
+                   let exitReason :: ExitCase ()
+                       exitReason =
+                         case mErr of
+                           Nothing -> ExitCaseSuccess ()
+                           Just exitWithException ->
+                             ExitCaseException . toException $
+                               ClientDisconnected exitWithException
+                   _mAlreadyClosed <- Session.close callChannel exitReason
+                   loop
+                 Nothing -> do
+                   cancelWith handlerThread err
+                   return $ Left err
 
-      loop
+    loop
 
 -- | Process exception thrown by a handler
 --
@@ -362,27 +350,39 @@ runHandler setupResponseChannel handler = do
 --
 -- We therefore catch and suppress all exceptions here.
 forwardException :: Call rpc -> SomeException -> IO ()
-forwardException call err = do
-    handle ignoreExceptions $
-      sendProperTrailers call trailers
+forwardException call =
+      handle ignoreExceptions
+    . sendProperTrailers call
+    . serverExceptionToClientError
   where
-    trailers :: ProperTrailers
-    trailers
-      | Just (err' :: GrpcException) <- fromException err
-      = grpcExceptionToTrailers err'
-
-      -- TODO: There might be a security concern here (server-side exceptions
-      -- could potentially leak some sensitive data).
-      | otherwise
-      = ProperTrailers {
-            trailerGrpcStatus  = GrpcError GrpcUnknown
-          , trailerGrpcMessage = Just $ Text.pack (show err)
-          , trailerMetadata    = []
-          }
-
-    -- See discussion above.
     ignoreExceptions :: SomeException -> IO ()
     ignoreExceptions _ = return ()
+
+-- | Turn exception raised in server handler to error to be sent to the client
+--
+-- We strip off any decoration of the exception (such as callstacks), which are
+-- primarily intended for debugging the handler, and then 'show' the remaining
+-- exception to give the client a clue as to what happened.
+--
+-- TODO: There might be a security concern here (server-side exceptions could
+-- potentially leak some sensitive data).
+serverExceptionToClientError :: SomeException -> ProperTrailers
+serverExceptionToClientError wrappedError
+    | Just (err' :: GrpcException) <- fromException unwrappedError
+    = grpcExceptionToTrailers err'
+
+    -- TODO: There might be a security concern here (server-side exceptions
+    -- could potentially leak some sensitive data).
+    | otherwise
+    = ProperTrailers {
+          trailerGrpcStatus  = GrpcError GrpcUnknown
+        , trailerGrpcMessage = Just $ Text.pack (show unwrappedError)
+        , trailerMetadata    = []
+        }
+  where
+    unwrappedError :: SomeException
+    unwrappedError = innerNestedException wrappedError
+
 
 {-------------------------------------------------------------------------------
   Open (ongoing) call
@@ -393,7 +393,11 @@ forwardException call err = do
 -- We do not return trailers, since gRPC does not support sending trailers from
 -- the client to the server (only from the server to the client).
 recvInput :: HasCallStack => Call rpc -> IO (StreamElem NoMetadata (Input rpc))
-recvInput call = atomically $ recvInputSTM call
+recvInput Call{callChannel} =
+    first ignoreTrailersOnly <$> Session.recv callChannel
+  where
+    ignoreTrailersOnly :: Either RequestHeaders NoMetadata -> NoMetadata
+    ignoreTrailersOnly _ = NoMetadata
 
 -- | Send RPC output to the client
 --
@@ -405,10 +409,23 @@ recvInput call = atomically $ recvInputSTM call
 -- This is a blocking call if this is the final message (i.e., the call will
 -- not return until the message has been written to the HTTP2 stream).
 sendOutput :: Call rpc -> StreamElem [CustomMetadata] (Output rpc) -> IO ()
-sendOutput call msg = do
+sendOutput call@Call{callChannel} msg = do
     _updated <- initiateResponse call
-    atomically $ sendOutputSTM call msg
-    StreamElem.whenDefinitelyFinal msg $ \_ -> waitForOutbound call
+    Session.send callChannel (first mkTrailers msg)
+
+    -- This /must/ be called before leaving the scope of 'acceptCall' (or we
+    -- risk that the HTTP2 stream is cancelled). We can't call 'waitForOutbound'
+    -- /in/ 'acceptCall', because if the handler for whatever reason never
+    -- writes the final message, such a call would block indefinitely.
+    StreamElem.whenDefinitelyFinal msg $ \_ ->
+      void $ Session.waitForOutbound callChannel
+  where
+    mkTrailers :: [CustomMetadata] -> ProperTrailers
+    mkTrailers metadata = ProperTrailers {
+          trailerGrpcStatus  = GrpcOk
+        , trailerGrpcMessage = Nothing
+        , trailerMetadata    = metadata
+        }
 
 -- | Get request metadata
 --
@@ -440,65 +457,12 @@ setResponseMetadata Call{ callResponseMetadata
 
 {-------------------------------------------------------------------------------
   Low-level API
-
-  'initiateResponse' and 'sendOutputSTM' /MUST NOT/ live in the same
-  transaction: in order to send a message, we need to know if the call is in
-  "regular" flow state or "trailers only" flow state, which we only know after
-  'initiateResponse'; so if these live in the same transaction, we will
-  deadlock.
 -------------------------------------------------------------------------------}
-
--- | STM version of 'recvInput'
---
--- This is a low-level API; most users can use 'recvInput' instead.
---
--- Most server handlers will deal with single clients, but in principle
--- 'recvInputSTM' could be used to wait for the first message from any number of
--- clients.
-recvInputSTM :: forall rpc.
-     HasCallStack
-  => Call rpc
-  -> STM (StreamElem NoMetadata (Input rpc))
-recvInputSTM Call{callChannel} =
-    first ignoreTrailersOnly <$> Session.recv callChannel
-  where
-    ignoreTrailersOnly ::
-         Either RequestHeaders NoMetadata
-      -> NoMetadata
-    ignoreTrailersOnly _ = NoMetadata
-
--- | STM version of 'sendOutput'
---
--- This is a low-level API; most users can use 'sendOutput' instead.
---
--- If you choose to use 'sendOutputSTM' instead, you have two responsibilities:
---
--- * You must call 'initiateResponse' before calling 'sendOutputSTM';
---   'sendOutputSTM' will throw 'ResponseNotInitiated' otherwise.
--- * You must call 'waitForOutbound' after sending the final message (and before
---   exiting the scope of 'acceptCall'); if you don't, you risk that the HTTP2
---   stream is cancelled.
---
--- Implementation note: we cannot call 'waitForOutbound' /in/ 'acceptCall': if
--- the handler for whatever reason never writes the final message, then such a
--- call would block indefinitely.
-sendOutputSTM :: Call rpc -> StreamElem [CustomMetadata] (Output rpc) -> STM ()
-sendOutputSTM Call{callChannel, callResponseKickoff} msg = do
-    mKickoff <- tryReadTMVar callResponseKickoff
-    case mKickoff of
-      Just _  -> Session.send callChannel (first mkTrailers msg)
-      Nothing -> throwSTM $ ResponseNotInitiated
-  where
-    mkTrailers :: [CustomMetadata] -> ProperTrailers
-    mkTrailers metadata = ProperTrailers {
-          trailerGrpcStatus  = GrpcOk
-        , trailerGrpcMessage = Nothing
-        , trailerMetadata    = metadata
-        }
 
 -- | Initiate the response
 --
--- See 'sendOutputSTM' for discusison.
+-- This will cause the initial response metadata to be sent
+-- (see also 'setResponseMetadata').
 --
 -- Returns 'False' if the response was already initiated.
 initiateResponse :: Call rpc -> IO Bool
@@ -540,17 +504,7 @@ sendTrailersOnly Call{callResponseKickoff} metadata = do
         , trailerMetadata    = metadata
         }
 
--- | Wait for all outbound messages to have been processed
---
--- This function /must/ be called before leaving the scope of 'acceptCall'.
--- However, 'sendOutput' will call 'waitForOutbound' when the last message is
--- sent, so you only need to worry about this if you are using 'sendOutputSTM'.
-waitForOutbound :: Call rpc -> IO ()
-waitForOutbound = void . Session.waitForOutbound . callChannel
-
-data ResponseKickoffException =
-    ResponseAlreadyInitiated
-  | ResponseNotInitiated
+data ResponseAlreadyInitiated = ResponseAlreadyInitiated
   deriving stock (Show)
   deriving anyclass (Exception)
 
@@ -622,4 +576,5 @@ sendProperTrailers Call{callResponseKickoff, callChannel} trailers = do
     unless updated $
       -- If we didn't update, then the response has already been initiated and
       -- we cannot make use of the Trailers-Only case.
-      atomically $ Session.send callChannel (NoMoreElems trailers)
+      Session.send callChannel (NoMoreElems trailers)
+    void $ Session.waitForOutbound callChannel

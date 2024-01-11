@@ -10,16 +10,19 @@ module Network.GRPC.Util.Thread (
     -- * Access thread state
   , cancelThread
   , waitForThread
-  , getThreadInterface
+  , withThreadInterface
   , ThreadCancelled(..)
   , ThreadInterfaceUnavailable(..)
   ) where
 
 import Control.Exception
 import Control.Monad
+import Foreign (newStablePtr, freeStablePtr)
 import GHC.Stack
 
-import Network.GRPC.Util.Concurrency
+import Network.GRPC.Internal
+
+import Debug.Concurrent
 
 {-------------------------------------------------------------------------------
   State
@@ -47,6 +50,7 @@ data ThreadState a =
 
     -- | Thread terminated with an exception
   | ThreadException SomeException
+  deriving (Show)
 
 {-------------------------------------------------------------------------------
   Creating threads
@@ -153,7 +157,10 @@ data ThreadCancelled = ThreadCancelled {
     , threadCancelledReason :: SomeException
     }
   deriving stock (Show)
-  deriving anyclass (Exception)
+  deriving Exception via ExceptionWrapper ThreadCancelled
+
+instance HasNestedException ThreadCancelled where
+  getNestedException = threadCancelledReason
 
 {-------------------------------------------------------------------------------
   Interacting with the thread
@@ -171,15 +178,40 @@ data ThreadCancelled = ThreadCancelled {
 -- doing so is inherently racy (we might return that the client is still
 -- running, and then it terminates before the calling code can do anything with
 -- that information).
-getThreadInterface :: HasCallStack => TVar (ThreadState a) -> STM a
-getThreadInterface state = do
-    st <- readTVar state
-    case st of
-      ThreadNotStarted     -> retry
-      ThreadInitializing _ -> retry
-      ThreadRunning _ a    -> return a
-      ThreadDone      a    -> return a
-      ThreadException e    -> throwSTM $ ThreadInterfaceUnavailable callStack e
+--
+-- NOTE: This turns off deadlock detection for the duration of the transaction.
+-- It should therefore only be used for transactions that can never be blocked
+-- indefinitely.
+--
+-- TODO: We could (should?) make the 'Thread' abstraction less general, so that
+-- above responsibility for the /caller/ becomes a responsibility of the
+-- abstraction instead.
+--
+-- Usage note: in practice we use this to interact with threads that in turn
+-- interact with @http2@ (running 'sendMessageLoop' or 'recvMessageLoop').
+-- Although calls into @http2@ may in fact block indefinitely, we will /catch/
+-- those exception and treat them as network failures. If a @grapesy@ function
+-- ever throws a "blocked indefinitely" exception, this should be reported as a
+-- bug in @grapesy@.
+withThreadInterface :: forall a b.
+     HasCallStack
+  => TVar (ThreadState a)
+  -> (a -> STM b)
+  -> IO b
+withThreadInterface state k =
+    withoutDeadlockDetection $
+      atomically $ k =<< getThreadInterface
+  where
+    getThreadInterface :: STM a
+    getThreadInterface = do
+        st <- readTVar state
+        case st of
+          ThreadNotStarted     -> retry
+          ThreadInitializing _ -> retry
+          ThreadRunning _ a    -> return a
+          ThreadDone      a    -> return a
+          ThreadException e    -> throwSTM $
+                                    ThreadInterfaceUnavailable callStack e
 
 -- | Wait for the thread to terminate
 --
@@ -206,4 +238,20 @@ data ThreadInterfaceUnavailable = ThreadInterfaceUnavailable {
     , threadInterfaceException :: SomeException
     }
   deriving stock (Show)
-  deriving anyclass (Exception)
+  deriving Exception via ExceptionWrapper ThreadInterfaceUnavailable
+
+instance HasNestedException ThreadInterfaceUnavailable where
+  getNestedException = threadInterfaceException
+
+{-------------------------------------------------------------------------------
+  Internal auxiliary
+-------------------------------------------------------------------------------}
+
+-- | Locally turn off deadlock detection
+--
+-- See also <https://well-typed.com/blog/2024/01/when-blocked-indefinitely-is-not-indefinite/>.
+withoutDeadlockDetection :: IO a -> IO a
+withoutDeadlockDetection k = do
+    tid <- myThreadId
+    bracket (newStablePtr tid) freeStablePtr $ \_ -> k
+

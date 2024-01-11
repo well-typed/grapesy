@@ -6,14 +6,16 @@ module Network.GRPC.Util.Session.Server (
 
 import Control.Exception
 import Control.Tracer
+import GHC.Stack
 import Network.HTTP2.Server qualified as Server
 
-import Network.GRPC.Util.Concurrency
 import Network.GRPC.Util.HTTP2 (fromHeaderTable)
 import Network.GRPC.Util.HTTP2.Stream
 import Network.GRPC.Util.Session.API
 import Network.GRPC.Util.Session.Channel
 import Network.GRPC.Util.Thread
+
+import Debug.Concurrent
 
 {-------------------------------------------------------------------------------
   Connection
@@ -33,7 +35,7 @@ data ConnectionToClient = ConnectionToClient {
 --
 -- The actual response will not immediately be initiated; see below.
 setupResponseChannel :: forall sess.
-     AcceptSession sess
+     (AcceptSession sess, HasCallStack)
   => sess
   -> Tracer IO (DebugMsg sess)
   -> ConnectionToClient

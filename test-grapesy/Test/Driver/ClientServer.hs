@@ -41,25 +41,26 @@ instance Default ClientServerTest where
 -- | Run client server test, and check for expected failures
 testClientServer :: (Show e, PrettyVal e)
   => (SomeException -> CustomException e)
-  -> (forall a. Show a => (ClientServerTest -> IO a) -> IO a)
+  -> ClientServerTest
   -> IO String
-testClientServer assessCustomException withTest =
-    withTest $ \ClientServerTest{config, client, server} -> do
-      mRes <- try $ runTestClientServer config client server
-      case mRes of
-        Right () -> return ""
-        Left err ->
-          case isExpectedException config assessCustomException err of
-            Right err' -> return $ "Got expected error: " ++ show err'
-            Left  err' -> throwIO err' -- test failure
+testClientServer assessCustomException
+                 ClientServerTest{config, client, server} = do
+    mRes <- try $ runTestClientServer config client server
+    case mRes of
+      Right () -> return ""
+      Left err ->
+        case isExpectedException config assessCustomException err of
+          Right err' -> return $ "Got expected error: " ++ show err'
+          Left  err' -> throwIO err' -- test failure
 
 -- | Turn client server test into property
 propClientServer ::
      (SomeException -> CustomException e)
-  -> (forall a. Show a => (ClientServerTest -> IO a) -> IO a)
+  -> IO ClientServerTest
   -> QuickCheck.Property
-propClientServer assessCustomException withTest = QuickCheck.monadicIO $
-    liftIO $ withTest $ \ClientServerTest{config, client, server} -> do
+propClientServer assessCustomException mkTest =
+    QuickCheck.monadicIO $ liftIO $ do
+      ClientServerTest{config, client, server} <- mkTest
       mRes <- try $ runTestClientServer config client server
       case mRes of
         Right () -> return ()
