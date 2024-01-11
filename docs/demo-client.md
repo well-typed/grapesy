@@ -52,6 +52,12 @@ a self-signed certificate, the above will result in
 demo-client: HandshakeFailed (Error_Protocol ("certificate has unknown CA",True,UnknownCa))
 ```
 
+You might see an error such as this on the Python side (if using):
+
+```
+Handshake failed with fatal error SSL_ERROR_SSL: error:10000070:SSL routines:OPENSSL_internal:BAD_PACKET_LENGTH
+```
+
 There are two ways to address this. We can disable certificate validation
 altogether:
 
@@ -63,7 +69,8 @@ cabal run demo-client -- sayHello \
 ```
 
 or we can define our own roots; for example, we can declare the demo server's
-own certificate as a root:
+own certificate as a root (this works with both the Python demo server as well
+as our own):
 
 ```
 cabal run demo-client -- sayHello \

@@ -129,18 +129,23 @@ parseServer =
                    , Opt.help "Connect over TLS"
                    ])
               *> parseServerValidation)
+      <*> (Opt.optional $ Opt.option Opt.str $ mconcat [
+              Opt.long "authority"
+            , Opt.help "Override the HTTP2 :authority pseudo-header"
+            ])
   where
     mkServer ::
          String                          -- Host
       -> Maybe Word                      -- Port
       -> Maybe Client.ServerValidation   -- Secure?
+      -> Maybe String
       -> Client.Server
-    mkServer host mPort Nothing =
+    mkServer host mPort Nothing mAuth =
         Client.ServerInsecure $
-          Client.Authority host (fromMaybe 50051 mPort)
-    mkServer host mPort (Just validation) =
+          Client.Address host (fromMaybe 50051 mPort) mAuth
+    mkServer host mPort (Just validation) mAuth =
         Client.ServerSecure validation def $
-          Client.Authority host (fromMaybe 50052 mPort)
+          Client.Address host (fromMaybe 50052 mPort) mAuth
 
 parseServerValidation :: Opt.Parser Client.ServerValidation
 parseServerValidation = asum [
