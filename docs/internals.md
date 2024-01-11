@@ -1,6 +1,6 @@
 # Internals
 
-This document will eventually provide a high-level overview of the iternals
+This document will eventually provide a high-level overview of the internals
 of the library.
 
 ## Relevant specifications
