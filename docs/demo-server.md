@@ -92,8 +92,8 @@ for normal cases. For example, the Python implementation of the `ListFeatures`
 method will use `Trailers-Only` in the case that the list of features is empty.
 
 The Protobuf-specific wrappers in `grapesy` will not use `Trailers-Only` except
-in the case of errors, comform the spec; however, it is possible to use the
-lower-level server API to get the behaviour exibited by the Python example
+in the case of errors, conforming to the spec; however, it is possible to use
+the lower-level server API to get the behaviour exibited by the Python example
 implementation. The command line flag `--trailers-only-shortcut` enables this
 for the demo server. The difference in server operation can only be observed
 with Wireshark; a request for a list of features in the rectangle `(0, 0, 0, 0)`
@@ -103,5 +103,5 @@ with Wireshark; a request for a list of features in the rectangle `(0, 0, 0, 0)`
   separate headers from trailers, and another `HEADERS` frame with the trailers)
 * result in a single HTTP `HEADERS` frame when using `--trailers-only-shortcut`
 
-Note that this behaviour is _NOT_ conform the gRPC spec, so not all clients
+Note that this behaviour does _NOT_ conform the gRPC spec, so not all clients
 may support it.

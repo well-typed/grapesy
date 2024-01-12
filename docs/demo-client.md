@@ -129,10 +129,10 @@ cabal run demo-client -- \
 #### Compression
 
 This can be interesting for example to verify that compression is working
-propertly (the first message will be sent without compression since it's not
-yet unknown what compression schemes the server supports, but subsequent
-messages should then be compressed). However, it takes a bit of effort to make
-the server actually compress anything:
+properly (the first message will be sent without compression since it's not yet
+known what compression schemes the server supports, but subsequent messages
+should then be compressed). However, it takes a bit of effort to make the server
+actually compress anything:
 
 * You need to enable compression in the server; for the Python one, see
   https://github.com/grpc/grpc/blob/master/examples/python/compression/README.md
@@ -149,7 +149,7 @@ cabal run demo-client -- --gzip sayHello \
   --name '0xxxxxxxxxx1xxxxxxxxxx2xxxxxxxxxx3xxxxxxxxxx4xxxxxxxxxx5xxxxxxxxxx'
 ```
 
-Of course, the compression is transparent to the user, but you can observe in
+Of course, the compression is transparent to the user, but you can observe it
 in Wireshark.
 
 #### Automatic reconnect
