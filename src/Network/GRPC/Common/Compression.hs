@@ -8,7 +8,7 @@ module Network.GRPC.Common.Compression (
     -- * Definition
     Compression(..)
   , CompressionId(..)
-    -- * Standard compresion schemes
+    -- * Standard compression schemes
   , noCompression
   , gzip
   , allSupportedCompression
