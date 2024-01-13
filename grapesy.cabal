@@ -97,9 +97,10 @@ library
       Network.GRPC.Client.Session
       Network.GRPC.Internal.NestedException
       Network.GRPC.Server.Call
-      Network.GRPC.Server.Connection
       Network.GRPC.Server.Context
       Network.GRPC.Server.Handler
+      Network.GRPC.Server.RequestHandler
+      Network.GRPC.Server.RequestHandler.API
       Network.GRPC.Server.Session
       Network.GRPC.Spec.Call
       Network.GRPC.Spec.Common
@@ -368,6 +369,7 @@ executable test-stress
   build-depends:
       -- External dependencies
     , async                >= 2.2  && < 2.3
+    , bytestring           >= 0.10 && < 0.12
     , containers           >= 0.6  && < 0.7
     , contra-tracer        >= 0.2  && < 0.3
     , data-default         >= 0.7  && < 0.8

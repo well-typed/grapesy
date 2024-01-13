@@ -6,23 +6,22 @@
 -- > import Network.GRPC.Server.Context as Context
 module Network.GRPC.Server.Context (
     -- * Context
-    ServerContext -- opaque
+    ServerContext(..)
   , new
-  , params
     -- * Configuration
   , ServerParams(..)
   , ServerDebugMsg(..)
-  , RequestHandler
   ) where
 
 import Control.Exception
 import Control.Tracer
+import Data.ByteString qualified as Strict (ByteString)
 import Data.Default
-import Network.HTTP2.Server qualified as HTTP2
 import System.IO
 import Text.Show.Pretty
 
 import Network.GRPC.Common.Compression qualified as Compr
+import Network.GRPC.Server.RequestHandler.API
 import Network.GRPC.Server.Session (ServerSession)
 import Network.GRPC.Spec
 import Network.GRPC.Util.Session qualified as Session
@@ -45,24 +44,6 @@ new params = return ServerContext{params}
   Configuration
 -------------------------------------------------------------------------------}
 
--- | HTTP2 request handler
---
--- The request handler should not throw any exceptions. Most of the time we will
--- therefore work with
---
--- > RequestHandler (Either SomeException ())
---
--- It is passed a function to unmask asynchronous exceptions when it is ready.
---
--- Technical note: handlers should never throw exceptions, as doing so will
--- cause @http2@ to reset the stream, which is not always the right thing to do
--- (see detailed comments in 'acceptCall').
-type RequestHandler a =
-     (forall x. IO x -> IO x)
-  -> HTTP2.Request
-  -> (HTTP2.Response -> IO ())
-  -> IO a
-
 data ServerParams = ServerParams {
       -- | Server compression preferences
       serverCompression :: Compr.Negotation
@@ -79,6 +60,11 @@ data ServerParams = ServerParams {
     , serverTopLevel ::
            RequestHandler (Either SomeException ())
         -> RequestHandler ()
+
+      -- | Override content-type for response to client.
+      --
+      -- If not defined, the default @application/grpc+format@ is used.
+    , serverContentType :: Maybe Strict.ByteString
     }
 
 instance Default ServerParams where
@@ -86,6 +72,7 @@ instance Default ServerParams where
         serverCompression = def
       , serverDebugTracer = nullTracer
       , serverTopLevel    = defaultServerTopLevel
+      , serverContentType = Nothing
       }
     where
       defaultServerTopLevel ::
@@ -103,15 +90,15 @@ instance Default ServerParams where
 
 data ServerDebugMsg =
     -- | New request
-    ServerDebugRequest Path
+    ServerDebugRequest RawResourceHeaders
 
     -- | Message on existing connection
   | forall rpc.
           IsRPC rpc
        => ServerDebugMsg (Session.DebugMsg (ServerSession rpc))
 
-     -- | Could not connect to the client
-  | ServerDebugAcceptFailed SomeException
+     -- | Could not setup the call to the client
+  | ServerDebugCallSetupFailed SomeException
 
 deriving instance Show ServerDebugMsg
 

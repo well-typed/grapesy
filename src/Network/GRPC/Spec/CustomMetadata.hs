@@ -182,11 +182,13 @@ safeAsciiValue bs
   | otherwise            = Nothing
 
 -- | Check for valid ASCII header value
+--
+-- NOTE: By rights this should also verify that the header is non-empty.
+-- However, empty header values do occasionally show up, and so we permit them.
+-- The main reason for checking for validity at all is to ensure that we don't
+-- confuse binary headers and ASCII headers.
 isValidAsciiValue :: Strict.ByteString -> Bool
-isValidAsciiValue bs = and [
-      BS.Strict.length bs >= 1
-    , BS.Strict.all (\c -> 0x20 <= c && c <= 0x7E) bs
-    ]
+isValidAsciiValue bs = BS.Strict.all (\c -> 0x20 <= c && c <= 0x7E) bs
 
 {-------------------------------------------------------------------------------
   Binary value

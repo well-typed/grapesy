@@ -19,10 +19,12 @@ module Network.GRPC.Spec.Compression (
 
 import Codec.Compression.GZip qualified as GZip
 import Data.ByteString qualified as Strict (ByteString)
-import Data.ByteString.Lazy qualified as Lazy
-import Data.ByteString.UTF8 qualified as BS.UTF8
+import Data.ByteString.Lazy qualified as Lazy (ByteString)
+import Data.ByteString.UTF8 qualified as BS.Strict.UTF8
 import Data.List.NonEmpty (NonEmpty(..))
 import Data.String
+import GHC.Generics qualified as GHC
+import Text.Show.Pretty
 
 {-------------------------------------------------------------------------------
   Definition
@@ -64,28 +66,29 @@ data CompressionId =
   | GZip
   | Deflate
   | Snappy
-  | Custom Strict.ByteString
-  deriving (Eq, Ord)
+  | Custom String
+  deriving stock (Eq, Ord, GHC.Generic)
+  deriving anyclass (PrettyVal)
 
 serializeCompressionId :: CompressionId -> Strict.ByteString
 serializeCompressionId Identity   = "identity"
 serializeCompressionId GZip       = "gzip"
 serializeCompressionId Deflate    = "deflate"
 serializeCompressionId Snappy     = "snappy"
-serializeCompressionId (Custom i) = i
+serializeCompressionId (Custom i) = BS.Strict.UTF8.fromString i
 
 deserializeCompressionId :: Strict.ByteString -> CompressionId
 deserializeCompressionId "identity" = Identity
 deserializeCompressionId "gzip"     = GZip
 deserializeCompressionId "deflate"  = Deflate
 deserializeCompressionId "snappy"   = Snappy
-deserializeCompressionId i          = Custom i
+deserializeCompressionId i          = Custom (BS.Strict.UTF8.toString i)
 
 instance Show CompressionId where
-  show = BS.UTF8.toString . serializeCompressionId
+  show = BS.Strict.UTF8.toString . serializeCompressionId
 
 instance IsString CompressionId where
-  fromString = deserializeCompressionId . BS.UTF8.fromString
+  fromString = deserializeCompressionId . BS.Strict.UTF8.fromString
 
 compressionIsIdentity :: Compression -> Bool
 compressionIsIdentity = (== Identity) . compressionId

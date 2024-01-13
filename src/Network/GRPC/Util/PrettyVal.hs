@@ -4,8 +4,9 @@ module Network.GRPC.Util.PrettyVal (
   , StrictByteString_Binary(..)
   ) where
 
-import Data.ByteString qualified as Strict
-import Data.ByteString.Internal qualified as Strict
+import Data.ByteString qualified as Strict (ByteString)
+import Data.ByteString qualified as BS.Strict
+import Data.ByteString.Internal qualified as BS.Strict
 import Data.Coerce
 import Data.Proxy
 import Data.String
@@ -24,7 +25,7 @@ instance ( Coercible a Strict.ByteString
   prettyVal (StrictByteString_IsString x) =
       -- The 'ByteString' 'IsString' instance is defined using 'packChars',
       -- so here we do the opposite
-      String . show $ Strict.unpackChars (co x)
+      String . show $ BS.Strict.unpackChars (co x)
     where
       co :: a -> Strict.ByteString
       co = coerce
@@ -36,7 +37,7 @@ instance ( Coercible a Strict.ByteString
          ) => PrettyVal (StrictByteString_Binary constr a) where
   prettyVal (StrictByteString_Binary x) =
       Con (symbolVal (Proxy @constr)) [
-          Con "pack" [prettyVal $ Strict.unpack (co x)]
+          Con "pack" [prettyVal $ BS.Strict.unpack (co x)]
         ]
     where
       co :: a -> Strict.ByteString

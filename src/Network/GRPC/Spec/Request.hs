@@ -15,6 +15,7 @@ module Network.GRPC.Spec.Request (
   , parseRequestHeaders
   ) where
 
+import Data.ByteString qualified as Strict (ByteString)
 import Data.ByteString.Char8 qualified as BS.Strict.C8
 import Data.List (intersperse)
 import Data.List.NonEmpty (NonEmpty)
@@ -59,6 +60,11 @@ data RequestHeaders = RequestHeaders {
       -- it emphasizes the specification: /if/ the header is present, it must be
       -- a non-empty list.
     , requestAcceptCompression :: Maybe (NonEmpty CompressionId)
+
+      -- | Optionally, override the content-type
+      --
+      -- By default the content type will be set to @application/grpc+format@.
+    , requestOverrideContentType :: Maybe Strict.ByteString
     }
   deriving stock (Show, Eq)
   deriving stock (GHC.Generic)
@@ -119,7 +125,7 @@ callDefinition :: IsRPC rpc => Proxy rpc -> RequestHeaders -> [HTTP.Header]
 callDefinition proxy = \hdrs -> catMaybes [
       hdrTimeout <$> requestTimeout hdrs
     , Just $ buildTe
-    , Just $ buildContentType proxy
+    , Just $ buildContentType proxy (requestOverrideContentType hdrs)
     , Just $ buildMessageType
     , buildMessageEncoding       <$> requestCompression       hdrs
     , buildMessageAcceptEncoding <$> requestAcceptCompression hdrs
@@ -252,11 +258,13 @@ parseRequestHeaders proxy =
         :* Right ([]      :: [CustomMetadata])
         :* Right (Nothing :: Maybe CompressionId)
         :* Right (Nothing :: Maybe (NonEmpty CompressionId))
+        :* Right (Nothing :: Maybe Strict.ByteString)
         :* Nil
 
     (    _updTimeout
       :* updCustom
       :* updCompression
       :* updAcceptCompression
+      :* _updOverrideContentType
       :* Nil ) = partialUpdates (Proxy @RequestHeaders)
 

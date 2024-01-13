@@ -45,6 +45,7 @@ module Network.GRPC.Util.Session (
   , setupRequestChannel
     -- *** Server
   , ConnectionToClient(..)
+  , determineFlowStart
   , setupResponseChannel
     -- ** Status
   , ChannelStatus(..)

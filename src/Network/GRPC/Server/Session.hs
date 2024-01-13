@@ -5,8 +5,7 @@ module Network.GRPC.Server.Session (
   , Headers(..)
   ) where
 
-import Control.Exception
-import Data.List.NonEmpty (NonEmpty)
+import Control.Monad.Except
 import Data.Proxy
 import Network.HTTP.Types qualified as HTTP
 
@@ -64,24 +63,30 @@ instance IsRPC rpc => IsSession (ServerSession rpc) where
   buildMsg _ = buildOutput (Proxy @rpc) . outCompression
 
 instance IsRPC rpc => AcceptSession (ServerSession rpc) where
-  parseRequestRegular server info = do
+  parseRequestRegular server headers = runExcept $ do
       requestHeaders :: RequestHeaders <-
-        case parseRequestHeaders (Proxy @rpc) (requestHeaders info) of
-          Left  err  -> throwIO $ RequestInvalidHeaders err
+        case parseRequestHeaders (Proxy @rpc) headers of
+          Left  err  -> throwError $ PeerSentInvalidHeaders err
           Right hdrs -> return hdrs
 
+      let cInId :: Maybe CompressionId
+          cInId = requestCompression requestHeaders
       cIn :: Compression <-
-        Compr.getSupported (serverCompression server) $
-          requestCompression requestHeaders
+        case cInId of
+          Nothing  -> return noCompression
+          Just cid ->
+            case Compr.getSupported (serverCompression server) cid of
+              Nothing    -> throwError $ PeerChoseUnsupportedCompression cid
+              Just compr -> return compr
 
       return InboundHeaders {
           inbHeaders    = requestHeaders
         , inbCompression = cIn
         }
 
-  parseRequestNoMessages _ info =
-      case parseRequestHeaders (Proxy @rpc) (requestHeaders info) of
-        Left  err  -> throwIO $ RequestInvalidHeaders err
+  parseRequestNoMessages _ headers = runExcept $
+      case parseRequestHeaders (Proxy @rpc) headers of
+        Left  err  -> throwError $ PeerSentInvalidHeaders err
         Right hdrs -> return hdrs
 
   buildResponseInfo _ start = ResponseInfo {
@@ -93,19 +98,3 @@ instance IsRPC rpc => AcceptSession (ServerSession rpc) where
             FlowStartNoMessages trailers ->
               buildTrailersOnly trailers
       }
-
-{-------------------------------------------------------------------------------
-  Exceptions
--------------------------------------------------------------------------------}
-
-data InvalidRequest =
-    -- | We failed to parse the request headers
-    RequestInvalidHeaders String
-
-    -- | The client chose an unsupported compression algorithm
-  | RequestUnsupportedInboundCompression CompressionId
-
-    -- | We don't support any of the client's requested compression algorithms
-  | RequestUnsupportedOutboundCompression (NonEmpty CompressionId)
-  deriving stock (Show)
-  deriving anyclass (Exception)

@@ -7,7 +7,8 @@ module Network.GRPC.Server.Call (
     Call -- opaque
 
     -- * Construction
-  , acceptCall
+  , setupCall
+  , runHandler
 
     -- * Open (ongoing) call
   , recvInput
@@ -28,15 +29,18 @@ module Network.GRPC.Server.Call (
 
     -- ** Internal API
   , sendProperTrailers
+  , serverExceptionToClientError
   ) where
 
+import Control.Exception
 import Control.Monad
-import Control.Monad.Catch
+import Control.Monad.Catch (ExitCase(..))
+import Control.Monad.Except (runExceptT, throwError)
+import Control.Monad.IO.Class (liftIO)
 import Control.Tracer
 import Data.Bifunctor
 import Data.Text qualified as Text
 import GHC.Stack
-import Network.HTTP.Types qualified as HTTP
 import Network.HTTP2.Internal qualified as HTTP2
 import Network.HTTP2.Server qualified as HTTP2
 
@@ -44,8 +48,7 @@ import Network.GRPC.Common
 import Network.GRPC.Common.Compression qualified as Compr
 import Network.GRPC.Common.StreamElem qualified as StreamElem
 import Network.GRPC.Internal.NestedException
-import Network.GRPC.Server.Connection (Connection(..))
-import Network.GRPC.Server.Connection qualified as Connection
+import Network.GRPC.Server.Context (ServerContext(..))
 import Network.GRPC.Server.Context qualified as Context
 import Network.GRPC.Server.Session
 import Network.GRPC.Spec
@@ -108,96 +111,70 @@ data Kickoff =
   Open a call
 -------------------------------------------------------------------------------}
 
--- | Accept incoming call
+-- | Setup call
 --
--- If an exception is thrown during call setup, we will send an error response
--- to the client and then return it.
-acceptCall :: forall rpc.
-     (IsRPC rpc, HasCallStack)
-  => (forall x. IO x -> IO x)
-  -> Connection
-  -> (Call rpc -> IO ())
-  -> IO (Either SomeException ())
-acceptCall unmaskTopLevel conn k = do
-    callRequestMetadata  <- newEmptyTMVarIO
-    callResponseMetadata <- newTVarIO []
-    callResponseKickoff  <- newEmptyTMVarIO
+-- No response is sent to the caller.
+--
+-- Does not throw any exceptions.
+setupCall :: forall rpc.
+     IsRPC rpc
+  => Server.ConnectionToClient
+  -> ServerContext
+  -> IO (Either SomeException (Call rpc))
+setupCall conn ServerContext{params} = runExceptT $ do
+    callRequestMetadata  <- liftIO $ newEmptyTMVarIO
+    callResponseMetadata <- liftIO $ newTVarIO []
+    callResponseKickoff  <- liftIO $ newEmptyTMVarIO
 
-    let setupResponseChannel :: IO (Session.Channel (ServerSession rpc))
-        setupResponseChannel =
-            Session.setupResponseChannel
-              callSession
-              (contramap (Context.ServerDebugMsg @rpc) tracer)
-              (Connection.connectionClient conn)
-              (   handle sendErrorResponse
-                . mkOutboundHeaders
-                    callRequestMetadata
-                    callResponseMetadata
-                    callResponseKickoff
-              )
+    flowStart :: Session.FlowStart (ServerInbound rpc) <-
+      case Session.determineFlowStart callSession req of
+        Left  err   -> throwError $ toException err
+        Right start -> return start
 
-        handlerTeardown ::
-             Call rpc
-          -> Either SomeException ()
-          -> IO ()
-        handlerTeardown call@Call{callChannel} mRes = do
-            _mUnclean <-
-              case mRes of
-                Right () ->
-                  -- Handler terminated successfully
-                  -- (but it might not have sent the final message, see below)
-                  Session.close callChannel $ ExitCaseSuccess ()
-                Left err -> do
-                  -- The handler threw an exception. /Try/ to tell the client
-                  -- (but see discussion of 'forwardException')
-                  forwardException call err
-                  Session.close callChannel $ ExitCaseException err
+    let inboundHeaders :: RequestHeaders
+        inboundHeaders =
+            case flowStart of
+              Session.FlowStartRegular    headers  -> inbHeaders headers
+              Session.FlowStartNoMessages trailers ->            trailers
 
-            -- An unclean shutdown can have 3 causes:
-            --
-            -- 1. We failed to set up the call.
-            --
-            --    If the failure is due to network comms, we definitely have no
-            --    way of communicating with the client. If the failure was due
-            --    to a setup failure in 'mkOutboundHeaders', then the client has
-            --    /already/ been notified of the problem.
-            --
-            -- 2. We lost communication during the call.
-            --
-            --    In this case we also have no way of telling the client that
-            --    something went wrong.
-            --
-            -- 3. The handler failed to properly terminate the communication
-            --    (send the final message and call 'waitForOutbound').
-            --
-            --    This is the trickiest case. We don't really know what state
-            --    the handler left the channel in; for example, we might have
-            --    killed the thread halfway through sending a message.
-            --
-            -- So there not really anything we can do here (except perhaps show
-            -- the exception in 'serverTopLevel').
-            return ()
+    -- Make request metadata available (see 'getRequestMetadata')
+    liftIO $ atomically $
+      putTMVar callRequestMetadata $ requestMetadata inboundHeaders
 
-    -- The handler itself will run in a separate thread (see 'runHandler')
-    let handler ::
-             Session.Channel (ServerSession rpc)
-          -> (forall a. IO a -> IO a)
-          -> IO (Either SomeException ())
-        handler callChannel unmaskInThread = do
-            mRes <- try $ unmaskInThread $ k call
-            handlerTeardown call mRes
-            return mRes
-          where
-            call :: Call rpc
-            call = Call{
-                callSession
-              , callChannel
-              , callRequestMetadata
-              , callResponseMetadata
-              , callResponseKickoff
-              }
+    -- Technically compression is only relevant in the 'KickoffRegular' case
+    -- (i.e., in the case that the /server/ responds with messages, rather than
+    -- make use the Trailers-Only case). However, the kickoff might not be known
+    -- until the server has received various messages from the client. To
+    -- simplify control flow, therefore, we do compression negotation early,
+    -- to avoid having to deal with compression negotation failure later.
+    cOut :: Compression <-
+      case requestAcceptCompression inboundHeaders of
+         Nothing   -> return noCompression
+         Just cids ->
+           -- If the requests explicitly lists compression algorithms, and
+           -- that list does /not/ include @identity@, then we should not
+           -- default to 'noCompression', even if all other algorithms are
+           -- unsupported. This gives the client the option to /insist/ on
+           -- compression.
+           case Compr.choose compr cids of
+             Right c   -> return c
+             Left  err -> throwError $ toException err
 
-    runHandler unmaskTopLevel setupResponseChannel handler
+    callChannel :: Session.Channel (ServerSession rpc) <- liftIO $
+      Session.setupResponseChannel
+        callSession
+        (contramap (Context.ServerDebugMsg @rpc) tracer)
+        conn
+        flowStart
+        (mkOutboundHeaders callResponseMetadata callResponseKickoff cOut)
+
+    return Call{
+        callSession
+      , callRequestMetadata
+      , callResponseMetadata
+      , callResponseKickoff
+      , callChannel
+      }
   where
     callSession :: ServerSession rpc
     callSession = ServerSession {
@@ -205,114 +182,132 @@ acceptCall unmaskTopLevel conn k = do
         }
 
     compr :: Compr.Negotation
-    compr = Context.serverCompression $ Context.params $ connectionContext conn
+    compr = Context.serverCompression params
+
+    req :: HTTP2.Request
+    req = Server.request conn
 
     tracer :: Tracer IO Context.ServerDebugMsg
-    tracer = Context.serverDebugTracer $ Context.params $ connectionContext conn
+    tracer = Context.serverDebugTracer params
 
     mkOutboundHeaders ::
-         TMVar [CustomMetadata]
-      -> TVar [CustomMetadata]
+         TVar [CustomMetadata]
       -> TMVar Kickoff
-      ->     Session.FlowStart (ServerInbound  rpc)
+      -> Compression
       -> IO (Session.FlowStart (ServerOutbound rpc))
-    mkOutboundHeaders requestMetadataVar
-                      responseMetadataVar
-                      responseKickoffVar
-                      requestStart
-                    = do
-        -- Make request metadata available (see 'getRequestMetadata')
-        atomically $ putTMVar requestMetadataVar $
-                       requestMetadata inboundHeaders
-
+    mkOutboundHeaders metadataVar kickoffVar cOut = do
         -- Wait for kickoff (see 'Kickoff' for discussion)
-        kickoff <- atomically $ readTMVar responseKickoffVar
+        kickoff <- atomically $ readTMVar kickoffVar
 
         -- Get response metadata (see 'setResponseMetadata')
-        responseMetadata <- atomically $ readTVar responseMetadataVar
+        -- It is important we read this only /after/ the kickoff.
+        responseMetadata <- atomically $ readTVar metadataVar
 
         -- Session start
         case kickoff of
-          KickoffRegular -> do
-            cOut :: Compression <-
-              case requestAcceptCompression inboundHeaders of
-                 Nothing   -> return noCompression
-                 Just cids ->
-                   -- If the requests explicitly lists compression algorithms,
-                   -- and that list does /not/ include @identity@, then we
-                   -- should not default to 'noCompression', even if all other
-                   -- algorithms are unsupported. This gives the client the
-                   -- option to /insist/ on compression.
-                   case Compr.choose compr cids of
-                     Right c   -> return c
-                     Left  err -> throwM err
+          KickoffRegular ->
             return $ Session.FlowStartRegular $ OutboundHeaders {
                 outHeaders = ResponseHeaders {
-                    responseCompression       = Just $ Compr.compressionId cOut
-                  , responseAcceptCompression = Just $ Compr.offer compr
-                  , responseMetadata          = responseMetadata
+                    responseCompression =
+                      Just $ Compr.compressionId cOut
+                  , responseAcceptCompression =
+                      Just $ Compr.offer compr
+                  , responseMetadata =
+                      responseMetadata
+                  , responseOverrideContentType =
+                      Context.serverContentType params
                   }
               , outCompression = cOut
               }
           KickoffTrailersOnly trailers ->
             return $ Session.FlowStartNoMessages trailers
-      where
-        inboundHeaders :: RequestHeaders
-        inboundHeaders =
-            case requestStart of
-              Session.FlowStartRegular    headers  -> inbHeaders headers
-              Session.FlowStartNoMessages trailers ->            trailers
 
-    -- | Send response when 'mkOutboundHeaders' fails
-    sendErrorResponse :: forall x. SomeException -> IO x
-    sendErrorResponse err = do
-        traceWith tracer $ Context.ServerDebugAcceptFailed err
-        Server.respond (connectionClient conn) $
-          HTTP2.responseNoBody
-            HTTP.ok200 -- gRPC uses HTTP 200 even when there are gRPC errors
-            (buildTrailersOnly . TrailersOnly $
-               serverExceptionToClientError err)
-        throwM err
-
--- | Run the handler
+-- | Accept incoming call
 --
--- http2 will kill the handler when the client disappears, but we don't want
--- that behaviour: we want the handler to be able to terminate cleanly. We
--- therefore run the handler in a separate thread, and wait for that thread to
--- terminate. If we are interrupted while we wait, it depends on the
--- interruption:
+-- Can return an exception in one of two cases:
 --
--- * If we are interrupted by 'HTTP2.KilledByHttp2ThreadManager', it means
---   we got disconnected from the client. In this case, we shut down the channel
---   (if it's not already shut down); /if/ the handler at this tries to
---   communicate with the client, an exception will be raised. However, the
---   handler /can/ terminate cleanly and, of course, typically will.
---   Importantly, this avoids race conditions: even if the server and the client
---   agree that no further communication takes place (the client sent their
---   final message, the server sent the trailers), without the indireciton of
---   this additional thread it can still happen that http2 kills the handler
---   (after the client disconnects) before the handler has a chance to
---   terminate.
--- * If we are interrupted by another kind of asynchronous exception, we /do/
---   kill the handler (this might for example be a timeout).
---
--- This is in line with the overall design philosophy of communication in this
--- library: exceptions will only be raised synchronously when communication is
--- attempted, not asynchronously when we notice a problem.
-runHandler ::
-     (forall x. IO x -> IO x)
-  -> IO (Session.Channel (ServerSession rpc))
-  -> (    Session.Channel (ServerSession rpc)
-       -> (forall a. IO a -> IO a)
-       -> IO (Either SomeException ())
-     )
+-- * The handler threw an exception. If this happens, we will /attempt/ to
+--   inform the client of what happened; see 'forwardException'.
+-- * We were interrupted by an asynchronous exception while we were waiting for
+--   the handler. However, unless the call to 'runHandler' is wrapped in a
+--   timeout (or similar), no asynchronous exceptions are expected.
+runHandler :: forall rpc.
+     HasCallStack
+  => (forall x. IO x -> IO x)
+  -> Call rpc
+  -> (Call rpc -> IO ())
   -> IO (Either SomeException ())
-runHandler unmaskTopLevel setupResponseChannel handler = do
-    -- This sets up the channel but no response is sent yet
-    callChannel   <- setupResponseChannel
-    handlerThread <- asyncWithUnmask $ handler callChannel
+runHandler unmaskTopLevel call@Call{callChannel} k = do
+    -- http2 will kill the handler when the client disappears, but we want the
+    -- handler to be able to terminate cleanly. We therefore run the handler in
+    -- a separate thread, and wait for that thread to terminate.
+    waitForHandler =<< asyncWithUnmask handler
+  where
+    -- The handler itself will run in a separate thread
+    handler :: (forall a. IO a -> IO a) -> IO (Either SomeException ())
+    handler unmaskInThread = do
+        mRes <- try $ unmaskInThread $ k call
+        handlerTeardown mRes
+        return mRes
 
-    let loop :: IO (Either SomeException ())
+    -- Deal with any exceptions thrown in the handler
+    handlerTeardown :: Either SomeException () -> IO ()
+    handlerTeardown (Right ()) = ignoreUncleanClose $ do
+        -- Handler terminated successfully, but may not have sent final message.
+        -- /If/ the final message was sent, 'forwardException' does nothing.
+        forwardException call $ toException HandlerTerminated
+        Session.close callChannel $ ExitCaseSuccess ()
+    handlerTeardown (Left err) = ignoreUncleanClose $ do
+        -- The handler threw an exception. Attempt to tell the client.
+        forwardException call err
+        Session.close callChannel $ ExitCaseException err
+
+    -- An unclean shutdown can have 2 causes:
+    --
+    -- 1. We lost communication during the call.
+    --
+    --    We have no way of telling the client that something went wrong.
+    --
+    -- 2. The handler failed to properly terminate the communication
+    --    (send the final message and call 'waitForOutbound').
+    --
+    --    This is a bug in the handler, and is trickier to deal with. We don't
+    --    really know what state the handler left the channel in; for example,
+    --    we might have killed the thread halfway through sending a message.
+    --
+    --    So there not really anything we can do here (except perhaps show
+    --    the exception in 'serverTopLevel').
+    ignoreUncleanClose :: IO (Maybe Session.ChannelUncleanClose) -> IO ()
+    ignoreUncleanClose = void
+
+    -- Wait for the handler to terminate
+    --
+    -- If we are interrupted while we wait, it depends on the
+    -- interruption:
+    --
+    -- * If we are interrupted by 'HTTP2.KilledByHttp2ThreadManager', it means
+    --   we got disconnected from the client. In this case, we shut down the
+    --   channel (if it's not already shut down); /if/ the handler at this tries
+    --   to communicate with the client, an exception will be raised. However,
+    --   the handler /can/ terminate cleanly and, of course, typically will.
+    --   Importantly, this avoids race conditions: even if the server and the
+    --   client agree that no further communication takes place (the client sent
+    --   their final message, the server sent the trailers), without the
+    --   indireciton of this additional thread it can still happen that http2
+    --   kills the handler (after the client disconnects) before the handler has
+    --   a chance to terminate.
+    -- * If we are interrupted by another kind of asynchronous exception, we
+    --   /do/ kill the handler (this might for example be a timeout).
+    --
+    -- This is in line with the overall design philosophy of communication in
+    -- this library: exceptions will only be raised synchronously when
+    -- communication is attempted, not asynchronously when we notice a problem.
+    waitForHandler ::
+         Async (Either SomeException ())
+      -> IO (Either SomeException ())
+    waitForHandler handlerThread = loop
+      where
+        loop :: IO (Either SomeException ())
         loop = do
            -- We do not need to use 'waitCatch': the handler installs its
            -- own exception handler and will not throw any exceptions.
@@ -334,8 +329,6 @@ runHandler unmaskTopLevel setupResponseChannel handler = do
                  Nothing -> do
                    cancelWith handlerThread err
                    return $ Left err
-
-    loop
 
 -- | Process exception thrown by a handler
 --
@@ -383,6 +376,10 @@ serverExceptionToClientError wrappedError
     unwrappedError :: SomeException
     unwrappedError = innerNestedException wrappedError
 
+-- | Sent to the client when the handler terminates early
+data HandlerTerminated = HandlerTerminated
+  deriving stock (Show)
+  deriving anyclass (Exception)
 
 {-------------------------------------------------------------------------------
   Open (ongoing) call
@@ -495,7 +492,7 @@ sendTrailersOnly :: Call rpc -> [CustomMetadata] -> IO ()
 sendTrailersOnly Call{callResponseKickoff} metadata = do
     updated <- atomically $ tryPutTMVar callResponseKickoff $
                  KickoffTrailersOnly trailers
-    unless updated $ throwM ResponseAlreadyInitiated
+    unless updated $ throwIO ResponseAlreadyInitiated
   where
     trailers :: TrailersOnly
     trailers = TrailersOnly $ ProperTrailers {
@@ -529,14 +526,14 @@ recvFinalInput :: forall rpc. HasCallStack => Call rpc -> IO (Input rpc)
 recvFinalInput call@Call{} = do
     inp1 <- recvInput call
     case inp1 of
-      NoMoreElems    NoMetadata -> throwM $ TooFewInputs @rpc
+      NoMoreElems    NoMetadata -> throwIO $ TooFewInputs @rpc
       FinalElem  inp NoMetadata -> return inp
       StreamElem inp            -> do
         inp2 <- recvInput call
         case inp2 of
           NoMoreElems     NoMetadata -> return inp
-          FinalElem  inp' NoMetadata -> throwM $ TooManyInputs @rpc inp'
-          StreamElem inp'            -> throwM $ TooManyInputs @rpc inp'
+          FinalElem  inp' NoMetadata -> throwIO $ TooManyInputs @rpc inp'
+          StreamElem inp'            -> throwIO $ TooManyInputs @rpc inp'
 
 -- | Send final output
 --

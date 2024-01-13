@@ -167,7 +167,7 @@ assessCustomException err
     | Just (grpc :: GrpcException) <- fromException err
     , GrpcUnknown <- grpcError grpc
     , Just msg <- grpcErrorMessage grpc
-    , "ChannelDiscarded" `Text.isInfixOf` msg
+    , "HandlerTerminated" `Text.isInfixOf` msg
     = CustomExceptionExpected $ ExpectedForwardedToClient grpc
 
     --
