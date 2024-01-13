@@ -145,6 +145,7 @@ data RawResourceHeaders = RawResourceHeaders {
       rawPath   :: Strict.ByteString
     , rawMethod :: Strict.ByteString
     }
+  deriving (Show)
 
 buildResourceHeaders :: ResourceHeaders -> RawResourceHeaders
 buildResourceHeaders ResourceHeaders{resourcePath, resourceMethod} =

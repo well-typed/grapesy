@@ -33,6 +33,7 @@ module Network.GRPC.Common (
 
     -- ** Low-level
   , Session.ChannelDiscarded(..)
+  , Session.PeerException(..)
   ) where
 
 import Control.Exception

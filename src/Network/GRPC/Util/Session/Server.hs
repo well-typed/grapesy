@@ -1,12 +1,13 @@
 -- | Node with server role (i.e., its peer is a client)
 module Network.GRPC.Util.Session.Server (
     ConnectionToClient(..)
+  , determineFlowStart
   , setupResponseChannel
   ) where
 
-import Control.Exception
 import Control.Tracer
 import GHC.Stack
+import Network.HTTP.Types qualified as HTTP
 import Network.HTTP2.Server qualified as Server
 
 import Network.GRPC.Util.HTTP2 (fromHeaderTable)
@@ -31,42 +32,43 @@ data ConnectionToClient = ConnectionToClient {
   Initiate response
 -------------------------------------------------------------------------------}
 
+-- | Distinguish between Regular and Trailers-Only flow
+determineFlowStart ::
+     AcceptSession sess
+  => sess
+  -> Server.Request
+  -> Either PeerException (FlowStart (Inbound sess))
+determineFlowStart sess req
+  | Server.requestBodySize req == Just 0
+  = FlowStartNoMessages <$> parseRequestNoMessages sess requestHeaders
+
+  | otherwise
+  = FlowStartRegular <$> parseRequestRegular sess requestHeaders
+  where
+    requestHeaders :: [HTTP.Header]
+    requestHeaders = fromHeaderTable $ Server.requestHeaders req
+
 -- | Setup response channel
 --
 -- The actual response will not immediately be initiated; see below.
+--
+-- Does not throw any exceptions.
 setupResponseChannel :: forall sess.
      (AcceptSession sess, HasCallStack)
   => sess
   -> Tracer IO (DebugMsg sess)
   -> ConnectionToClient
-  -> (FlowStart (Inbound sess) -> IO (FlowStart (Outbound sess)))
+  -> FlowStart (Inbound sess)
+  -> IO (FlowStart (Outbound sess))
   -- ^ Construct headers for the initial response
   --
-  -- This function has quite a bit of control over how the outbound part of
-  -- the channel gets established:
+  -- This function is allowed to block. If it does, no response will not be
+  -- initiated until it returns.
   --
-  -- * If it blocks, the response will not be initiated until it returns.
-  -- * If it throws an exception, no response will be attempted at all. This
-  --   allows the function to send a response of its own (typically, some kind
-  --   of error response).
+  -- It should /not/ throw any exceptions.
   -> IO (Channel sess)
-setupResponseChannel sess tracer conn startOutbound = do
+setupResponseChannel sess tracer conn inboundStart startOutbound = do
     channel <- initChannel
-
-    let requestHeaders = fromHeaderTable $ Server.requestHeaders (request conn)
-    requestMethod <- case Server.requestMethod (request conn) of
-                       Just x  -> return x
-                       Nothing -> throwIO PeerMissingPseudoHeaderMethod
-    requestPath   <- case Server.requestPath (request conn) of
-                       Just x  -> return x
-                       Nothing -> throwIO PeerMissingPseudoHeaderPath
-    let requestInfo = RequestInfo {requestHeaders, requestMethod, requestPath}
-
-    inboundStart <-
-      if Server.requestBodySize (request conn) == Just 0 then
-        FlowStartNoMessages <$> parseRequestNoMessages sess requestInfo
-      else
-        FlowStartRegular <$> parseRequestRegular sess requestInfo
 
     forkThread (channelInbound channel) newEmptyTMVarIO $ \stVar ->
       case inboundStart of
@@ -79,7 +81,7 @@ setupResponseChannel sess tracer conn startOutbound = do
           atomically $ putTMVar stVar $ FlowStateNoMessages trailers
 
     forkThread (channelOutbound channel) newEmptyTMVarIO $ \stVar -> do
-      outboundStart <- startOutbound inboundStart
+      outboundStart <- startOutbound
       let responseInfo = buildResponseInfo sess outboundStart
       case outboundStart of
         FlowStartRegular headers -> do

@@ -25,7 +25,9 @@ module Test.Util.ClientServer (
 import Control.Exception
 import Control.Monad.IO.Class
 import Control.Tracer
+import Data.ByteString qualified as Strict (ByteString)
 import Data.Default
+import Data.List qualified as List
 import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Set qualified as Set
@@ -61,13 +63,21 @@ data ClientServerConfig = ClientServerConfig {
 
       -- | TLS setup (if using)
     , useTLS :: Maybe TlsSetup
+
+      -- | Override content-type used by the client
+    , clientContentType :: Maybe Strict.ByteString
+
+      -- | Override content-type used by the server
+    , serverContentType :: Maybe Strict.ByteString
     }
 
 instance Default ClientServerConfig where
   def = ClientServerConfig {
-      clientCompr = Compr.none
-    , serverCompr = Compr.none
-    , useTLS      = Nothing
+      clientCompr       = Compr.none
+    , serverCompr       = Compr.none
+    , useTLS            = Nothing
+    , clientContentType = Nothing
+    , serverContentType = Nothing
     }
 
 {-------------------------------------------------------------------------------
@@ -130,6 +140,7 @@ data ExpectedException e =
     ExpectedExceptionTls TLSException
   | ExpectedExceptionGrpc GrpcException
   | ExpectedExceptionCompressionNegotationFailed CompressionNegotationFailed
+  | ExpectedExceptionPeer PeerException
   | ExpectedExceptionDouble (DoubleException (ExpectedException e))
   | ExpectedExceptionCustom e
   deriving stock (Show, GHC.Generic)
@@ -179,6 +190,8 @@ isExpectedException cfg assessCustomException topLevel =
       -- Expected exceptions
       --
 
+      -- Expected exception: TLS
+
       | Just (tls :: TLSException) <- fromException err
       = case (useTLS cfg, tls) of
 #if MIN_VERSION_tls(1,9,0)
@@ -207,6 +220,9 @@ isExpectedException cfg assessCustomException topLevel =
           _otherwise ->
             Left $ UnexpectedException topLevel err
 
+      -- Expected exception: compression
+
+      -- .. client side
       | Just (grpc :: GrpcException) <- fromException err
       , compressionNegotationFailure
       , GrpcUnknown <- grpcError grpc
@@ -214,9 +230,26 @@ isExpectedException cfg assessCustomException topLevel =
       , "CompressionNegotationFailed" `Text.isInfixOf` msg
       = Right $ ExpectedExceptionGrpc grpc
 
+      -- .. server side
       | Just (compr :: CompressionNegotationFailed) <- fromException err
       , compressionNegotationFailure
       = Right $ ExpectedExceptionCompressionNegotationFailed compr
+
+      -- Expected exception: invalid content-type sent by client
+
+      -- .. client side
+      | Just (grpc :: GrpcException) <- fromException err
+      , invalidClientContentType
+      , GrpcUnknown <- grpcError grpc
+      , Just msg <- grpcErrorMessage grpc
+      , "Content-Type" `Text.isInfixOf` msg
+      = Right $ ExpectedExceptionGrpc grpc
+
+      -- .. server side
+      | Just err'@(PeerSentInvalidHeaders msg) <- fromException err
+      , invalidClientContentType
+      , "Content-Type" `List.isInfixOf` msg
+      = Right $ ExpectedExceptionPeer err'
 
       --
       -- Wrappers
@@ -256,6 +289,14 @@ isExpectedException cfg assessCustomException topLevel =
         Set.disjoint (Map.keysSet (Compr.supported (clientCompr cfg)))
                      (Map.keysSet (Compr.supported (serverCompr cfg)))
 
+    -- TODO: By right /any/ format (not just "gibberish") is ok
+    invalidClientContentType :: Bool
+    invalidClientContentType = not $
+        case clientContentType cfg of
+          Nothing                           -> True
+          Just "application/grpc"           -> True
+          Just "application/grpc+gibberish" -> True
+          _otherwise                        -> False
 
 {-------------------------------------------------------------------------------
   Server handler lock
@@ -354,12 +395,12 @@ runTestServer cfg serverTracer handlerLock serverHandlers = do
                     }
                 }
 
-
         serverParams :: Server.ServerParams
         serverParams = Server.ServerParams {
-              serverCompression     = serverCompr cfg
-            , serverDebugTracer     = serverTracer
-            , serverTopLevel        = topLevelWithHandlerLock handlerLock
+              serverCompression = serverCompr cfg
+            , serverDebugTracer = serverTracer
+            , serverTopLevel    = topLevelWithHandlerLock handlerLock
+            , serverContentType = serverContentType cfg
             }
 
     Server.runServerWithHandlers serverConfig serverParams serverHandlers
@@ -378,9 +419,10 @@ runTestClient cfg clientTracer clientRun = do
 
     let clientParams :: Client.ConnParams
         clientParams = Client.ConnParams {
-              connDebugTracer     = clientTracer
-            , connCompression     = clientCompr cfg
-            , connDefaultTimeout  = Nothing
+              connDebugTracer    = clientTracer
+            , connCompression    = clientCompr cfg
+            , connDefaultTimeout = Nothing
+            , connContentType    = clientContentType cfg
 
               -- We need a single reconnect, to enable wait-for-ready.
               -- This avoids a race condition between the server starting first

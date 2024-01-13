@@ -79,9 +79,15 @@ instance IsRPC rpc => InitiateSession (ClientSession rpc) where
           Left  err    -> throwIO $ ResponseInvalidHeaders err
           Right parsed -> return parsed
 
+      let cInId :: Maybe CompressionId
+          cInId = responseCompression responseHeaders
       cIn :: Compression <-
-        Compr.getSupported (clientCompression client) $
-          responseCompression responseHeaders
+        case cInId of
+          Nothing  -> return noCompression
+          Just cid ->
+            case Compr.getSupported (clientCompression client) cid of
+              Nothing    -> throwIO $ ResponseUnsupportedCompression cid
+              Just compr -> return compr
 
       clientUpdateMeta client responseHeaders
 
@@ -146,6 +152,9 @@ data InvalidResponse =
     -- supported, then the server will respond with HTTP 200 and then a
     -- grpc-status of 'GrpcUnimplemented'.
     ResponseInvalidStatus HTTP.Status
+
+    -- | Server chose an unsuppored compression algorithm
+  | ResponseUnsupportedCompression CompressionId
 
     -- | We failed to parse the response headers
   | ResponseInvalidHeaders String

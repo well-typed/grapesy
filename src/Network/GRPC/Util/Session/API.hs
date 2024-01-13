@@ -15,13 +15,16 @@ module Network.GRPC.Util.Session.API (
 import Control.Exception
 import Data.ByteString.Builder (Builder)
 import Data.Kind
+import GHC.Generics qualified as GHC
 import Network.HTTP.Types qualified as HTTP
+import Text.Show.Pretty
 
 import Network.GRPC.Util.Parser
 
 -- We import from @.Internal@ to avoid biasing towards @.Server@ or @.Client@
 -- (this is actually defined in a hidden module @Network.HTTP2.Arch.Types@).
 import Network.HTTP2.Internal qualified as HTTP2
+import Network.GRPC.Common.Compression (CompressionId)
 
 {-------------------------------------------------------------------------------
   Preliminaries
@@ -150,18 +153,17 @@ class IsSession sess => AcceptSession sess where
   -- See 'parseRequestTrailersOnly' for the Trailers-Only case.
   parseRequestRegular ::
        sess
-    -> RequestInfo -> IO (Headers (Inbound sess))
+    -> [HTTP.Header] -> Either PeerException (Headers (Inbound sess))
 
   --  | Parse 'RequestInfo' from the client, Trailers-Only case
   parseRequestNoMessages ::
        sess
-    -> RequestInfo -> IO (NoMessages (Inbound sess))
+    -> [HTTP.Header] -> Either PeerException (NoMessages (Inbound sess))
 
   -- | Build 'ResponseInfo' for the client
   buildResponseInfo ::
        sess
-    -> FlowStart (Outbound sess)
-    -> ResponseInfo
+    -> FlowStart (Outbound sess) -> ResponseInfo
 
 {-------------------------------------------------------------------------------
   Exceptions
@@ -173,19 +175,22 @@ class IsSession sess => AcceptSession sess where
 -- can be done to rectify the situation: probably this peer should just be
 -- avoided (although perhaps one can hope that the problem was transient).
 data PeerException =
+    -- | We could not parse the request headers
+    PeerSentInvalidHeaders String
+
+    -- | Peer chose unspported compression algorithm for their messages to us
+    --
+    -- This is indicative of a misbehaving peer: they should not use a
+    -- compression algorithm unless they have evidence that we support it.
+  | PeerChoseUnsupportedCompression CompressionId
+
     -- | Peer sent a malformed message (parser returned an error)
-    PeerSentMalformedMessage String
+  | PeerSentMalformedMessage String
 
     -- | Peer sent an incomplete message (parser did not consume all data)
   | PeerSentIncompleteMessage
 
-    -- | HTTP request missing @:method@ pseudo-header
-  | PeerMissingPseudoHeaderMethod
-
-    -- | HTTP request missing @:path@ pseudo-header
-  | PeerMissingPseudoHeaderPath
-
     -- | HTTP response missing @:status@ pseudo-header
   | PeerMissingPseudoHeaderStatus
-  deriving stock (Show)
-  deriving anyclass (Exception)
+  deriving stock (Show, GHC.Generic)
+  deriving anyclass (Exception, PrettyVal)

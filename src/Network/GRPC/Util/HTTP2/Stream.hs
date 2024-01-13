@@ -20,7 +20,7 @@ module Network.GRPC.Util.HTTP2.Stream (
 
 import Control.Exception
 import Data.Binary.Builder (Builder)
-import Data.ByteString qualified as Strict
+import Data.ByteString qualified as Strict (ByteString)
 import GHC.Stack
 import Network.HTTP.Types qualified as HTTP
 import Network.HTTP2.Client qualified as Client

@@ -20,12 +20,10 @@ module Network.GRPC.Common.Compression (
   , require
   , chooseFirst
     -- ** Exceptions
-  , UnsupportedCompression(..)
   , CompressionNegotationFailed(..)
   ) where
 
 import Control.Exception
-import Control.Monad.Catch
 import Data.Default
 import Data.Foldable (toList)
 import Data.List.NonEmpty (NonEmpty(..))
@@ -59,16 +57,8 @@ data Negotation = Negotation {
     }
 
 -- | Map 'CompressionId' to 'Compression' for supported algorithms
---
--- Throws 'UnsupportedCompression' if the algorithm is not supported.
-getSupported ::
-     MonadThrow m
-  => Negotation -> Maybe CompressionId -> m Compression
-getSupported _     Nothing    = return noCompression
-getSupported compr (Just cid) =
-    case Map.lookup cid (supported compr) of
-      Nothing -> throwM $ UnsupportedCompression cid
-      Just c  -> return c
+getSupported :: Negotation -> CompressionId -> Maybe Compression
+getSupported compr cid = Map.lookup cid (supported compr)
 
 instance Default Negotation where
   def = chooseFirst allSupportedCompression
@@ -100,16 +90,6 @@ chooseFirst ourSupported = Negotation {
 {-------------------------------------------------------------------------------
   Exceptions
 -------------------------------------------------------------------------------}
-
--- | Compression exception
---
--- This is indicative of a misbehaving peer: they should not use a particular
--- compression algorithm unless they have evidence that we support it.
-data UnsupportedCompression =
-    -- | The peer uses a compression algorithm we do not support
-    UnsupportedCompression CompressionId
-  deriving stock (Show)
-  deriving anyclass (Exception)
 
 -- | Negotation failed
 --

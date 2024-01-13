@@ -27,6 +27,7 @@ module Network.GRPC.Spec.Response (
 
 import Control.Exception
 import Control.Monad.Except
+import Data.ByteString qualified as Strict (ByteString)
 import Data.ByteString.Char8 qualified as BS.Strict.C8
 import Data.List.NonEmpty (NonEmpty)
 import Data.SOP
@@ -51,9 +52,10 @@ import Network.GRPC.Util.Partial
 
 -- | Response headers
 data ResponseHeaders = ResponseHeaders {
-      responseCompression       :: Maybe CompressionId
-    , responseAcceptCompression :: Maybe (NonEmpty CompressionId)
-    , responseMetadata          :: [CustomMetadata]
+      responseCompression         :: Maybe CompressionId
+    , responseAcceptCompression   :: Maybe (NonEmpty CompressionId)
+    , responseMetadata            :: [CustomMetadata]
+    , responseOverrideContentType :: Maybe Strict.ByteString
     }
   deriving stock (Show, Eq)
   deriving stock (GHC.Generic)
@@ -138,13 +140,16 @@ grpcExceptionToTrailers err = ProperTrailers{
 -------------------------------------------------------------------------------}
 
 -- | Build response headers
-buildResponseHeaders :: IsRPC rpc => Proxy rpc -> ResponseHeaders -> [HTTP.Header]
+buildResponseHeaders ::
+     IsRPC rpc
+  => Proxy rpc -> ResponseHeaders -> [HTTP.Header]
 buildResponseHeaders proxy
              ResponseHeaders{ responseCompression
                             , responseAcceptCompression
                             , responseMetadata
+                            , responseOverrideContentType
                             } = concat [
-      [ buildContentType proxy ]
+      [ buildContentType proxy responseOverrideContentType ]
     , [ buildMessageEncoding x
       | Just x <- [responseCompression]
       ]
@@ -189,11 +194,13 @@ parseResponseHeaders proxy =
            return (Nothing :: Maybe CompressionId)
         :* return (Nothing :: Maybe (NonEmpty CompressionId))
         :* return ([]      :: [CustomMetadata])
+        :* return (Nothing :: Maybe Strict.ByteString)
         :* Nil
 
     (    updCompression
       :* updAcceptCompression
       :* updCustom
+      :* _updOverrideContentType
       :* Nil ) = partialUpdates (Proxy @ResponseHeaders)
 
 {-------------------------------------------------------------------------------

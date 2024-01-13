@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module Test.Sanity.StreamingType.NonStreaming (tests) where
 
 import Control.Exception
@@ -22,6 +24,34 @@ tests = testGroup "Test.Sanity.StreamingType.NonStreaming" [
       testGroup "increment" [
           testCaseInfo "default" $
             test_increment def
+        , testGroup "Content-Type" [
+              testGroup "ok" [
+                  -- Without the +format part
+                  testCaseInfo "application/grpc" $
+                    test_increment def {
+                        clientContentType = Just "application/grpc"
+                      }
+
+                  -- Random other format
+                  -- See discussion in 'parseContentType'
+                , testCaseInfo "application/grpc+gibberish" $
+                    test_increment def {
+                        clientContentType = Just "application/grpc+gibberish"
+                      }
+                ]
+            , testGroup "fail" [
+                  testCaseInfo "application/invalid-subtype" $
+                    test_increment def {
+                        clientContentType = Just "application/invalid-subtype"
+                      }
+
+                  -- gRPC spec does not allow parameters
+                , testCaseInfo "charset" $
+                    test_increment def {
+                        clientContentType = Just "application/grpc; charset=us-ascii"
+                      }
+                ]
+            ]
         , testGroup "TLS" [
               testGroup "ok" [
                   testCaseInfo "certAsRoot" $

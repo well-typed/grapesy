@@ -24,6 +24,7 @@ module Network.GRPC.Client.Connection (
 import Control.Monad
 import Control.Monad.Catch
 import Control.Tracer
+import Data.ByteString qualified as Strict (ByteString)
 import Data.ByteString.Char8 qualified as BS.Strict.Char8
 import Data.Default
 import Data.Foldable (asum)
@@ -123,6 +124,11 @@ data ConnParams = ConnParams {
       -- when there are proxies, which tend to drop connections after a certain
       -- amount of time.
     , connReconnectPolicy :: ReconnectPolicy
+
+      -- | Optionally override the content type
+      --
+      -- If not defined, the default @application/grpc+format@ is used.
+    , connContentType :: Maybe Strict.ByteString
     }
 
 instance Default ConnParams where
@@ -131,6 +137,7 @@ instance Default ConnParams where
       , connCompression     = def
       , connDefaultTimeout  = Nothing
       , connReconnectPolicy = def
+      , connContentType     = Nothing
       }
 
 {-------------------------------------------------------------------------------
@@ -357,6 +364,8 @@ startRPC Connection{connMetaVar, connParams, connStateVar} _ callParams = do
             compressionId <$> cOut
         , requestAcceptCompression = Just $
             Compression.offer $ connCompression connParams
+        , requestOverrideContentType =
+            connContentType connParams
         }
 
     callSession :: ClientSession rpc

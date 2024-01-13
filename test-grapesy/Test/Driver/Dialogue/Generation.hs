@@ -9,7 +9,7 @@ module Test.Driver.Dialogue.Generation (
   ) where
 
 import Control.Monad
-import Data.ByteString qualified as Strict
+import Data.ByteString qualified as BS.Strict
 import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Set (Set)
@@ -57,7 +57,7 @@ genMetadata = do
     genBinaryValue :: Gen BinaryValue
     genBinaryValue = sized $ \sz -> do
         n <- choose (0, sz)
-        BinaryValue . Strict.pack <$> replicateM n arbitrary
+        BinaryValue . BS.Strict.pack <$> replicateM n arbitrary
 
     genAsciiValue :: Gen AsciiValue
     genAsciiValue = elements simpleAsciiValue
@@ -353,12 +353,12 @@ shrinkMetadata (BinaryHeader nm (BinaryValue val)) = concat [
       | nm' <- filter (< nm) simpleHeaderName
       ]
       -- aggressively try to shrink to a single byte
-    , [ BinaryHeader nm (BinaryValue (Strict.pack [x]))
-      | x:_:_ <- [Strict.unpack val]
+    , [ BinaryHeader nm (BinaryValue (BS.Strict.pack [x]))
+      | x:_:_ <- [BS.Strict.unpack val]
       ]
       -- normal shrinking of binary values
-    , [ BinaryHeader nm (BinaryValue (Strict.pack val'))
-      | val' <- shrink (Strict.unpack val)
+    , [ BinaryHeader nm (BinaryValue (BS.Strict.pack val'))
+      | val' <- shrink (BS.Strict.unpack val)
       ]
     ]
 shrinkMetadata (AsciiHeader nm val) = concat [

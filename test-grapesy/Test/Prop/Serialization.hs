@@ -1,11 +1,11 @@
 module Test.Prop.Serialization (tests) where
 
 import Control.Monad.Except
+import Data.ByteString qualified as BS.Strict
 import Test.Tasty
 import Test.Tasty.QuickCheck
 
 import Network.GRPC.Spec
-import Data.ByteString qualified as Strict
 
 tests :: TestTree
 tests = testGroup "Test.Prop.Serialization" [
@@ -54,13 +54,13 @@ instance Arbitrary (Awkward CustomMetadata) where
 
 instance Arbitrary (Awkward HeaderName) where
   arbitrary = Awkward <$>
-      suchThatMap (Strict.pack <$> arbitrary) safeHeaderName
+      suchThatMap (BS.Strict.pack <$> arbitrary) safeHeaderName
 
 instance Arbitrary (Awkward BinaryValue) where
   arbitrary = Awkward <$>
-      BinaryValue . Strict.pack <$> arbitrary
+      BinaryValue . BS.Strict.pack <$> arbitrary
 
 instance Arbitrary (Awkward AsciiValue) where
   arbitrary = Awkward <$>
-      suchThatMap (Strict.pack <$> arbitrary) safeAsciiValue
+      suchThatMap (BS.Strict.pack <$> arbitrary) safeAsciiValue
 
