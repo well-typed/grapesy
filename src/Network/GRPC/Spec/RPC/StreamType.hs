@@ -1,12 +1,4 @@
 -- | Streaming types
---
--- The
--- [gRPC specification](https://github.com/grpc/grpc/blob/master/doc/PROTOCOL-HTTP2.md)
--- does not distinguish between different kinds of communication patterns;
--- this is done in the
--- [Protobuf specification](https://protobuf.dev/reference/protobuf/proto3-spec/#service_definition).
--- Nonetheless, these streaming types can be applied to other serialization
--- formats also.
 module Network.GRPC.Spec.RPC.StreamType (
     -- * Communication patterns
     StreamingType(..)
@@ -58,9 +50,6 @@ class SupportsStreamingType rpc (RpcStreamingType rpc)
 
 {-------------------------------------------------------------------------------
   Handler types
-
-  Users don't typically work with these types directly; however, they serve
-  as as specification of the commonality between the client and the server.
 -------------------------------------------------------------------------------}
 
 newtype NonStreamingHandler m rpc = UnsafeNonStreamingHandler (

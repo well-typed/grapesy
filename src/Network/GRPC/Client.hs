@@ -73,66 +73,105 @@ import Network.GRPC.Util.TLS qualified as Util.TLS
 
 -- $openRequest
 --
--- 'Call' denotes a previously opened request (see 'withRequest').
+-- 'Call' denotes a previously opened request (see 'withRPC').
 --
--- == Specialization to Protobuf
+-- == Protobuf communication patterns
 --
 -- This is a general implementation of the
 -- [gRPC specification](https://github.com/grpc/grpc/blob/master/doc/PROTOCOL-HTTP2.md).
 -- As such, these functions do not provide explicit support for the common
 -- communication patterns of non-streaming, server-side streaming, client-side
 -- streaming, or bidirectional streaming. These are not part of the gRPC
--- standard, but are part of its Protobuf instantiation; see
--- "Network.GRPC.Client.Protobuf".
+-- standard, but are part of
+-- [its Protobuf instantiation](https://protobuf.dev/reference/protobuf/proto3-spec/#service_definition), although these
+-- patterns are of course not really Protobuf specific. We provide support for
+-- these communication patterns, independent from a choice of serialization
+-- format, in "Network.GRPC.Common.StreamType" and
+-- "Network.GRPC.Client.StreamType" (and "Network.GRPC.Server.StreamType" for the
+-- server side).
 --
--- == Final messages and trailers
+-- If you only use the abstractions provided in "Network.GRPC.*.StreamType",
+-- you can ignore the rest of the discussion below, which applies only to the
+-- more general interface.
 --
--- There are two asymmetries between 'sendInput' and 'recvOutput'; they are the
--- direct consequence of properties of the
--- [gRPC specification](https://github.com/grpc/grpc/blob/master/doc/PROTOCOL-HTTP2.md),
--- specifically how it deals with 'Trailers'.
+-- == Stream elements
 --
--- *   'sendInput' takes a simple flag 'IsFinal' as argument telling it whether
---     a message is 'Final' or 'NotFinal', whereas 'recvOutput' returns
---     'Trailers' after the final message is received, allowing the server to
---     return some additional information (for example, a CRC checksum of the
---     data sent).
+-- Both 'sendInput' and 'recvOutput' work with 'StreamElem':
 --
---     This is because the gRPC does not allow for request trailers.
+-- > data StreamElem b a =
+-- >     StreamElem a
+-- >   | FinalElem a b
+-- >   | NoMoreElems b
 --
--- *   'sendInput' takes /both/ the 'IsFinal' flag /and/ an 'Input', whereas
---     'recvOutput' returns /either/ 'Trailers' (retroactively indicating that
---     the previously returned 'Output' was the last) /or/ an 'Output'.
+-- The intuition is that we are sending messages of type @a@ (see \"Inputs and
+-- outputs\", below) and then when we send the final message, we can include
+-- some additional information of type @b@ (see \"Metadata\", below).
 --
---     The reason here is a bit more subtle. Suppose we are doing a @grpc+proto@
---     non-streaming RPC call. The input message from the client to the server
---     will be sent over one or more HTTP2 @DATA@ frames (chunks of the input).
---     The server will expect the last of those frames to be marked as
---     @END_STREAM@. The HTTP2 specification /does/ allow sending an separate
---     empty @DATA@ frame with the @END_STREAM@ flag set to indicate no further
---     data is coming, but not all gRPC servers will wait for this, and might
---     either think that the client is broken and disconnect, or might send the
---     client a @RST_STREAM@ frame to force it to close the stream. To avoid
---     problems, therefore, it is better to mark the final @DATA@ frame as
---     @END_STREAM@; in order to be able to do that, 'sendInput' needs to know
---     whether an input is the final one.
+-- == Inputs and outputs
 --
---     For 'recvOutput' the situation is different. Now we /do/ expect HTTP
---     trailers, which means that we cannot tell from @DATA@ frames alone
---     if we have received the last message (it will be the frame containing the
---     /trailers/ that is marked as @END_STREAM@, with no indication on the data
---     frame just before it that it was the last one). We cannot wait for the
---     next frame to come in, because that would be a blocking call (we might
---     have to wait for the next TCP packet), and if the output was /not/ the
---     last one, we would unnecessarily delay making the output we already
---     received available to the client code.
+-- By convention, we refer to messages sent from the client to the server as
+-- \"inputs\" and messages sent from the server to the client as \"outputs\"
+-- (we inherited this terminology from
+-- [proto-lens](https://hackage.haskell.org/package/proto-lens-0.7.1.4/docs/Data-ProtoLens-Service-Types.html#t:HasMethodImpl).)
+-- On the client side we therefore have 'recvOutput' and 'sendInput' defined as
 --
---     Of course, the /client code/ may know whether it any given message was
---     the last; in the example above of a non-streaming @grpc+proto@ RPC call,
---     we only expect a single output. In this case the client can (and should)
---     call 'recvOutput' again to wait for the trailers (which, amongst other
---     things, will include the 'trailerGrpcStatus').
+-- > recvOutput :: Call rpc -> IO (StreamElem [CustomMetadata] (Output rpc))
+-- > sendInput  :: Call rpc -> StreamElem NoMetadata (Input rpc) -> IO ()
 --
--- If you are using the specialized functions from
--- "Network.GRPC.Client.Protobuf" you do not need to worry about any of this.
-
+-- and on the server side we have 'Network.GRPC.Server.recvInput' and
+-- 'Network.GRPC.Server.sendOutput':
+--
+-- > recvInput  :: Call rpc -> IO (StreamElem NoMetadata (Input rpc))
+-- > sendOutput :: Call rpc -> StreamElem [CustomMetadata] (Output rpc) -> IO ()
+--
+-- == Metadata
+--
+-- Both the server and the client can send some metadata before they send their
+-- first message; see 'withRPC' and 'callRequestMetadata' for the client-side
+-- (and 'Network.GRPC.Server.setResponseMetadata' for the server-side).
+--
+-- The gRPC specification allows the server, but not the client, to include some
+-- /final/ metadata as well; this is the reason between the use of
+-- 'CustomMetadata' for messages from the server to the client versus
+-- 'NoMetadata' for messages from the client.
+--
+-- == 'FinalElem' versus 'NoMoreElems'
+--
+-- 'Network.GRPC.Common.StreamElem' allows to mark the final message as final
+-- when it is /sent/ ('Network.GRPC.Common.FinalElem'), or retroactively
+-- indicate that the previous message was in fact final
+-- ('Network.GRPC.Common.NoMoreElems'). The reason for this is technical in
+-- nature.
+--
+-- Suppose we are doing a @grpc+proto@ non-streaming RPC call. The input message
+-- from the client to the server will be sent over one or more HTTP2 @DATA@
+-- frames (chunks of the input). The server will expect the last of those frames
+-- to be marked as @END_STREAM@. The HTTP2 specification /does/ allow sending an
+-- separate empty @DATA@ frame with the @END_STREAM@ flag set to indicate no
+-- further data is coming, but not all gRPC servers will wait for this, and
+-- might either think that the client is broken and disconnect, or might send
+-- the client a @RST_STREAM@ frame to force it to close the stream. To avoid
+-- problems, therefore, it is better to mark the final @DATA@ frame as
+-- @END_STREAM@; in order to be able to do that, 'sendInput' needs to know
+-- whether an input is the final one. It is therefore better to use 'FinalElem'
+-- instead of 'NoMoreElems' for outgoing messages, if possible.
+--
+-- For incoming messages the situation is different. Now we /do/ expect HTTP
+-- trailers (final metadata), which means that we cannot tell from @DATA@ frames
+-- alone if we have received the last message: it will be the frame containing
+-- the /trailers/ that is marked as @END_STREAM@, with no indication on the data
+-- frame just before it that it was the last one. We cannot wait for the next
+-- frame to come in, because that would be a blocking call (we might have to
+-- wait for the next TCP packet), and if the output was /not/ the last one, we
+-- would unnecessarily delay making the output we already received available to
+-- the client code. Typically therefore clients will receive a 'StreamElem'
+-- followed by 'NoMoreElems'.
+--
+-- Of course, for a given RPC and its associated communication pattern we may
+-- know whether it any given message was the last; in the example above of a
+-- non-streaming @grpc+proto@ RPC call, we only expect a single output. In this
+-- case the client can (and should) call 'recvOutput' again to wait for the
+-- trailers (which, amongst other things, will include the 'trailerGrpcStatus').
+-- The specialized functions from "Network.GRPC.Client.StreamType" take care of
+-- this; if these functions are not applicable, users may wish to use
+-- 'recvFinalOutput'.
