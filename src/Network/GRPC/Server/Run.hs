@@ -30,6 +30,9 @@ import Debug.Concurrent
   Configuration
 -------------------------------------------------------------------------------}
 
+-- | Describes the configuration of both an insecure server and a secure server.
+-- See the documentation of 'runServer' for a description of what servers will
+-- result from various configurations.
 data ServerConfig = ServerConfig {
       -- | Configuration for insecure communication (without TLS)
       --
@@ -92,6 +95,17 @@ data SecureConfig = SecureConfig {
   Run server
 -------------------------------------------------------------------------------}
 
+-- | Run a 'HTTP2.Server' with the given 'ServerConfig'. Alternatively, you may
+-- wish to use 'runServerWithHandlers', which handles the creation of the
+-- 'HTTP2.Server' for you.
+--
+-- If both configurations are disabled, 'runServer' (and
+-- 'runServerWithHandlers') will simply immediately evaluate to '()'. If both
+-- configurations are enabled, then two servers will be run concurrently; one
+-- with the insecure configuration and the other with the secure configuration.
+--
+-- Obviously, if only one of the configurations is enabled, then just that
+-- server will be run.
 runServer :: ServerConfig -> HTTP2.Server -> IO ()
 runServer ServerConfig{serverInsecure, serverSecure} server =
     concurrently_

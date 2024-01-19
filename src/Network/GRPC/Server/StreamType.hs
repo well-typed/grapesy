@@ -23,7 +23,7 @@ import Network.GRPC.Spec
 -------------------------------------------------------------------------------}
 
 class StreamingRpcHandler h where
-  -- | Construct 'RpcHandler' from stremaing type specific handler
+  -- | Construct 'RpcHandler' from streaming type specific handler
   --
   -- Most applications will probably not need to call this function directly,
   -- instead relying on 'fromMethods'/'fromServices'. If however you want to

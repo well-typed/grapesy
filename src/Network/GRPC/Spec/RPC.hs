@@ -57,7 +57,7 @@ class ( Typeable rpc -- for use in exceptions
   --
   -- Note on terminology: throughout this codebase we avoid the terms "encoding"
   -- and "decoding", which can be ambiguous. Instead we use
-  -- \"serialize\"/\"deserialize\" and \"compress\"/\"decompress\".
+  -- \"serialize\"\/\"deserialize\" and \"compress\"\/\"decompress\".
   serializationFormat :: Proxy rpc -> Strict.ByteString
 
   -- | Service name
