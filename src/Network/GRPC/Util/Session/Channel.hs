@@ -535,7 +535,8 @@ sendMessageLoop sess tracer st stream =
 -- | Receive all messages sent by the node's peer
 --
 -- TODO: This is wrong, we are never marking the final element as final.
--- (But fixing this requires a patch to http2.)
+-- (But fixing this requires a patch to http2.) This is only relevent for
+-- server-side; see discussion in "Network.GRPC.Client".
 recvMessageLoop :: forall sess.
      IsSession sess
   => sess
