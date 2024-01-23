@@ -84,6 +84,11 @@ tests = testGroup "Test.Sanity.StreamingType.NonStreaming" [
                     clientCompr = Compr.require Compr.gzip
                   , serverCompr = Compr.require Compr.gzip
                   }
+            , testCaseInfo "deflate" $
+                test_increment def {
+                    clientCompr = Compr.require Compr.deflate
+                  , serverCompr = Compr.require Compr.deflate
+                  }
             , testCaseInfo "serverUnsupported" $
                 test_increment def {
                     clientCompr = Compr.require Compr.gzip
@@ -92,6 +97,11 @@ tests = testGroup "Test.Sanity.StreamingType.NonStreaming" [
             , testCaseInfo "clientUnsupported" $
                 test_increment def {
                     clientCompr = Compr.none
+                  , serverCompr = Compr.require Compr.gzip
+                  }
+            , testCaseInfo "mismatch" $
+                test_increment def {
+                    clientCompr = Compr.require Compr.deflate
                   , serverCompr = Compr.require Compr.gzip
                   }
             ]
