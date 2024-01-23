@@ -98,9 +98,9 @@ mkServerStreaming f = StreamType.mkServerStreaming $ \inp send -> do
 mkBiDiStreaming :: forall m serv meth.
      MonadThrow m
   => (    (forall inp. Binary inp => m (StreamElem NoMetadata inp))
-      -> (forall out. Binary out => out -> m ())
-      -> m ()
-    )
+       -> (forall out. Binary out => out -> m ())
+       -> m ()
+     )
   -> StreamType.BiDiStreamingHandler m (BinaryRpc serv meth)
 mkBiDiStreaming f = StreamType.mkBiDiStreaming $ \recv send ->
     f (recv >>= traverse decodeOrThrow) (send . encode)
