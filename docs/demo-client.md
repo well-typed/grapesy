@@ -138,15 +138,15 @@ actually compress anything:
   https://github.com/grpc/grpc/blob/master/examples/python/compression/README.md
 * You need to send a "name" that is long enough that the server actually
   bothers with compression at all.
-* You can also use the `--gzip` command line flag to tell the server to /only/
-  use GZip compression.
+* You can also use the `--gzip` or `--deflate` command line flag to tell the
+  server to *only* use GZip or Deflate compression, respectively.
 
 For example:
 
 ```
-cabal run demo-client -- --gzip sayHello \
-  --name 'John' \
-  --name '0xxxxxxxxxx1xxxxxxxxxx2xxxxxxxxxx3xxxxxxxxxx4xxxxxxxxxx5xxxxxxxxxx'
+cabal run demo-client -- --gzip \
+  sayHello --name 'John' \
+  sayHello --name '0xxxxxxxxxx1xxxxxxxxxx2xxxxxxxxxx3xxxxxxxxxx4xxxxxxxxxx5xxxxxxxxxx'
 ```
 
 Of course, the compression is transparent to the user, but you can observe it
