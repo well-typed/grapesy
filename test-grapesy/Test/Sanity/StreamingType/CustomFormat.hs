@@ -24,12 +24,9 @@ import Network.GRPC.Server.StreamType qualified as Server
 
 import Test.Driver.ClientServer
 
-tests :: TestTree
-tests =
-    testGroup "Test.Sanity.StreamingType.CustomFormat" [
-        testCaseInfo "calculator" $
-          test_calculator_cbor def
-      ]
+{-------------------------------------------------------------------------------
+  API definition
+-------------------------------------------------------------------------------}
 
 -- | Calculator gRPC client\/server example
 --
@@ -119,6 +116,17 @@ instance IsRPC SumChat where
   deserializeOutput   _ = first show . Cbor.deserialiseOrFail @(Output SumChat)
 instance
   StreamType.SupportsStreamingType SumChat 'StreamType.BiDiStreaming
+
+{-------------------------------------------------------------------------------
+  Tests proper
+-------------------------------------------------------------------------------}
+
+tests :: TestTree
+tests =
+    testGroup "Test.Sanity.StreamingType.CustomFormat" [
+        testCaseInfo "calculator" $
+          test_calculator_cbor def
+      ]
 
 test_calculator_cbor :: ClientServerConfig -> IO String
 test_calculator_cbor config = do
