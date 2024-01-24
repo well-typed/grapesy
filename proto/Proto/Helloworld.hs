@@ -1,9 +1,3 @@
--- proto-lens-0.7.1 introduces 'packedServiceDescriptor' to 'Service'.
--- For backwards compatibility with proto-lens-0.7.0, we use proto-lens-protoc
--- and disable the warning that these methods are missing (grapesy does not
--- depend on them).
-{-# OPTIONS_GHC -Wno-missing-methods #-}
-
 {- This file was auto-generated from helloworld.proto by the proto-lens-protoc program. -}
 {-# LANGUAGE ScopedTypeVariables, DataKinds, TypeFamilies, UndecidableInstances, GeneralizedNewtypeDeriving, MultiParamTypeClasses, FlexibleContexts, FlexibleInstances, PatternSynonyms, MagicHash, NoImplicitPrelude, DataKinds, BangPatterns, TypeApplications, OverloadedStrings, DerivingStrategies#-}
 {-# OPTIONS_GHC -Wno-unused-imports#-}
@@ -109,14 +103,9 @@ instance Data.ProtoLens.Message HelloReply where
                       case tag of
                         10
                           -> do y <- (Data.ProtoLens.Encoding.Bytes.<?>)
-                                       (do value <- do len <- Data.ProtoLens.Encoding.Bytes.getVarInt
-                                                       Data.ProtoLens.Encoding.Bytes.getBytes
-                                                         (Prelude.fromIntegral len)
-                                           Data.ProtoLens.Encoding.Bytes.runEither
-                                             (case Data.Text.Encoding.decodeUtf8' value of
-                                                (Prelude.Left err)
-                                                  -> Prelude.Left (Prelude.show err)
-                                                (Prelude.Right r) -> Prelude.Right r))
+                                       (do len <- Data.ProtoLens.Encoding.Bytes.getVarInt
+                                           Data.ProtoLens.Encoding.Bytes.getText
+                                             (Prelude.fromIntegral len))
                                        "message"
                                 loop (Lens.Family2.set (Data.ProtoLens.Field.field @"message") y x)
                         wire
@@ -224,14 +213,9 @@ instance Data.ProtoLens.Message HelloRequest where
                       case tag of
                         10
                           -> do y <- (Data.ProtoLens.Encoding.Bytes.<?>)
-                                       (do value <- do len <- Data.ProtoLens.Encoding.Bytes.getVarInt
-                                                       Data.ProtoLens.Encoding.Bytes.getBytes
-                                                         (Prelude.fromIntegral len)
-                                           Data.ProtoLens.Encoding.Bytes.runEither
-                                             (case Data.Text.Encoding.decodeUtf8' value of
-                                                (Prelude.Left err)
-                                                  -> Prelude.Left (Prelude.show err)
-                                                (Prelude.Right r) -> Prelude.Right r))
+                                       (do len <- Data.ProtoLens.Encoding.Bytes.getVarInt
+                                           Data.ProtoLens.Encoding.Bytes.getText
+                                             (Prelude.fromIntegral len))
                                        "name"
                                 loop (Lens.Family2.set (Data.ProtoLens.Field.field @"name") y x)
                         wire
@@ -272,7 +256,15 @@ data Greeter = Greeter {}
 instance Data.ProtoLens.Service.Types.Service Greeter where
   type ServiceName Greeter = "Greeter"
   type ServicePackage Greeter = "helloworld"
-  type ServiceMethods Greeter = '["sayHello", "sayHelloStreamReply"]
+  type ServiceMethods Greeter = '["sayHello",
+                                  "sayHelloBidiStream",
+                                  "sayHelloStreamReply"]
+  packedServiceDescriptor _
+    = "\n\
+      \\aGreeter\DC2>\n\
+      \\bSayHello\DC2\CAN.helloworld.HelloRequest\SUB\SYN.helloworld.HelloReply\"\NUL\DC2K\n\
+      \\DC3SayHelloStreamReply\DC2\CAN.helloworld.HelloRequest\SUB\SYN.helloworld.HelloReply\"\NUL0\SOH\DC2L\n\
+      \\DC2SayHelloBidiStream\DC2\CAN.helloworld.HelloRequest\SUB\SYN.helloworld.HelloReply\"\NUL(\SOH0\SOH"
 instance Data.ProtoLens.Service.Types.HasMethodImpl Greeter "sayHello" where
   type MethodName Greeter "sayHello" = "SayHello"
   type MethodInput Greeter "sayHello" = HelloRequest
@@ -283,6 +275,11 @@ instance Data.ProtoLens.Service.Types.HasMethodImpl Greeter "sayHelloStreamReply
   type MethodInput Greeter "sayHelloStreamReply" = HelloRequest
   type MethodOutput Greeter "sayHelloStreamReply" = HelloReply
   type MethodStreamingType Greeter "sayHelloStreamReply" = 'Data.ProtoLens.Service.Types.ServerStreaming
+instance Data.ProtoLens.Service.Types.HasMethodImpl Greeter "sayHelloBidiStream" where
+  type MethodName Greeter "sayHelloBidiStream" = "SayHelloBidiStream"
+  type MethodInput Greeter "sayHelloBidiStream" = HelloRequest
+  type MethodOutput Greeter "sayHelloBidiStream" = HelloReply
+  type MethodStreamingType Greeter "sayHelloBidiStream" = 'Data.ProtoLens.Service.Types.BiDiStreaming
 packedFileDescriptor :: Data.ByteString.ByteString
 packedFileDescriptor
   = "\n\
@@ -292,12 +289,13 @@ packedFileDescriptor
     \\EOTname\CAN\SOH \SOH(\tR\EOTname\"&\n\
     \\n\
     \HelloReply\DC2\CAN\n\
-    \\amessage\CAN\SOH \SOH(\tR\amessage2\150\SOH\n\
+    \\amessage\CAN\SOH \SOH(\tR\amessage2\228\SOH\n\
     \\aGreeter\DC2>\n\
     \\bSayHello\DC2\CAN.helloworld.HelloRequest\SUB\SYN.helloworld.HelloReply\"\NUL\DC2K\n\
-    \\DC3SayHelloStreamReply\DC2\CAN.helloworld.HelloRequest\SUB\SYN.helloworld.HelloReply\"\NUL0\SOHB6\n\
-    \\ESCio.grpc.examples.helloworldB\SIHelloWorldProtoP\SOH\162\STX\ETXHLWJ\246\b\n\
-    \\ACK\DC2\EOT\SO\NUL'\SOH\n\
+    \\DC3SayHelloStreamReply\DC2\CAN.helloworld.HelloRequest\SUB\SYN.helloworld.HelloReply\"\NUL0\SOH\DC2L\n\
+    \\DC2SayHelloBidiStream\DC2\CAN.helloworld.HelloRequest\SUB\SYN.helloworld.HelloReply\"\NUL(\SOH0\SOHB6\n\
+    \\ESCio.grpc.examples.helloworldB\SIHelloWorldProtoP\SOH\162\STX\ETXHLWJ\201\t\n\
+    \\ACK\DC2\EOT\SO\NUL)\SOH\n\
     \\191\EOT\n\
     \\SOH\f\DC2\ETX\SO\NUL\DC22\180\EOT Copyright 2015 gRPC authors.\n\
     \\n\
@@ -333,7 +331,7 @@ packedFileDescriptor
     \\b\n\
     \\SOH\STX\DC2\ETX\NAK\NUL\DC3\n\
     \.\n\
-    \\STX\ACK\NUL\DC2\EOT\CAN\NUL\GS\SOH\SUB\" The greeting service definition.\n\
+    \\STX\ACK\NUL\DC2\EOT\CAN\NUL\US\SOH\SUB\" The greeting service definition.\n\
     \\n\
     \\n\
     \\n\
@@ -357,31 +355,43 @@ packedFileDescriptor
     \\ENQ\ACK\NUL\STX\SOH\ACK\DC2\ETX\FS28\n\
     \\f\n\
     \\ENQ\ACK\NUL\STX\SOH\ETX\DC2\ETX\FS9C\n\
+    \\v\n\
+    \\EOT\ACK\NUL\STX\STX\DC2\ETX\RS\STXM\n\
+    \\f\n\
+    \\ENQ\ACK\NUL\STX\STX\SOH\DC2\ETX\RS\ACK\CAN\n\
+    \\f\n\
+    \\ENQ\ACK\NUL\STX\STX\ENQ\DC2\ETX\RS\SUB \n\
+    \\f\n\
+    \\ENQ\ACK\NUL\STX\STX\STX\DC2\ETX\RS!-\n\
+    \\f\n\
+    \\ENQ\ACK\NUL\STX\STX\ACK\DC2\ETX\RS8>\n\
+    \\f\n\
+    \\ENQ\ACK\NUL\STX\STX\ETX\DC2\ETX\RS?I\n\
     \=\n\
-    \\STX\EOT\NUL\DC2\EOT \NUL\"\SOH\SUB1 The request message containing the user's name.\n\
+    \\STX\EOT\NUL\DC2\EOT\"\NUL$\SOH\SUB1 The request message containing the user's name.\n\
     \\n\
     \\n\
     \\n\
-    \\ETX\EOT\NUL\SOH\DC2\ETX \b\DC4\n\
+    \\ETX\EOT\NUL\SOH\DC2\ETX\"\b\DC4\n\
     \\v\n\
-    \\EOT\EOT\NUL\STX\NUL\DC2\ETX!\STX\DC2\n\
+    \\EOT\EOT\NUL\STX\NUL\DC2\ETX#\STX\DC2\n\
     \\f\n\
-    \\ENQ\EOT\NUL\STX\NUL\ENQ\DC2\ETX!\STX\b\n\
+    \\ENQ\EOT\NUL\STX\NUL\ENQ\DC2\ETX#\STX\b\n\
     \\f\n\
-    \\ENQ\EOT\NUL\STX\NUL\SOH\DC2\ETX!\t\r\n\
+    \\ENQ\EOT\NUL\STX\NUL\SOH\DC2\ETX#\t\r\n\
     \\f\n\
-    \\ENQ\EOT\NUL\STX\NUL\ETX\DC2\ETX!\DLE\DC1\n\
+    \\ENQ\EOT\NUL\STX\NUL\ETX\DC2\ETX#\DLE\DC1\n\
     \;\n\
-    \\STX\EOT\SOH\DC2\EOT%\NUL'\SOH\SUB/ The response message containing the greetings\n\
+    \\STX\EOT\SOH\DC2\EOT'\NUL)\SOH\SUB/ The response message containing the greetings\n\
     \\n\
     \\n\
     \\n\
-    \\ETX\EOT\SOH\SOH\DC2\ETX%\b\DC2\n\
+    \\ETX\EOT\SOH\SOH\DC2\ETX'\b\DC2\n\
     \\v\n\
-    \\EOT\EOT\SOH\STX\NUL\DC2\ETX&\STX\NAK\n\
+    \\EOT\EOT\SOH\STX\NUL\DC2\ETX(\STX\NAK\n\
     \\f\n\
-    \\ENQ\EOT\SOH\STX\NUL\ENQ\DC2\ETX&\STX\b\n\
+    \\ENQ\EOT\SOH\STX\NUL\ENQ\DC2\ETX(\STX\b\n\
     \\f\n\
-    \\ENQ\EOT\SOH\STX\NUL\SOH\DC2\ETX&\t\DLE\n\
+    \\ENQ\EOT\SOH\STX\NUL\SOH\DC2\ETX(\t\DLE\n\
     \\f\n\
-    \\ENQ\EOT\SOH\STX\NUL\ETX\DC2\ETX&\DC3\DC4b\ACKproto3"
+    \\ENQ\EOT\SOH\STX\NUL\ETX\DC2\ETX(\DC3\DC4b\ACKproto3"

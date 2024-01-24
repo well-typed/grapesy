@@ -28,11 +28,14 @@ import Data.ProtoLens.Labels ()
 import Data.Text (Text)
 import GHC.TypeLits (Symbol)
 import Network.Socket (HostName, PortNumber)
+import Options.Applicative ((<**>))
 import Options.Applicative qualified as Opt
 
 import Network.GRPC.Client qualified as Client
 import Network.GRPC.Common.Compression (Compression)
 import Network.GRPC.Common.Compression qualified as Compr
+
+import Paths_grapesy
 
 import Proto.Helloworld
 import Proto.RouteGuide
@@ -90,13 +93,18 @@ deriving stock instance Show (SMethod s m)
 -------------------------------------------------------------------------------}
 
 getCmdline :: IO Cmdline
-getCmdline = Opt.execParser $
-    Opt.info (parseCmdline Opt.<**> Opt.helper) Opt.fullDesc
+getCmdline = do
+    defaultPub <- getDataFileName "grpc-demo.pem"
 
-parseCmdline :: Opt.Parser Cmdline
-parseCmdline =
+    let info :: Opt.ParserInfo Cmdline
+        info = Opt.info (parseCmdline defaultPub <**> Opt.helper) Opt.fullDesc
+
+    Opt.execParser info
+
+parseCmdline :: FilePath -> Opt.Parser Cmdline
+parseCmdline defaultPub =
     Cmdline
-      <$> parseServer
+      <$> parseServer defaultPub
       <*> (Opt.switch $ mconcat [
                Opt.long "debug"
              , Opt.help "Enable debug output"
@@ -113,8 +121,8 @@ parseCmdline =
   Options
 -------------------------------------------------------------------------------}
 
-parseServer :: Opt.Parser Client.Server
-parseServer =
+parseServer :: FilePath -> Opt.Parser Client.Server
+parseServer defaultPub =
    mkServer
       <$> (Opt.option Opt.str $ mconcat [
               Opt.long "host"
@@ -129,7 +137,7 @@ parseServer =
                      Opt.long "secure"
                    , Opt.help "Connect over TLS"
                    ])
-              *> parseServerValidation)
+              *> parseServerValidation defaultPub)
       <*> (Opt.optional $ Opt.option Opt.str $ mconcat [
               Opt.long "authority"
             , Opt.help "Override the HTTP2 :authority pseudo-header"
@@ -148,32 +156,39 @@ parseServer =
         Client.ServerSecure validation def $
           Client.Address host (fromMaybe 50052 mPort) mAuth
 
-parseServerValidation :: Opt.Parser Client.ServerValidation
-parseServerValidation = asum [
-      Opt.flag' Client.NoServerValidation $
-        mconcat [
-            Opt.long "no-server-validation"
-          , Opt.help "Skip server (certificate) validation"
-          ]
-    , Client.ValidateServer <$> parseCertificateStore
-    ]
-
-parseCertificateStore :: Opt.Parser Client.CertificateStoreSpec
-parseCertificateStore = fmap aux $ Opt.many $ asum [
-      Opt.flag' Client.certStoreFromSystem (mconcat [
-          Opt.long "cert-store-from-system"
-        , Opt.help "Load system certificate store (this is the default)"
-        ])
-    , Client.certStoreFromPath <$> Opt.option Opt.str (mconcat [
-          Opt.long "cert-store-from-path"
-        , Opt.help "Load certificate store from file or directory (can be used multiple times, and/or in conjunction with --cert-store-from-system)"
-        , Opt.metavar "PATH"
-        ])
-    ]
+parseServerValidation :: FilePath -> Opt.Parser Client.ServerValidation
+parseServerValidation defaultPub =
+    aux
+      <$> (Opt.switch $ mconcat [
+               Opt.long "no-server-validation"
+             , Opt.help "Skip server (certificate) validation"
+             ])
+      <*> (Opt.switch $ mconcat [
+               Opt.long "cert-store-from-system"
+             , Opt.help "Enable the system certificate store"
+             ])
+      <*> (Opt.option Opt.str $ mconcat [
+               Opt.long "cert-store-from-path"
+             , Opt.help "Load certificate store from file or directory (set to empty to disable)"
+             , Opt.metavar "PATH"
+             , Opt.value defaultPub
+             , Opt.showDefault
+             ])
   where
-    aux :: [Client.CertificateStoreSpec] -> Client.CertificateStoreSpec
-    aux [] = Client.certStoreFromSystem
-    aux cs = mconcat cs
+    aux :: Bool -> Bool -> FilePath -> Client.ServerValidation
+    aux noServerValidation certStoreFromSystem certStoreFromPath =
+        if noServerValidation then
+          Client.NoServerValidation
+        else
+          Client.ValidateServer $ mconcat . concat $ [
+              [ Client.certStoreFromSystem
+              | certStoreFromSystem
+              ]
+
+            , [ Client.certStoreFromPath certStoreFromPath
+              | not (null certStoreFromPath)
+              ]
+            ]
 
 parseCompression :: Opt.Parser Compression
 parseCompression = asum [

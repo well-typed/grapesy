@@ -77,6 +77,9 @@ instance Default InsecureConfig where
 data SecureConfig = SecureConfig {
       -- | Hostname to bind to
       --
+      -- Unlike in 'InsecureConfig', the 'HostName' is required here, because it
+      -- must match the certificate.
+      --
       -- This doesn't need to match the common name (CN) in the TLS certificate.
       -- For example, if the client connects to @localhost@, and the certificate
       -- CN is also @localhost@, the server can still bind to @0.0.0.0@.

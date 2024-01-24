@@ -10,8 +10,10 @@ build-type:         Simple
 extra-doc-files:    CHANGELOG.md
 data-dir:           data
 data-files:         route_guide_db.json
-                    grpc-demo.cert
-                    grpc-demo.priv
+                    grpc-demo.pem
+                    grpc-demo.key
+                    interop.pem
+                    interop.key
 tested-with:        GHC==8.10.7
                   , GHC==9.2.8
                   , GHC==9.4.8
@@ -268,6 +270,8 @@ executable demo-client
       Demo.Client.Util.DelayOr
       Demo.Common.Logging
 
+      Paths_grapesy
+
       Proto.Helloworld
       Proto.Helloworld_Fields
       Proto.RouteGuide
@@ -387,6 +391,44 @@ executable test-stress
     buildable:
       False
 
+executable grapesy-interop
+  import:
+      lang
+  hs-source-dirs:
+      interop
+      proto
+  main-is:
+      Main.hs
+  other-modules:
+      Interop.Client.Connect
+      Interop.Client.Ping
+      Interop.Cmdline
+      Interop.Server
+      Interop.TestCase.CacheableUnary
+      Interop.TestCases
+
+      Paths_grapesy
+
+      Proto.Ping
+      Proto.Src.Proto.Grpc.Testing.Empty
+      Proto.Src.Proto.Grpc.Testing.Messages
+      Proto.Src.Proto.Grpc.Testing.Test
+  build-depends:
+    , grapesy
+  build-depends:
+    , base
+    , data-default
+    , exceptions
+    , lens
+    , network
+    , optparse-applicative
+    , proto-lens
+    , proto-lens-runtime
+
+  if !flag(build-interop)
+    buildable:
+      False
+
 Flag build-demo
   description: Build the demo
   default: False
@@ -397,7 +439,13 @@ Flag build-stress-test
   default: False
   manual: True
 
+Flag build-interop
+  description: Build the gRPC interop test executable
+  default: False
+  manual: True
+
 Flag crypton
   description: Use the crypton-x509-* package family instead of x509-*
   default: True
   manual: False
+

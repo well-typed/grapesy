@@ -363,8 +363,8 @@ runTestServer ::
   -> [Server.RpcHandler IO]
   -> IO ()
 runTestServer cfg serverTracer handlerLock serverHandlers = do
-    pubCert <- getDataFileName "grpc-demo.cert"
-    privKey <- getDataFileName "grpc-demo.priv"
+    pubCert <- getDataFileName "grpc-demo.pem"
+    privKey <- getDataFileName "grpc-demo.key"
 
     let serverConfig :: Server.ServerConfig
         serverConfig =
@@ -415,7 +415,7 @@ runTestClient :: forall a.
   -> ((forall b. (Client.Connection -> IO b) -> IO b) -> IO a)
   -> IO a
 runTestClient cfg clientTracer clientRun = do
-    pubCert <- getDataFileName "grpc-demo.cert"
+    pubCert <- getDataFileName "grpc-demo.pem"
 
     let clientParams :: Client.ConnParams
         clientParams = Client.ConnParams {
