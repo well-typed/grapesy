@@ -526,14 +526,17 @@ recvFinalInput :: forall rpc. HasCallStack => Call rpc -> IO (Input rpc)
 recvFinalInput call@Call{} = do
     inp1 <- recvInput call
     case inp1 of
-      NoMoreElems    NoMetadata -> throwIO $ TooFewInputs @rpc
+      NoMoreElems    NoMetadata -> err $ TooFewInputs @rpc
       FinalElem  inp NoMetadata -> return inp
       StreamElem inp            -> do
         inp2 <- recvInput call
         case inp2 of
           NoMoreElems     NoMetadata -> return inp
-          FinalElem  inp' NoMetadata -> throwIO $ TooManyInputs @rpc inp'
-          StreamElem inp'            -> throwIO $ TooManyInputs @rpc inp'
+          FinalElem  inp' NoMetadata -> err $ TooManyInputs @rpc inp'
+          StreamElem inp'            -> err $ TooManyInputs @rpc inp'
+  where
+    err :: ProtocolException rpc -> IO a
+    err = throwIO . ProtocolException
 
 -- | Send final output
 --

@@ -20,7 +20,6 @@ module Network.GRPC.Client.Call (
   , isCallHealthy
   ) where
 
-import Control.Exception
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
@@ -190,14 +189,17 @@ recvFinalOutput :: forall m rpc.
 recvFinalOutput call@Call{} = liftIO $ do
     out1 <- recvOutput call
     case out1 of
-      NoMoreElems    ts -> throwM $ TooFewOutputs @rpc ts
+      NoMoreElems    ts -> err $ TooFewOutputs @rpc ts
       FinalElem  out ts -> return (out, ts)
       StreamElem out    -> do
         out2 <- recvOutput call
         case out2 of
           NoMoreElems ts    -> return (out, ts)
-          FinalElem  out' _ -> throwIO $ TooManyOutputs @rpc out'
-          StreamElem out'   -> throwIO $ TooManyOutputs @rpc out'
+          FinalElem  out' _ -> err $ TooManyOutputs @rpc out'
+          StreamElem out'   -> err $ TooManyOutputs @rpc out'
+  where
+    err :: ProtocolException rpc -> IO a
+    err = throwM . ProtocolException
 
 recvAllOutputs :: forall m rpc.
      MonadIO m
