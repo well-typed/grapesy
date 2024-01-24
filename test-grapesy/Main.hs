@@ -4,6 +4,7 @@ import Test.Tasty
 
 import Test.Prop.Dialogue                     qualified as Dialogue
 import Test.Prop.Serialization                qualified as Serialization
+import Test.Sanity.StreamingType qualified as StreamingType
 import Test.Sanity.StreamingType.NonStreaming qualified as StreamingType.NonStreaming
 import Test.Sanity.HalfClosedLocal            qualified as HalfClosedLocal
 
@@ -12,7 +13,8 @@ main = defaultMain $ testGroup "grapesy" [
       testGroup "Sanity" [
           HalfClosedLocal.tests
         , testGroup "StreamingType" [
-              StreamingType.NonStreaming.tests
+              StreamingType.tests
+            , StreamingType.NonStreaming.tests
             ]
         ]
     , testGroup "Prop" [

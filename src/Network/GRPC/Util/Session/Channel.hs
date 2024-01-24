@@ -291,7 +291,7 @@ getInboundHeaders Channel{channelInbound} =
 -- | Send a message to the node's peer
 --
 -- It is a bug to call 'send' again after the final message (that is, a message
--- which 'StreamElem.definitelyFinal' considers to be final). Doing so will
+-- which 'StreamElem.whenDefinitelyFinal' considers to be final). Doing so will
 -- result in a 'SendAfterFinal' exception.
 send :: forall sess.
      HasCallStack
