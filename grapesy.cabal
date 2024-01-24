@@ -50,6 +50,7 @@ common lang
       NamedFieldPuns
       NumericUnderscores
       PatternSynonyms
+      PolyKinds
       QuantifiedConstraints
       RankNTypes
       ScopedTypeVariables

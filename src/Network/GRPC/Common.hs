@@ -81,5 +81,3 @@ data SomeProtocolException where
 
 deriving stock    instance Show SomeProtocolException
 deriving anyclass instance Exception SomeProtocolException
-
-

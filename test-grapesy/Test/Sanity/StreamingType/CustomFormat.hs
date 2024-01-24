@@ -11,7 +11,6 @@ import Data.IORef
 import Data.List
 import Data.Proxy
 import Data.Void
-import GHC.TypeLits
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -32,93 +31,94 @@ tests =
           test_calculator_cbor def
       ]
 
--- | Calculator gRPC client\/server example.
+-- | Calculator gRPC client\/server example
+--
+-- This is used lifted to the type-level to describe the available RPC calls.
 --
 -- Uses CBOR as the data format, and uses all stream types.
-data CalcRpc (serv :: Symbol) (meth :: Symbol)
+data Function =
+    -- | Non-streaming sum of a list of numbers
+    SumQuick
 
--- | Non-streaming sum of a list of numbers
-type SumQuickRpc = CalcRpc "calculator" "sumQuick"
+    -- | Server-streaming sum of an inclusive range
+    --
+    -- The server streams intermediate results as it sums the list of numbers
+  | SumFromTo
+
+    -- | Client-streaming sum
+    --
+    -- The client streams 'Int's while the server accumulates the sum, then reports
+    -- at the end.
+  | SumListen
+
+    -- | Bi-directional streaming sum
+    --
+    -- The client streams integers while the server accumulates a sum and reports
+    -- the current sum for every integer it receives.
+  | SumChat
 
 -- | Input is the list of numbers to sum, output is the sum. Serialization
 -- format is CBOR.
-instance IsRPC SumQuickRpc where
-  type Input  SumQuickRpc = [Int]
-  type Output SumQuickRpc = Int
+instance IsRPC SumQuick where
+  type Input  SumQuick = [Int]
+  type Output SumQuick = Int
   serializationFormat _ = "cbor"
   serviceName         _ = "calculator"
   methodName          _ = "sumQuick"
   messageType         _ = "cbor"
-  serializeInput      _ = Cbor.serialise @(Input SumQuickRpc)
-  serializeOutput     _ = Cbor.serialise @(Output SumQuickRpc)
-  deserializeInput    _ = first show . Cbor.deserialiseOrFail @(Input SumQuickRpc)
-  deserializeOutput   _ = first show . Cbor.deserialiseOrFail @(Output SumQuickRpc)
+  serializeInput      _ = Cbor.serialise @(Input SumQuick)
+  serializeOutput     _ = Cbor.serialise @(Output SumQuick)
+  deserializeInput    _ = first show . Cbor.deserialiseOrFail @(Input SumQuick)
+  deserializeOutput   _ = first show . Cbor.deserialiseOrFail @(Output SumQuick)
 instance
-  StreamType.SupportsStreamingType SumQuickRpc 'StreamType.NonStreaming
-
--- | Server-streaming sum of an inclusive range
---
--- The server streams intermediate results as it sums the list of numbers
-type SumFromToRpc = CalcRpc "calculator" "sumFromTo"
+  StreamType.SupportsStreamingType SumQuick 'StreamType.NonStreaming
 
 -- | Input is a pair of 'Int's specifying the inclusive range to sum, output is
 -- 'Int's representing the intermediate sums calculated by the server.
 -- Serialization format is CBOR.
-instance IsRPC SumFromToRpc where
-  type Input  SumFromToRpc = (Int, Int)
-  type Output SumFromToRpc = Int
+instance IsRPC SumFromTo where
+  type Input  SumFromTo = (Int, Int)
+  type Output SumFromTo = Int
   serializationFormat _ = "cbor"
   serviceName         _ = "calculator"
   methodName          _ = "sumFromTo"
   messageType         _ = "cbor"
-  serializeInput      _ = Cbor.serialise @(Input SumFromToRpc)
-  serializeOutput     _ = Cbor.serialise @(Output SumFromToRpc)
-  deserializeInput    _ = first show . Cbor.deserialiseOrFail @(Input SumFromToRpc)
-  deserializeOutput   _ = first show . Cbor.deserialiseOrFail @(Output SumFromToRpc)
+  serializeInput      _ = Cbor.serialise @(Input SumFromTo)
+  serializeOutput     _ = Cbor.serialise @(Output SumFromTo)
+  deserializeInput    _ = first show . Cbor.deserialiseOrFail @(Input SumFromTo)
+  deserializeOutput   _ = first show . Cbor.deserialiseOrFail @(Output SumFromTo)
 instance
-  StreamType.SupportsStreamingType SumFromToRpc 'StreamType.ServerStreaming
-
--- | Client-streaming sum
---
--- The client streams 'Int's while the server accumulates the sum, then reports
--- at the end.
-type SumListenRpc = CalcRpc "calculator" "sumListen"
+  StreamType.SupportsStreamingType SumFromTo 'StreamType.ServerStreaming
 
 -- | Input is 'Int', output is 'Int', serialization format is CBOR.
-instance IsRPC SumListenRpc where
-  type Input  SumListenRpc = Int
-  type Output SumListenRpc = Int
+instance IsRPC SumListen where
+  type Input  SumListen = Int
+  type Output SumListen = Int
   serializationFormat _ = "cbor"
   serviceName         _ = "calculator"
   methodName          _ = "sumListen"
   messageType         _ = "cbor"
-  serializeInput      _ = Cbor.serialise @(Input SumListenRpc)
-  serializeOutput     _ = Cbor.serialise @(Output SumListenRpc)
-  deserializeInput    _ = first show . Cbor.deserialiseOrFail @(Input SumListenRpc)
-  deserializeOutput   _ = first show . Cbor.deserialiseOrFail @(Output SumListenRpc)
+  serializeInput      _ = Cbor.serialise @(Input SumListen)
+  serializeOutput     _ = Cbor.serialise @(Output SumListen)
+  deserializeInput    _ = first show . Cbor.deserialiseOrFail @(Input SumListen)
+  deserializeOutput   _ = first show . Cbor.deserialiseOrFail @(Output SumListen)
 instance
-  StreamType.SupportsStreamingType SumListenRpc 'StreamType.ClientStreaming
-
--- | Bi-directional streaming sum
---
--- The client streams integers while the server accumulates a sum and reports
--- the current sum for every integer it receives.
-type SumChatRpc = CalcRpc "calculator" "sumChat"
+  StreamType.SupportsStreamingType SumListen 'StreamType.ClientStreaming
 
 -- | Input is 'Int', output is 'Int', serialization format is CBOR.
-instance IsRPC SumChatRpc where
-  type Input  SumChatRpc = Int
-  type Output SumChatRpc = Int
+instance IsRPC SumChat where
+  type Input  SumChat = Int
+  type Output SumChat = Int
   serializationFormat _ = "cbor"
   serviceName         _ = "calculator"
   methodName          _ = "sumChat"
   messageType         _ = "cbor"
-  serializeInput      _ = Cbor.serialise @(Input SumChatRpc)
-  serializeOutput     _ = Cbor.serialise @(Output SumChatRpc)
-  deserializeInput    _ = first show . Cbor.deserialiseOrFail @(Input SumChatRpc)
-  deserializeOutput   _ = first show . Cbor.deserialiseOrFail @(Output SumChatRpc)
+  serializeInput      _ = Cbor.serialise @(Input SumChat)
+  serializeOutput     _ = Cbor.serialise @(Output SumChat)
+  deserializeInput    _ = first show . Cbor.deserialiseOrFail @(Input SumChat)
+  deserializeOutput   _ = first show . Cbor.deserialiseOrFail @(Output SumChat)
 instance
-  StreamType.SupportsStreamingType SumChatRpc 'StreamType.BiDiStreaming
+  StreamType.SupportsStreamingType SumChat 'StreamType.BiDiStreaming
 
 test_calculator_cbor :: ClientServerConfig -> IO String
 test_calculator_cbor config = do
@@ -157,13 +157,13 @@ test_calculator_cbor config = do
     -- that it's accurate
     nonStreamingSumCheck :: Client.Connection -> IO ()
     nonStreamingSumCheck conn = do
-      resp <- StreamType.nonStreaming (Client.rpc @SumQuickRpc conn) nums
+      resp <- StreamType.nonStreaming (Client.rpc @SumQuick conn) nums
       assertEqual "" (sum nums) resp
 
     -- Return the sum of a list of numbers
     nonStreamingSumHandler :: Server.RpcHandler IO
     nonStreamingSumHandler =
-      Server.streamingRpcHandler (Proxy @SumQuickRpc) $
+      Server.streamingRpcHandler (Proxy @SumQuick) $
         StreamType.mkNonStreaming $ \(ns :: [Int]) ->
           return (sum ns)
 
@@ -172,7 +172,7 @@ test_calculator_cbor config = do
     serverStreamingSumCheck :: Client.Connection -> IO ()
     serverStreamingSumCheck conn = do
       receivedSumFromTo <- newIORef @[Int] []
-      StreamType.serverStreaming (Client.rpc @SumFromToRpc conn) (start, end) $ \n -> do
+      StreamType.serverStreaming (Client.rpc @SumFromTo conn) (start, end) $ \n -> do
         atomicModifyIORef' receivedSumFromTo $ \ns -> (n:ns, ())
       resp <- readIORef receivedSumFromTo
       assertEqual "" intermediateSums (reverse resp)
@@ -180,7 +180,7 @@ test_calculator_cbor config = do
     -- Stream the intermediate sums while summing a whole range of numbers
     serverStreamingSumHandler :: Server.RpcHandler IO
     serverStreamingSumHandler =
-      Server.streamingRpcHandler (Proxy @SumFromToRpc) $
+      Server.streamingRpcHandler (Proxy @SumFromTo) $
         StreamType.mkServerStreaming $ \((from, to) :: (Int, Int)) send ->
           foldM_
             (\acc n -> let next = acc + n in send next >> return next)
@@ -192,7 +192,7 @@ test_calculator_cbor config = do
     clientStreamingSumCheck :: Client.Connection -> IO ()
     clientStreamingSumCheck conn = do
       sendingNums <- newIORef @[Int] nums
-      resp <- StreamType.clientStreaming (Client.rpc @SumListenRpc conn) $ do
+      resp <- StreamType.clientStreaming (Client.rpc @SumListen conn) $ do
         atomicModifyIORef' sendingNums $
           \case
             []     -> ([], NoMoreElems NoMetadata)
@@ -203,7 +203,7 @@ test_calculator_cbor config = do
     -- Receive a stream of numbers, return the sum
     clientStreamingSumHandler :: Server.RpcHandler IO
     clientStreamingSumHandler =
-      Server.streamingRpcHandler (Proxy @SumListenRpc) $
+      Server.streamingRpcHandler (Proxy @SumListen) $
         StreamType.mkClientStreaming $ \recv -> do
           sum <$> StreamElem.collect recv
 
@@ -213,7 +213,7 @@ test_calculator_cbor config = do
     biDiStreamingSumCheck conn = do
       sendingNums <- newIORef @[Int] nums
       recvingNums <- newIORef @[Int] []
-      StreamType.biDiStreaming (Client.rpc @SumChatRpc conn)
+      StreamType.biDiStreaming (Client.rpc @SumChat conn)
         ( do
             atomicModifyIORef' sendingNums $
               \case
@@ -230,7 +230,7 @@ test_calculator_cbor config = do
     -- Receive numbers and stream the intermediate sums back
     biDiStreamingSumHandler :: Server.RpcHandler IO
     biDiStreamingSumHandler =
-      Server.streamingRpcHandler (Proxy @SumChatRpc) $
+      Server.streamingRpcHandler (Proxy @SumChat) $
         StreamType.mkBiDiStreaming $ \recv send ->
           let
             go acc =
