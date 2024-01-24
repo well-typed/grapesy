@@ -8,8 +8,11 @@ import Control.Monad
 import Data.Bifunctor
 import Data.Default
 import Data.IORef
+import Data.Kind
 import Data.List
 import Data.Proxy
+import Data.Text (Text)
+import Data.Typeable
 import Data.Void
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -18,6 +21,7 @@ import Network.GRPC.Client qualified as Client
 import Network.GRPC.Client.StreamType qualified as Client
 import Network.GRPC.Common
 import Network.GRPC.Common.StreamElem qualified as StreamElem
+import Network.GRPC.Common.StreamType (SupportsStreamingType, StreamingType(..))
 import Network.GRPC.Common.StreamType qualified as StreamType
 import Network.GRPC.Server qualified as Server
 import Network.GRPC.Server.StreamType qualified as Server
@@ -56,68 +60,53 @@ data Function =
     -- the current sum for every integer it receives.
   | SumChat
 
--- | Input is the list of numbers to sum, output is the sum. Serialization
--- format is CBOR.
-instance IsRPC (Calc SumQuick) where
-  type Input  (Calc SumQuick) = [Int]
-  type Output (Calc SumQuick) = Int
-  serializationFormat _ = "cbor"
-  serviceName         _ = "calculator"
-  methodName          _ = "sumQuick"
-  messageType         _ = "cbor"
-  serializeInput      _ = Cbor.serialise @(Input (Calc SumQuick))
-  serializeOutput     _ = Cbor.serialise @(Output (Calc SumQuick))
-  deserializeInput    _ = first show . Cbor.deserialiseOrFail @(Input (Calc SumQuick))
-  deserializeOutput   _ = first show . Cbor.deserialiseOrFail @(Output (Calc SumQuick))
-instance
-  StreamType.SupportsStreamingType (Calc SumQuick) 'StreamType.NonStreaming
+class ( Typeable fun
+      , Show (CalcInput  fun)
+      , Show (CalcOutput fun)
+      , Cbor.Serialise (CalcInput  fun)
+      , Cbor.Serialise (CalcOutput fun)
+      ) => CalculatorFunction (fun :: Function) where
+  type family CalcInput  (fun :: Function) :: Type
+  type family CalcOutput (fun :: Function) :: Type
 
--- | Input is a pair of 'Int's specifying the inclusive range to sum, output is
--- 'Int's representing the intermediate sums calculated by the server.
--- Serialization format is CBOR.
-instance IsRPC (Calc SumFromTo) where
-  type Input  (Calc SumFromTo) = (Int, Int)
-  type Output (Calc SumFromTo) = Int
-  serializationFormat _ = "cbor"
-  serviceName         _ = "calculator"
-  methodName          _ = "sumFromTo"
-  messageType         _ = "cbor"
-  serializeInput      _ = Cbor.serialise @(Input (Calc SumFromTo))
-  serializeOutput     _ = Cbor.serialise @(Output (Calc SumFromTo))
-  deserializeInput    _ = first show . Cbor.deserialiseOrFail @(Input (Calc SumFromTo))
-  deserializeOutput   _ = first show . Cbor.deserialiseOrFail @(Output (Calc SumFromTo))
-instance
-  StreamType.SupportsStreamingType (Calc SumFromTo) 'StreamType.ServerStreaming
+  calculatorMethod :: Proxy fun -> Text
 
--- | Input is 'Int', output is 'Int', serialization format is CBOR.
-instance IsRPC (Calc SumListen) where
-  type Input  (Calc SumListen) = Int
-  type Output (Calc SumListen) = Int
-  serializationFormat _ = "cbor"
-  serviceName         _ = "calculator"
-  methodName          _ = "sumListen"
-  messageType         _ = "cbor"
-  serializeInput      _ = Cbor.serialise @(Input (Calc SumListen))
-  serializeOutput     _ = Cbor.serialise @(Output (Calc SumListen))
-  deserializeInput    _ = first show . Cbor.deserialiseOrFail @(Input (Calc SumListen))
-  deserializeOutput   _ = first show . Cbor.deserialiseOrFail @(Output (Calc SumListen))
-instance
-  StreamType.SupportsStreamingType (Calc SumListen) 'StreamType.ClientStreaming
+instance SupportsStreamingType (Calc SumQuick)  NonStreaming
+instance CalculatorFunction SumQuick where
+  type CalcInput  SumQuick = [Int]
+  type CalcOutput SumQuick = Int
+  calculatorMethod _ = "sumQuick"
 
--- | Input is 'Int', output is 'Int', serialization format is CBOR.
-instance IsRPC (Calc SumChat) where
-  type Input  (Calc SumChat) = Int
-  type Output (Calc SumChat) = Int
+instance SupportsStreamingType (Calc SumFromTo) ServerStreaming
+instance CalculatorFunction SumFromTo where
+  type CalcInput  SumFromTo = (Int, Int)
+  type CalcOutput SumFromTo = Int
+  calculatorMethod _ = "sumFromTo"
+
+instance SupportsStreamingType (Calc SumListen) ClientStreaming
+instance CalculatorFunction SumListen where
+  type CalcInput  SumListen = Int
+  type CalcOutput SumListen = Int
+  calculatorMethod _ = "sumListen"
+
+instance SupportsStreamingType (Calc SumChat) BiDiStreaming
+instance CalculatorFunction SumChat where
+  type CalcInput  SumChat = Int
+  type CalcOutput SumChat = Int
+  calculatorMethod _ = "sumChat"
+
+instance CalculatorFunction fun => IsRPC (Calc fun) where
+  type Input  (Calc fun) = CalcInput  fun
+  type Output (Calc fun) = CalcOutput fun
+
   serializationFormat _ = "cbor"
-  serviceName         _ = "calculator"
-  methodName          _ = "sumChat"
   messageType         _ = "cbor"
-  serializeInput      _ = Cbor.serialise @(Input (Calc SumChat))
-  serializeOutput     _ = Cbor.serialise @(Output (Calc SumChat))
-  deserializeInput    _ = first show . Cbor.deserialiseOrFail @(Input (Calc SumChat))
-  deserializeOutput   _ = first show . Cbor.deserialiseOrFail @(Output (Calc SumChat))
-instance
-  StreamType.SupportsStreamingType (Calc SumChat) 'StreamType.BiDiStreaming
+  serviceName         _ = "calculator"
+  methodName          _ = calculatorMethod (Proxy @fun)
+  serializeInput      _ = Cbor.serialise @(CalcInput  fun)
+  serializeOutput     _ = Cbor.serialise @(CalcOutput fun)
+  deserializeInput    _ = first show . Cbor.deserialiseOrFail @(CalcInput  fun)
+  deserializeOutput   _ = first show . Cbor.deserialiseOrFail @(CalcOutput fun)
 
 {-------------------------------------------------------------------------------
   Tests proper
