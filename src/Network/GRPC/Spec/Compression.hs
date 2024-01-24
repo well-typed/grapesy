@@ -15,9 +15,11 @@ module Network.GRPC.Spec.Compression (
     -- * Specific coders
   , noCompression
   , gzip
+  , deflate
   ) where
 
 import Codec.Compression.GZip qualified as GZip
+import Codec.Compression.Zlib qualified as Deflate
 import Data.ByteString qualified as Strict (ByteString)
 import Data.ByteString.Lazy qualified as Lazy (ByteString)
 import Data.ByteString.UTF8 qualified as BS.Strict.UTF8
@@ -50,7 +52,7 @@ instance Show Compression where
 -- The order of this list is important: algorithms listed earlier are preferred
 -- over algorithms listed later.
 allSupportedCompression :: NonEmpty Compression
-allSupportedCompression = gzip :| [noCompression]
+allSupportedCompression = gzip :| [deflate, noCompression]
 
 {-------------------------------------------------------------------------------
   Compression ID
@@ -110,4 +112,18 @@ gzip = Compression {
       compressionId = GZip
     , compress      = GZip.compress
     , decompress    = GZip.decompress
+    }
+
+-- | zlib deflate compression
+--
+-- Note: The gRPC spec calls this "deflate", but it is /not/ raw deflate
+-- format. The expected format (at least by the python server) is just zlib
+-- (which is an envelope holding the deflate data).
+--
+-- TODO: We should deal with exceptions during decompression
+deflate :: Compression
+deflate = Compression {
+      compressionId = Deflate
+    , compress      = Deflate.compress
+    , decompress    = Deflate.decompress
     }

@@ -180,6 +180,10 @@ parseCompression = asum [
           Opt.long "gzip"
         , Opt.help "Use GZip compression for all messages"
         ]
+    , Opt.flag' Compr.deflate $ mconcat [
+          Opt.long "deflate"
+        , Opt.help "Use deflate compression for all messages"
+        ]
     ]
 
 parseAPI :: Opt.Parser API

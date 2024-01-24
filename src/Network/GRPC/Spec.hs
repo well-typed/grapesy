@@ -40,6 +40,7 @@ module Network.GRPC.Spec (
     -- ** Compression algorithms
   , noCompression
   , gzip
+  , deflate
   , allSupportedCompression
     -- * Requests
   , RequestHeaders(..)

@@ -11,6 +11,7 @@ module Network.GRPC.Common.Compression (
     -- * Standard compression schemes
   , noCompression
   , gzip
+  , deflate
   , allSupportedCompression
     -- * Negotation
   , Negotation(..)
