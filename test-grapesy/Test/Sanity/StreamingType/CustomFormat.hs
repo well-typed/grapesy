@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Test.Sanity.StreamingType (tests) where
+module Test.Sanity.StreamingType.CustomFormat (tests) where
 
 import Codec.Serialise qualified as Cbor
 import Control.Exception
@@ -27,7 +27,7 @@ import Test.Driver.ClientServer
 
 tests :: TestTree
 tests =
-    testGroup "Test.Sanity.StreamingType" [
+    testGroup "Test.Sanity.StreamingType.CustomFormat" [
         testCaseInfo "calculator" $
           test_calculator_cbor def
       ]

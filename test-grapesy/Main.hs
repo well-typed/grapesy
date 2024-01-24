@@ -4,17 +4,17 @@ import Test.Tasty
 
 import Test.Prop.Dialogue                     qualified as Dialogue
 import Test.Prop.Serialization                qualified as Serialization
-import Test.Sanity.StreamingType qualified as StreamingType
-import Test.Sanity.StreamingType.NonStreaming qualified as StreamingType.NonStreaming
 import Test.Sanity.HalfClosedLocal            qualified as HalfClosedLocal
+import Test.Sanity.StreamingType.CustomFormat qualified as StreamingType.CustomFormat
+import Test.Sanity.StreamingType.NonStreaming qualified as StreamingType.NonStreaming
 
 main :: IO ()
 main = defaultMain $ testGroup "grapesy" [
       testGroup "Sanity" [
           HalfClosedLocal.tests
         , testGroup "StreamingType" [
-              StreamingType.tests
-            , StreamingType.NonStreaming.tests
+              StreamingType.NonStreaming.tests
+            , StreamingType.CustomFormat.tests
             ]
         ]
     , testGroup "Prop" [

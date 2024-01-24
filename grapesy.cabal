@@ -214,7 +214,7 @@ test-suite test-grapesy
       Test.Prop.Dialogue
       Test.Prop.Serialization
       Test.Sanity.HalfClosedLocal
-      Test.Sanity.StreamingType
+      Test.Sanity.StreamingType.CustomFormat
       Test.Sanity.StreamingType.NonStreaming
       Test.Util.ClientServer
       Test.Util.PrettyVal
