@@ -84,7 +84,7 @@ instance Bitraversable StreamElem where
 -- Returns 'Nothing' in case of 'NoMoreElems'
 --
 -- Using this function loses the information whether the item was the final
--- item; this information can be recovered using 'definitelyFinal'.
+-- item; this information can be recovered using 'whenDefinitelyFinal'.
 value :: StreamElem b a -> Maybe a
 value = \case
     StreamElem a   -> Just a

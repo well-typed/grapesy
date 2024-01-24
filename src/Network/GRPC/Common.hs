@@ -30,6 +30,7 @@ module Network.GRPC.Common (
   , GrpcException(..)
   , GrpcError(..)
   , ProtocolException(..)
+  , SomeProtocolException(..)
 
     -- ** Low-level
   , Session.ChannelDiscarded(..)
@@ -66,5 +67,17 @@ data ProtocolException rpc =
     -- | We expected trailers, but got an output instead
   | TooManyOutputs (Output rpc)
 
-deriving instance IsRPC rpc => Show      (ProtocolException rpc)
-deriving instance IsRPC rpc => Exception (ProtocolException rpc)
+deriving stock instance IsRPC rpc => Show (ProtocolException rpc)
+
+-- | Existential wrapper around 'ProtocolException'
+--
+-- This makes it easier to catch these exceptions (without this, you'd have to
+-- catch the exception for a /specific/ instance of @rpc@).
+data SomeProtocolException where
+    ProtocolException :: forall rpc.
+         IsRPC rpc
+      => ProtocolException rpc
+      -> SomeProtocolException
+
+deriving stock    instance Show SomeProtocolException
+deriving anyclass instance Exception SomeProtocolException

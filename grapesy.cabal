@@ -50,6 +50,7 @@ common lang
       NamedFieldPuns
       NumericUnderscores
       PatternSynonyms
+      PolyKinds
       QuantifiedConstraints
       RankNTypes
       ScopedTypeVariables
@@ -214,6 +215,7 @@ test-suite test-grapesy
       Test.Prop.Dialogue
       Test.Prop.Serialization
       Test.Sanity.HalfClosedLocal
+      Test.Sanity.StreamingType.CustomFormat
       Test.Sanity.StreamingType.NonStreaming
       Test.Util.ClientServer
       Test.Util.PrettyVal
@@ -228,6 +230,7 @@ test-suite test-grapesy
       -- External dependencies
     , async            >= 2.2  && < 2.3
     , bytestring       >= 0.10 && < 0.12
+    , serialise        >= 0.2  && < 0.3
     , containers       >= 0.6  && < 0.7
     , contra-tracer    >= 0.2  && < 0.3
     , data-default     >= 0.7  && < 0.8

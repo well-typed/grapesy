@@ -32,7 +32,7 @@ class ( Typeable rpc -- for use in exceptions
         -- 'Show'able.
       , Show (Input rpc)
       , Show (Output rpc)
-      ) => IsRPC (rpc :: Type) where
+      ) => IsRPC (rpc :: k) where
   -- | Messages from the client to the server
   type Input rpc :: Type
 
