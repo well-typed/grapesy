@@ -387,7 +387,7 @@ data ConnectionState =
 
     -- | The connection is ready
     --
-    -- The nested @TVar@ is written to when the connection is closed.
+    -- The nested @TMVar@ is written to when the connection is closed.
   | ConnectionReady (TMVar (Maybe SomeException)) Session.ConnectionToServer
 
     -- | We gave up trying to (re)establish the connection
@@ -395,6 +395,30 @@ data ConnectionState =
 
     -- | The connection was closed because it is no longer needed.
   | ConnectionOutOfScope
+
+-- | Connection attempt
+--
+-- This is an internal data structure used only in 'stayConnected' and helpers.
+data Attempt = ConnectionAttempt {
+      attemptParams     :: ConnParams
+    , attemptState      :: TVar ConnectionState
+    , attemptOutOfScope :: MVar ()
+    , attemptClosed     :: TMVar (Maybe SomeException)
+    }
+
+newConnectionAttempt ::
+     ConnParams
+  -> TVar ConnectionState
+  -> MVar ()
+  -> IO Attempt
+newConnectionAttempt attemptParams attemptState attemptOutOfScope = do
+    attemptClosed <- newEmptyTMVarIO
+    return ConnectionAttempt{
+        attemptParams
+      , attemptState
+      , attemptOutOfScope
+      , attemptClosed
+      }
 
 -- | Stay connected to the server
 stayConnected ::
@@ -409,7 +433,7 @@ stayConnected connParams server connStateVar connOutOfScope =
     loop :: ReconnectPolicy -> IO ()
     loop remainingReconnectPolicy = do
         traceWith tracer $ ClientDebugConnecting
-        connClosed <- newEmptyTMVarIO
+        attempt <- newConnectionAttempt connParams connStateVar connOutOfScope
 
         -- Just like in 'runHandler' on the server side, it is important that we
         -- call @run@ (from @http2@ or @http2-tls@) in a separate thread. If we
@@ -424,46 +448,13 @@ stayConnected connParams server connStateVar connOutOfScope =
 
         mRes <- try $
           case server of
-            ServerInsecure addr -> runTCPClient addr $ \sock ->
-              bracket (HTTP2.Client.allocSimpleConfig sock writeBufferSize)
-                      HTTP2.Client.freeSimpleConfig $ \conf ->
-                HTTP2.Client.run
-                      (clientConfig addr Http)
-                      conf
-                    $ \sendRequest _aux -> do
-                  traceWith tracer $ ClientDebugConnectedInsecure
-                  let conn = Session.ConnectionToServer sendRequest
-                  atomically $
-                    writeTVar connStateVar $ ConnectionReady connClosed conn
-                  takeMVar connOutOfScope
-            ServerSecure validation sslKeyLog addr -> do
-              keyLogger <- Util.TLS.keyLogger sslKeyLog
-              caStore   <- Util.TLS.validationCAStore validation
-              let settings :: HTTP2.TLS.Client.Settings
-                  settings = HTTP2.TLS.Client.defaultSettings {
-                        HTTP2.TLS.Client.settingsValidateCert =
-                          case validation of
-                            ValidateServer _   -> True
-                            NoServerValidation -> False
-                      , HTTP2.TLS.Client.settingsCAStore       = caStore
-                      , HTTP2.TLS.Client.settingsKeyLogger     = keyLogger
-                      , HTTP2.TLS.Client.settingsAddrInfoFlags = []
-                      }
-
-              HTTP2.TLS.Client.runWithConfig
-                    (clientConfig addr Https)
-                    settings
-                    (addressHost addr)
-                    (fromIntegral $ addressPort addr)
-                  $ \sendRequest _aux -> do
-                traceWith tracer $ ClientDebugConnectedSecure
-                let conn = Session.ConnectionToServer sendRequest
-                atomically $
-                  writeTVar connStateVar $ ConnectionReady connClosed conn
-                takeMVar connOutOfScope
+            ServerInsecure addr ->
+              connectInsecure attempt addr
+            ServerSecure validation sslKeyLog addr ->
+              connectSecure attempt validation sslKeyLog addr
 
         thisReconnectPolicy <- atomically $ do
-          putTMVar connClosed $ either Just (\() -> Nothing) mRes
+          putTMVar (attemptClosed attempt) $ either Just (\() -> Nothing) mRes
           connState <- readTVar connStateVar
           return $ case connState of
             ConnectionReady{}->
@@ -493,36 +484,94 @@ stayConnected connParams server connStateVar connOutOfScope =
                 threadDelay $ round $ delay * 1_000_000
                 loop reconnectPolicy'
 
-    runTCPClient :: Address -> (Socket -> IO a) -> IO a
-    runTCPClient auth =
-        Run.runTCPClient (addressHost auth) (show $ addressPort auth)
-
-    -- See docs of 'confBufferSize', but importantly: "this value is announced
-    -- via SETTINGS_MAX_FRAME_SIZE to the peer."
-    --
-    -- Value of 4kB is taken from the example code.
-    writeBufferSize :: HPACK.BufferSize
-    writeBufferSize = 4096
-
-    clientConfig :: Address -> Scheme -> HTTP2.Client.ClientConfig
-    clientConfig addr = \case
-        Http ->
-          HTTP2.Client.defaultClientConfig {
-              HTTP2.Client.authority = authority
-            }
-        Https ->
-          HTTP2.TLS.Client.defaultClientConfig
-            HTTP2.TLS.Client.defaultSettings
-            authority
-      where
-        -- We omit the port number in the authority, for compatibility with TLS
-        -- SNI as well as the gRPC spec (the HTTP2 spec says the port number is
-        -- optional in the authority).
-        authority :: String
-        authority =
-            case addressAuthority addr of
-              Nothing   -> addressHost addr
-              Just auth -> auth
-
     tracer :: Tracer IO ClientDebugMsg
     tracer = connDebugTracer connParams
+
+-- | Insecure connection (no TLS)
+connectInsecure :: Attempt -> Address -> IO ()
+connectInsecure attempt addr =
+    runTCPClient addr $ \sock -> do
+      bracket (HTTP2.Client.allocSimpleConfig sock writeBufferSize)
+              HTTP2.Client.freeSimpleConfig $ \conf ->
+        HTTP2.Client.run clientConfig conf $ \sendRequest _aux -> do
+          traceWith tracer $ ClientDebugConnectedInsecure
+          let conn = Session.ConnectionToServer sendRequest
+          atomically $
+            writeTVar (attemptState attempt) $
+              ConnectionReady (attemptClosed attempt) conn
+          takeMVar $ attemptOutOfScope attempt
+  where
+    clientConfig :: HTTP2.Client.ClientConfig
+    clientConfig = HTTP2.Client.defaultClientConfig {
+          HTTP2.Client.authority = authority addr
+        }
+
+    tracer :: Tracer IO ClientDebugMsg
+    tracer = connDebugTracer $ attemptParams attempt
+
+-- | Secure connection (using TLS)
+connectSecure :: Attempt -> ServerValidation -> SslKeyLog -> Address -> IO ()
+connectSecure attempt validation sslKeyLog addr = do
+    keyLogger <- Util.TLS.keyLogger sslKeyLog
+    caStore   <- Util.TLS.validationCAStore validation
+
+    let settings :: HTTP2.TLS.Client.Settings
+        settings = HTTP2.TLS.Client.defaultSettings {
+              HTTP2.TLS.Client.settingsValidateCert =
+                case validation of
+                  ValidateServer _   -> True
+                  NoServerValidation -> False
+            , HTTP2.TLS.Client.settingsCAStore       = caStore
+            , HTTP2.TLS.Client.settingsKeyLogger     = keyLogger
+            , HTTP2.TLS.Client.settingsAddrInfoFlags = []
+            }
+
+        clientConfig :: HTTP2.Client.ClientConfig
+        clientConfig =
+          HTTP2.TLS.Client.defaultClientConfig
+            settings
+            (authority addr)
+
+    HTTP2.TLS.Client.runWithConfig
+          clientConfig
+          settings
+          (addressHost addr)
+          (fromIntegral $ addressPort addr)
+        $ \sendRequest _aux -> do
+      traceWith tracer $ ClientDebugConnectedSecure
+      let conn = Session.ConnectionToServer sendRequest
+      atomically $
+        writeTVar (attemptState attempt) $
+          ConnectionReady (attemptClosed attempt) conn
+      takeMVar $ attemptOutOfScope attempt
+ where
+    tracer :: Tracer IO ClientDebugMsg
+    tracer = connDebugTracer $ attemptParams attempt
+
+-- | Authority
+--
+-- We omit the port number in the authority, for compatibility with TLS
+-- SNI as well as the gRPC spec (the HTTP2 spec says the port number is
+-- optional in the authority).
+authority :: Address -> String
+authority addr =
+    case addressAuthority addr of
+      Nothing   -> addressHost addr
+      Just auth -> auth
+
+{-------------------------------------------------------------------------------
+  Auxiliary http2
+-------------------------------------------------------------------------------}
+
+runTCPClient :: Address -> (Socket -> IO a) -> IO a
+runTCPClient Address{addressHost, addressPort} =
+    Run.runTCPClient addressHost (show addressPort)
+
+-- | Write-buffer size
+--
+-- See docs of 'confBufferSize', but importantly: "this value is announced
+-- via SETTINGS_MAX_FRAME_SIZE to the peer."
+--
+-- Value of 4kB is taken from the example code.
+writeBufferSize :: HPACK.BufferSize
+writeBufferSize = 4096
