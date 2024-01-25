@@ -30,6 +30,7 @@ import Data.Hashable (Hashable)
 import Data.Proxy
 import Data.Text (Text)
 import GHC.Generics qualified as GHC
+import Network.Socket (HostName, PortNumber)
 
 import Network.GRPC.Spec.PercentEncoding qualified as PercentEncoding
 import Network.GRPC.Spec.RPC
@@ -92,10 +93,10 @@ data Scheme = Http | Https
 -- [pseudo-header](https://datatracker.ietf.org/doc/html/rfc7540#section-8.1.2.3).
 data Address = Address {
       -- | Hostname
-      addressHost :: String
+      addressHost :: HostName
 
       -- | TCP port
-    , addressPort :: Word
+    , addressPort :: PortNumber
 
       -- | Authority
       --

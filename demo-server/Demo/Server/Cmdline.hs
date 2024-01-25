@@ -6,7 +6,7 @@ module Demo.Server.Cmdline (
 
 import Data.Foldable (asum)
 import Options.Applicative qualified as Opt
-import Network.Socket (ServiceName, PortNumber)
+import Network.Socket (PortNumber)
 
 import Network.GRPC.Common
 import Network.GRPC.Server.Run
@@ -57,13 +57,13 @@ parseInsecure = asum [
         , Opt.help "Disable insecure server (without TLS)"
         ]
     , cfg
-        <$> Opt.option Opt.str (mconcat [
+        <$> Opt.option Opt.auto (mconcat [
                 Opt.long "port-insecure"
               , Opt.help "Port number for the insecure server (without TLS)"
               ])
     ]
   where
-    cfg :: ServiceName -> Maybe InsecureConfig
+    cfg :: PortNumber -> Maybe InsecureConfig
     cfg port = Just InsecureConfig {
           insecureHost = Nothing
         , insecurePort = port

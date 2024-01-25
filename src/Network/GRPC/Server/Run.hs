@@ -17,7 +17,7 @@ import Network.ByteOrder (BufferSize)
 import Network.HTTP2.Server qualified as HTTP2
 import Network.HTTP2.TLS.Server qualified as HTTP2.TLS
 import Network.Run.TCP (runTCPServer)
-import Network.Socket (HostName, ServiceName, PortNumber)
+import Network.Socket (HostName, PortNumber)
 import Network.TLS qualified as TLS
 
 import Network.GRPC.Server (mkGrpcServer, ServerParams, RpcHandler)
@@ -30,9 +30,13 @@ import Debug.Concurrent
   Configuration
 -------------------------------------------------------------------------------}
 
--- | Describes the configuration of both an insecure server and a secure server.
+-- | Server configuration
+--
+-- Describes the configuration of both an insecure server and a secure server.
 -- See the documentation of 'runServer' for a description of what servers will
 -- result from various configurations.
+--
+-- The default configuration enables the default insecure configuration only.
 data ServerConfig = ServerConfig {
       -- | Configuration for insecure communication (without TLS)
       --
@@ -59,14 +63,14 @@ data InsecureConfig = InsecureConfig {
       insecureHost :: Maybe HostName
 
       -- | Port number
-    , insecurePort :: ServiceName
+    , insecurePort :: PortNumber
     }
   deriving (Show)
 
 instance Default InsecureConfig where
   def = InsecureConfig {
       insecureHost = Nothing
-    , insecurePort = "50051"
+    , insecurePort = 50051
     }
 
 -- | Offer secure connection (over TLS)
@@ -128,7 +132,7 @@ runServerWithHandlers config params handlers = do
 
 runInsecure :: HTTP2.Server -> InsecureConfig -> IO ()
 runInsecure server cfg =
-    runTCPServer (insecureHost cfg) (insecurePort cfg) $ \sock -> do
+    runTCPServer (insecureHost cfg) (show $ insecurePort cfg) $ \sock -> do
       bracket (HTTP2.allocSimpleConfig sock writeBufferSize)
               HTTP2.freeSimpleConfig $ \config ->
         HTTP2.run HTTP2.defaultServerConfig config server
