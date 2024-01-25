@@ -87,6 +87,8 @@ Haskell implementation: `greeterSayHello`.
 
 Assumes running server:
 
+* If testing against `grapesy`'s own demo-server, see `demo-server.md`.
+
 * If testing against example Python server:
 
   ```
