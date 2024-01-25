@@ -372,14 +372,14 @@ runTestServer cfg serverTracer handlerLock serverHandlers = do
               Nothing -> Server.ServerConfig {
                   serverInsecure = Just Server.InsecureConfig {
                       insecureHost = Nothing
-                    , insecurePort = "50051"
+                    , insecurePort = 50051
                     }
                 , serverSecure   = Nothing
                 }
               Just (TlsFail TlsFailUnsupported) -> Server.ServerConfig {
                   serverInsecure = Just Server.InsecureConfig {
                       insecureHost = Nothing
-                    , insecurePort = "50052"
+                    , insecurePort = 50052
                     }
                 , serverSecure   = Nothing
                 }

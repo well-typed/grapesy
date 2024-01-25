@@ -27,6 +27,7 @@ import Data.ProtoLens
 import Data.ProtoLens.Labels ()
 import Data.Text (Text)
 import GHC.TypeLits (Symbol)
+import Network.Socket (HostName, PortNumber)
 import Options.Applicative qualified as Opt
 
 import Network.GRPC.Client qualified as Client
@@ -135,8 +136,8 @@ parseServer =
             ])
   where
     mkServer ::
-         String                          -- Host
-      -> Maybe Word                      -- Port
+         HostName                        -- Host
+      -> Maybe PortNumber                -- Port
       -> Maybe Client.ServerValidation   -- Secure?
       -> Maybe String
       -> Client.Server
