@@ -2,7 +2,7 @@
 
 The code for the demo can be found in [`demo/Main.hs`](/demo-client/Main.hs). It
 is based on the examples from the [gRPC docs](https://grpc.io/docs/). We will
-mostly refer to the [Python version]https://grpc.io/docs/languages/python/) of
+mostly refer to the [Python version](https://grpc.io/docs/languages/python/) of
 these examples, as it is the most complete, although we will also provide some
 pointers for testing against the [C++
 version](https://grpc.io/docs/languages/cpp/).

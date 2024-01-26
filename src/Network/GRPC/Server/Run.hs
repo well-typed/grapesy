@@ -75,7 +75,11 @@ instance Default InsecureConfig where
 
 -- | Offer secure connection (over TLS)
 data SecureConfig = SecureConfig {
-      -- | Hostname
+      -- | Hostname to bind to
+      --
+      -- This doesn't need to match the common name (CN) in the TLS certificate.
+      -- For example, if the client connects to @localhost@, and the certificate
+      -- CN is also @localhost@, the server can still bind to @0.0.0.0@.
       secureHost :: HostName
 
       -- | Port number

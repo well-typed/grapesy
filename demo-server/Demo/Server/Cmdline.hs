@@ -6,7 +6,7 @@ module Demo.Server.Cmdline (
 
 import Data.Foldable (asum)
 import Options.Applicative qualified as Opt
-import Network.Socket (PortNumber)
+import Network.Socket (PortNumber, HostName)
 
 import Network.GRPC.Common
 import Network.GRPC.Server.Run
@@ -61,11 +61,15 @@ parseInsecure = asum [
                 Opt.long "port-insecure"
               , Opt.help "Port number for the insecure server (without TLS)"
               ])
+        <*> Opt.optional (Opt.option Opt.str (mconcat [
+                Opt.long "host-insecure"
+              , Opt.help "Host name to bind the insecure server to"
+              ]))
     ]
   where
-    cfg :: PortNumber -> Maybe InsecureConfig
-    cfg port = Just InsecureConfig {
-          insecureHost = Nothing
+    cfg :: PortNumber -> Maybe HostName -> Maybe InsecureConfig
+    cfg port host = Just InsecureConfig {
+          insecureHost = host
         , insecurePort = port
         }
 
@@ -79,6 +83,10 @@ parseSecure = asum [
         <$> Opt.option Opt.auto (mconcat [
                 Opt.long "port-secure"
               , Opt.help "Port number for the insecure server (over TLS)"
+              ])
+        <*> (Opt.option Opt.str $ mconcat [
+                Opt.long "host-secure"
+              , Opt.help "Host name to bind the secure server to"
               ])
         <*> (Opt.option Opt.str $ mconcat [
                 Opt.long "tls-pub"
@@ -96,12 +104,13 @@ parseSecure = asum [
   where
     cfg ::
          PortNumber
+      -> HostName
       -> FilePath
       -> [FilePath]
       -> FilePath
       -> Maybe SecureConfig
-    cfg port pub chain priv = Just SecureConfig {
-          secureHost       = "localhost"
+    cfg port host pub chain priv = Just SecureConfig {
+          secureHost       = host
         , securePort       = port
         , securePubCert    = pub
         , secureChainCerts = chain
