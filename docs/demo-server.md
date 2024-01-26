@@ -10,7 +10,7 @@ Start the server with
 ```
 cabal run demo-server -- \
   --port-insecure 50051 \
-  --port-secure   50052 \
+  --port-secure   50052 --host-secure 0.0.0.0 \
   --tls-pub  data/grpc-demo.cert \
   --tls-priv data/grpc-demo.priv
 ```
