@@ -44,40 +44,8 @@ To connect over TLS, run the client with `--secure`:
 cabal run demo-client -- sayHello --name 'John' --secure
 ```
 
-This will use the systems's standard certificate store to validate the server's
-TLS certificate. For example, if this is run against the demo server, which uses
-a self-signed certificate, the above will result in
-
-```
-demo-client: HandshakeFailed (Error_Protocol ("certificate has unknown CA",True,UnknownCa))
-```
-
-You might see an error such as this on the Python side (if using):
-
-```
-Handshake failed with fatal error SSL_ERROR_SSL: error:10000070:SSL routines:OPENSSL_internal:BAD_PACKET_LENGTH
-```
-
-There are two ways to address this. We can disable certificate validation
-altogether:
-
-```
-cabal run demo-client -- sayHello \
-  --name 'John' \
-  --secure \
-  --no-server-validation
-```
-
-or we can define our own roots; for example, we can declare the demo server's
-own certificate as a root (this works with both the Python demo server as well
-as our own):
-
-```
-cabal run demo-client -- sayHello \
-  --name 'John' \
-  --secure \
-  --cert-store-from-path data/grpc-demo.cert
-```
+By default this sets up the `demo-server`'s certificate as a root, so that the
+client can verify the certificate. See the command line flags for details.
 
 ## Quick start
 

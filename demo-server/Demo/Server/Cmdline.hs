@@ -5,11 +5,14 @@ module Demo.Server.Cmdline (
   ) where
 
 import Data.Foldable (asum)
-import Options.Applicative qualified as Opt
 import Network.Socket (PortNumber, HostName)
+import Options.Applicative ((<**>))
+import Options.Applicative qualified as Opt
 
 import Network.GRPC.Common
 import Network.GRPC.Server.Run
+
+import Paths_grapesy
 
 {-------------------------------------------------------------------------------
   Definition
@@ -29,14 +32,24 @@ data Cmdline = Cmdline {
 -------------------------------------------------------------------------------}
 
 getCmdline :: IO Cmdline
-getCmdline = Opt.execParser $
-    Opt.info (parseCmdline Opt.<**> Opt.helper) Opt.fullDesc
+getCmdline = do
+    defaultPub  <- getDataFileName "grpc-demo.pem"
+    defaultPriv <- getDataFileName "grpc-demo.key"
 
-parseCmdline :: Opt.Parser Cmdline
-parseCmdline =
+    let info :: Opt.ParserInfo Cmdline
+        info = Opt.info
+                 (      parseCmdline defaultPub defaultPriv
+                   <**> Opt.helper
+                 )
+                 Opt.fullDesc
+
+    Opt.execParser info
+
+parseCmdline :: FilePath -> FilePath -> Opt.Parser Cmdline
+parseCmdline defaultPub defaultPriv =
     Cmdline
       <$> parseInsecure
-      <*> parseSecure
+      <*> parseSecure defaultPub defaultPriv
       <*> (Opt.switch $ mconcat [
                Opt.long "debug"
              , Opt.help "Enable debug output"
@@ -73,8 +86,8 @@ parseInsecure = asum [
         , insecurePort = port
         }
 
-parseSecure :: Opt.Parser (Maybe SecureConfig)
-parseSecure = asum [
+parseSecure :: FilePath -> FilePath -> Opt.Parser (Maybe SecureConfig)
+parseSecure defaultPub defaultPriv = asum [
       Opt.flag' Nothing $ mconcat [
           Opt.long "disable-secure"
         , Opt.help "Disable secure server (over TLS)"
@@ -91,6 +104,8 @@ parseSecure = asum [
         <*> (Opt.option Opt.str $ mconcat [
                 Opt.long "tls-pub"
               , Opt.help "TLS public certificate (X.509 format)"
+              , Opt.value defaultPub
+              , Opt.showDefault
               ])
         <*> Opt.many (Opt.option Opt.str $ mconcat [
                 Opt.long "tls-cert"
@@ -99,6 +114,8 @@ parseSecure = asum [
         <*> (Opt.option Opt.str $ mconcat [
                 Opt.long "tls-priv"
               , Opt.help "TLS private key"
+              , Opt.value defaultPriv
+              , Opt.showDefault
               ])
     ]
   where

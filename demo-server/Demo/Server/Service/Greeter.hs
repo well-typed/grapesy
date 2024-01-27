@@ -28,6 +28,7 @@ handlers :: Methods IO (ProtobufMethodsOf Greeter)
 handlers =
       Method (mkNonStreaming sayHello)
     $ RawMethod sayHelloStreamReply
+    $ UnsupportedMethod -- TODO: sayHelloBidiStream
     $ NoMoreMethods
 
 {-------------------------------------------------------------------------------

@@ -162,7 +162,7 @@ jobs:
           cat >> cabal.project <<EOF
           package grapesy
             tests:       True
-            flags:       +build-demo +build-stress-test
+            flags:       +build-demo +build-stress-test +build-interop
             ghc-options: -Werror
           EOF
           $HCPKG list --simple-output --names-only | perl -ne 'for (split /\s+/) { print "constraints: $_ installed\n" unless /^(grapesy)$/; }' >> cabal.project.local

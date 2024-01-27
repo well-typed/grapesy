@@ -10,23 +10,11 @@ Start the server with
 ```
 cabal run demo-server -- \
   --port-insecure 50051 \
-  --port-secure   50052 --host-secure 0.0.0.0 \
-  --tls-pub  data/grpc-demo.cert \
-  --tls-priv data/grpc-demo.priv
+  --port-secure 50052 --host-secure 0.0.0.0
 ```
 
-It is occassionally useful to run the server without `cabal` (for example, when
-you want to use a priviliged port). To do this (without installing the server
-with `cabal install`), you can run:
-
-```
-sudo grapesy_datadir=data \
-  `find dist-newstyle/ -name demo-server -type f` \
-  --disable-insecure \
-  --port-secure 443 \
-  --tls-pub  data/grpc-demo.cert \
-  --tls-priv data/grpc-demo.priv
-```
+The secure server uses a bundled self-signed certificate by default. See the
+command line flags for details.
 
 ## Debugging
 

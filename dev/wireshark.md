@@ -1,6 +1,6 @@
-# Debugging
+# Debugging with Wireshark
 
-## Wireshark configuration
+## Setup
 
 Wireshark supports `gRPC` and can decode Protobuf; see
 https://grpc.io/blog/wireshark/.
@@ -22,3 +22,20 @@ When monitoring network traffic, you might then want to use a filter
 ```
 tcp.port == 50051 || tcp.port == 50052
 ```
+
+Or to only see HTTP2 traffic:
+
+```
+(tcp.port == 50051 || tcp.port == 50052) && http2
+```
+
+This is less useful when debugging connectivity issues, of course.
+
+## Hints
+
+* If you see a TCP `SYN` followed immediately by a TCP `RST`, this may be a sign
+  that the server is listening on the wrong interface; if so, this can be
+  solved by having the server listen on _all_ interfaces (`0.0.0.0`).
+
+  Another symptom of this (especially when the server runs inside Docker) is
+  when the client TLS handshake fails with `HandshakeFailed Error_EOF`.

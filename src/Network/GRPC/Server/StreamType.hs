@@ -149,6 +149,10 @@ data Methods (m :: Type -> Type) (rpcs :: [Type]) where
     -> Methods m rpcs
     -> Methods m (rpc ': rpcs)
 
+  UnsupportedMethod ::
+       Methods m rpcs
+    -> Methods m (rpc ': rpcs)
+
 -- | Declare handlers for a set of services
 --
 -- See also 'fromServices'.
@@ -174,9 +178,10 @@ fromMethods :: forall m rpcs.
 fromMethods = go
   where
     go :: Methods m rpcs' -> [RpcHandler m]
-    go NoMoreMethods    = []
-    go (Method h ms)    = streamingRpcHandler' h : go ms
-    go (RawMethod m ms) = m                      : go ms
+    go NoMoreMethods          = []
+    go (Method h ms)          = streamingRpcHandler' h : go ms
+    go (RawMethod m ms)       = m                      : go ms
+    go (UnsupportedMethod ms) =                          go ms
 
 fromServices :: forall m servs.
      MonadIO m
