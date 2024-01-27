@@ -17,6 +17,7 @@ import Proto.Src.Proto.Grpc.Testing.Test
 
 import Interop.Cmdline
 import Interop.Server.Handlers.EmptyCall
+import Interop.Server.Handlers.FullDuplexCall
 import Interop.Server.Handlers.Ping
 import Interop.Server.Handlers.UnaryCall
 
@@ -42,7 +43,7 @@ methodsTestService :: Methods IO (ProtobufMethodsOf TestService)
 methodsTestService =
       UnsupportedMethod -- cacheableUnaryCall
     $ Method (mkNonStreaming handleEmptyCall)
-    $ UnsupportedMethod -- fullDuplexCall
+    $ Method (mkBiDiStreaming handleFullDuplexCall) -- fullDuplexCall
     $ UnsupportedMethod -- halfDuplexCall
     $ UnsupportedMethod -- streamingInputCall
     $ UnsupportedMethod -- streamingOutputCall
