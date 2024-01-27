@@ -20,6 +20,7 @@ import Interop.Server.PingService.Ping
 import Interop.Server.TestService.EmptyCall
 import Interop.Server.TestService.FullDuplexCall
 import Interop.Server.TestService.StreamingInputCall
+import Interop.Server.TestService.StreamingOutputCall
 import Interop.Server.TestService.UnaryCall
 
 {-------------------------------------------------------------------------------
@@ -47,7 +48,7 @@ methodsTestService =
     $ Method (mkBiDiStreaming handleFullDuplexCall) -- fullDuplexCall
     $ UnsupportedMethod -- halfDuplexCall
     $ Method (mkClientStreaming handleStreamingInputCall) -- streamingInputCall
-    $ UnsupportedMethod -- streamingOutputCall
+    $ Method (mkServerStreaming handleStreamingOutputCall) -- streamingOutputCall
     $ Method (mkNonStreaming handleUnaryCall) -- unaryCall
     $ UnsupportedMethod -- unimplementedCall
     $ NoMoreMethods

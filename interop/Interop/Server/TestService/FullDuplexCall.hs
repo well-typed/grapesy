@@ -1,19 +1,10 @@
-{-# LANGUAGE OverloadedLabels #-}
-
 module Interop.Server.TestService.FullDuplexCall (handleFullDuplexCall) where
-
-import Control.Concurrent
-import Control.Lens ((.~), (^.))
-import Control.Monad
-import Data.Function ((&))
-import Data.ProtoLens
-import Data.ProtoLens.Labels ()
 
 import Network.GRPC.Common
 
 import Proto.Src.Proto.Grpc.Testing.Messages
 
-import Interop.Server.Util
+import Interop.Server.TestService.StreamingOutputCall
 
 -- | Handle @TestService.FullDuplexCall@
 --
@@ -29,22 +20,6 @@ handleFullDuplexCall getRequest sendResponse =
     loop = do
         streamElem <- getRequest
         case streamElem of
-          StreamElem  r   -> handleRequest r >> loop
-          FinalElem   r _ -> handleRequest r
+          StreamElem  r   -> handleStreamingOutputCall r sendResponse >> loop
+          FinalElem   r _ -> handleStreamingOutputCall r sendResponse
           NoMoreElems   _ -> return ()
-
-    handleRequest :: StreamingOutputCallRequest -> IO ()
-    handleRequest request =
-        forM_ (request ^. #responseParameters) $ \responseParameters -> do
-          let size, intervalUs :: Int
-              size       = fromIntegral $ responseParameters ^. #size
-              intervalUs = fromIntegral $ responseParameters ^. #intervalUs
-
-              -- TODO: grapesy currently does not support setting compression
-              -- on a per-response basis
-              _compressed :: Bool
-              _compressed = responseParameters ^. #compressed ^. #value
-
-          payload <- mkPayload COMPRESSABLE size
-          sendResponse $ defMessage & #payload .~ payload
-          threadDelay intervalUs

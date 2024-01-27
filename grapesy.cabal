@@ -408,6 +408,7 @@ executable grapesy-interop
       Interop.Server.TestService.EmptyCall
       Interop.Server.TestService.FullDuplexCall
       Interop.Server.TestService.StreamingInputCall
+      Interop.Server.TestService.StreamingOutputCall
       Interop.Server.TestService.UnaryCall
       Interop.Server.Util
 
