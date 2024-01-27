@@ -47,7 +47,7 @@ methodsTestService :: Methods IO (ProtobufMethodsOf TestService)
 methodsTestService =
       UnsupportedMethod -- cacheableUnaryCall
     $ Method (mkNonStreaming handleEmptyCall)
-    $ Method (mkBiDiStreaming handleFullDuplexCall)
+    $ RawMethod (mkRpcHandler Proxy handleFullDuplexCall)
     $ UnsupportedMethod -- halfDuplexCall
     $ Method (mkClientStreaming handleStreamingInputCall)
     $ Method (mkServerStreaming handleStreamingOutputCall)
