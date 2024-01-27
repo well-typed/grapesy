@@ -404,10 +404,10 @@ executable grapesy-interop
       Interop.Client.Ping
       Interop.Cmdline
       Interop.Server
-      Interop.Server.Handlers.EmptyCall
-      Interop.Server.Handlers.FullDuplexCall
-      Interop.Server.Handlers.Ping
-      Interop.Server.Handlers.UnaryCall
+      Interop.Server.PingService.Ping
+      Interop.Server.TestService.EmptyCall
+      Interop.Server.TestService.FullDuplexCall
+      Interop.Server.TestService.UnaryCall
       Interop.Server.Util
 
       Paths_grapesy

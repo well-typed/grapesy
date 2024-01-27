@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedLabels #-}
 
-module Interop.Server.Handlers.UnaryCall (handleUnaryCall) where
+module Interop.Server.TestService.UnaryCall (handleUnaryCall) where
 
 import Control.Lens ((.~), (^.))
 import Data.Function ((&))

@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedLabels #-}
 
-module Interop.Server.Handlers.Ping (handlePing) where
+module Interop.Server.PingService.Ping (handlePing) where
 
 import Control.Lens ((.~), (^.))
 import Data.Function ((&))

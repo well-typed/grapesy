@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedLabels #-}
 
-module Interop.Server.Handlers.FullDuplexCall (handleFullDuplexCall) where
+module Interop.Server.TestService.FullDuplexCall (handleFullDuplexCall) where
 
 import Control.Concurrent
 import Control.Lens ((.~), (^.))

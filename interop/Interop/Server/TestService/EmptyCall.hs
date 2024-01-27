@@ -1,4 +1,4 @@
-module Interop.Server.Handlers.EmptyCall (handleEmptyCall) where
+module Interop.Server.TestService.EmptyCall (handleEmptyCall) where
 
 import Data.ProtoLens
 

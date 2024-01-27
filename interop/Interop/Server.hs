@@ -16,10 +16,10 @@ import Proto.Ping
 import Proto.Src.Proto.Grpc.Testing.Test
 
 import Interop.Cmdline
-import Interop.Server.Handlers.EmptyCall
-import Interop.Server.Handlers.FullDuplexCall
-import Interop.Server.Handlers.Ping
-import Interop.Server.Handlers.UnaryCall
+import Interop.Server.PingService.Ping
+import Interop.Server.TestService.EmptyCall
+import Interop.Server.TestService.FullDuplexCall
+import Interop.Server.TestService.UnaryCall
 
 {-------------------------------------------------------------------------------
   Handlers
