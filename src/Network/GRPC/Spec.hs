@@ -83,6 +83,8 @@ module Network.GRPC.Spec (
     -- *** Status
   , GrpcStatus(..)
   , GrpcError(..)
+  , fromGrpcStatus
+  , toGrpcStatus
     -- *** Classificaiton
   , GrpcException(..)
   , grpcExceptionToTrailers

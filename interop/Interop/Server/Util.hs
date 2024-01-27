@@ -7,10 +7,11 @@ module Interop.Server.Util (
     -- * Dealing with the test-suite's message types
   , mkPayload
   , constructResponseMetadata
+  , echoStatus
   ) where
 
 import Control.Exception
-import Control.Lens ((&), (.~))
+import Control.Lens ((&), (.~), (^.))
 import Data.ByteString qualified as BS.Strict
 import Data.ProtoLens
 import Data.ProtoLens.Labels ()
@@ -59,6 +60,7 @@ mkPayload type' size = do
 -- | Construct response metadata
 --
 -- Sends the initial response metadata now, and returns the trailing metadata.
+--
 -- See <https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptions.md#custom_metadata>
 constructResponseMetadata :: Call rpc -> IO [CustomMetadata]
 constructResponseMetadata call = do
@@ -91,3 +93,21 @@ constructResponseMetadata call = do
     nameMetadataInitial, nameMetadataTrailing :: HeaderName
     nameMetadataInitial  = "x-grpc-test-echo-initial"
     nameMetadataTrailing = "x-grpc-test-echo-trailing"
+
+-- | Echo any non-OK status back to the client
+--
+-- Does nothing if @code@ is set to @0@ ('GrpcOk').
+--
+-- See <https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptions.md#status_code_and_message>
+echoStatus :: EchoStatus -> [CustomMetadata] -> IO ()
+echoStatus status trailers =
+    case toGrpcStatus code of
+      Just GrpcOk ->
+        return ()
+      Just (GrpcError err) ->
+        throwIO $ GrpcException err (Just $ status ^. #message) trailers
+      Nothing ->
+        throwUnrecognized "code" code
+  where
+    code :: Word
+    code = fromIntegral $ status ^. #code

@@ -1,4 +1,9 @@
+{-# LANGUAGE OverloadedLabels #-}
+
 module Interop.Server.TestService.FullDuplexCall (handleFullDuplexCall) where
+
+import Control.Lens ((^.))
+import Data.ProtoLens.Labels ()
 
 import Network.GRPC.Common
 import Network.GRPC.Server
@@ -14,17 +19,24 @@ import Interop.Server.Util
 -- <https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptions.md#fullduplexcall>
 handleFullDuplexCall :: Call (Protobuf TestService "fullDuplexCall") -> IO ()
 handleFullDuplexCall call = do
-    trailingMetadata <- constructResponseMetadata call
-    loop
-    sendTrailers call trailingMetadata
-  where
-    loop :: IO ()
-    loop = do
-        streamElem <- recvInput call
-        case streamElem of
-          StreamElem  r   -> handleStreamingOutputCall r sendResponse >> loop
-          FinalElem   r _ -> handleStreamingOutputCall r sendResponse
-          NoMoreElems   _ -> return ()
+    trailers <- constructResponseMetadata call
 
+    let handleRequest :: StreamingOutputCallRequest -> IO ()
+        handleRequest request = do
+            handleStreamingOutputCall request sendResponse
+            echoStatus (request ^. #responseStatus) trailers
+
+        loop :: IO ()
+        loop = do
+            streamElem <- recvInput call
+            print streamElem
+            case streamElem of
+              StreamElem  r   -> handleRequest r >> loop
+              FinalElem   r _ -> handleRequest r
+              NoMoreElems   _ -> return ()
+
+    loop
+    sendTrailers call trailers
+  where
     sendResponse :: StreamingOutputCallResponse -> IO ()
     sendResponse = sendOutput call . StreamElem
