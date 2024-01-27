@@ -27,8 +27,8 @@ handleFullDuplexCall getRequest sendResponse =
   where
     loop :: IO ()
     loop = do
-        mRequest <- getRequest
-        case mRequest of
+        streamElem <- getRequest
+        case streamElem of
           StreamElem  r   -> handleRequest r >> loop
           FinalElem   r _ -> handleRequest r
           NoMoreElems   _ -> return ()
