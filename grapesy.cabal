@@ -404,8 +404,9 @@ executable grapesy-interop
       Interop.Client.Ping
       Interop.Cmdline
       Interop.Server
-      Interop.TestCase.CacheableUnary
-      Interop.TestCases
+      Interop.Server.Handlers.UnaryCall
+      Interop.Server.Handlers.Ping
+      Interop.Server.Util
 
       Paths_grapesy
 
@@ -417,6 +418,7 @@ executable grapesy-interop
     , grapesy
   build-depends:
     , base
+    , bytestring
     , data-default
     , exceptions
     , lens
@@ -424,6 +426,7 @@ executable grapesy-interop
     , optparse-applicative
     , proto-lens
     , proto-lens-runtime
+    , text
 
   if !flag(build-interop)
     buildable:

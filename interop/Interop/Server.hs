@@ -1,12 +1,7 @@
-{-# LANGUAGE OverloadedLabels  #-}
-
 module Interop.Server (server) where
 
-import Control.Lens ((.~), (^.))
 import Control.Monad.Catch (generalBracket, ExitCase(..))
 import Data.Default
-import Data.Function ((&))
-import Data.ProtoLens
 import Data.ProtoLens.Labels ()
 
 import Network.GRPC.Common
@@ -21,31 +16,43 @@ import Proto.Ping
 import Proto.Src.Proto.Grpc.Testing.Test
 
 import Interop.Cmdline
-import Interop.TestCases
+import Interop.Server.Handlers.Ping
+import Interop.Server.Handlers.UnaryCall
 
 {-------------------------------------------------------------------------------
   Handlers
+
+  The expected server functionality is described at
+  <https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptions.md#server>
+
+  The relevant @.proto@ definitions are
+
+  * @grpc-repo/src/proto/grpc/testing/test.proto@ (main service definition)
+  * @grpc-repo/src/proto/grpc/testing/messages.proto@ (most message types)
+  * @grpc-repo/src/proto/grpc/testing/empty.proto@
 -------------------------------------------------------------------------------}
 
-handlePing :: PingMessage -> IO PongMessage
-handlePing ping = return $ defMessage & #id .~ (ping ^. #id)
+methodsPingService :: Methods IO (ProtobufMethodsOf PingService)
+methodsPingService =
+      Method (mkNonStreaming handlePing)
+    $ NoMoreMethods
 
-handlers :: Methods IO (ProtobufMethodsOf TestService)
-handlers =
-      Method handleCacheableUnaryCall
+methodsTestService :: Methods IO (ProtobufMethodsOf TestService)
+methodsTestService =
+      UnsupportedMethod -- cacheableUnaryCall
     $ UnsupportedMethod -- emptyCall
     $ UnsupportedMethod -- fullDuplexCall
     $ UnsupportedMethod -- halfDuplexCall
     $ UnsupportedMethod -- streamingInputCall
     $ UnsupportedMethod -- streamingOutputCall
-    $ UnsupportedMethod -- unaryCall
+    $ Method (mkNonStreaming handleUnaryCall) -- unaryCall
     $ UnsupportedMethod -- unimplementedCall
     $ NoMoreMethods
 
 services :: Services IO (ProtobufServices '[PingService, TestService])
 services =
-      Service (Method (mkNonStreaming handlePing) NoMoreMethods)
-    $ Service handlers
+      Service methodsPingService
+    $ Service methodsTestService
     $ NoMoreServices
 
 {-------------------------------------------------------------------------------
