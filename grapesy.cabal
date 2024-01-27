@@ -404,6 +404,7 @@ executable grapesy-interop
       Interop.Client.Ping
       Interop.Cmdline
       Interop.Server
+      Interop.Server.Handlers.EmptyCall
       Interop.Server.Handlers.UnaryCall
       Interop.Server.Handlers.Ping
       Interop.Server.Util

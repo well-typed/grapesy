@@ -16,6 +16,7 @@ import Proto.Ping
 import Proto.Src.Proto.Grpc.Testing.Test
 
 import Interop.Cmdline
+import Interop.Server.Handlers.EmptyCall
 import Interop.Server.Handlers.Ping
 import Interop.Server.Handlers.UnaryCall
 
@@ -29,7 +30,7 @@ import Interop.Server.Handlers.UnaryCall
 
   * @grpc-repo/src/proto/grpc/testing/test.proto@ (main service definition)
   * @grpc-repo/src/proto/grpc/testing/messages.proto@ (most message types)
-  * @grpc-repo/src/proto/grpc/testing/empty.proto@
+  * @grpc-repo/src/proto/grpc/testing/empty.proto@ (@Empty@ message)
 -------------------------------------------------------------------------------}
 
 methodsPingService :: Methods IO (ProtobufMethodsOf PingService)
@@ -40,7 +41,7 @@ methodsPingService =
 methodsTestService :: Methods IO (ProtobufMethodsOf TestService)
 methodsTestService =
       UnsupportedMethod -- cacheableUnaryCall
-    $ UnsupportedMethod -- emptyCall
+    $ Method (mkNonStreaming handleEmptyCall)
     $ UnsupportedMethod -- fullDuplexCall
     $ UnsupportedMethod -- halfDuplexCall
     $ UnsupportedMethod -- streamingInputCall
