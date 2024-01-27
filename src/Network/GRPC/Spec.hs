@@ -94,10 +94,14 @@ module Network.GRPC.Spec (
   , AsciiValue(..)
   , NoMetadata(..)
   , customHeaderName
+    -- ** Serialization
   , parseCustomMetadata
   , buildCustomMetadata
+    -- ** Validation
   , safeHeaderName
   , safeAsciiValue
+    -- ** Convenience
+  , lookupCustomMetadata
   ) where
 
 import Network.GRPC.Spec.Call

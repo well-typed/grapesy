@@ -22,6 +22,8 @@ module Network.GRPC.Spec.CustomMetadata (
     -- * To and from HTTP headers
   , buildCustomMetadata
   , parseCustomMetadata
+    -- * Convenience
+  , lookupCustomMetadata
   ) where
 
 import Control.Monad.Except
@@ -241,3 +243,23 @@ parseCustomMetadata (name, value)
       (Just name', Just value') ->
         return $ AsciiHeader name' value'
 
+{-------------------------------------------------------------------------------
+  Convenience functions
+-------------------------------------------------------------------------------}
+
+lookupCustomMetadata ::
+     HeaderName
+  -> [CustomMetadata]
+  -> Maybe (Either BinaryValue AsciiValue)
+lookupCustomMetadata name = go
+  where
+    go :: [CustomMetadata] -> Maybe (Either BinaryValue AsciiValue)
+    go []     = Nothing
+    go (h:hs) =
+        case h of
+          BinaryHeader name' value | name == name' ->
+            Just $ Left value
+          AsciiHeader name' value | name == name' ->
+            Just $ Right value
+          _otherwise ->
+            go hs

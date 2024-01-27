@@ -3,9 +3,11 @@ module Interop.Server (server) where
 import Control.Monad.Catch (generalBracket, ExitCase(..))
 import Data.Default
 import Data.ProtoLens.Labels ()
+import Data.Proxy
 
 import Network.GRPC.Common
 import Network.GRPC.Common.StreamType
+import Network.GRPC.Server
 import Network.GRPC.Server.Protobuf
 import Network.GRPC.Server.Run
 import Network.GRPC.Server.StreamType
@@ -45,11 +47,11 @@ methodsTestService :: Methods IO (ProtobufMethodsOf TestService)
 methodsTestService =
       UnsupportedMethod -- cacheableUnaryCall
     $ Method (mkNonStreaming handleEmptyCall)
-    $ Method (mkBiDiStreaming handleFullDuplexCall) -- fullDuplexCall
+    $ Method (mkBiDiStreaming handleFullDuplexCall)
     $ UnsupportedMethod -- halfDuplexCall
-    $ Method (mkClientStreaming handleStreamingInputCall) -- streamingInputCall
-    $ Method (mkServerStreaming handleStreamingOutputCall) -- streamingOutputCall
-    $ Method (mkNonStreaming handleUnaryCall) -- unaryCall
+    $ Method (mkClientStreaming handleStreamingInputCall)
+    $ Method (mkServerStreaming handleStreamingOutputCall)
+    $ RawMethod (mkRpcHandler Proxy handleUnaryCall)
     $ UnsupportedMethod -- unimplementedCall
     $ NoMoreMethods
 

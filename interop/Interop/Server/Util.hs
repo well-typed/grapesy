@@ -6,6 +6,7 @@ module Interop.Server.Util (
     throwUnrecognized
     -- * Dealing with the test-suite's message types
   , mkPayload
+  , constructResponseMetadata
   ) where
 
 import Control.Exception
@@ -16,6 +17,8 @@ import Data.ProtoLens.Labels ()
 import Data.Text qualified as Text
 
 import Network.GRPC.Common
+import Network.GRPC.Server
+import Network.GRPC.Spec
 
 import Proto.Src.Proto.Grpc.Testing.Messages
 
@@ -23,16 +26,16 @@ import Proto.Src.Proto.Grpc.Testing.Messages
   Errors
 -------------------------------------------------------------------------------}
 
-throwUnrecognized :: Show a => String -> a -> IO x
+throwUnrecognized :: forall a x. Show a => String -> a -> IO x
 throwUnrecognized field value =
     throwIO $ GrpcException {
         grpcError         = GrpcInvalidArgument
       , grpcErrorMetadata = []
-      , grpcErrorMessage  = Just $ mconcat [
+      , grpcErrorMessage  = Just . Text.pack $ concat [
            "Unrecognized "
-         , Text.pack field
+         , show field
          , ": "
-         , Text.pack (show value)
+         , show value
          ]
       }
 
@@ -52,3 +55,39 @@ mkPayload type' size = do
       defMessage
         & #type' .~ type'
         & #body  .~ body
+
+-- | Construct response metadata
+--
+-- Sends the initial response metadata now, and returns the trailing metadata.
+-- See <https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptions.md#custom_metadata>
+constructResponseMetadata :: Call rpc -> IO [CustomMetadata]
+constructResponseMetadata call = do
+    requestMetadata <- getRequestMetadata call
+    initialResponseMetadata <-
+      case lookupCustomMetadata nameMetadataInitial requestMetadata of
+        Nothing ->
+          return []
+        Just (Left binaryValue) ->
+          throwUnrecognized (show nameMetadataInitial) binaryValue
+        Just (Right asciiValue) ->
+          return [AsciiHeader nameMetadataInitial asciiValue]
+    trailingResponseMetadata <-
+      case lookupCustomMetadata nameMetadataTrailing requestMetadata of
+        Nothing ->
+          return []
+        Just (Left binaryValue) ->
+          return [BinaryHeader nameMetadataTrailing binaryValue]
+        Just (Right asciiValue) ->
+          throwUnrecognized (show nameMetadataTrailing) asciiValue
+
+    -- Send initial metadata
+    setResponseMetadata call initialResponseMetadata
+    _initiated <- initiateResponse call
+
+    -- Return the final metadata to be sent at the end of the call
+    return trailingResponseMetadata
+  where
+    -- NOTE: grapesy strips/adds the @-bin@ suffix automatically
+    nameMetadataInitial, nameMetadataTrailing :: HeaderName
+    nameMetadataInitial  = "x-grpc-test-echo-initial"
+    nameMetadataTrailing = "x-grpc-test-echo-trailing"
