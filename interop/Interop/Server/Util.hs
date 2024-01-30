@@ -6,6 +6,7 @@ module Interop.Server.Util (
     throwUnrecognized
     -- * Dealing with the test-suite's message types
   , mkPayload
+  , clearPayload
   , constructResponseMetadata
   , echoStatus
   ) where
@@ -13,7 +14,9 @@ module Interop.Server.Util (
 import Control.Exception
 import Control.Lens ((&), (.~), (^.))
 import Data.ByteString qualified as BS.Strict
+import Data.ByteString qualified as Strict (ByteString)
 import Data.ProtoLens
+import Data.ProtoLens.Field (HasField)
 import Data.ProtoLens.Labels ()
 import Data.Text qualified as Text
 
@@ -56,6 +59,13 @@ mkPayload type' size = do
       defMessage
         & #type' .~ type'
         & #body  .~ body
+
+clearPayload ::
+     ( HasField a "payload" b
+     , HasField b "body" Strict.ByteString
+     )
+  => a -> a
+clearPayload x = x & #payload . #body .~ BS.Strict.empty
 
 -- | Construct response metadata
 --
