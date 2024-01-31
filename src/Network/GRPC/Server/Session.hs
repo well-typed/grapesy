@@ -35,7 +35,7 @@ instance IsRPC rpc => DataFlow (ServerInbound rpc) where
       }
     deriving (Show)
 
-  type Message  (ServerInbound rpc) = Input rpc
+  type Message  (ServerInbound rpc) = (InboundEnvelope, Input rpc)
   type Trailers (ServerInbound rpc) = NoMetadata
 
   -- See discussion of 'TrailersOnly' in 'ClientOutbound'
@@ -48,7 +48,7 @@ instance IsRPC rpc => DataFlow (ServerOutbound rpc) where
       }
     deriving (Show)
 
-  type Message    (ServerOutbound rpc) = Output rpc
+  type Message    (ServerOutbound rpc) = (OutboundEnvelope, Output rpc)
   type Trailers   (ServerOutbound rpc) = ProperTrailers
   type NoMessages (ServerOutbound rpc) = TrailersOnly
 

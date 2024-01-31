@@ -5,8 +5,12 @@ module Network.GRPC.Spec.LengthPrefixed (
     -- * Message prefix
     MessagePrefix(..)
     -- * Length-prefixex messages
+    -- ** Construction
+  , OutboundEnvelope(..)
   , buildInput
   , buildOutput
+    -- ** Parsing
+  , InboundEnvelope(..)
   , parseInput
   , parseOutput
   ) where
@@ -18,6 +22,7 @@ import Data.ByteString.Builder (Builder)
 import Data.ByteString.Builder qualified as Builder
 import Data.ByteString.Lazy qualified as BS.Lazy
 import Data.ByteString.Lazy qualified as Lazy (ByteString)
+import Data.Default
 import Data.Proxy
 import Data.Word
 
@@ -52,11 +57,21 @@ getMessagePrefix = do
 
 {-------------------------------------------------------------------------------
   Construction
-
-  TODO: We currently /always/ use the specified compression algorithm. We might
-  prefer to use identity coding when the compressed message turns out to be
-  larger than the original.
 -------------------------------------------------------------------------------}
+
+data OutboundEnvelope = OutboundEnvelope {
+      -- | Enable compression for this message
+      --
+      -- Even if enabled, compression will only be used if this results in a
+      -- smaller message.
+      outboundEnableCompression :: Bool
+    }
+  deriving stock (Show)
+
+instance Default OutboundEnvelope where
+  def = OutboundEnvelope {
+        outboundEnableCompression = True
+      }
 
 -- | Serialize RPC input
 --
@@ -67,28 +82,61 @@ getMessagePrefix = do
 -- > Message-Length  → {length of Message}
 -- >                     # encoded as 4 byte unsigned integer (big endian)
 -- > Message         → *{binary octet}
-buildInput :: IsRPC rpc => Proxy rpc -> Compression -> Input rpc -> Builder
+buildInput ::
+     IsRPC rpc
+  => Proxy rpc
+  -> Compression
+  -> (OutboundEnvelope, Input rpc)
+  -> Builder
 buildInput = buildMsg . serializeInput
 
 -- | Serialize RPC output
-buildOutput :: IsRPC rpc => Proxy rpc -> Compression -> Output rpc -> Builder
+buildOutput ::
+     IsRPC rpc
+  => Proxy rpc
+  -> Compression
+  -> (OutboundEnvelope, Output rpc)
+  -> Builder
 buildOutput = buildMsg . serializeOutput
 
 -- | Generalization of 'buildInput' and 'buildOutput'
-buildMsg :: (x -> Lazy.ByteString) -> Compression -> x -> Builder
-buildMsg build compr x = mconcat [
+buildMsg ::
+     (x -> Lazy.ByteString)
+  -> Compression
+  -> (OutboundEnvelope, x)
+  -> Builder
+buildMsg build compr (envelope, x) = mconcat [
       buildMessagePrefix prefix
-    , Builder.lazyByteString compressed
+    , Builder.lazyByteString $
+        if shouldCompress
+          then compressed
+          else uncompressed
     ]
   where
-    compressed :: Lazy.ByteString
-    compressed = compress compr $ build x
+    uncompressed, compressed :: Lazy.ByteString
+    uncompressed = build x
+    compressed   = compress compr uncompressed
+
+    shouldCompress :: Bool
+    shouldCompress = and [
+          not $ compressionIsIdentity compr
+        , outboundEnableCompression envelope
+        , BS.Lazy.length compressed < BS.Lazy.length uncompressed
+        ]
 
     prefix :: MessagePrefix
-    prefix = MessagePrefix {
-          msgIsCompressed = not $ compressionIsIdentity compr
-        , msgLength       = fromIntegral $ BS.Lazy.length compressed
-        }
+    prefix
+      | shouldCompress
+      = MessagePrefix {
+            msgIsCompressed = True
+          , msgLength       = fromIntegral $ BS.Lazy.length compressed
+          }
+
+      | otherwise
+      = MessagePrefix {
+            msgIsCompressed = False
+          , msgLength       = fromIntegral $ BS.Lazy.length uncompressed
+          }
 
 {-------------------------------------------------------------------------------
   Parsing
@@ -98,20 +146,37 @@ buildMsg build compr x = mconcat [
   larger library, testing 'Network.GRPC.Call.Peer.receiveMessages'.
 -------------------------------------------------------------------------------}
 
-parseInput :: IsRPC rpc => Proxy rpc -> Compression -> Parser (Input rpc)
+data InboundEnvelope = InboundEnvelope {
+      -- | Size of the message in compressed form, /if/ it was compressed
+      inboundCompressedSize :: Maybe Word32
+
+      -- | Size of the message in uncompressed (but still serialized) form
+    , inboundUncompressedSize :: Word32
+    }
+  deriving stock (Show)
+
+parseInput ::
+     IsRPC rpc
+  => Proxy rpc
+  -> Compression
+  -> Parser (InboundEnvelope, Input rpc)
 parseInput = parseMsg . deserializeInput
 
-parseOutput :: IsRPC rpc => Proxy rpc -> Compression -> Parser (Output rpc)
+parseOutput ::
+     IsRPC rpc
+  => Proxy rpc
+  -> Compression
+  -> Parser (InboundEnvelope, Output rpc)
 parseOutput = parseMsg . deserializeOutput
 
 parseMsg :: forall x.
      (Lazy.ByteString -> Either String x)
   -> Compression
-  -> Parser x
+  -> Parser (InboundEnvelope, x)
 parseMsg parse compr =
     waitForPrefix BS.Lazy.empty
   where
-    waitForPrefix :: Lazy.ByteString -> Parser x
+    waitForPrefix :: Lazy.ByteString -> Parser (InboundEnvelope, x)
     waitForPrefix acc
       | BS.Lazy.length acc < 5
       = ParserNeedsData acc $ \next -> waitForPrefix (snoc acc next)
@@ -123,7 +188,10 @@ parseMsg parse compr =
           Right (unconsumed, _lenConsumed, prefix) ->
             withPrefix prefix unconsumed
 
-    withPrefix :: MessagePrefix -> Lazy.ByteString -> Parser x
+    withPrefix ::
+         MessagePrefix
+      -> Lazy.ByteString
+      -> Parser (InboundEnvelope, x)
     withPrefix prefix acc
       | BS.Lazy.length acc < fromIntegral (msgLength prefix)
       = ParserNeedsData acc $ \next -> withPrefix prefix (snoc acc next)
@@ -133,9 +201,17 @@ parseMsg parse compr =
             serialized  = if msgIsCompressed prefix
                             then decompress compr msg
                             else msg
+            envelope    = InboundEnvelope {
+                              inboundCompressedSize =
+                                if msgIsCompressed prefix
+                                  then Just $ msgLength prefix
+                                  else Nothing
+                            , inboundUncompressedSize =
+                                fromIntegral $ BS.Lazy.length serialized
+                            }
         in case parse serialized of
              Left err -> ParserError err
-             Right a  -> ParserDone a $ waitForPrefix rest
+             Right a  -> ParserDone (envelope, a) $ waitForPrefix rest
 
     snoc :: Lazy.ByteString -> Strict.ByteString -> Lazy.ByteString
     snoc acc next = acc <> BS.Lazy.fromStrict next
