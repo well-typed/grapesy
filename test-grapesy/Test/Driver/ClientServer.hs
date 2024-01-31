@@ -5,6 +5,7 @@ module Test.Driver.ClientServer (
     ClientServerTest(..)
   , testClientServer
   , propClientServer
+  , noCustomExceptions
     -- * Re-exports
   , module Test.Util.ClientServer
   ) where
@@ -20,6 +21,7 @@ import Network.GRPC.Server qualified as Server
 
 import Test.Util.ClientServer
 import Text.Show.Pretty
+import Data.Void
 
 {-------------------------------------------------------------------------------
   Basic client-server test
@@ -40,7 +42,10 @@ instance Default ClientServerTest where
 
 -- | Run client server test, and check for expected failures
 testClientServer :: (Show e, PrettyVal e)
-  => (SomeException -> CustomException e)
+  => (SomeException -> Maybe e)
+  -- ^ Check if an exception was expected
+  --
+  -- See 'noCustomExceptions' if there are expected (test-specific) exceptions.
   -> ClientServerTest
   -> IO String
 testClientServer assessCustomException
@@ -55,7 +60,7 @@ testClientServer assessCustomException
 
 -- | Turn client server test into property
 propClientServer ::
-     (SomeException -> CustomException e)
+     (SomeException -> Maybe e)
   -> IO ClientServerTest
   -> QuickCheck.Property
 propClientServer assessCustomException mkTest =
@@ -70,3 +75,6 @@ propClientServer assessCustomException mkTest =
           case isExpectedException config assessCustomException err of
             Right _    -> return ()
             Left  err' -> throwIO err'
+
+noCustomExceptions :: SomeException -> Maybe Void
+noCustomExceptions _ = Nothing

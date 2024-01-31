@@ -23,13 +23,12 @@ handleFullDuplexCall call = do
 
     let handleRequest :: StreamingOutputCallRequest -> IO ()
         handleRequest request = do
-            handleStreamingOutputCall request sendResponse
+            handleStreamingOutputCallRequest call request
             echoStatus (request ^. #responseStatus) trailers
 
         loop :: IO ()
         loop = do
             streamElem <- recvInput call
-            print streamElem
             case streamElem of
               StreamElem  r   -> handleRequest r >> loop
               FinalElem   r _ -> handleRequest r
@@ -37,6 +36,3 @@ handleFullDuplexCall call = do
 
     loop
     sendTrailers call trailers
-  where
-    sendResponse :: StreamingOutputCallResponse -> IO ()
-    sendResponse = sendOutput call . StreamElem

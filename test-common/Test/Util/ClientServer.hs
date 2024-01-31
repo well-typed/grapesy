@@ -11,7 +11,6 @@ module Test.Util.ClientServer (
     -- ** Evaluation
   , ExpectedException(..)
   , UnexpectedException(..)
-  , CustomException(..)
   , isExpectedException
     -- * Run
   , runTestClientServer
@@ -92,9 +91,7 @@ data LogMsg =
 
 collectLogMsgs :: (MonadIO m) => MVar [a] -> Tracer m a
 collectLogMsgs v = arrow $ emit $ \x -> liftIO $
-    modifyMVar_ v $ \xs -> do
-      -- print x
-      return (x:xs)
+    modifyMVar_ v $ \xs -> return (x:xs)
 
 {-------------------------------------------------------------------------------
   Configuration: TLS
@@ -156,11 +153,6 @@ data UnexpectedException = UnexpectedException {
   deriving stock (Show)
   deriving anyclass (Exception)
 
-data CustomException e =
-    CustomExceptionExpected e
-  | CustomExceptionUnexpected
-  | CustomExceptionNested SomeException
-
 -- | Check if the given configuration gives rise to expected exceptions
 --
 -- Returns 'Right' the expected exception if any (with any wrapper exceptions
@@ -174,7 +166,7 @@ data CustomException e =
 -- been closed).
 isExpectedException :: forall e.
      ClientServerConfig
-  -> (SomeException -> CustomException e)
+  -> (SomeException -> Maybe e)
   -- ^ Assess custom exceptiosn
   --
   -- Can either return e nested exception, or an evaluation whether the
@@ -277,19 +269,15 @@ isExpectedException cfg assessCustomException topLevel =
 
       | otherwise
       = case assessCustomException err of
-          CustomExceptionExpected err' ->
-            Right $ ExpectedExceptionCustom err'
-          CustomExceptionUnexpected ->
-            Left $ UnexpectedException topLevel err
-          CustomExceptionNested err' ->
-            go err'
+          Just err' -> Right $ ExpectedExceptionCustom err'
+          Nothing   -> Left $ UnexpectedException topLevel err
 
     compressionNegotationFailure :: Bool
     compressionNegotationFailure =
         Set.disjoint (Map.keysSet (Compr.supported (clientCompr cfg)))
                      (Map.keysSet (Compr.supported (serverCompr cfg)))
 
-    -- TODO: By right /any/ format (not just "gibberish") is ok
+    -- TODO: By rights /any/ format (not just "gibberish") should be ok
     invalidClientContentType :: Bool
     invalidClientContentType = not $
         case clientContentType cfg of

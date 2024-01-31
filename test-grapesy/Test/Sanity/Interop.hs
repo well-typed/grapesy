@@ -1,4 +1,5 @@
-{-# LANGUAGE OverloadedLabels #-}
+{-# LANGUAGE OverloadedLabels  #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 -- | Test functionality required by the gRPC interop tests
 module Test.Sanity.Interop (tests) where
@@ -6,21 +7,25 @@ module Test.Sanity.Interop (tests) where
 import Control.Exception
 import Control.Lens ((^.), (.~))
 import Control.Monad
+import Data.Bifunctor
 import Data.ByteString qualified as BS.Strict
 import Data.Default
 import Data.Function ((&))
 import Data.ProtoLens
 import Data.ProtoLens.Labels ()
 import Data.Proxy
-import Data.Void
 import Test.Tasty
 import Test.Tasty.HUnit
 
 import Network.GRPC.Client qualified as Client
+import Network.GRPC.Client.Binary qualified as Client.Binary
+import Network.GRPC.Client.StreamType qualified as Client
 import Network.GRPC.Common
 import Network.GRPC.Common.StreamElem qualified as StreamElem
 import Network.GRPC.Common.StreamType qualified as StreamType
+import Network.GRPC.Internal
 import Network.GRPC.Server qualified as Server
+import Network.GRPC.Server.Binary qualified as Server.Binary
 import Network.GRPC.Server.StreamType qualified as Server
 import Network.GRPC.Spec
 
@@ -36,16 +41,75 @@ import Test.Driver.ClientServer
 
 tests :: TestTree
 tests = testGroup "Test.Sanity.Interop" [
-      testCaseInfo "emptyUnary"                test_emptyUnary
-    , testCaseInfo "serverCompressedStreaming" test_serverCompressedStreaming
+      -- Preliminaries
+      testGroup "preliminary" [
+          testCaseInfo "callAfterException" test_callAfterException
+        ]
+
+      -- Tests from the gRPC interop suite
+      --
+      -- <https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptions.md#client>
+    , testGroup "official" [
+          testCaseInfo "emptyUnary"                test_emptyUnary
+        , testCaseInfo "serverCompressedStreaming" test_serverCompressedStreaming
+        ]
     ]
 
 {-------------------------------------------------------------------------------
-  Individual tests
+  Preliminary: verify that we can do a second call on the same connection,
+  even if the first failed with a gRPC exception
 -------------------------------------------------------------------------------}
 
-type EmptyCall           = Protobuf TestService "emptyCall"
-type StreamingOutputCall = Protobuf TestService "streamingOutputCall"
+type Ping = BinaryRpc "test" "ping"
+
+test_callAfterException :: IO String
+test_callAfterException =
+    testClientServer expectInvalidArgument def {
+        client = \withConn -> withConn $ \conn -> do
+          resp1 <- call conn 0
+          case resp1 of
+            Left _  -> return ()
+            Right _ -> assertFailure "Expected gRPC exception"
+
+          resp2 <- call conn 1
+          case resp2 of
+            Left  _ -> assertFailure "Expected pong"
+            Right i -> assertEqual "pong" i 1
+      , server = [
+            Server.streamingRpcHandler (Proxy @Ping) $
+              Server.Binary.mkNonStreaming $ \(i :: Word) ->
+                if i > 0 then
+                  return i
+                else
+                  throwIO $ GrpcException {
+                      grpcError         = GrpcInvalidArgument
+                    , grpcErrorMessage  = Just "Expected non-zero ping"
+                    , grpcErrorMetadata = []
+                    }
+          ]
+      }
+  where
+    call :: Client.Connection -> Word -> IO (Either SomeException Word)
+    call conn =
+        fmap (first (innerNestedException :: SomeException -> SomeException))
+      . try
+      . Client.Binary.nonStreaming (Client.rpc @Ping conn)
+
+    expectInvalidArgument :: SomeException -> Maybe ()
+    expectInvalidArgument e
+      | Just GrpcException{grpcError = GrpcInvalidArgument} <- fromException e
+      = Just ()
+
+      | otherwise
+      = Nothing
+
+{-------------------------------------------------------------------------------
+  @empty_unary@
+
+  <https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptions.md#empty_unary>
+-------------------------------------------------------------------------------}
+
+type EmptyCall = Protobuf TestService "emptyCall"
 
 -- | Test that the empty message has an empty encoding
 --
@@ -54,7 +118,7 @@ type StreamingOutputCall = Protobuf TestService "streamingOutputCall"
 -- minor overhead).
 test_emptyUnary :: IO String
 test_emptyUnary =
-    testClientServer assessCustomException def {
+    testClientServer noCustomExceptions def {
         client = \withConn -> withConn $ \conn ->
           Client.withRPC conn def (Proxy @EmptyCall) $ \call -> do
             Client.sendFinalInput call (defMessage :: Empty)
@@ -79,10 +143,18 @@ test_emptyUnary =
           Nothing   -> return ()
           Just size -> assertEqual "compressed size" size 0
 
+{-------------------------------------------------------------------------------
+  @server_compressed_streaming@
+
+  <https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptions.md#server_compressed_streaming>
+-------------------------------------------------------------------------------}
+
+type StreamingOutputCall = Protobuf TestService "streamingOutputCall"
+
 -- | Test that we can enable and disable compression per message
 test_serverCompressedStreaming :: IO String
 test_serverCompressedStreaming =
-    testClientServer assessCustomException def {
+    testClientServer noCustomExceptions def {
         client = \withConn -> withConn $ \conn ->
           Client.withRPC conn def (Proxy @StreamingOutputCall) $ \call -> do
             Client.sendFinalInput call $ defMessage & #responseParameters .~ [
@@ -149,8 +221,9 @@ test_serverCompressedStreaming =
           assertFailure "Expected value"
 
 {-------------------------------------------------------------------------------
-  Auxiliary
+  @client_compressed_streaming@
+
+  <https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptions.md#client_compressed_streaming>
 -------------------------------------------------------------------------------}
 
-assessCustomException :: SomeException -> CustomException Void
-assessCustomException = const CustomExceptionUnexpected
+-- TODO
