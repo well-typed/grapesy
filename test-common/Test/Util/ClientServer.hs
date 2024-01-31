@@ -73,8 +73,8 @@ data ClientServerConfig = ClientServerConfig {
 
 instance Default ClientServerConfig where
   def = ClientServerConfig {
-      clientCompr       = Compr.none
-    , serverCompr       = Compr.none
+      clientCompr       = def
+    , serverCompr       = def
     , useTLS            = Nothing
     , clientContentType = Nothing
     , serverContentType = Nothing
