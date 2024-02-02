@@ -3,7 +3,6 @@
 module Test.Sanity.StreamingType.CustomFormat (tests) where
 
 import Codec.Serialise qualified as Cbor
-import Control.Exception
 import Control.Monad
 import Data.Bifunctor
 import Data.Default
@@ -13,7 +12,6 @@ import Data.List
 import Data.Proxy
 import Data.Text (Text)
 import Data.Typeable
-import Data.Void
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -121,7 +119,7 @@ tests =
 
 test_calculator_cbor :: ClientServerConfig -> IO String
 test_calculator_cbor config = do
-    testClientServer assessCustomException $ def {
+    testClientServer noCustomExceptions $ def {
         config
       , client = \withConn -> withConn $ \conn -> do
           nonStreamingSumCheck conn
@@ -244,10 +242,3 @@ test_calculator_cbor config = do
          (Client.ClientHandler h, IsRPC (Calc fun))
       => Client.Connection -> h (Calc fun)
     rpc = Client.rpc
-
-{-------------------------------------------------------------------------------
-  Auxiliary
--------------------------------------------------------------------------------}
-
-assessCustomException :: SomeException -> CustomException Void
-assessCustomException = const CustomExceptionUnexpected

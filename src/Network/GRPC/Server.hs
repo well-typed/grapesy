@@ -25,10 +25,12 @@ module Network.GRPC.Server (
   , sendNextOutput
   , sendTrailers
 
-    -- ** Low-level API
+    -- ** Low-level\/specialized API
   , initiateResponse
   , sendTrailersOnly
   , isCallHealthy
+  , recvInputWithEnvelope
+  , sendOutputWithEnvelope
 
     -- * Common serialization formats
   , Protobuf

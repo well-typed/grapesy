@@ -9,9 +9,13 @@ module Network.GRPC.Spec (
     -- ** Instances
   , Protobuf
   , BinaryRpc
-    -- ** Serialization
+    -- ** Messages
+    -- *** Parsing
+  , InboundEnvelope(..)
   , parseInput
   , parseOutput
+    -- *** Construction
+  , OutboundEnvelope(..)
   , buildInput
   , buildOutput
     -- * Streaming types

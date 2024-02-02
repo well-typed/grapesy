@@ -48,8 +48,10 @@ module Network.GRPC.Client (
   , recvFinalOutput
   , recvAllOutputs
 
-    -- ** Low-level API
+    -- ** Low-level\/specialized API
   , isCallHealthy
+  , sendInputWithEnvelope
+  , recvOutputWithEnvelope
 
     -- * Common serialization formats
   , Protobuf

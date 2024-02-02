@@ -22,10 +22,12 @@ module Network.GRPC.Server.Call (
   , sendNextOutput
   , sendTrailers
 
-    -- ** Low-level API
+    -- ** Low-level\/specialized API
   , initiateResponse
   , sendTrailersOnly
   , isCallHealthy
+  , recvInputWithEnvelope
+  , sendOutputWithEnvelope
 
     -- ** Internal API
   , sendProperTrailers
@@ -39,6 +41,7 @@ import Control.Monad.Except (runExceptT, throwError)
 import Control.Monad.IO.Class (liftIO)
 import Control.Tracer
 import Data.Bifunctor
+import Data.Default
 import Data.Text qualified as Text
 import GHC.Stack
 import Network.HTTP2.Internal qualified as HTTP2
@@ -390,7 +393,19 @@ data HandlerTerminated = HandlerTerminated
 -- We do not return trailers, since gRPC does not support sending trailers from
 -- the client to the server (only from the server to the client).
 recvInput :: HasCallStack => Call rpc -> IO (StreamElem NoMetadata (Input rpc))
-recvInput Call{callChannel} =
+recvInput = fmap (fmap snd) . recvInputWithEnvelope
+
+-- | Generalization of 'recvInput', providing additional meta-information
+--
+-- This can be used to get some information about how the message was sent, such
+-- as its compressed and uncompressed size.
+--
+-- Most applications will never need to use this function.
+recvInputWithEnvelope ::
+     HasCallStack
+  => Call rpc
+  -> IO (StreamElem NoMetadata (InboundEnvelope, Input rpc))
+recvInputWithEnvelope Call{callChannel} =
     first ignoreTrailersOnly <$> Session.recv callChannel
   where
     ignoreTrailersOnly :: Either RequestHeaders NoMetadata -> NoMetadata
@@ -406,7 +421,19 @@ recvInput Call{callChannel} =
 -- This is a blocking call if this is the final message (i.e., the call will
 -- not return until the message has been written to the HTTP2 stream).
 sendOutput :: Call rpc -> StreamElem [CustomMetadata] (Output rpc) -> IO ()
-sendOutput call@Call{callChannel} msg = do
+sendOutput call = sendOutputWithEnvelope call . fmap (def,)
+
+-- | Generalization of 'sendOutput' with additional control
+--
+-- This can be used for example to enable or disable compression for individual
+-- messages.
+--
+-- Most applications will never need to use this function.
+sendOutputWithEnvelope ::
+     Call rpc
+  -> StreamElem [CustomMetadata] (OutboundEnvelope, Output rpc)
+  -> IO ()
+sendOutputWithEnvelope call@Call{callChannel} msg = do
     _updated <- initiateResponse call
     Session.send callChannel (first mkTrailers msg)
 

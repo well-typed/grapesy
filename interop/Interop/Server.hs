@@ -49,8 +49,8 @@ methodsTestService =
     $ Method (mkNonStreaming handleEmptyCall)
     $ RawMethod (mkRpcHandler Proxy handleFullDuplexCall)
     $ UnsupportedMethod -- halfDuplexCall
-    $ Method (mkClientStreaming handleStreamingInputCall)
-    $ Method (mkServerStreaming handleStreamingOutputCall)
+    $ RawMethod (mkRpcHandler Proxy handleStreamingInputCall)
+    $ RawMethod (mkRpcHandler Proxy handleStreamingOutputCall)
     $ RawMethod (mkRpcHandler Proxy handleUnaryCall)
     $ UnsupportedMethod -- unimplementedCall
     $ NoMoreMethods

@@ -12,12 +12,10 @@ communication and 50052 for secure communication):
 
 * `Protocols/HTTP/SSL/TLS Ports`: add 50052
 
-* `Protocols/Protobuf/Protobuf search paths`: make sure that the directory
-  containing the `.proto` definitions for the examples is listed here:
-
-  - /path/to/grpc-repo/examples/protos
-
-  For each of these you should enable "Load all files"
+* `Protocols/Protobuf/Protobuf search paths`: include
+  `/path/to/grapesy/dev/grpc-proto`. This contains a slightly modified version
+  of various `.proto` files from the official gRPC repo, specifically for use
+  in Wireshark.  Enable "Load all files".
 
 * `Preferences`/`Protocols`/`TLS`/`(Pre-)-Master-Secret log filename`:
   Set this to the same path that you set the `SSLKEYLOGFILE` environment

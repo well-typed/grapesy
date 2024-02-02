@@ -6,14 +6,19 @@ module Interop.Server.Util (
     throwUnrecognized
     -- * Dealing with the test-suite's message types
   , mkPayload
+  , clearPayload
   , constructResponseMetadata
   , echoStatus
+  , checkInboundCompression
   ) where
 
 import Control.Exception
 import Control.Lens ((&), (.~), (^.))
 import Data.ByteString qualified as BS.Strict
+import Data.ByteString qualified as Strict (ByteString)
+import Data.ByteString.Char8 qualified as BS.Strict.Char8
 import Data.ProtoLens
+import Data.ProtoLens.Field (HasField)
 import Data.ProtoLens.Labels ()
 import Data.Text qualified as Text
 
@@ -56,6 +61,20 @@ mkPayload type' size = do
       defMessage
         & #type' .~ type'
         & #body  .~ body
+
+clearPayload ::
+     ( HasField a "payload" b
+     , HasField b "body" Strict.ByteString
+     )
+  => a -> a
+clearPayload x = x & #payload . #body .~ BS.Strict.Char8.pack replacement
+  where
+    replacement :: String
+    replacement = concat [
+          "<<payload of "
+        , show (BS.Strict.length (x ^. #payload . #body))
+        , " bytes>>"
+        ]
 
 -- | Construct response metadata
 --
@@ -111,3 +130,23 @@ echoStatus status trailers =
   where
     code :: Word
     code = fromIntegral $ status ^. #code
+
+checkInboundCompression :: Bool -> InboundEnvelope -> IO ()
+checkInboundCompression expectCompressed envelope =
+    case (expectCompressed, inboundCompressedSize envelope) of
+      (True, Just _) ->
+        return ()
+      (False, Nothing) ->
+        return ()
+      (True, Nothing) ->
+        throwIO GrpcException {
+            grpcError         = GrpcInvalidArgument
+          , grpcErrorMessage  = Just "Expected compressed message"
+          , grpcErrorMetadata = []
+          }
+      (False, Just _) ->
+        throwIO GrpcException {
+            grpcError         = GrpcInvalidArgument
+          , grpcErrorMessage  = Just "Expected uncompressed message"
+          , grpcErrorMetadata = []
+          }

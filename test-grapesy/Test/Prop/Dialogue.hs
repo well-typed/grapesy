@@ -122,24 +122,24 @@ data ExpectedUserException =
 --
 -- TODO: However, it might be useful to be more precise about exactly which
 -- gRPC exceptions we expect and when.
-assessCustomException :: SomeException -> CustomException ExpectedUserException
+assessCustomException :: SomeException -> Maybe ExpectedUserException
 assessCustomException err
     --
     -- Custom exceptions
     --
 
     | Just (userEx :: SomeServerException) <- fromException err
-    = CustomExceptionExpected $ ExpectedServerException userEx
+    = Just $ ExpectedServerException userEx
 
     | Just (userEx :: SomeClientException) <- fromException err
-    = CustomExceptionExpected $ ExpectedClientException userEx
+    = Just $ ExpectedClientException userEx
 
     -- Server-side exceptions are thrown as 'GrpcException' client-side
     | Just (grpc :: GrpcException) <- fromException err
     , GrpcUnknown <- grpcError grpc
     , Just msg <- grpcErrorMessage grpc
     , "SomeServerException" `Text.isInfixOf` msg
-    = CustomExceptionExpected $ ExpectedForwardedToClient grpc
+    = Just $ ExpectedForwardedToClient grpc
 
     -- For when the server disconnects /without/ an exception
     --
@@ -148,14 +148,14 @@ assessCustomException err
     -- bug where the exception from the handler was reported as
     -- 'ServerDisconnected' rather than a 'GrpcException'.
     | Just (ServerDisconnected e) <- fromException err
-    = CustomExceptionExpected $
+    = Just $
         ExpectedServerDisconnected (innerNestedException e)
 
     -- Client-side exceptions are reported as 'ClientDisconnected', but without
     -- additional information (gRPC does not support client-to-server trailers
     -- so we have no way of informing the server about what went wrong).
     | Just (ClientDisconnected e) <- fromException err
-    = CustomExceptionExpected $
+    = Just $
         ExpectedClientDisconnected (innerNestedException e)
 
     --
@@ -163,19 +163,19 @@ assessCustomException err
     --
 
     | Just (ChannelDiscarded _) <- fromException err
-    = CustomExceptionExpected $ ExpectedEarlyTermination
+    = Just $ ExpectedEarlyTermination
     | Just (grpc :: GrpcException) <- fromException err
     , GrpcUnknown <- grpcError grpc
     , Just msg <- grpcErrorMessage grpc
     , "HandlerTerminated" `Text.isInfixOf` msg
-    = CustomExceptionExpected $ ExpectedForwardedToClient grpc
+    = Just $ ExpectedForwardedToClient grpc
 
     --
     -- Catch-all
     --
 
     | otherwise
-    = CustomExceptionUnexpected
+    = Nothing
 
 {-------------------------------------------------------------------------------
   Regression tests

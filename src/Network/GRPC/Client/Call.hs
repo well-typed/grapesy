@@ -16,14 +16,17 @@ module Network.GRPC.Client.Call (
   , recvFinalOutput
   , recvAllOutputs
 
-    -- ** Low-level API
+    -- ** Low-level\/specialized API
   , isCallHealthy
+  , sendInputWithEnvelope
+  , recvOutputWithEnvelope
   ) where
 
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
 import Data.Bifunctor
+import Data.Default
 import Data.Proxy
 import GHC.Stack
 
@@ -37,10 +40,6 @@ import Network.GRPC.Util.Session qualified as Session
 import Network.GRPC.Util.Session.Channel (ChannelUncleanClose(..))
 
 import Debug.Concurrent
-
-{-------------------------------------------------------------------------------
-  Definition
--------------------------------------------------------------------------------}
 
 {-------------------------------------------------------------------------------
   Open a call
@@ -87,7 +86,19 @@ sendInput ::
   => Call rpc
   -> StreamElem NoMetadata (Input rpc)
   -> m ()
-sendInput Call{callChannel} msg = liftIO $ do
+sendInput call = sendInputWithEnvelope call . fmap (def,)
+
+-- | Generalization of 'sendInput', providing additional control
+--
+-- See also 'Network.GRPC.Server.sendOutputWithEnvelope'.
+--
+-- Most applications will never need to use this function.
+sendInputWithEnvelope ::
+     (HasCallStack, MonadIO m)
+  => Call rpc
+  -> StreamElem NoMetadata (OutboundEnvelope, Input rpc)
+  -> m ()
+sendInputWithEnvelope Call{callChannel} msg = liftIO $ do
     Session.send callChannel msg
 
     -- This should be called before exiting the scope of 'withRPC'.
@@ -105,7 +116,18 @@ recvOutput ::
      MonadIO m
   => Call rpc
   -> m (StreamElem [CustomMetadata] (Output rpc))
-recvOutput Call{callChannel} = liftIO $
+recvOutput = fmap (fmap snd) . recvOutputWithEnvelope
+
+-- | Generalization of 'recvOutput', providing additional meta-information
+--
+-- See also 'Network.GRPC.Server.recvInputWithEnvelope'.
+--
+-- Most applications will never need to use this function.
+recvOutputWithEnvelope ::
+     MonadIO m
+  => Call rpc
+  -> m (StreamElem [CustomMetadata] (InboundEnvelope, Output rpc))
+recvOutputWithEnvelope Call{callChannel} = liftIO $
     first collapseTrailers <$> Session.recv callChannel
   where
     -- No difference between 'ProperTrailers' and 'TrailersOnly'

@@ -196,7 +196,6 @@ test-suite test-grapesy
   import:
       lang
   ghc-options:
-      -Wprepositive-qualified-module
       -threaded
       -rtsopts
   type:
@@ -205,6 +204,7 @@ test-suite test-grapesy
       test-grapesy
       test-common
       debug
+      proto
   main-is:
       Main.hs
   other-modules:
@@ -217,6 +217,7 @@ test-suite test-grapesy
       Test.Prop.Dialogue
       Test.Prop.Serialization
       Test.Sanity.HalfClosedLocal
+      Test.Sanity.Interop
       Test.Sanity.StreamingType.CustomFormat
       Test.Sanity.StreamingType.NonStreaming
       Test.Util.ClientServer
@@ -224,28 +225,35 @@ test-suite test-grapesy
 
       Paths_grapesy
 
+      Proto.Src.Proto.Grpc.Testing.Empty
+      Proto.Src.Proto.Grpc.Testing.Messages
+      Proto.Src.Proto.Grpc.Testing.Test
+
       Debug.Concurrent
   build-depends:
       -- Internal dependencies
     , grapesy
   build-depends:
       -- External dependencies
-    , async            >= 2.2  && < 2.3
-    , bytestring       >= 0.10 && < 0.12
-    , serialise        >= 0.2  && < 0.3
-    , containers       >= 0.6  && < 0.7
-    , contra-tracer    >= 0.2  && < 0.3
-    , data-default     >= 0.7  && < 0.8
-    , exceptions       >= 0.10 && < 0.11
-    , mtl              >= 2.2  && < 2.4
-    , pretty-show      >= 1.10 && < 1.11
-    , QuickCheck       >= 2.14 && < 2.15
-    , stm              >= 2.5  && < 2.6
-    , tasty            >= 1.4  && < 1.6
-    , tasty-hunit      >= 0.10 && < 0.11
-    , tasty-quickcheck >= 0.10 && < 0.11
-    , text             >= 1.2  && < 2.1
-    , tls              >= 1.5  && < 1.10
+    , async              >= 2.2  && < 2.3
+    , bytestring         >= 0.10 && < 0.12
+    , containers         >= 0.6  && < 0.7
+    , contra-tracer      >= 0.2  && < 0.3
+    , data-default       >= 0.7  && < 0.8
+    , exceptions         >= 0.10 && < 0.11
+    , lens               >= 5.0  && < 5.3
+    , mtl                >= 2.2  && < 2.4
+    , pretty-show        >= 1.10 && < 1.11
+    , proto-lens         >= 0.7  && < 0.8
+    , proto-lens-runtime >= 0.7  && < 0.8
+    , QuickCheck         >= 2.14 && < 2.15
+    , serialise          >= 0.2  && < 0.3
+    , stm                >= 2.5  && < 2.6
+    , tasty              >= 1.4  && < 1.6
+    , tasty-hunit        >= 0.10 && < 0.11
+    , tasty-quickcheck   >= 0.10 && < 0.11
+    , text               >= 1.2  && < 2.1
+    , tls                >= 1.5  && < 1.10
 
 executable demo-client
   import:

@@ -38,7 +38,7 @@ instance IsRPC rpc => DataFlow (ClientInbound rpc) where
       }
     deriving (Show)
 
-  type Message    (ClientInbound rpc) = Output rpc
+  type Message    (ClientInbound rpc) = (InboundEnvelope, Output rpc)
   type Trailers   (ClientInbound rpc) = [CustomMetadata]
   type NoMessages (ClientInbound rpc) = [CustomMetadata]
 
@@ -49,7 +49,7 @@ instance IsRPC rpc => DataFlow (ClientOutbound rpc) where
       }
     deriving (Show)
 
-  type Message  (ClientOutbound rpc) = Input rpc
+  type Message  (ClientOutbound rpc) = (OutboundEnvelope, Input rpc)
   type Trailers (ClientOutbound rpc) = NoMetadata
 
   -- gRPC does not support request trailers, but does not require that a request
