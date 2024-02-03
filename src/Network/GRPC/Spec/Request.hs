@@ -33,6 +33,7 @@ import Network.GRPC.Spec.CustomMetadata
 import Network.GRPC.Spec.PercentEncoding qualified as PercentEncoding
 import Network.GRPC.Spec.RPC
 import Network.GRPC.Spec.Timeout
+import Network.GRPC.Spec.TraceContext
 import Network.GRPC.Util.Partial
 
 import Paths_grapesy qualified as Grapesy
@@ -65,6 +66,9 @@ data RequestHeaders = RequestHeaders {
       --
       -- By default the content type will be set to @application/grpc+format@.
     , requestOverrideContentType :: Maybe Strict.ByteString
+
+      -- | Trace context (for OpenTelemetry)
+    , requestTraceContext :: Maybe TraceContext
     }
   deriving stock (Show, Eq)
   deriving stock (GHC.Generic)
@@ -130,6 +134,7 @@ callDefinition proxy = \hdrs -> catMaybes [
     , buildMessageEncoding       <$> requestCompression       hdrs
     , buildMessageAcceptEncoding <$> requestAcceptCompression hdrs
     , Just $ buildUserAgent
+    , buildGrpcTraceBin          <$> requestTraceContext hdrs
     ]
   where
     -- > Timeout      → "grpc-timeout" TimeoutValue TimeoutUnit
@@ -195,6 +200,12 @@ callDefinition proxy = \hdrs -> catMaybes [
             ]
         )
 
+    buildGrpcTraceBin :: TraceContext -> HTTP.Header
+    buildGrpcTraceBin ctxt = (
+          "grpc-trace-bin"
+        , buildBinaryValue $ buildTraceContext ctxt
+        )
+
 {-------------------------------------------------------------------------------
   Parsing
 -------------------------------------------------------------------------------}
@@ -211,7 +222,7 @@ parseRequestHeaders proxy =
     parseHeader ::
          HTTP.Header
       -> PartialParser RequestHeaders (Either String) ()
-    parseHeader hdr@(name, _value)
+    parseHeader hdr@(name, value)
       | name == "user-agent"
       = return () -- TODO
 
@@ -225,6 +236,10 @@ parseRequestHeaders proxy =
       | name == "grpc-accept-encoding"
       = update updAcceptCompression $ \_ ->
           Just <$> parseMessageAcceptEncoding hdr
+
+      | name == "grpc-trace-bin"
+      = update updTraceContext $ \_ ->
+          Just <$> (parseBinaryValue value >>= parseTraceContext)
 
       -- /If/ the @te@ header is present we check its value, but we do not
       -- insist that it is present (technically this is not conform spec).
@@ -259,6 +274,7 @@ parseRequestHeaders proxy =
         :* Right (Nothing :: Maybe CompressionId)
         :* Right (Nothing :: Maybe (NonEmpty CompressionId))
         :* Right (Nothing :: Maybe Strict.ByteString)
+        :* Right (Nothing :: Maybe TraceContext)
         :* Nil
 
     (    _updTimeout
@@ -266,5 +282,6 @@ parseRequestHeaders proxy =
       :* updCompression
       :* updAcceptCompression
       :* _updOverrideContentType
+      :* updTraceContext
       :* Nil ) = partialUpdates (Proxy @RequestHeaders)
 

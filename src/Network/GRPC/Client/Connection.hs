@@ -365,6 +365,8 @@ startRPC Connection{connMetaVar, connParams, connStateVar} _ callParams = do
             Compression.offer $ connCompression connParams
         , requestOverrideContentType =
             connContentType connParams
+        , requestTraceContext =
+            Nothing
         }
 
     callSession :: ClientSession rpc
