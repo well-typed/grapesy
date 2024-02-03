@@ -115,6 +115,32 @@ Make sure all changes you want to test are committed:
 
 ### Testing `grapesy` as a server
 
+To run the tests automatically:
+
+```bash
+tools/run_tests/run_interop_tests.py -l python -s grapesy --use_docker
+tools/run_tests/run_interop_tests.py -l c++    -s grapesy --use_docker
+tools/run_tests/run_interop_tests.py -l go     -s grapesy --use_docker
+tools/run_tests/run_interop_tests.py -l java   -s grapesy --use_docker
+```
+
+This will require a directory structure like this:
+
+```
+parent
+  |
+  +---- grpc-repo    https://github.com/grpc/grpc
+  |
+  +---- grpc-go      https://github.com/grpc/grpc-go
+  |
+  \---- grpc-java    https://github.com/grpc/grpc-java
+```
+
+### Manual execution
+
+During development however it might be more convenient to use the `--manual`
+flag, which creates a bash script that executes the individual tests:
+
 Create the docker containers:
 
 ```bash
@@ -171,3 +197,9 @@ is the problem.
 The server respects the `SSLKEYLOGFILE` environment variable, which can be
 useful for Wireshark debugging; see [/dev/wireshark.md](/dev/wireshark.md) for
 some suggestions on how to setup Wireshark.
+
+
+
+
+go: checkout /alongside/ (as a sibling of) `grpc-repo`
+

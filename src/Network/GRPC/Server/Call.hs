@@ -28,6 +28,7 @@ module Network.GRPC.Server.Call (
   , isCallHealthy
   , recvInputWithEnvelope
   , sendOutputWithEnvelope
+  , getRequestTraceContext
 
     -- ** Internal API
   , sendProperTrailers
@@ -72,10 +73,10 @@ data Call rpc = IsRPC rpc => Call {
       -- | Bidirectional channel to the client
     , callChannel :: Session.Channel (ServerSession rpc)
 
-      -- | Request metadata
+      -- | Request headers
       --
       -- This is filled once we get the request headers
-    , callRequestMetadata :: TMVar [CustomMetadata]
+    , callRequestHeaders :: TMVar RequestHeaders
 
       -- | Response metadata
       --
@@ -125,7 +126,7 @@ setupCall :: forall rpc.
   -> ServerContext
   -> IO (Either SomeException (Call rpc))
 setupCall conn ServerContext{params} = runExceptT $ do
-    callRequestMetadata  <- liftIO $ newEmptyTMVarIO
+    callRequestHeaders   <- liftIO $ newEmptyTMVarIO
     callResponseMetadata <- liftIO $ newTVarIO []
     callResponseKickoff  <- liftIO $ newEmptyTMVarIO
 
@@ -140,9 +141,8 @@ setupCall conn ServerContext{params} = runExceptT $ do
               Session.FlowStartRegular    headers  -> inbHeaders headers
               Session.FlowStartNoMessages trailers ->            trailers
 
-    -- Make request metadata available (see 'getRequestMetadata')
-    liftIO $ atomically $
-      putTMVar callRequestMetadata $ requestMetadata inboundHeaders
+    -- Make request headers available (e.g., see 'getRequestMetadata')
+    liftIO $ atomically $ putTMVar callRequestHeaders inboundHeaders
 
     -- Technically compression is only relevant in the 'KickoffRegular' case
     -- (i.e., in the case that the /server/ responds with messages, rather than
@@ -173,7 +173,7 @@ setupCall conn ServerContext{params} = runExceptT $ do
 
     return Call{
         callSession
-      , callRequestMetadata
+      , callRequestHeaders
       , callResponseMetadata
       , callResponseKickoff
       , callChannel
@@ -456,8 +456,8 @@ sendOutputWithEnvelope call@Call{callChannel} msg = do
 -- This will block until we have received the initial request /headers/ (but may
 -- well return before we receive the first /message/ from the client).
 getRequestMetadata :: Call rpc -> IO [CustomMetadata]
-getRequestMetadata Call{callRequestMetadata} =
-    atomically $ readTMVar callRequestMetadata
+getRequestMetadata Call{callRequestHeaders} =
+    atomically $ requestMetadata <$> readTMVar callRequestHeaders
 
 -- | Set the initial response metadata
 --
@@ -538,6 +538,13 @@ data ResponseAlreadyInitiated = ResponseAlreadyInitiated
 -- non-deterministic result of this function.
 isCallHealthy :: Call rpc -> STM Bool
 isCallHealthy = Session.isChannelHealthy . callChannel
+
+-- | Get trace context for the request (if any)
+--
+-- This provides (minimal) support for OpenTelemetry.
+getRequestTraceContext :: Call rpc -> IO (Maybe TraceContext)
+getRequestTraceContext Call{callRequestHeaders} =
+    atomically $ requestTraceContext <$> readTMVar callRequestHeaders
 
 {-------------------------------------------------------------------------------
   Protocol specific wrappers

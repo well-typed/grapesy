@@ -101,6 +101,8 @@ module Network.GRPC.Spec (
   , NoMetadata(..)
   , customHeaderName
     -- ** Serialization
+  , buildBinaryValue
+  , parseBinaryValue
   , parseCustomMetadata
   , buildCustomMetadata
     -- ** Validation
@@ -108,6 +110,13 @@ module Network.GRPC.Spec (
   , safeAsciiValue
     -- ** Convenience
   , lookupCustomMetadata
+    -- * OpenTelemetry
+  , TraceContext(..)
+  , TraceId(..)
+  , SpanId(..)
+  , TraceOptions(..)
+  , buildTraceContext
+  , parseTraceContext
   ) where
 
 import Network.GRPC.Spec.Call
@@ -123,3 +132,4 @@ import Network.GRPC.Spec.RPC.Protobuf
 import Network.GRPC.Spec.RPC.StreamType
 import Network.GRPC.Spec.Status
 import Network.GRPC.Spec.Timeout
+import Network.GRPC.Spec.TraceContext

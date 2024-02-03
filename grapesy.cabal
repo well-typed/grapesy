@@ -105,6 +105,7 @@ library
       Network.GRPC.Server.RequestHandler
       Network.GRPC.Server.RequestHandler.API
       Network.GRPC.Server.Session
+      Network.GRPC.Spec.Base64
       Network.GRPC.Spec.Call
       Network.GRPC.Spec.Common
       Network.GRPC.Spec.Compression
@@ -120,6 +121,7 @@ library
       Network.GRPC.Spec.RPC.StreamType
       Network.GRPC.Spec.Status
       Network.GRPC.Spec.Timeout
+      Network.GRPC.Spec.TraceContext
       Network.GRPC.Util.AccumulatedByteString
       Network.GRPC.Util.ByteString
       Network.GRPC.Util.HTTP2
@@ -144,6 +146,7 @@ library
       debug
   build-depends:
     , async                >= 2.2   && < 2.3
+    , base16-bytestring    >= 1.0   && < 1.1
     , base64-bytestring    >= 1.2   && < 1.3
     , binary               >= 0.8   && < 0.9
     , bytestring           >= 0.10  && < 0.12
@@ -236,6 +239,7 @@ test-suite test-grapesy
   build-depends:
       -- External dependencies
     , async              >= 2.2  && < 2.3
+    , base64-bytestring  >= 1.2  && < 1.3
     , bytestring         >= 0.10 && < 0.12
     , containers         >= 0.6  && < 0.7
     , contra-tracer      >= 0.2  && < 0.3

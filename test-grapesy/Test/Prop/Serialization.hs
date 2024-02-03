@@ -2,6 +2,8 @@ module Test.Prop.Serialization (tests) where
 
 import Control.Monad.Except
 import Data.ByteString qualified as BS.Strict
+import Data.ByteString.Base64 qualified as BS.Strict.Base64
+import Data.ByteString.Char8 qualified as BS.Strict.Char8
 import Test.Tasty
 import Test.Tasty.QuickCheck
 
@@ -9,11 +11,31 @@ import Network.GRPC.Spec
 
 tests :: TestTree
 tests = testGroup "Test.Prop.Serialization" [
-      testGroup "Roundtrip" [
-          testProperty "CustomMetadata" $
+      testGroup "Base64" [
+          testProperty "unpadded" $ \(Awkward value) ->
+            encodingNotPadded value
+        , testProperty "acceptPadded" $
+            roundtrip buildUnpadded parseBinaryValue
+        , testProperty "roundtrip" $
+            roundtrip buildBinaryValue parseBinaryValue
+        ]
+    , testGroup "CustomMetadata" [
+          testProperty "roundtrip" $
             roundtrip buildCustomMetadata parseCustomMetadata
         ]
     ]
+
+{-------------------------------------------------------------------------------
+  Auxiliary: binary headers
+-------------------------------------------------------------------------------}
+
+-- | The gRPC spec mandates we should not /create/ unpadded values
+encodingNotPadded :: BinaryValue -> Bool
+encodingNotPadded = BS.Strict.Char8.all (/= '=') . buildBinaryValue
+
+-- | The gRPC spec mandates we must /accept/ unpadded values
+buildUnpadded :: BinaryValue -> BS.Strict.Char8.ByteString
+buildUnpadded = BS.Strict.Base64.encode . getBinaryValue
 
 {-------------------------------------------------------------------------------
   Roundtrip tests
@@ -57,8 +79,13 @@ instance Arbitrary (Awkward HeaderName) where
       suchThatMap (BS.Strict.pack <$> arbitrary) safeHeaderName
 
 instance Arbitrary (Awkward BinaryValue) where
-  arbitrary = Awkward <$>
-      BinaryValue . BS.Strict.pack <$> arbitrary
+  arbitrary =
+      Awkward <$>
+        BinaryValue . BS.Strict.pack <$> arbitrary
+  shrink =
+        map (Awkward . BinaryValue . BS.Strict.pack)
+      . shrink
+      . BS.Strict.unpack . getBinaryValue . getAwkward
 
 instance Arbitrary (Awkward AsciiValue) where
   arbitrary = Awkward <$>

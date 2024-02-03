@@ -31,6 +31,7 @@ module Network.GRPC.Server (
   , isCallHealthy
   , recvInputWithEnvelope
   , sendOutputWithEnvelope
+  , getRequestTraceContext
 
     -- * Common serialization formats
   , Protobuf
