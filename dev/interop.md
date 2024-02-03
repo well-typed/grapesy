@@ -121,6 +121,7 @@ To run the tests automatically:
 tools/run_tests/run_interop_tests.py -l python -s grapesy --use_docker
 tools/run_tests/run_interop_tests.py -l c++    -s grapesy --use_docker
 tools/run_tests/run_interop_tests.py -l go     -s grapesy --use_docker
+tools/run_tests/run_interop_tests.py -l java   -s grapesy --use_docker
 ```
 
 This will require a directory structure like this:
@@ -130,7 +131,9 @@ parent
   |
   +---- grpc-repo    https://github.com/grpc/grpc
   |
-  \---- grpc-go      https://github.com/grpc/grpc-go
+  +---- grpc-go      https://github.com/grpc/grpc-go
+  |
+  \---- grpc-java    https://github.com/grpc/grpc-java
 ```
 
 ### Manual execution
