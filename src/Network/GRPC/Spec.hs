@@ -101,6 +101,8 @@ module Network.GRPC.Spec (
   , NoMetadata(..)
   , customHeaderName
     -- ** Serialization
+  , buildBinaryValue
+  , parseBinaryValue
   , parseCustomMetadata
   , buildCustomMetadata
     -- ** Validation

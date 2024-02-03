@@ -19,6 +19,8 @@ module Network.GRPC.Spec.CustomMetadata (
   , safeAsciiValue
     -- * Binary value
   , BinaryValue(..)
+  , buildBinaryValue
+  , parseBinaryValue
     -- * To and from HTTP headers
   , buildCustomMetadata
   , parseCustomMetadata
@@ -29,7 +31,6 @@ module Network.GRPC.Spec.CustomMetadata (
 import Control.Monad.Except
 import Data.ByteString qualified as BS.Strict
 import Data.ByteString qualified as Strict (ByteString)
-import Data.ByteString.Base64 qualified as BS.Strict.B64
 import Data.CaseInsensitive qualified as CI
 import Data.String
 import Data.Word
@@ -38,6 +39,7 @@ import GHC.Show
 import Network.HTTP.Types qualified as HTTP
 import Text.Show.Pretty
 
+import Network.GRPC.Spec.Base64
 import Network.GRPC.Util.ByteString (strip, ascii, dropEnd)
 import Network.GRPC.Util.PrettyVal
 
@@ -202,6 +204,15 @@ newtype BinaryValue = BinaryValue {
   deriving stock (Show, Eq, Ord)
   deriving PrettyVal via StrictByteString_Binary "BinaryValue" BinaryValue
 
+buildBinaryValue :: BinaryValue -> Strict.ByteString
+buildBinaryValue = encodeBase64 . getBinaryValue
+
+parseBinaryValue :: MonadError String m => Strict.ByteString -> m BinaryValue
+parseBinaryValue bs =
+    case BinaryValue <$> decodeBase64 bs of
+      Left  err -> throwError err
+      Right val -> return val
+
 {-------------------------------------------------------------------------------
   To/from HTTP2
 -------------------------------------------------------------------------------}
@@ -209,7 +220,7 @@ newtype BinaryValue = BinaryValue {
 buildCustomMetadata :: CustomMetadata -> HTTP.Header
 buildCustomMetadata (BinaryHeader name value) = (
       CI.mk $ getHeaderName name <> "-bin"
-    , BS.Strict.B64.encode (getBinaryValue value)
+    , buildBinaryValue value
     )
 buildCustomMetadata (AsciiHeader name value) = (
       CI.mk $ getHeaderName name
@@ -223,14 +234,14 @@ parseCustomMetadata (name, value)
 
   | "-bin" `BS.Strict.isSuffixOf` CI.foldedCase name
   = case ( safeHeaderName (dropEnd 4 $ CI.foldedCase name)
-         , BS.Strict.B64.decode value
+         , parseBinaryValue value
          ) of
       (Nothing, _) ->
         throwError $ "Invalid header name: " ++ show (name, value)
       (_, Left err) ->
         throwError $ "Cannot decode binary header: " ++ err
       (Just name', Right value') ->
-        return $ BinaryHeader name' (BinaryValue value')
+        return $ BinaryHeader name' value'
 
   | otherwise
   = case ( safeHeaderName (CI.foldedCase name)
