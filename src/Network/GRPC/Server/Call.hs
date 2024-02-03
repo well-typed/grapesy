@@ -28,6 +28,7 @@ module Network.GRPC.Server.Call (
   , isCallHealthy
   , recvInputWithEnvelope
   , sendOutputWithEnvelope
+  , getRequestTraceContext
 
     -- ** Internal API
   , sendProperTrailers
@@ -537,6 +538,13 @@ data ResponseAlreadyInitiated = ResponseAlreadyInitiated
 -- non-deterministic result of this function.
 isCallHealthy :: Call rpc -> STM Bool
 isCallHealthy = Session.isChannelHealthy . callChannel
+
+-- | Get trace context for the request (if any)
+--
+-- This provides (minimal) support for OpenTelemetry.
+getRequestTraceContext :: Call rpc -> IO (Maybe TraceContext)
+getRequestTraceContext Call{callRequestHeaders} =
+    atomically $ requestTraceContext <$> readTMVar callRequestHeaders
 
 {-------------------------------------------------------------------------------
   Protocol specific wrappers
