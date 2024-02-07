@@ -20,11 +20,12 @@ import Control.Monad.Catch
 import Data.Binary
 import GHC.Stack
 
-import Network.GRPC.Common.Binary
 import Network.GRPC.Common
-import Network.GRPC.Common.StreamType qualified as StreamType
+import Network.GRPC.Common.Binary
+import Network.GRPC.Common.StreamType
 import Network.GRPC.Server (Call)
 import Network.GRPC.Server qualified as Server
+import Network.GRPC.Server.StreamType qualified as StreamType
 
 {-------------------------------------------------------------------------------
   Convenience wrapers using @binary@ for serialization/deserialization
@@ -69,7 +70,7 @@ mkNonStreaming :: forall m inp out serv meth.
   => (    inp
        -> m out
      )
-  -> StreamType.NonStreamingHandler m (BinaryRpc serv meth)
+  -> NonStreamingHandler m (BinaryRpc serv meth)
 mkNonStreaming f = StreamType.mkNonStreaming $ \inp -> do
     inp' <- decodeOrThrow inp
     encode <$> f inp'
@@ -79,7 +80,7 @@ mkClientStreaming :: forall m out serv meth.
   => (    (forall inp. Binary inp => m (StreamElem NoMetadata inp))
        -> m out
      )
-  -> StreamType.ClientStreamingHandler m (BinaryRpc serv meth)
+  -> ClientStreamingHandler m (BinaryRpc serv meth)
 mkClientStreaming f = StreamType.mkClientStreaming $ \recv -> do
     out <- f (recv >>= traverse decodeOrThrow)
     return $ encode out
@@ -90,7 +91,7 @@ mkServerStreaming :: forall m inp serv meth.
        -> (forall out. Binary out => out -> m ())
        -> m ()
      )
-  -> StreamType.ServerStreamingHandler m (BinaryRpc serv meth)
+  -> ServerStreamingHandler m (BinaryRpc serv meth)
 mkServerStreaming f = StreamType.mkServerStreaming $ \inp send -> do
     inp' <- decodeOrThrow inp
     f inp' (send . encode)
@@ -101,7 +102,7 @@ mkBiDiStreaming :: forall m serv meth.
        -> (forall out. Binary out => out -> m ())
        -> m ()
      )
-  -> StreamType.BiDiStreamingHandler m (BinaryRpc serv meth)
+  -> BiDiStreamingHandler m (BinaryRpc serv meth)
 mkBiDiStreaming f = StreamType.mkBiDiStreaming $ \recv send ->
     f (recv >>= traverse decodeOrThrow) (send . encode)
 

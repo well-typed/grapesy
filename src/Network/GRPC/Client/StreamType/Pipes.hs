@@ -8,47 +8,39 @@ module Network.GRPC.Client.StreamType.Pipes (
   , biDiStreaming
   ) where
 
+import Control.Monad.Reader
 import Data.ProtoLens.Service.Types
 import Data.Proxy
 import Pipes hiding (Proxy)
 import Pipes.Safe
 
 import Network.GRPC.Client
-import Network.GRPC.Client.StreamType
+import Network.GRPC.Client.StreamType.IO qualified as IO
 import Network.GRPC.Common
-import Network.GRPC.Common.StreamType (SupportsStreamingType)
-import Network.GRPC.Common.StreamType qualified as StreamType
+import Network.GRPC.Common.StreamType
 import Network.GRPC.Util.RedundantConstraint
 
 {-------------------------------------------------------------------------------
   Pipes for different kinds of streaming types (communication patterns)
 -------------------------------------------------------------------------------}
 
-clientStreaming :: forall rpc.
-     IsRPC rpc
-  => SupportsStreamingType rpc ClientStreaming
+clientStreaming ::
+     ( SupportsStreamingType rpc ClientStreaming
+     , consumer ~ Consumer (StreamElem NoMetadata (Input rpc)) (SafeT IO)
+     )
   => Connection
-  -> CallParams
-  -> Proxy rpc
-  -> Consumer' (StreamElem NoMetadata (Input rpc)) (SafeT IO) (Output rpc)
-clientStreaming conn params proxy =
-    StreamType.clientStreaming
-      (rpcWith conn params proxy)
-      await
+  -> ClientStreamingHandler (ReaderT Connection consumer) rpc
+  -> consumer (Output rpc)
+clientStreaming conn h = IO.clientStreaming conn h await
 
-serverStreaming :: forall rpc.
-     IsRPC rpc
-  => SupportsStreamingType rpc ServerStreaming
+serverStreaming ::
+     ( SupportsStreamingType rpc ServerStreaming
+     , producer ~ Producer (Output rpc) (SafeT IO)
+     )
   => Connection
-  -> CallParams
-  -> Proxy rpc
-  -> Input rpc
-  -> Producer' (Output rpc) (SafeT IO) ()
-serverStreaming conn params proxy input =
-   StreamType.serverStreaming
-     (rpcWith conn params proxy)
-     input
-     yield
+  -> ServerStreamingHandler (ReaderT Connection producer) rpc
+  -> Input rpc -> producer ()
+serverStreaming conn h input = IO.serverStreaming conn h input yield
 
 -- | Bidirectional streaming
 --

@@ -25,16 +25,6 @@ module Network.GRPC.Common.StreamType (
   , ClientStreamingHandler(..)
   , ServerStreamingHandler(..)
   , BiDiStreamingHandler(..)
-    -- * Execution
-  , nonStreaming
-  , clientStreaming
-  , serverStreaming
-  , biDiStreaming
-    -- * Construction
-  , mkNonStreaming
-  , mkClientStreaming
-  , mkServerStreaming
-  , mkBiDiStreaming
   ) where
 
 import Network.GRPC.Spec

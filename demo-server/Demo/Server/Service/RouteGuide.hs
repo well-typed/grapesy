@@ -17,7 +17,6 @@ import Data.Time
 
 import Network.GRPC.Common
 import Network.GRPC.Common.StreamElem qualified as StreamElem
-import Network.GRPC.Common.StreamType
 import Network.GRPC.Server
 import Network.GRPC.Server.Protobuf
 import Network.GRPC.Server.StreamType

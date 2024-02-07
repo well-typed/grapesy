@@ -16,11 +16,11 @@ import Test.Tasty
 import Test.Tasty.HUnit
 
 import Network.GRPC.Client qualified as Client
-import Network.GRPC.Client.StreamType qualified as Client
+import Network.GRPC.Client.StreamType.IO (rpc)
+import Network.GRPC.Client.StreamType.IO qualified as Client
 import Network.GRPC.Common
 import Network.GRPC.Common.StreamElem qualified as StreamElem
 import Network.GRPC.Common.StreamType (SupportsStreamingType, StreamingType(..))
-import Network.GRPC.Common.StreamType qualified as StreamType
 import Network.GRPC.Server qualified as Server
 import Network.GRPC.Server.StreamType qualified as Server
 
@@ -154,14 +154,14 @@ test_calculator_cbor config = do
     -- that it's accurate
     nonStreamingSumCheck :: Client.Connection -> IO ()
     nonStreamingSumCheck conn = do
-      resp <- StreamType.nonStreaming (rpc @SumQuick conn) nums
+      resp <- Client.nonStreaming conn (rpc @(Calc SumQuick)) nums
       assertEqual "" (sum nums) resp
 
     -- Return the sum of a list of numbers
     nonStreamingSumHandler :: Server.RpcHandler IO
     nonStreamingSumHandler =
       Server.streamingRpcHandler (Proxy @(Calc SumQuick)) $
-        StreamType.mkNonStreaming $ \(ns :: [Int]) ->
+        Server.mkNonStreaming $ \(ns :: [Int]) ->
           return (sum ns)
 
     -- Ask for the sum of nums with the server streaming intermediate
@@ -169,7 +169,7 @@ test_calculator_cbor config = do
     serverStreamingSumCheck :: Client.Connection -> IO ()
     serverStreamingSumCheck conn = do
       receivedSumFromTo <- newIORef @[Int] []
-      StreamType.serverStreaming (rpc @SumFromTo conn) (start, end) $ \n -> do
+      Client.serverStreaming conn (rpc @(Calc SumFromTo)) (start, end) $ \n -> do
         atomicModifyIORef' receivedSumFromTo $ \ns -> (n:ns, ())
       resp <- readIORef receivedSumFromTo
       assertEqual "" intermediateSums (reverse resp)
@@ -178,7 +178,7 @@ test_calculator_cbor config = do
     serverStreamingSumHandler :: Server.RpcHandler IO
     serverStreamingSumHandler =
       Server.streamingRpcHandler (Proxy @(Calc SumFromTo)) $
-        StreamType.mkServerStreaming $ \((from, to) :: (Int, Int)) send ->
+        Server.mkServerStreaming $ \((from, to) :: (Int, Int)) send ->
           foldM_
             (\acc n -> let next = acc + n in send next >> return next)
             0
@@ -189,7 +189,7 @@ test_calculator_cbor config = do
     clientStreamingSumCheck :: Client.Connection -> IO ()
     clientStreamingSumCheck conn = do
       sendingNums <- newIORef @[Int] nums
-      resp <- StreamType.clientStreaming (rpc @SumListen conn) $ do
+      resp <- Client.clientStreaming conn (rpc @(Calc SumListen)) $ do
         atomicModifyIORef' sendingNums $
           \case
             []     -> ([], NoMoreElems NoMetadata)
@@ -201,7 +201,7 @@ test_calculator_cbor config = do
     clientStreamingSumHandler :: Server.RpcHandler IO
     clientStreamingSumHandler =
       Server.streamingRpcHandler (Proxy @(Calc SumListen)) $
-        StreamType.mkClientStreaming $ \recv -> do
+        Server.mkClientStreaming $ \recv -> do
           sum <$> StreamElem.collect recv
 
     -- Stream numbers, get back intermediate sums, make sure the intermediate
@@ -210,7 +210,7 @@ test_calculator_cbor config = do
     biDiStreamingSumCheck conn = do
       sendingNums <- newIORef @[Int] nums
       recvingNums <- newIORef @[Int] []
-      StreamType.biDiStreaming (rpc @SumChat conn)
+      Client.biDiStreaming conn (rpc @(Calc SumChat))
         ( do
             atomicModifyIORef' sendingNums $
               \case
@@ -228,7 +228,7 @@ test_calculator_cbor config = do
     biDiStreamingSumHandler :: Server.RpcHandler IO
     biDiStreamingSumHandler =
       Server.streamingRpcHandler (Proxy @(Calc SumChat)) $
-        StreamType.mkBiDiStreaming $ \recv send ->
+        Server.mkBiDiStreaming $ \recv send ->
           let
             go acc =
               recv >>= \case
@@ -237,8 +237,3 @@ test_calculator_cbor config = do
                 StreamElem n  -> send (acc + n) >> go (acc + n)
           in
             go 0
-
-    rpc :: forall (fun :: Function) h.
-         (Client.ClientHandler h, IsRPC (Calc fun))
-      => Client.Connection -> h (Calc fun)
-    rpc = Client.rpc

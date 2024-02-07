@@ -30,8 +30,8 @@ listFeatures :: Connection -> Rectangle -> IO ()
 listFeatures conn r = runSafeT . runEffect $
     (prod >>= logMsg) >-> Pipes.mapM_ logMsg
   where
-    prod :: Producer' Feature (SafeT IO) ()
-    prod = serverStreaming conn def (Proxy @(Protobuf RouteGuide "listFeatures")) r
+    prod :: Producer Feature (SafeT IO) ()
+    prod = serverStreaming conn (rpc @(Protobuf RouteGuide "listFeatures")) r
 
 recordRoute ::
      Connection
@@ -40,8 +40,8 @@ recordRoute ::
 recordRoute conn ps = runSafeT . runEffect $
     ps >-> (cons >>= logMsg)
   where
-    cons :: Consumer' (StreamElem NoMetadata Point) (SafeT IO) RouteSummary
-    cons = clientStreaming conn def (Proxy @(Protobuf RouteGuide "recordRoute"))
+    cons :: Consumer (StreamElem NoMetadata Point) (SafeT IO) RouteSummary
+    cons = clientStreaming conn (rpc @(Protobuf RouteGuide "recordRoute"))
 
 routeChat ::
      Connection

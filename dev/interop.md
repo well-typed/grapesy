@@ -198,8 +198,9 @@ The server respects the `SSLKEYLOGFILE` environment variable, which can be
 useful for Wireshark debugging; see [/dev/wireshark.md](/dev/wireshark.md) for
 some suggestions on how to setup Wireshark.
 
+## To rebuild the Docker image with the `grapesy` deps
 
-
-
-go: checkout /alongside/ (as a sibling of) `grpc-repo`
+When the `grapesy` dependencies change (and especially when it requires newer
+versions of packages that aren't yet known in the cabal package database),
+you need to rebuild the Docker image.
 

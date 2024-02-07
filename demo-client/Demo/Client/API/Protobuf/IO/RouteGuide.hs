@@ -1,4 +1,4 @@
-module Demo.Client.API.Protobuf.RouteGuide (
+module Demo.Client.API.Protobuf.IO.RouteGuide (
     getFeature
   , listFeatures
   , recordRoute
@@ -6,9 +6,8 @@ module Demo.Client.API.Protobuf.RouteGuide (
   ) where
 
 import Network.GRPC.Client
-import Network.GRPC.Client.StreamType
+import Network.GRPC.Client.StreamType.IO
 import Network.GRPC.Common
-import Network.GRPC.Common.StreamType
 
 import Proto.RouteGuide
 
@@ -21,21 +20,21 @@ import Demo.Common.Logging
 getFeature :: Connection -> Point -> IO ()
 getFeature conn point = do
     features <-
-      nonStreaming (rpc @(Protobuf RouteGuide "getFeature") conn) point
+      nonStreaming conn (rpc @(Protobuf RouteGuide "getFeature")) point
     logMsg features
 
 listFeatures :: Connection -> Rectangle -> IO ()
 listFeatures conn rect = do
-    serverStreaming (rpc @(Protobuf RouteGuide "listFeatures") conn) rect $
+    serverStreaming conn (rpc @(Protobuf RouteGuide "listFeatures")) rect $
       logMsg
 
 recordRoute :: Connection -> IO (StreamElem NoMetadata Point) -> IO ()
 recordRoute conn getPoint = do
     summary <-
-      clientStreaming (rpc @(Protobuf RouteGuide "recordRoute") conn) getPoint
+      clientStreaming conn (rpc @(Protobuf RouteGuide "recordRoute")) getPoint
     logMsg summary
 
 routeChat :: Connection -> IO (StreamElem NoMetadata RouteNote) -> IO ()
 routeChat conn getNote = do
-    biDiStreaming (rpc @(Protobuf RouteGuide "routeChat") conn) getNote $
+    biDiStreaming conn (rpc @(Protobuf RouteGuide "routeChat")) getNote $
       logMsg

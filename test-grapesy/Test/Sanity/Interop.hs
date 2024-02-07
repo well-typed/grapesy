@@ -18,11 +18,9 @@ import Test.Tasty
 import Test.Tasty.HUnit
 
 import Network.GRPC.Client qualified as Client
-import Network.GRPC.Client.Binary qualified as Client.Binary
-import Network.GRPC.Client.StreamType qualified as Client
+import Network.GRPC.Client.StreamType.IO.Binary qualified as Client.Binary
 import Network.GRPC.Common
 import Network.GRPC.Common.StreamElem qualified as StreamElem
-import Network.GRPC.Common.StreamType qualified as StreamType
 import Network.GRPC.Internal
 import Network.GRPC.Server qualified as Server
 import Network.GRPC.Server.Binary qualified as Server.Binary
@@ -93,7 +91,7 @@ test_callAfterException =
     call conn =
         fmap (first (innerNestedException :: SomeException -> SomeException))
       . try
-      . Client.Binary.nonStreaming (Client.rpc @Ping conn)
+      . Client.Binary.nonStreaming conn (Client.rpc @Ping)
 
     expectInvalidArgument :: SomeException -> Maybe ()
     expectInvalidArgument e
@@ -128,7 +126,7 @@ test_emptyUnary =
               Just (envelope, _x :: Empty) -> verifyEnvelope envelope
       , server = [
             Server.streamingRpcHandler (Proxy @EmptyCall) $
-              StreamType.mkNonStreaming $ \(_ ::Empty) ->
+              Server.mkNonStreaming $ \(_ ::Empty) ->
                 return (defMessage :: Empty)
           ]
       }

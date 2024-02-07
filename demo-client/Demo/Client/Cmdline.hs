@@ -58,8 +58,9 @@ data Cmdline = Cmdline {
 
 -- | Which API to use?
 data API =
-    Protobuf
+    ProtobufIO
   | ProtobufPipes
+  | ProtobufCanCallRPC
   | Core
   | CoreNoFinal
   deriving (Show)
@@ -204,13 +205,17 @@ parseCompression = asum [
 
 parseAPI :: Opt.Parser API
 parseAPI = asum [
-      Opt.flag' Protobuf $ mconcat [
-          Opt.long "protobuf"
-        , Opt.help "Use the Protobuf API (if applicable)"
+      Opt.flag' ProtobufIO $ mconcat [
+          Opt.long "protobuf-IO"
+        , Opt.help "Use the Protobuf IO API (if applicable)"
         ]
     , Opt.flag' ProtobufPipes $ mconcat [
-          Opt.long "protobuf-pipes"
-        , Opt.help "Use the Protobuf pipes API (if applicable)"
+          Opt.long "protobuf-Pipe"
+        , Opt.help "Use the Protobuf Pipe API (if applicable)"
+        ]
+    , Opt.flag' ProtobufCanCallRPC $ mconcat [
+          Opt.long "protobuf-CanCallRPC"
+        , Opt.help "Use the Protobuf CanCallRPC API (if applicable)"
         ]
     , Opt.flag' Core $ mconcat [
           Opt.long "core"
@@ -220,7 +225,7 @@ parseAPI = asum [
           Opt.long "core-dont-mark-final"
         , Opt.help "Use the core API; don't mark the last message as final"
         ]
-    , pure Protobuf
+    , pure ProtobufIO
     ]
 
 {-------------------------------------------------------------------------------

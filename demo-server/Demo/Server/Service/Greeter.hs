@@ -13,7 +13,6 @@ import Data.Proxy
 import Data.Text (Text)
 
 import Network.GRPC.Common
-import Network.GRPC.Common.StreamType
 import Network.GRPC.Server
 import Network.GRPC.Server.Protobuf
 import Network.GRPC.Server.StreamType
