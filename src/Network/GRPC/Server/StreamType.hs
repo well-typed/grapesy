@@ -2,6 +2,11 @@ module Network.GRPC.Server.StreamType (
     -- * Construct 'RpcHandler' from streaming type specific handler
     StreamingRpcHandler(..)
   , streamingRpcHandler'
+    -- * Constructors
+  , mkNonStreaming
+  , mkClientStreaming
+  , mkServerStreaming
+  , mkBiDiStreaming
     -- * Server API
   , Methods(..)
   , Services(..)

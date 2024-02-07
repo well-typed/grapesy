@@ -18,12 +18,13 @@ import Demo.Client.Cmdline
 import Demo.Client.Util.DelayOr
 import Demo.Common.Logging
 
-import Demo.Client.API.Core.Greeter              qualified as Core.Greeter
-import Demo.Client.API.Core.NoFinal.Greeter      qualified as NoFinal.Greeter
-import Demo.Client.API.Core.RouteGuide           qualified as Core.RouteGuide
-import Demo.Client.API.Protobuf.Greeter          qualified as PBuf.Greeter
-import Demo.Client.API.Protobuf.Pipes.RouteGuide qualified as Pipes.RouteGuide
-import Demo.Client.API.Protobuf.RouteGuide       qualified as PBuf.RouteGuide
+import Demo.Client.API.Core.Greeter                qualified as Core.Greeter
+import Demo.Client.API.Core.NoFinal.Greeter        qualified as NoFinal.Greeter
+import Demo.Client.API.Core.RouteGuide             qualified as Core.RouteGuide
+import Demo.Client.API.Protobuf.IO.Greeter         qualified as IO.Greeter
+import Demo.Client.API.Protobuf.IO.RouteGuide      qualified as IO.RouteGuide
+import Demo.Client.API.Protobuf.Pipes.RouteGuide   qualified as Pipes.RouteGuide
+import Demo.Client.API.Protobuf.CanCallRPC.Greeter qualified as CanCallRPC.Greeter
 
 {-------------------------------------------------------------------------------
   Application entry point
@@ -44,8 +45,10 @@ dispatch cmd conn (Exec method) =
     case method of
       SomeMethod SGreeter (SSayHello name) ->
         case cmdAPI cmd of
-          Protobuf ->
-            PBuf.Greeter.sayHello conn name
+          ProtobufIO ->
+            IO.Greeter.sayHello conn name
+          ProtobufCanCallRPC ->
+            CanCallRPC.Greeter.sayHello conn name
           CoreNoFinal ->
             NoFinal.Greeter.sayHello conn name
           _otherwise ->
@@ -54,22 +57,24 @@ dispatch cmd conn (Exec method) =
         case cmdAPI cmd of
           Core ->
             Core.Greeter.sayHelloStreamReply conn name
-          Protobuf ->
-            PBuf.Greeter.sayHelloStreamReply conn name
+          ProtobufIO ->
+            IO.Greeter.sayHelloStreamReply conn name
+          ProtobufCanCallRPC ->
+            CanCallRPC.Greeter.sayHelloStreamReply conn name
           _otherwise ->
             unsupportedMode
       SomeMethod SRouteGuide (SGetFeature p) ->
         case cmdAPI cmd of
-          Protobuf ->
-            PBuf.RouteGuide.getFeature conn p
+          ProtobufIO ->
+            IO.RouteGuide.getFeature conn p
           _otherwise ->
             unsupportedMode
       SomeMethod SRouteGuide (SListFeatures r) ->
         case cmdAPI cmd of
           ProtobufPipes ->
             Pipes.RouteGuide.listFeatures conn r
-          Protobuf ->
-            PBuf.RouteGuide.listFeatures conn r
+          ProtobufIO ->
+            IO.RouteGuide.listFeatures conn r
           Core ->
             Core.RouteGuide.listFeatures conn r
           _otherwise ->
@@ -78,16 +83,16 @@ dispatch cmd conn (Exec method) =
         case cmdAPI cmd of
           ProtobufPipes ->
             Pipes.RouteGuide.recordRoute conn $ yieldAll ps
-          Protobuf ->
-            PBuf.RouteGuide.recordRoute conn =<< execAll ps
+          ProtobufIO ->
+            IO.RouteGuide.recordRoute conn =<< execAll ps
           _otherwise ->
             unsupportedMode
       SomeMethod SRouteGuide (SRouteChat notes) ->
         case cmdAPI cmd of
           ProtobufPipes ->
             Pipes.RouteGuide.routeChat conn $ yieldAll notes
-          Protobuf ->
-            PBuf.RouteGuide.routeChat conn =<< execAll notes
+          ProtobufIO ->
+            IO.RouteGuide.routeChat conn =<< execAll notes
           _otherwise ->
             unsupportedMode
   where

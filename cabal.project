@@ -3,8 +3,3 @@ packages: .
 package grapesy
   tests: True
   flags: +build-demo +build-stress-test +build-interop
-
-source-repository-package 
-  type: git
-  location: https://github.com/edsko/http2
-  tag: 0b638883788fec42a7dd1aae105ee2f97b6a4235 

@@ -6,7 +6,6 @@ import Data.ProtoLens.Labels ()
 import Data.Proxy
 
 import Network.GRPC.Common
-import Network.GRPC.Common.StreamType
 import Network.GRPC.Server
 import Network.GRPC.Server.Protobuf
 import Network.GRPC.Server.Run

@@ -10,8 +10,7 @@ import Data.ProtoLens
 import Data.ProtoLens.Labels ()
 
 import Network.GRPC.Client
-import Network.GRPC.Client.StreamType
-import Network.GRPC.Common.StreamType
+import Network.GRPC.Client.StreamType.IO
 
 import Proto.Ping
 
@@ -23,7 +22,7 @@ ping cmdline = connect cmdline $ \conn ->
     forM_ [1..] $ \i -> do
       let msgPing :: PingMessage
           msgPing = defMessage & #id .~ i
-      msgPong <- nonStreaming (rpc @(Protobuf PingService "ping") conn) msgPing
+      msgPong <- nonStreaming conn (rpc @(Protobuf PingService "ping")) msgPing
       print msgPong
       threadDelay 1_000_000
 

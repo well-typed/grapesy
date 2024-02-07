@@ -92,13 +92,6 @@ type family HandlerFor (typ :: StreamingType) :: (Type -> Type) -> Type -> Type 
   type of RPC.
 -------------------------------------------------------------------------------}
 
--- | Make a non-streaming RPC
---
--- Example usage:
---
--- > features <-
--- >   nonStreaming (rpc @(Protobuf RouteGuide "getFeature") conn) point
--- > logMsg features
 nonStreaming :: forall rpc m.
      SupportsStreamingType rpc NonStreaming
   => NonStreamingHandler m rpc
@@ -108,12 +101,6 @@ nonStreaming (UnsafeNonStreamingHandler h) = h
   where
     _ = addConstraint @(SupportsStreamingType rpc NonStreaming)
 
--- | Make a client-side streaming RPC
---
--- Example usage:
---
--- > summary <-
--- >   clientStreaming (rpc @(Protobuf RouteGuide "recordRoute") conn) getPoint
 clientStreaming :: forall rpc m.
      SupportsStreamingType rpc ClientStreaming
   => ClientStreamingHandler m rpc
@@ -123,12 +110,6 @@ clientStreaming (UnsafeClientStreamingHandler h) = h
   where
     _ = addConstraint @(SupportsStreamingType rpc ClientStreaming)
 
--- | Make a server-side streaming RPC
---
--- Example usage:
---
--- > serverStreaming (rpc @(Protobuf RouteGuide "listFeatures") conn) rect $
--- >   logMsg
 serverStreaming :: forall rpc m.
      SupportsStreamingType rpc ServerStreaming
   => ServerStreamingHandler m rpc
@@ -139,12 +120,6 @@ serverStreaming (UnsafeServerStreamingHandler h) = h
   where
     _ = addConstraint @(SupportsStreamingType rpc ServerStreaming)
 
--- | Make a bidirectional RPC
---
--- Example usage:
---
--- > biDiStreaming (rpc @(Protobuf RouteGuide "routeChat") conn) getNote $
--- >   logMsg
 biDiStreaming :: forall rpc m.
      SupportsStreamingType rpc BiDiStreaming
   => BiDiStreamingHandler m rpc
