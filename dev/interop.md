@@ -202,5 +202,14 @@ some suggestions on how to setup Wireshark.
 
 When the `grapesy` dependencies change (and especially when it requires newer
 versions of packages that aren't yet known in the cabal package database),
-you need to rebuild the Docker image.
+you need to rebuild the Docker image:
 
+```bash
+grapesy/dev/grapesy-deps-docker$ docker build . -t edsko/grapesy-deps:latest
+```
+
+then upload it
+
+```bash
+$ docker push edsko/grapesy-deps:latest
+```
