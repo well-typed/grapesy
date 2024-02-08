@@ -1,6 +1,6 @@
 module Interop.Server.TestService.EmptyCall (handleEmptyCall) where
 
-import Data.ProtoLens
+import Network.GRPC.Common.Protobuf
 
 import Proto.Src.Proto.Grpc.Testing.Empty
 

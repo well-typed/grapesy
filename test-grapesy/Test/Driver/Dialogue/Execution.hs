@@ -8,7 +8,6 @@ import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.State
 import Data.Bifunctor
-import Data.Default
 import Data.List (sortBy)
 import Data.Ord (comparing)
 import Data.Proxy

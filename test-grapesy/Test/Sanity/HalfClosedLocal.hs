@@ -2,8 +2,6 @@
 module Test.Sanity.HalfClosedLocal (tests) where
 
 import Control.Monad
-import Data.Default
-import Data.Proxy
 import Test.Tasty
 import Test.Tasty.HUnit
 

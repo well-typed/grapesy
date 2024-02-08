@@ -25,7 +25,6 @@ import Control.Exception
 import Control.Monad.IO.Class
 import Control.Tracer
 import Data.ByteString qualified as Strict (ByteString)
-import Data.Default
 import Data.List qualified as List
 import Data.Map (Map)
 import Data.Map qualified as Map

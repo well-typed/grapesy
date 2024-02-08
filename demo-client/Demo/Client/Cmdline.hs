@@ -16,15 +16,10 @@ module Demo.Client.Cmdline (
 
 import Prelude
 
-import Control.Lens ((.~))
-import Data.Default
 import Data.Foldable (asum)
-import Data.Function ((&))
 import Data.Int
 import Data.Kind
 import Data.Maybe (fromMaybe)
-import Data.ProtoLens
-import Data.ProtoLens.Labels ()
 import Data.Text (Text)
 import GHC.TypeLits (Symbol)
 import Network.Socket (HostName, PortNumber)
@@ -32,8 +27,10 @@ import Options.Applicative ((<**>))
 import Options.Applicative qualified as Opt
 
 import Network.GRPC.Client qualified as Client
+import Network.GRPC.Common
 import Network.GRPC.Common.Compression (Compression)
 import Network.GRPC.Common.Compression qualified as Compr
+import Network.GRPC.Common.Protobuf
 
 import Paths_grapesy
 

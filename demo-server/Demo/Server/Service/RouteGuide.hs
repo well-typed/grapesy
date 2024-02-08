@@ -3,19 +3,16 @@
 
 module Demo.Server.Service.RouteGuide (handlers) where
 
-import Control.Lens (view, (^.))
 import Control.Monad.State (StateT)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State qualified as State
-import Data.Default
 import Data.Map qualified as Map
 import Data.Maybe (fromMaybe)
-import Data.ProtoLens
-import Data.ProtoLens.Labels ()
 import Data.Proxy
 import Data.Time
 
 import Network.GRPC.Common
+import Network.GRPC.Common.Protobuf
 import Network.GRPC.Common.StreamElem qualified as StreamElem
 import Network.GRPC.Server
 import Network.GRPC.Server.Protobuf
@@ -48,10 +45,13 @@ handlers cmdline db =
 -------------------------------------------------------------------------------}
 
 getFeature :: [Feature] -> Point -> IO Feature
-getFeature db p = return $ fromMaybe defMessage $ featureAt db p
+getFeature db p =
+    return $ fromMaybe defMessage $ featureAt db p
 
 listFeatures :: [Feature] -> Rectangle -> (Feature -> IO ()) -> IO ()
-listFeatures db r send = mapM_ send $ filter (inRectangle r . view #location) db
+listFeatures db r send =
+    mapM_ send $
+      filter (\f -> inRectangle r (f ^. #location)) db
 
 recordRoute :: [Feature] -> IO (StreamElem NoMetadata Point) -> IO RouteSummary
 recordRoute db recv = do
@@ -83,7 +83,7 @@ trailersOnlyShortcut ::
   -> IO ()
 trailersOnlyShortcut db call = do
     r <- recvFinalInput call
-    let features = filter (inRectangle r . view #location) db
+    let features = filter (\f -> inRectangle r (f ^. #location)) db
     if null features then
       sendTrailersOnly call []
     else do

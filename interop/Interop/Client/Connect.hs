@@ -1,7 +1,5 @@
 module Interop.Client.Connect (connect) where
 
-import Data.Default
-
 import Network.GRPC.Client
 import Network.GRPC.Common
 

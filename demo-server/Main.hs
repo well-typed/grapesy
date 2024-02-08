@@ -4,8 +4,8 @@ module Main (main) where
 
 import Control.Tracer
 import Data.Aeson
-import Data.Default
 
+import Network.GRPC.Common
 import Network.GRPC.Common.Compression qualified as Compression
 import Network.GRPC.Server
 import Network.GRPC.Server.Protobuf

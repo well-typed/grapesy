@@ -5,14 +5,9 @@
 module Test.Sanity.Interop (tests) where
 
 import Control.Exception
-import Control.Lens ((^.), (.~))
 import Control.Monad
 import Data.Bifunctor
 import Data.ByteString qualified as BS.Strict
-import Data.Default
-import Data.Function ((&))
-import Data.ProtoLens
-import Data.ProtoLens.Labels ()
 import Data.Proxy
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -20,6 +15,7 @@ import Test.Tasty.HUnit
 import Network.GRPC.Client qualified as Client
 import Network.GRPC.Client.StreamType.IO.Binary qualified as Client.Binary
 import Network.GRPC.Common
+import Network.GRPC.Common.Protobuf
 import Network.GRPC.Common.StreamElem qualified as StreamElem
 import Network.GRPC.Internal
 import Network.GRPC.Server qualified as Server

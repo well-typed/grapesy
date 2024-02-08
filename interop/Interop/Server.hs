@@ -1,8 +1,6 @@
 module Interop.Server (server) where
 
 import Control.Monad.Catch (generalBracket, ExitCase(..))
-import Data.Default
-import Data.ProtoLens.Labels ()
 import Data.Proxy
 
 import Network.GRPC.Common

@@ -5,7 +5,6 @@ module Test.Sanity.StreamingType.CustomFormat (tests) where
 import Codec.Serialise qualified as Cbor
 import Control.Monad
 import Data.Bifunctor
-import Data.Default
 import Data.IORef
 import Data.Kind
 import Data.List

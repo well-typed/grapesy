@@ -13,16 +13,13 @@ module Interop.Server.Util (
   ) where
 
 import Control.Exception
-import Control.Lens ((&), (.~), (^.))
 import Data.ByteString qualified as BS.Strict
 import Data.ByteString qualified as Strict (ByteString)
 import Data.ByteString.Char8 qualified as BS.Strict.Char8
-import Data.ProtoLens
-import Data.ProtoLens.Field (HasField)
-import Data.ProtoLens.Labels ()
 import Data.Text qualified as Text
 
 import Network.GRPC.Common
+import Network.GRPC.Common.Protobuf
 import Network.GRPC.Server
 import Network.GRPC.Spec
 

@@ -10,16 +10,14 @@ module Demo.Server.Aux.RouteGuide (
   , distance
   ) where
 
-import Control.Lens ((.~), (^.))
 import Data.Aeson
-import Data.Function ((&))
 import Data.Int
 import Data.Maybe (listToMaybe)
-import Data.ProtoLens
-import Data.ProtoLens.Labels ()
 import Data.Time
 
 import Proto.RouteGuide
+
+import Network.GRPC.Common.Protobuf
 
 {-------------------------------------------------------------------------------
   Pure functions that implement that basic Route Guide functionality

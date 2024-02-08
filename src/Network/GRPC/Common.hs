@@ -35,7 +35,14 @@ module Network.GRPC.Common (
     -- ** Low-level
   , Session.ChannelDiscarded(..)
   , Session.PeerException(..)
+
+    -- * Convenience re-exports
+  , Proxy(..)
+  , Default(..)
   ) where
+
+import Data.Default
+import Data.Proxy
 
 import Control.Exception
 
