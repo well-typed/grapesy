@@ -22,6 +22,6 @@ connect cmdline = withConnection params server
     serverAddress :: Address
     serverAddress = Address {
           addressHost      = cmdHost cmdline
-        , addressPort      = fromIntegral $ cmdPort cmdline
+        , addressPort      = cmdPort cmdline
         , addressAuthority = Nothing
         }

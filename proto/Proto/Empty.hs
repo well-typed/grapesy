@@ -1,9 +1,10 @@
-{- This file was auto-generated from src/proto/grpc/testing/empty.proto by the proto-lens-protoc program. -}
+{- This file was auto-generated from empty.proto by the proto-lens-protoc program. -}
 {-# LANGUAGE ScopedTypeVariables, DataKinds, TypeFamilies, UndecidableInstances, GeneralizedNewtypeDeriving, MultiParamTypeClasses, FlexibleContexts, FlexibleInstances, PatternSynonyms, MagicHash, NoImplicitPrelude, DataKinds, BangPatterns, TypeApplications, OverloadedStrings, DerivingStrategies#-}
 {-# OPTIONS_GHC -Wno-unused-imports#-}
 {-# OPTIONS_GHC -Wno-duplicate-exports#-}
 {-# OPTIONS_GHC -Wno-dodgy-exports#-}
-module Proto.Src.Proto.Grpc.Testing.Empty (
+{-# OPTIONS_GHC -Wno-prepositive-qualified-module #-}
+module Proto.Empty (
         Empty()
     ) where
 import qualified Data.ProtoLens.Runtime.Control.DeepSeq as Control.DeepSeq
@@ -94,7 +95,7 @@ instance Control.DeepSeq.NFData Empty where
 packedFileDescriptor :: Data.ByteString.ByteString
 packedFileDescriptor
   = "\n\
-    \\"src/proto/grpc/testing/empty.proto\DC2\fgrpc.testing\"\a\n\
+    \\vempty.proto\DC2\fgrpc.testing\"\a\n\
     \\ENQEmptyJ\144\a\n\
     \\ACK\DC2\EOT\SI\NUL\ESC\DLE\n\
     \\191\EOT\n\

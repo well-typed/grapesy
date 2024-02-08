@@ -23,7 +23,7 @@ import Network.GRPC.Common.Protobuf
 import Network.GRPC.Server
 import Network.GRPC.Spec
 
-import Proto.Src.Proto.Grpc.Testing.Messages
+import Proto.Messages
 
 {-------------------------------------------------------------------------------
   Errors

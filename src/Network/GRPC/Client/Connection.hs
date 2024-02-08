@@ -538,7 +538,7 @@ connectSecure attempt validation sslKeyLog addr = do
           clientConfig
           settings
           (addressHost addr)
-          (fromIntegral $ addressPort addr)
+          (addressPort addr)
         $ \sendRequest _aux -> do
       traceWith tracer $ ClientDebugConnectedSecure
       let conn = Session.ConnectionToServer sendRequest
