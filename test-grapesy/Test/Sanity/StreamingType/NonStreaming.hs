@@ -2,14 +2,13 @@
 
 module Test.Sanity.StreamingType.NonStreaming (tests) where
 
-import Data.Default
-import Data.Proxy
 import Data.Word
 import Test.Tasty
 import Test.Tasty.HUnit
 
 import Network.GRPC.Client qualified as Client
 import Network.GRPC.Client.Binary qualified as Binary
+import Network.GRPC.Common
 import Network.GRPC.Common.Binary (BinaryRpc)
 import Network.GRPC.Common.Compression qualified as Compr
 import Network.GRPC.Server.Binary qualified as Binary

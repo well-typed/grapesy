@@ -4,8 +4,6 @@ module Demo.Client.API.Protobuf.Pipes.RouteGuide (
   , routeChat
   ) where
 
-import Data.Default
-import Data.Proxy
 import Pipes hiding (Proxy)
 import Pipes.Prelude qualified as Pipes
 import Pipes.Safe
@@ -13,6 +11,7 @@ import Pipes.Safe
 import Network.GRPC.Client
 import Network.GRPC.Client.StreamType.Pipes
 import Network.GRPC.Common
+import Network.GRPC.Common.Protobuf
 
 import Proto.RouteGuide
 

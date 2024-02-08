@@ -2,10 +2,7 @@
 
 module Interop.Server.PingService.Ping (handlePing) where
 
-import Control.Lens ((.~), (^.))
-import Data.Function ((&))
-import Data.ProtoLens
-import Data.ProtoLens.Labels ()
+import Network.GRPC.Common.Protobuf
 
 import Proto.Ping
 

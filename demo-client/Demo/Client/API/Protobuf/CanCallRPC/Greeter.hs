@@ -10,6 +10,7 @@ import Control.Monad.Trans.Reader
 
 import Network.GRPC.Client
 import Network.GRPC.Client.StreamType.CanCallRPC
+import Network.GRPC.Common.Protobuf
 
 import Proto.Helloworld
 

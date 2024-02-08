@@ -6,15 +6,10 @@ module Interop.Server.TestService.StreamingOutputCall (
   ) where
 
 import Control.Concurrent
-import Control.Lens ((.~), (^.))
 import Control.Monad
-import Data.Default
-import Data.Function ((&))
-import Data.ProtoLens
-import Data.ProtoLens.Labels ()
-import Data.ProtoLens.Service.Types
 
 import Network.GRPC.Common
+import Network.GRPC.Common.Protobuf
 import Network.GRPC.Server
 import Network.GRPC.Spec
 
@@ -38,7 +33,7 @@ handleStreamingOutputCall call = do
 --
 -- Abstracted out because also used in the @fullDuplexCall@ test.
 handleStreamingOutputCallRequest :: forall meth.
-     (MethodOutput TestService meth ~ StreamingOutputCallResponse)
+     (Output (Protobuf TestService meth) ~ StreamingOutputCallResponse)
   => Call (Protobuf TestService meth)
   -> StreamingOutputCallRequest
   -> IO ()

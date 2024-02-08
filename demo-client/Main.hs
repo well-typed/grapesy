@@ -5,11 +5,11 @@ module Main (main) where
 
 import Control.Exception
 import Control.Tracer
-import Data.Default
 import System.IO
 import System.Mem (performMajorGC)
 
 import Network.GRPC.Client
+import Network.GRPC.Common
 import Network.GRPC.Common.Compression qualified as Compr
 
 import Debug.Concurrent

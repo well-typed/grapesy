@@ -12,16 +12,16 @@ module Test.Driver.ClientServer (
 
 import Control.Exception
 import Control.Monad.IO.Class
-import Data.Default
+import Data.Void
 import Test.QuickCheck.Monadic qualified as QuickCheck
 import Test.Tasty.QuickCheck qualified as QuickCheck
+import Text.Show.Pretty
 
 import Network.GRPC.Client qualified as Client
+import Network.GRPC.Common
 import Network.GRPC.Server qualified as Server
 
 import Test.Util.ClientServer
-import Text.Show.Pretty
-import Data.Void
 
 {-------------------------------------------------------------------------------
   Basic client-server test

@@ -53,9 +53,6 @@ module Network.GRPC.Client (
   , sendInputWithEnvelope
   , recvOutputWithEnvelope
 
-    -- * Common serialization formats
-  , Protobuf
-
     -- * Communication patterns
   , rpc
   , rpcWith

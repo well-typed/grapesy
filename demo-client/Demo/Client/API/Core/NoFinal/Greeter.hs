@@ -2,11 +2,9 @@ module Demo.Client.API.Core.NoFinal.Greeter (
     sayHello
   ) where
 
-import Data.Default
-import Data.Proxy
-
 import Network.GRPC.Client
 import Network.GRPC.Common
+import Network.GRPC.Common.Protobuf
 
 import Proto.Helloworld
 

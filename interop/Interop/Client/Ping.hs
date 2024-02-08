@@ -3,14 +3,11 @@
 module Interop.Client.Ping (ping) where
 
 import Control.Concurrent
-import Control.Lens ((.~))
 import Control.Monad
-import Data.Function ((&))
-import Data.ProtoLens
-import Data.ProtoLens.Labels ()
 
 import Network.GRPC.Client
 import Network.GRPC.Client.StreamType.IO
+import Network.GRPC.Common.Protobuf
 
 import Proto.Ping
 

@@ -5,6 +5,7 @@ module Demo.Client.API.Protobuf.IO.Greeter (
 
 import Network.GRPC.Client
 import Network.GRPC.Client.StreamType.IO
+import Network.GRPC.Common.Protobuf
 
 import Proto.Helloworld
 

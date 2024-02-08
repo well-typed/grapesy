@@ -3,13 +3,10 @@
 
 module Interop.Server.TestService.StreamingInputCall (handleStreamingInputCall) where
 
-import Control.Lens ((^.), (.~))
 import Data.ByteString qualified as BS.Strict
-import Data.Function ((&))
-import Data.ProtoLens
-import Data.ProtoLens.Labels ()
 
 import Network.GRPC.Common
+import Network.GRPC.Common.Protobuf
 import Network.GRPC.Server
 import Network.GRPC.Spec
 

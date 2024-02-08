@@ -10,7 +10,6 @@ module Network.GRPC.Client.StreamType.Pipes (
 
 import Control.Monad.Reader
 import Data.ProtoLens.Service.Types
-import Data.Proxy
 import Pipes hiding (Proxy)
 import Pipes.Safe
 

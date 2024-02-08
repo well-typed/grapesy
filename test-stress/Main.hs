@@ -2,11 +2,11 @@ module Main (main) where
 
 import Control.Exception
 import Control.Monad
-import Data.Default
 import Data.Proxy
 
 import Network.GRPC.Client qualified as Client
 import Network.GRPC.Client.Binary qualified as Binary
+import Network.GRPC.Common
 import Network.GRPC.Common.Binary
 import Network.GRPC.Server.Binary qualified as Binary
 import Network.GRPC.Server.StreamType

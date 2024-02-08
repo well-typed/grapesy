@@ -3,16 +3,12 @@
 
 module Demo.Server.Service.Greeter (handlers) where
 
-import Control.Lens ((.~), (^.))
 import Control.Monad
-import Data.Default
-import Data.Function ((&))
-import Data.ProtoLens
-import Data.ProtoLens.Labels ()
 import Data.Proxy
 import Data.Text (Text)
 
 import Network.GRPC.Common
+import Network.GRPC.Common.Protobuf
 import Network.GRPC.Server
 import Network.GRPC.Server.Protobuf
 import Network.GRPC.Server.StreamType
