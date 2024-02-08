@@ -80,7 +80,7 @@ splitAt n AccBS{accLength, accStrings} =
       case accStrings of
         []              -> error "splitAt: invalid AccumulatedByteString"
         mostRecent:rest ->
-          let neededLen = fromIntegral $
+          let neededLen =
                 -- cannot underflow due to precondition (2)
                 BS.Strict.length mostRecent - fromIntegral leftoverLen
               (needed, leftover) =

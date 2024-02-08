@@ -1,9 +1,10 @@
-{- This file was auto-generated from src/proto/grpc/testing/test.proto by the proto-lens-protoc program. -}
+{- This file was auto-generated from test.proto by the proto-lens-protoc program. -}
 {-# LANGUAGE ScopedTypeVariables, DataKinds, TypeFamilies, UndecidableInstances, GeneralizedNewtypeDeriving, MultiParamTypeClasses, FlexibleContexts, FlexibleInstances, PatternSynonyms, MagicHash, NoImplicitPrelude, DataKinds, BangPatterns, TypeApplications, OverloadedStrings, DerivingStrategies#-}
 {-# OPTIONS_GHC -Wno-unused-imports#-}
 {-# OPTIONS_GHC -Wno-duplicate-exports#-}
 {-# OPTIONS_GHC -Wno-dodgy-exports#-}
-module Proto.Src.Proto.Grpc.Testing.Test (
+{-# OPTIONS_GHC -Wno-prepositive-qualified-module #-}
+module Proto.Test (
         TestService(..), UnimplementedService(..), ReconnectService(..),
         LoadBalancerStatsService(..), HookService(..),
         XdsUpdateHealthService(..), XdsUpdateClientConfigureService(..)
@@ -33,8 +34,8 @@ import qualified Data.ProtoLens.Runtime.Data.Vector as Data.Vector
 import qualified Data.ProtoLens.Runtime.Data.Vector.Generic as Data.Vector.Generic
 import qualified Data.ProtoLens.Runtime.Data.Vector.Unboxed as Data.Vector.Unboxed
 import qualified Data.ProtoLens.Runtime.Text.Read as Text.Read
-import qualified Proto.Src.Proto.Grpc.Testing.Empty
-import qualified Proto.Src.Proto.Grpc.Testing.Messages
+import qualified Proto.Empty
+import qualified Proto.Messages
 data TestService = TestService {}
 instance Data.ProtoLens.Service.Types.Service TestService where
   type ServiceName TestService = "TestService"
@@ -60,43 +61,43 @@ instance Data.ProtoLens.Service.Types.Service TestService where
       \\DC1UnimplementedCall\DC2\DC3.grpc.testing.Empty\SUB\DC3.grpc.testing.Empty"
 instance Data.ProtoLens.Service.Types.HasMethodImpl TestService "emptyCall" where
   type MethodName TestService "emptyCall" = "EmptyCall"
-  type MethodInput TestService "emptyCall" = Proto.Src.Proto.Grpc.Testing.Empty.Empty
-  type MethodOutput TestService "emptyCall" = Proto.Src.Proto.Grpc.Testing.Empty.Empty
+  type MethodInput TestService "emptyCall" = Proto.Empty.Empty
+  type MethodOutput TestService "emptyCall" = Proto.Empty.Empty
   type MethodStreamingType TestService "emptyCall" = 'Data.ProtoLens.Service.Types.NonStreaming
 instance Data.ProtoLens.Service.Types.HasMethodImpl TestService "unaryCall" where
   type MethodName TestService "unaryCall" = "UnaryCall"
-  type MethodInput TestService "unaryCall" = Proto.Src.Proto.Grpc.Testing.Messages.SimpleRequest
-  type MethodOutput TestService "unaryCall" = Proto.Src.Proto.Grpc.Testing.Messages.SimpleResponse
+  type MethodInput TestService "unaryCall" = Proto.Messages.SimpleRequest
+  type MethodOutput TestService "unaryCall" = Proto.Messages.SimpleResponse
   type MethodStreamingType TestService "unaryCall" = 'Data.ProtoLens.Service.Types.NonStreaming
 instance Data.ProtoLens.Service.Types.HasMethodImpl TestService "cacheableUnaryCall" where
   type MethodName TestService "cacheableUnaryCall" = "CacheableUnaryCall"
-  type MethodInput TestService "cacheableUnaryCall" = Proto.Src.Proto.Grpc.Testing.Messages.SimpleRequest
-  type MethodOutput TestService "cacheableUnaryCall" = Proto.Src.Proto.Grpc.Testing.Messages.SimpleResponse
+  type MethodInput TestService "cacheableUnaryCall" = Proto.Messages.SimpleRequest
+  type MethodOutput TestService "cacheableUnaryCall" = Proto.Messages.SimpleResponse
   type MethodStreamingType TestService "cacheableUnaryCall" = 'Data.ProtoLens.Service.Types.NonStreaming
 instance Data.ProtoLens.Service.Types.HasMethodImpl TestService "streamingOutputCall" where
   type MethodName TestService "streamingOutputCall" = "StreamingOutputCall"
-  type MethodInput TestService "streamingOutputCall" = Proto.Src.Proto.Grpc.Testing.Messages.StreamingOutputCallRequest
-  type MethodOutput TestService "streamingOutputCall" = Proto.Src.Proto.Grpc.Testing.Messages.StreamingOutputCallResponse
+  type MethodInput TestService "streamingOutputCall" = Proto.Messages.StreamingOutputCallRequest
+  type MethodOutput TestService "streamingOutputCall" = Proto.Messages.StreamingOutputCallResponse
   type MethodStreamingType TestService "streamingOutputCall" = 'Data.ProtoLens.Service.Types.ServerStreaming
 instance Data.ProtoLens.Service.Types.HasMethodImpl TestService "streamingInputCall" where
   type MethodName TestService "streamingInputCall" = "StreamingInputCall"
-  type MethodInput TestService "streamingInputCall" = Proto.Src.Proto.Grpc.Testing.Messages.StreamingInputCallRequest
-  type MethodOutput TestService "streamingInputCall" = Proto.Src.Proto.Grpc.Testing.Messages.StreamingInputCallResponse
+  type MethodInput TestService "streamingInputCall" = Proto.Messages.StreamingInputCallRequest
+  type MethodOutput TestService "streamingInputCall" = Proto.Messages.StreamingInputCallResponse
   type MethodStreamingType TestService "streamingInputCall" = 'Data.ProtoLens.Service.Types.ClientStreaming
 instance Data.ProtoLens.Service.Types.HasMethodImpl TestService "fullDuplexCall" where
   type MethodName TestService "fullDuplexCall" = "FullDuplexCall"
-  type MethodInput TestService "fullDuplexCall" = Proto.Src.Proto.Grpc.Testing.Messages.StreamingOutputCallRequest
-  type MethodOutput TestService "fullDuplexCall" = Proto.Src.Proto.Grpc.Testing.Messages.StreamingOutputCallResponse
+  type MethodInput TestService "fullDuplexCall" = Proto.Messages.StreamingOutputCallRequest
+  type MethodOutput TestService "fullDuplexCall" = Proto.Messages.StreamingOutputCallResponse
   type MethodStreamingType TestService "fullDuplexCall" = 'Data.ProtoLens.Service.Types.BiDiStreaming
 instance Data.ProtoLens.Service.Types.HasMethodImpl TestService "halfDuplexCall" where
   type MethodName TestService "halfDuplexCall" = "HalfDuplexCall"
-  type MethodInput TestService "halfDuplexCall" = Proto.Src.Proto.Grpc.Testing.Messages.StreamingOutputCallRequest
-  type MethodOutput TestService "halfDuplexCall" = Proto.Src.Proto.Grpc.Testing.Messages.StreamingOutputCallResponse
+  type MethodInput TestService "halfDuplexCall" = Proto.Messages.StreamingOutputCallRequest
+  type MethodOutput TestService "halfDuplexCall" = Proto.Messages.StreamingOutputCallResponse
   type MethodStreamingType TestService "halfDuplexCall" = 'Data.ProtoLens.Service.Types.BiDiStreaming
 instance Data.ProtoLens.Service.Types.HasMethodImpl TestService "unimplementedCall" where
   type MethodName TestService "unimplementedCall" = "UnimplementedCall"
-  type MethodInput TestService "unimplementedCall" = Proto.Src.Proto.Grpc.Testing.Empty.Empty
-  type MethodOutput TestService "unimplementedCall" = Proto.Src.Proto.Grpc.Testing.Empty.Empty
+  type MethodInput TestService "unimplementedCall" = Proto.Empty.Empty
+  type MethodOutput TestService "unimplementedCall" = Proto.Empty.Empty
   type MethodStreamingType TestService "unimplementedCall" = 'Data.ProtoLens.Service.Types.NonStreaming
 data UnimplementedService = UnimplementedService {}
 instance Data.ProtoLens.Service.Types.Service UnimplementedService where
@@ -109,8 +110,8 @@ instance Data.ProtoLens.Service.Types.Service UnimplementedService where
       \\DC1UnimplementedCall\DC2\DC3.grpc.testing.Empty\SUB\DC3.grpc.testing.Empty"
 instance Data.ProtoLens.Service.Types.HasMethodImpl UnimplementedService "unimplementedCall" where
   type MethodName UnimplementedService "unimplementedCall" = "UnimplementedCall"
-  type MethodInput UnimplementedService "unimplementedCall" = Proto.Src.Proto.Grpc.Testing.Empty.Empty
-  type MethodOutput UnimplementedService "unimplementedCall" = Proto.Src.Proto.Grpc.Testing.Empty.Empty
+  type MethodInput UnimplementedService "unimplementedCall" = Proto.Empty.Empty
+  type MethodOutput UnimplementedService "unimplementedCall" = Proto.Empty.Empty
   type MethodStreamingType UnimplementedService "unimplementedCall" = 'Data.ProtoLens.Service.Types.NonStreaming
 data ReconnectService = ReconnectService {}
 instance Data.ProtoLens.Service.Types.Service ReconnectService where
@@ -124,13 +125,13 @@ instance Data.ProtoLens.Service.Types.Service ReconnectService where
       \\EOTStop\DC2\DC3.grpc.testing.Empty\SUB\ESC.grpc.testing.ReconnectInfo"
 instance Data.ProtoLens.Service.Types.HasMethodImpl ReconnectService "start" where
   type MethodName ReconnectService "start" = "Start"
-  type MethodInput ReconnectService "start" = Proto.Src.Proto.Grpc.Testing.Messages.ReconnectParams
-  type MethodOutput ReconnectService "start" = Proto.Src.Proto.Grpc.Testing.Empty.Empty
+  type MethodInput ReconnectService "start" = Proto.Messages.ReconnectParams
+  type MethodOutput ReconnectService "start" = Proto.Empty.Empty
   type MethodStreamingType ReconnectService "start" = 'Data.ProtoLens.Service.Types.NonStreaming
 instance Data.ProtoLens.Service.Types.HasMethodImpl ReconnectService "stop" where
   type MethodName ReconnectService "stop" = "Stop"
-  type MethodInput ReconnectService "stop" = Proto.Src.Proto.Grpc.Testing.Empty.Empty
-  type MethodOutput ReconnectService "stop" = Proto.Src.Proto.Grpc.Testing.Messages.ReconnectInfo
+  type MethodInput ReconnectService "stop" = Proto.Empty.Empty
+  type MethodOutput ReconnectService "stop" = Proto.Messages.ReconnectInfo
   type MethodStreamingType ReconnectService "stop" = 'Data.ProtoLens.Service.Types.NonStreaming
 data LoadBalancerStatsService = LoadBalancerStatsService {}
 instance Data.ProtoLens.Service.Types.Service LoadBalancerStatsService where
@@ -145,13 +146,13 @@ instance Data.ProtoLens.Service.Types.Service LoadBalancerStatsService where
       \\EMGetClientAccumulatedStats\DC21.grpc.testing.LoadBalancerAccumulatedStatsRequest\SUB2.grpc.testing.LoadBalancerAccumulatedStatsResponse\"\NUL"
 instance Data.ProtoLens.Service.Types.HasMethodImpl LoadBalancerStatsService "getClientStats" where
   type MethodName LoadBalancerStatsService "getClientStats" = "GetClientStats"
-  type MethodInput LoadBalancerStatsService "getClientStats" = Proto.Src.Proto.Grpc.Testing.Messages.LoadBalancerStatsRequest
-  type MethodOutput LoadBalancerStatsService "getClientStats" = Proto.Src.Proto.Grpc.Testing.Messages.LoadBalancerStatsResponse
+  type MethodInput LoadBalancerStatsService "getClientStats" = Proto.Messages.LoadBalancerStatsRequest
+  type MethodOutput LoadBalancerStatsService "getClientStats" = Proto.Messages.LoadBalancerStatsResponse
   type MethodStreamingType LoadBalancerStatsService "getClientStats" = 'Data.ProtoLens.Service.Types.NonStreaming
 instance Data.ProtoLens.Service.Types.HasMethodImpl LoadBalancerStatsService "getClientAccumulatedStats" where
   type MethodName LoadBalancerStatsService "getClientAccumulatedStats" = "GetClientAccumulatedStats"
-  type MethodInput LoadBalancerStatsService "getClientAccumulatedStats" = Proto.Src.Proto.Grpc.Testing.Messages.LoadBalancerAccumulatedStatsRequest
-  type MethodOutput LoadBalancerStatsService "getClientAccumulatedStats" = Proto.Src.Proto.Grpc.Testing.Messages.LoadBalancerAccumulatedStatsResponse
+  type MethodInput LoadBalancerStatsService "getClientAccumulatedStats" = Proto.Messages.LoadBalancerAccumulatedStatsRequest
+  type MethodOutput LoadBalancerStatsService "getClientAccumulatedStats" = Proto.Messages.LoadBalancerAccumulatedStatsResponse
   type MethodStreamingType LoadBalancerStatsService "getClientAccumulatedStats" = 'Data.ProtoLens.Service.Types.NonStreaming
 data HookService = HookService {}
 instance Data.ProtoLens.Service.Types.Service HookService where
@@ -168,18 +169,18 @@ instance Data.ProtoLens.Service.Types.Service HookService where
       \\DC1ClearReturnStatus\DC2\DC3.grpc.testing.Empty\SUB\DC3.grpc.testing.Empty"
 instance Data.ProtoLens.Service.Types.HasMethodImpl HookService "hook" where
   type MethodName HookService "hook" = "Hook"
-  type MethodInput HookService "hook" = Proto.Src.Proto.Grpc.Testing.Empty.Empty
-  type MethodOutput HookService "hook" = Proto.Src.Proto.Grpc.Testing.Empty.Empty
+  type MethodInput HookService "hook" = Proto.Empty.Empty
+  type MethodOutput HookService "hook" = Proto.Empty.Empty
   type MethodStreamingType HookService "hook" = 'Data.ProtoLens.Service.Types.NonStreaming
 instance Data.ProtoLens.Service.Types.HasMethodImpl HookService "setReturnStatus" where
   type MethodName HookService "setReturnStatus" = "SetReturnStatus"
-  type MethodInput HookService "setReturnStatus" = Proto.Src.Proto.Grpc.Testing.Messages.SetReturnStatusRequest
-  type MethodOutput HookService "setReturnStatus" = Proto.Src.Proto.Grpc.Testing.Empty.Empty
+  type MethodInput HookService "setReturnStatus" = Proto.Messages.SetReturnStatusRequest
+  type MethodOutput HookService "setReturnStatus" = Proto.Empty.Empty
   type MethodStreamingType HookService "setReturnStatus" = 'Data.ProtoLens.Service.Types.NonStreaming
 instance Data.ProtoLens.Service.Types.HasMethodImpl HookService "clearReturnStatus" where
   type MethodName HookService "clearReturnStatus" = "ClearReturnStatus"
-  type MethodInput HookService "clearReturnStatus" = Proto.Src.Proto.Grpc.Testing.Empty.Empty
-  type MethodOutput HookService "clearReturnStatus" = Proto.Src.Proto.Grpc.Testing.Empty.Empty
+  type MethodInput HookService "clearReturnStatus" = Proto.Empty.Empty
+  type MethodOutput HookService "clearReturnStatus" = Proto.Empty.Empty
   type MethodStreamingType HookService "clearReturnStatus" = 'Data.ProtoLens.Service.Types.NonStreaming
 data XdsUpdateHealthService = XdsUpdateHealthService {}
 instance Data.ProtoLens.Service.Types.Service XdsUpdateHealthService where
@@ -197,18 +198,18 @@ instance Data.ProtoLens.Service.Types.Service XdsUpdateHealthService where
       \\SISendHookRequest\DC2\EM.grpc.testing.HookRequest\SUB\SUB.grpc.testing.HookResponse"
 instance Data.ProtoLens.Service.Types.HasMethodImpl XdsUpdateHealthService "setServing" where
   type MethodName XdsUpdateHealthService "setServing" = "SetServing"
-  type MethodInput XdsUpdateHealthService "setServing" = Proto.Src.Proto.Grpc.Testing.Empty.Empty
-  type MethodOutput XdsUpdateHealthService "setServing" = Proto.Src.Proto.Grpc.Testing.Empty.Empty
+  type MethodInput XdsUpdateHealthService "setServing" = Proto.Empty.Empty
+  type MethodOutput XdsUpdateHealthService "setServing" = Proto.Empty.Empty
   type MethodStreamingType XdsUpdateHealthService "setServing" = 'Data.ProtoLens.Service.Types.NonStreaming
 instance Data.ProtoLens.Service.Types.HasMethodImpl XdsUpdateHealthService "setNotServing" where
   type MethodName XdsUpdateHealthService "setNotServing" = "SetNotServing"
-  type MethodInput XdsUpdateHealthService "setNotServing" = Proto.Src.Proto.Grpc.Testing.Empty.Empty
-  type MethodOutput XdsUpdateHealthService "setNotServing" = Proto.Src.Proto.Grpc.Testing.Empty.Empty
+  type MethodInput XdsUpdateHealthService "setNotServing" = Proto.Empty.Empty
+  type MethodOutput XdsUpdateHealthService "setNotServing" = Proto.Empty.Empty
   type MethodStreamingType XdsUpdateHealthService "setNotServing" = 'Data.ProtoLens.Service.Types.NonStreaming
 instance Data.ProtoLens.Service.Types.HasMethodImpl XdsUpdateHealthService "sendHookRequest" where
   type MethodName XdsUpdateHealthService "sendHookRequest" = "SendHookRequest"
-  type MethodInput XdsUpdateHealthService "sendHookRequest" = Proto.Src.Proto.Grpc.Testing.Messages.HookRequest
-  type MethodOutput XdsUpdateHealthService "sendHookRequest" = Proto.Src.Proto.Grpc.Testing.Messages.HookResponse
+  type MethodInput XdsUpdateHealthService "sendHookRequest" = Proto.Messages.HookRequest
+  type MethodOutput XdsUpdateHealthService "sendHookRequest" = Proto.Messages.HookResponse
   type MethodStreamingType XdsUpdateHealthService "sendHookRequest" = 'Data.ProtoLens.Service.Types.NonStreaming
 data XdsUpdateClientConfigureService
   = XdsUpdateClientConfigureService {}
@@ -222,6 +223,6 @@ instance Data.ProtoLens.Service.Types.Service XdsUpdateClientConfigureService wh
       \\tConfigure\DC2$.grpc.testing.ClientConfigureRequest\SUB%.grpc.testing.ClientConfigureResponse"
 instance Data.ProtoLens.Service.Types.HasMethodImpl XdsUpdateClientConfigureService "configure" where
   type MethodName XdsUpdateClientConfigureService "configure" = "Configure"
-  type MethodInput XdsUpdateClientConfigureService "configure" = Proto.Src.Proto.Grpc.Testing.Messages.ClientConfigureRequest
-  type MethodOutput XdsUpdateClientConfigureService "configure" = Proto.Src.Proto.Grpc.Testing.Messages.ClientConfigureResponse
+  type MethodInput XdsUpdateClientConfigureService "configure" = Proto.Messages.ClientConfigureRequest
+  type MethodOutput XdsUpdateClientConfigureService "configure" = Proto.Messages.ClientConfigureResponse
   type MethodStreamingType XdsUpdateClientConfigureService "configure" = 'Data.ProtoLens.Service.Types.NonStreaming

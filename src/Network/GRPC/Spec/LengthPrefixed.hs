@@ -43,7 +43,7 @@ data MessagePrefix = MessagePrefix {
 buildMessagePrefix :: MessagePrefix -> Builder
 buildMessagePrefix MessagePrefix{msgLength, msgIsCompressed} = mconcat [
       Builder.word8    $ if msgIsCompressed then 1 else 0
-    , Builder.word32BE $ fromIntegral msgLength
+    , Builder.word32BE $ msgLength
     ]
 
 getMessagePrefix :: Get MessagePrefix

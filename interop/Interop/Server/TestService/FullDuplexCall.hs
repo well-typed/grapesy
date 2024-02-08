@@ -6,8 +6,8 @@ import Network.GRPC.Common
 import Network.GRPC.Common.Protobuf
 import Network.GRPC.Server
 
-import Proto.Src.Proto.Grpc.Testing.Messages
-import Proto.Src.Proto.Grpc.Testing.Test
+import Proto.Messages
+import Proto.Test
 
 import Interop.Server.TestService.StreamingOutputCall
 import Interop.Server.Util

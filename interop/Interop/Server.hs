@@ -12,7 +12,7 @@ import Network.GRPC.Server.StreamType
 import Paths_grapesy
 
 import Proto.Ping
-import Proto.Src.Proto.Grpc.Testing.Test
+import Proto.Test
 
 import Interop.Cmdline
 import Interop.Server.PingService.Ping

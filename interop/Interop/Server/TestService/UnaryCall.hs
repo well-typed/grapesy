@@ -9,8 +9,8 @@ import Network.GRPC.Common.StreamElem qualified as StreamElem
 import Network.GRPC.Server
 import Network.GRPC.Spec
 
-import Proto.Src.Proto.Grpc.Testing.Messages
-import Proto.Src.Proto.Grpc.Testing.Test
+import Proto.Messages
+import Proto.Test
 
 import Interop.Server.Util
 

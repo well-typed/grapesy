@@ -1,9 +1,10 @@
-{- This file was auto-generated from src/proto/grpc/testing/messages.proto by the proto-lens-protoc program. -}
+{- This file was auto-generated from messages.proto by the proto-lens-protoc program. -}
 {-# LANGUAGE ScopedTypeVariables, DataKinds, TypeFamilies, UndecidableInstances, GeneralizedNewtypeDeriving, MultiParamTypeClasses, FlexibleContexts, FlexibleInstances, PatternSynonyms, MagicHash, NoImplicitPrelude, DataKinds, BangPatterns, TypeApplications, OverloadedStrings, DerivingStrategies#-}
 {-# OPTIONS_GHC -Wno-unused-imports#-}
 {-# OPTIONS_GHC -Wno-duplicate-exports#-}
 {-# OPTIONS_GHC -Wno-dodgy-exports#-}
-module Proto.Src.Proto.Grpc.Testing.Messages (
+{-# OPTIONS_GHC -Wno-prepositive-qualified-module #-}
+module Proto.Messages (
         BoolValue(), ClientConfigureRequest(),
         ClientConfigureRequest'Metadata(),
         ClientConfigureRequest'RpcType(..),
@@ -69,8 +70,8 @@ import qualified Data.ProtoLens.Runtime.Data.Vector.Generic as Data.Vector.Gener
 import qualified Data.ProtoLens.Runtime.Data.Vector.Unboxed as Data.Vector.Unboxed
 import qualified Data.ProtoLens.Runtime.Text.Read as Text.Read
 {- | Fields :
-     
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.value' @:: Lens' BoolValue Prelude.Bool@ -}
+
+         * 'Proto.Messages_Fields.value' @:: Lens' BoolValue Prelude.Bool@ -}
 data BoolValue
   = BoolValue'_constructor {_BoolValue'value :: !Prelude.Bool,
                             _BoolValue'_unknownFields :: !Data.ProtoLens.FieldSet}
@@ -172,12 +173,12 @@ instance Control.DeepSeq.NFData BoolValue where
              (_BoolValue'_unknownFields x__)
              (Control.DeepSeq.deepseq (_BoolValue'value x__) ())
 {- | Fields :
-     
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.types' @:: Lens' ClientConfigureRequest [ClientConfigureRequest'RpcType]@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.vec'types' @:: Lens' ClientConfigureRequest (Data.Vector.Vector ClientConfigureRequest'RpcType)@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.metadata' @:: Lens' ClientConfigureRequest [ClientConfigureRequest'Metadata]@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.vec'metadata' @:: Lens' ClientConfigureRequest (Data.Vector.Vector ClientConfigureRequest'Metadata)@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.timeoutSec' @:: Lens' ClientConfigureRequest Data.Int.Int32@ -}
+
+         * 'Proto.Messages_Fields.types' @:: Lens' ClientConfigureRequest [ClientConfigureRequest'RpcType]@
+         * 'Proto.Messages_Fields.vec'types' @:: Lens' ClientConfigureRequest (Data.Vector.Vector ClientConfigureRequest'RpcType)@
+         * 'Proto.Messages_Fields.metadata' @:: Lens' ClientConfigureRequest [ClientConfigureRequest'Metadata]@
+         * 'Proto.Messages_Fields.vec'metadata' @:: Lens' ClientConfigureRequest (Data.Vector.Vector ClientConfigureRequest'Metadata)@
+         * 'Proto.Messages_Fields.timeoutSec' @:: Lens' ClientConfigureRequest Data.Int.Int32@ -}
 data ClientConfigureRequest
   = ClientConfigureRequest'_constructor {_ClientConfigureRequest'types :: !(Data.Vector.Vector ClientConfigureRequest'RpcType),
                                          _ClientConfigureRequest'metadata :: !(Data.Vector.Vector ClientConfigureRequest'Metadata),
@@ -457,10 +458,10 @@ instance Control.DeepSeq.NFData ClientConfigureRequest where
                    (Control.DeepSeq.deepseq
                       (_ClientConfigureRequest'timeoutSec x__) ())))
 {- | Fields :
-     
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.type'' @:: Lens' ClientConfigureRequest'Metadata ClientConfigureRequest'RpcType@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.key' @:: Lens' ClientConfigureRequest'Metadata Data.Text.Text@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.value' @:: Lens' ClientConfigureRequest'Metadata Data.Text.Text@ -}
+
+         * 'Proto.Messages_Fields.type'' @:: Lens' ClientConfigureRequest'Metadata ClientConfigureRequest'RpcType@
+         * 'Proto.Messages_Fields.key' @:: Lens' ClientConfigureRequest'Metadata Data.Text.Text@
+         * 'Proto.Messages_Fields.value' @:: Lens' ClientConfigureRequest'Metadata Data.Text.Text@ -}
 data ClientConfigureRequest'Metadata
   = ClientConfigureRequest'Metadata'_constructor {_ClientConfigureRequest'Metadata'type' :: !ClientConfigureRequest'RpcType,
                                                   _ClientConfigureRequest'Metadata'key :: !Data.Text.Text,
@@ -794,9 +795,9 @@ instance Control.DeepSeq.NFData ClientConfigureResponse where
         -> Control.DeepSeq.deepseq
              (_ClientConfigureResponse'_unknownFields x__) ()
 {- | Fields :
-     
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.code' @:: Lens' EchoStatus Data.Int.Int32@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.message' @:: Lens' EchoStatus Data.Text.Text@ -}
+
+         * 'Proto.Messages_Fields.code' @:: Lens' EchoStatus Data.Int.Int32@
+         * 'Proto.Messages_Fields.message' @:: Lens' EchoStatus Data.Text.Text@ -}
 data EchoStatus
   = EchoStatus'_constructor {_EchoStatus'code :: !Data.Int.Int32,
                              _EchoStatus'message :: !Data.Text.Text,
@@ -1016,11 +1017,11 @@ instance Data.ProtoLens.FieldDefault GrpclbRouteType where
 instance Control.DeepSeq.NFData GrpclbRouteType where
   rnf x__ = Prelude.seq x__ ()
 {- | Fields :
-     
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.command' @:: Lens' HookRequest HookRequest'HookRequestCommand@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.grpcCodeToReturn' @:: Lens' HookRequest Data.Int.Int32@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.grpcStatusDescription' @:: Lens' HookRequest Data.Text.Text@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.serverPort' @:: Lens' HookRequest Data.Int.Int32@ -}
+
+         * 'Proto.Messages_Fields.command' @:: Lens' HookRequest HookRequest'HookRequestCommand@
+         * 'Proto.Messages_Fields.grpcCodeToReturn' @:: Lens' HookRequest Data.Int.Int32@
+         * 'Proto.Messages_Fields.grpcStatusDescription' @:: Lens' HookRequest Data.Text.Text@
+         * 'Proto.Messages_Fields.serverPort' @:: Lens' HookRequest Data.Int.Int32@ -}
 data HookRequest
   = HookRequest'_constructor {_HookRequest'command :: !HookRequest'HookRequestCommand,
                               _HookRequest'grpcCodeToReturn :: !Data.Int.Int32,
@@ -1482,11 +1483,11 @@ instance Control.DeepSeq.NFData LoadBalancerAccumulatedStatsRequest where
         -> Control.DeepSeq.deepseq
              (_LoadBalancerAccumulatedStatsRequest'_unknownFields x__) ()
 {- | Fields :
-     
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.numRpcsStartedByMethod' @:: Lens' LoadBalancerAccumulatedStatsResponse (Data.Map.Map Data.Text.Text Data.Int.Int32)@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.numRpcsSucceededByMethod' @:: Lens' LoadBalancerAccumulatedStatsResponse (Data.Map.Map Data.Text.Text Data.Int.Int32)@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.numRpcsFailedByMethod' @:: Lens' LoadBalancerAccumulatedStatsResponse (Data.Map.Map Data.Text.Text Data.Int.Int32)@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.statsPerMethod' @:: Lens' LoadBalancerAccumulatedStatsResponse (Data.Map.Map Data.Text.Text LoadBalancerAccumulatedStatsResponse'MethodStats)@ -}
+
+         * 'Proto.Messages_Fields.numRpcsStartedByMethod' @:: Lens' LoadBalancerAccumulatedStatsResponse (Data.Map.Map Data.Text.Text Data.Int.Int32)@
+         * 'Proto.Messages_Fields.numRpcsSucceededByMethod' @:: Lens' LoadBalancerAccumulatedStatsResponse (Data.Map.Map Data.Text.Text Data.Int.Int32)@
+         * 'Proto.Messages_Fields.numRpcsFailedByMethod' @:: Lens' LoadBalancerAccumulatedStatsResponse (Data.Map.Map Data.Text.Text Data.Int.Int32)@
+         * 'Proto.Messages_Fields.statsPerMethod' @:: Lens' LoadBalancerAccumulatedStatsResponse (Data.Map.Map Data.Text.Text LoadBalancerAccumulatedStatsResponse'MethodStats)@ -}
 data LoadBalancerAccumulatedStatsResponse
   = LoadBalancerAccumulatedStatsResponse'_constructor {_LoadBalancerAccumulatedStatsResponse'numRpcsStartedByMethod :: !(Data.Map.Map Data.Text.Text Data.Int.Int32),
                                                        _LoadBalancerAccumulatedStatsResponse'numRpcsSucceededByMethod :: !(Data.Map.Map Data.Text.Text Data.Int.Int32),
@@ -1836,9 +1837,9 @@ instance Control.DeepSeq.NFData LoadBalancerAccumulatedStatsResponse where
                       (Control.DeepSeq.deepseq
                          (_LoadBalancerAccumulatedStatsResponse'statsPerMethod x__) ()))))
 {- | Fields :
-     
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.rpcsStarted' @:: Lens' LoadBalancerAccumulatedStatsResponse'MethodStats Data.Int.Int32@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.result' @:: Lens' LoadBalancerAccumulatedStatsResponse'MethodStats (Data.Map.Map Data.Int.Int32 Data.Int.Int32)@ -}
+
+         * 'Proto.Messages_Fields.rpcsStarted' @:: Lens' LoadBalancerAccumulatedStatsResponse'MethodStats Data.Int.Int32@
+         * 'Proto.Messages_Fields.result' @:: Lens' LoadBalancerAccumulatedStatsResponse'MethodStats (Data.Map.Map Data.Int.Int32 Data.Int.Int32)@ -}
 data LoadBalancerAccumulatedStatsResponse'MethodStats
   = LoadBalancerAccumulatedStatsResponse'MethodStats'_constructor {_LoadBalancerAccumulatedStatsResponse'MethodStats'rpcsStarted :: !Data.Int.Int32,
                                                                    _LoadBalancerAccumulatedStatsResponse'MethodStats'result :: !(Data.Map.Map Data.Int.Int32 Data.Int.Int32),
@@ -2021,9 +2022,9 @@ instance Control.DeepSeq.NFData LoadBalancerAccumulatedStatsResponse'MethodStats
                 (Control.DeepSeq.deepseq
                    (_LoadBalancerAccumulatedStatsResponse'MethodStats'result x__) ()))
 {- | Fields :
-     
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.key' @:: Lens' LoadBalancerAccumulatedStatsResponse'MethodStats'ResultEntry Data.Int.Int32@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.value' @:: Lens' LoadBalancerAccumulatedStatsResponse'MethodStats'ResultEntry Data.Int.Int32@ -}
+
+         * 'Proto.Messages_Fields.key' @:: Lens' LoadBalancerAccumulatedStatsResponse'MethodStats'ResultEntry Data.Int.Int32@
+         * 'Proto.Messages_Fields.value' @:: Lens' LoadBalancerAccumulatedStatsResponse'MethodStats'ResultEntry Data.Int.Int32@ -}
 data LoadBalancerAccumulatedStatsResponse'MethodStats'ResultEntry
   = LoadBalancerAccumulatedStatsResponse'MethodStats'ResultEntry'_constructor {_LoadBalancerAccumulatedStatsResponse'MethodStats'ResultEntry'key :: !Data.Int.Int32,
                                                                                _LoadBalancerAccumulatedStatsResponse'MethodStats'ResultEntry'value :: !Data.Int.Int32,
@@ -2180,9 +2181,9 @@ instance Control.DeepSeq.NFData LoadBalancerAccumulatedStatsResponse'MethodStats
                       x__)
                    ()))
 {- | Fields :
-     
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.key' @:: Lens' LoadBalancerAccumulatedStatsResponse'NumRpcsFailedByMethodEntry Data.Text.Text@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.value' @:: Lens' LoadBalancerAccumulatedStatsResponse'NumRpcsFailedByMethodEntry Data.Int.Int32@ -}
+
+         * 'Proto.Messages_Fields.key' @:: Lens' LoadBalancerAccumulatedStatsResponse'NumRpcsFailedByMethodEntry Data.Text.Text@
+         * 'Proto.Messages_Fields.value' @:: Lens' LoadBalancerAccumulatedStatsResponse'NumRpcsFailedByMethodEntry Data.Int.Int32@ -}
 data LoadBalancerAccumulatedStatsResponse'NumRpcsFailedByMethodEntry
   = LoadBalancerAccumulatedStatsResponse'NumRpcsFailedByMethodEntry'_constructor {_LoadBalancerAccumulatedStatsResponse'NumRpcsFailedByMethodEntry'key :: !Data.Text.Text,
                                                                                   _LoadBalancerAccumulatedStatsResponse'NumRpcsFailedByMethodEntry'value :: !Data.Int.Int32,
@@ -2345,9 +2346,9 @@ instance Control.DeepSeq.NFData LoadBalancerAccumulatedStatsResponse'NumRpcsFail
                       x__)
                    ()))
 {- | Fields :
-     
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.key' @:: Lens' LoadBalancerAccumulatedStatsResponse'NumRpcsStartedByMethodEntry Data.Text.Text@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.value' @:: Lens' LoadBalancerAccumulatedStatsResponse'NumRpcsStartedByMethodEntry Data.Int.Int32@ -}
+
+         * 'Proto.Messages_Fields.key' @:: Lens' LoadBalancerAccumulatedStatsResponse'NumRpcsStartedByMethodEntry Data.Text.Text@
+         * 'Proto.Messages_Fields.value' @:: Lens' LoadBalancerAccumulatedStatsResponse'NumRpcsStartedByMethodEntry Data.Int.Int32@ -}
 data LoadBalancerAccumulatedStatsResponse'NumRpcsStartedByMethodEntry
   = LoadBalancerAccumulatedStatsResponse'NumRpcsStartedByMethodEntry'_constructor {_LoadBalancerAccumulatedStatsResponse'NumRpcsStartedByMethodEntry'key :: !Data.Text.Text,
                                                                                    _LoadBalancerAccumulatedStatsResponse'NumRpcsStartedByMethodEntry'value :: !Data.Int.Int32,
@@ -2510,9 +2511,9 @@ instance Control.DeepSeq.NFData LoadBalancerAccumulatedStatsResponse'NumRpcsStar
                       x__)
                    ()))
 {- | Fields :
-     
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.key' @:: Lens' LoadBalancerAccumulatedStatsResponse'NumRpcsSucceededByMethodEntry Data.Text.Text@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.value' @:: Lens' LoadBalancerAccumulatedStatsResponse'NumRpcsSucceededByMethodEntry Data.Int.Int32@ -}
+
+         * 'Proto.Messages_Fields.key' @:: Lens' LoadBalancerAccumulatedStatsResponse'NumRpcsSucceededByMethodEntry Data.Text.Text@
+         * 'Proto.Messages_Fields.value' @:: Lens' LoadBalancerAccumulatedStatsResponse'NumRpcsSucceededByMethodEntry Data.Int.Int32@ -}
 data LoadBalancerAccumulatedStatsResponse'NumRpcsSucceededByMethodEntry
   = LoadBalancerAccumulatedStatsResponse'NumRpcsSucceededByMethodEntry'_constructor {_LoadBalancerAccumulatedStatsResponse'NumRpcsSucceededByMethodEntry'key :: !Data.Text.Text,
                                                                                      _LoadBalancerAccumulatedStatsResponse'NumRpcsSucceededByMethodEntry'value :: !Data.Int.Int32,
@@ -2675,10 +2676,10 @@ instance Control.DeepSeq.NFData LoadBalancerAccumulatedStatsResponse'NumRpcsSucc
                       x__)
                    ()))
 {- | Fields :
-     
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.key' @:: Lens' LoadBalancerAccumulatedStatsResponse'StatsPerMethodEntry Data.Text.Text@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.value' @:: Lens' LoadBalancerAccumulatedStatsResponse'StatsPerMethodEntry LoadBalancerAccumulatedStatsResponse'MethodStats@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.maybe'value' @:: Lens' LoadBalancerAccumulatedStatsResponse'StatsPerMethodEntry (Prelude.Maybe LoadBalancerAccumulatedStatsResponse'MethodStats)@ -}
+
+         * 'Proto.Messages_Fields.key' @:: Lens' LoadBalancerAccumulatedStatsResponse'StatsPerMethodEntry Data.Text.Text@
+         * 'Proto.Messages_Fields.value' @:: Lens' LoadBalancerAccumulatedStatsResponse'StatsPerMethodEntry LoadBalancerAccumulatedStatsResponse'MethodStats@
+         * 'Proto.Messages_Fields.maybe'value' @:: Lens' LoadBalancerAccumulatedStatsResponse'StatsPerMethodEntry (Prelude.Maybe LoadBalancerAccumulatedStatsResponse'MethodStats)@ -}
 data LoadBalancerAccumulatedStatsResponse'StatsPerMethodEntry
   = LoadBalancerAccumulatedStatsResponse'StatsPerMethodEntry'_constructor {_LoadBalancerAccumulatedStatsResponse'StatsPerMethodEntry'key :: !Data.Text.Text,
                                                                            _LoadBalancerAccumulatedStatsResponse'StatsPerMethodEntry'value :: !(Prelude.Maybe LoadBalancerAccumulatedStatsResponse'MethodStats),
@@ -2853,11 +2854,11 @@ instance Control.DeepSeq.NFData LoadBalancerAccumulatedStatsResponse'StatsPerMet
                       x__)
                    ()))
 {- | Fields :
-     
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.numRpcs' @:: Lens' LoadBalancerStatsRequest Data.Int.Int32@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.timeoutSec' @:: Lens' LoadBalancerStatsRequest Data.Int.Int32@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.metadataKeys' @:: Lens' LoadBalancerStatsRequest [Data.Text.Text]@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.vec'metadataKeys' @:: Lens' LoadBalancerStatsRequest (Data.Vector.Vector Data.Text.Text)@ -}
+
+         * 'Proto.Messages_Fields.numRpcs' @:: Lens' LoadBalancerStatsRequest Data.Int.Int32@
+         * 'Proto.Messages_Fields.timeoutSec' @:: Lens' LoadBalancerStatsRequest Data.Int.Int32@
+         * 'Proto.Messages_Fields.metadataKeys' @:: Lens' LoadBalancerStatsRequest [Data.Text.Text]@
+         * 'Proto.Messages_Fields.vec'metadataKeys' @:: Lens' LoadBalancerStatsRequest (Data.Vector.Vector Data.Text.Text)@ -}
 data LoadBalancerStatsRequest
   = LoadBalancerStatsRequest'_constructor {_LoadBalancerStatsRequest'numRpcs :: !Data.Int.Int32,
                                            _LoadBalancerStatsRequest'timeoutSec :: !Data.Int.Int32,
@@ -3077,11 +3078,11 @@ instance Control.DeepSeq.NFData LoadBalancerStatsRequest where
                    (Control.DeepSeq.deepseq
                       (_LoadBalancerStatsRequest'metadataKeys x__) ())))
 {- | Fields :
-     
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.rpcsByPeer' @:: Lens' LoadBalancerStatsResponse (Data.Map.Map Data.Text.Text Data.Int.Int32)@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.numFailures' @:: Lens' LoadBalancerStatsResponse Data.Int.Int32@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.rpcsByMethod' @:: Lens' LoadBalancerStatsResponse (Data.Map.Map Data.Text.Text LoadBalancerStatsResponse'RpcsByPeer)@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.metadatasByPeer' @:: Lens' LoadBalancerStatsResponse (Data.Map.Map Data.Text.Text LoadBalancerStatsResponse'MetadataByPeer)@ -}
+
+         * 'Proto.Messages_Fields.rpcsByPeer' @:: Lens' LoadBalancerStatsResponse (Data.Map.Map Data.Text.Text Data.Int.Int32)@
+         * 'Proto.Messages_Fields.numFailures' @:: Lens' LoadBalancerStatsResponse Data.Int.Int32@
+         * 'Proto.Messages_Fields.rpcsByMethod' @:: Lens' LoadBalancerStatsResponse (Data.Map.Map Data.Text.Text LoadBalancerStatsResponse'RpcsByPeer)@
+         * 'Proto.Messages_Fields.metadatasByPeer' @:: Lens' LoadBalancerStatsResponse (Data.Map.Map Data.Text.Text LoadBalancerStatsResponse'MetadataByPeer)@ -}
 data LoadBalancerStatsResponse
   = LoadBalancerStatsResponse'_constructor {_LoadBalancerStatsResponse'rpcsByPeer :: !(Data.Map.Map Data.Text.Text Data.Int.Int32),
                                             _LoadBalancerStatsResponse'numFailures :: !Data.Int.Int32,
@@ -3411,9 +3412,9 @@ instance Control.DeepSeq.NFData LoadBalancerStatsResponse where
                       (Control.DeepSeq.deepseq
                          (_LoadBalancerStatsResponse'metadatasByPeer x__) ()))))
 {- | Fields :
-     
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.rpcMetadata' @:: Lens' LoadBalancerStatsResponse'MetadataByPeer [LoadBalancerStatsResponse'RpcMetadata]@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.vec'rpcMetadata' @:: Lens' LoadBalancerStatsResponse'MetadataByPeer (Data.Vector.Vector LoadBalancerStatsResponse'RpcMetadata)@ -}
+
+         * 'Proto.Messages_Fields.rpcMetadata' @:: Lens' LoadBalancerStatsResponse'MetadataByPeer [LoadBalancerStatsResponse'RpcMetadata]@
+         * 'Proto.Messages_Fields.vec'rpcMetadata' @:: Lens' LoadBalancerStatsResponse'MetadataByPeer (Data.Vector.Vector LoadBalancerStatsResponse'RpcMetadata)@ -}
 data LoadBalancerStatsResponse'MetadataByPeer
   = LoadBalancerStatsResponse'MetadataByPeer'_constructor {_LoadBalancerStatsResponse'MetadataByPeer'rpcMetadata :: !(Data.Vector.Vector LoadBalancerStatsResponse'RpcMetadata),
                                                            _LoadBalancerStatsResponse'MetadataByPeer'_unknownFields :: !Data.ProtoLens.FieldSet}
@@ -3557,10 +3558,10 @@ instance Control.DeepSeq.NFData LoadBalancerStatsResponse'MetadataByPeer where
              (Control.DeepSeq.deepseq
                 (_LoadBalancerStatsResponse'MetadataByPeer'rpcMetadata x__) ())
 {- | Fields :
-     
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.key' @:: Lens' LoadBalancerStatsResponse'MetadataEntry Data.Text.Text@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.value' @:: Lens' LoadBalancerStatsResponse'MetadataEntry Data.Text.Text@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.type'' @:: Lens' LoadBalancerStatsResponse'MetadataEntry LoadBalancerStatsResponse'MetadataType@ -}
+
+         * 'Proto.Messages_Fields.key' @:: Lens' LoadBalancerStatsResponse'MetadataEntry Data.Text.Text@
+         * 'Proto.Messages_Fields.value' @:: Lens' LoadBalancerStatsResponse'MetadataEntry Data.Text.Text@
+         * 'Proto.Messages_Fields.type'' @:: Lens' LoadBalancerStatsResponse'MetadataEntry LoadBalancerStatsResponse'MetadataType@ -}
 data LoadBalancerStatsResponse'MetadataEntry
   = LoadBalancerStatsResponse'MetadataEntry'_constructor {_LoadBalancerStatsResponse'MetadataEntry'key :: !Data.Text.Text,
                                                           _LoadBalancerStatsResponse'MetadataEntry'value :: !Data.Text.Text,
@@ -3844,10 +3845,10 @@ instance Data.ProtoLens.FieldDefault LoadBalancerStatsResponse'MetadataType wher
 instance Control.DeepSeq.NFData LoadBalancerStatsResponse'MetadataType where
   rnf x__ = Prelude.seq x__ ()
 {- | Fields :
-     
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.key' @:: Lens' LoadBalancerStatsResponse'MetadatasByPeerEntry Data.Text.Text@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.value' @:: Lens' LoadBalancerStatsResponse'MetadatasByPeerEntry LoadBalancerStatsResponse'MetadataByPeer@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.maybe'value' @:: Lens' LoadBalancerStatsResponse'MetadatasByPeerEntry (Prelude.Maybe LoadBalancerStatsResponse'MetadataByPeer)@ -}
+
+         * 'Proto.Messages_Fields.key' @:: Lens' LoadBalancerStatsResponse'MetadatasByPeerEntry Data.Text.Text@
+         * 'Proto.Messages_Fields.value' @:: Lens' LoadBalancerStatsResponse'MetadatasByPeerEntry LoadBalancerStatsResponse'MetadataByPeer@
+         * 'Proto.Messages_Fields.maybe'value' @:: Lens' LoadBalancerStatsResponse'MetadatasByPeerEntry (Prelude.Maybe LoadBalancerStatsResponse'MetadataByPeer)@ -}
 data LoadBalancerStatsResponse'MetadatasByPeerEntry
   = LoadBalancerStatsResponse'MetadatasByPeerEntry'_constructor {_LoadBalancerStatsResponse'MetadatasByPeerEntry'key :: !Data.Text.Text,
                                                                  _LoadBalancerStatsResponse'MetadatasByPeerEntry'value :: !(Prelude.Maybe LoadBalancerStatsResponse'MetadataByPeer),
@@ -4020,9 +4021,9 @@ instance Control.DeepSeq.NFData LoadBalancerStatsResponse'MetadatasByPeerEntry w
                 (Control.DeepSeq.deepseq
                    (_LoadBalancerStatsResponse'MetadatasByPeerEntry'value x__) ()))
 {- | Fields :
-     
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.metadata' @:: Lens' LoadBalancerStatsResponse'RpcMetadata [LoadBalancerStatsResponse'MetadataEntry]@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.vec'metadata' @:: Lens' LoadBalancerStatsResponse'RpcMetadata (Data.Vector.Vector LoadBalancerStatsResponse'MetadataEntry)@ -}
+
+         * 'Proto.Messages_Fields.metadata' @:: Lens' LoadBalancerStatsResponse'RpcMetadata [LoadBalancerStatsResponse'MetadataEntry]@
+         * 'Proto.Messages_Fields.vec'metadata' @:: Lens' LoadBalancerStatsResponse'RpcMetadata (Data.Vector.Vector LoadBalancerStatsResponse'MetadataEntry)@ -}
 data LoadBalancerStatsResponse'RpcMetadata
   = LoadBalancerStatsResponse'RpcMetadata'_constructor {_LoadBalancerStatsResponse'RpcMetadata'metadata :: !(Data.Vector.Vector LoadBalancerStatsResponse'MetadataEntry),
                                                         _LoadBalancerStatsResponse'RpcMetadata'_unknownFields :: !Data.ProtoLens.FieldSet}
@@ -4162,10 +4163,10 @@ instance Control.DeepSeq.NFData LoadBalancerStatsResponse'RpcMetadata where
              (Control.DeepSeq.deepseq
                 (_LoadBalancerStatsResponse'RpcMetadata'metadata x__) ())
 {- | Fields :
-     
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.key' @:: Lens' LoadBalancerStatsResponse'RpcsByMethodEntry Data.Text.Text@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.value' @:: Lens' LoadBalancerStatsResponse'RpcsByMethodEntry LoadBalancerStatsResponse'RpcsByPeer@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.maybe'value' @:: Lens' LoadBalancerStatsResponse'RpcsByMethodEntry (Prelude.Maybe LoadBalancerStatsResponse'RpcsByPeer)@ -}
+
+         * 'Proto.Messages_Fields.key' @:: Lens' LoadBalancerStatsResponse'RpcsByMethodEntry Data.Text.Text@
+         * 'Proto.Messages_Fields.value' @:: Lens' LoadBalancerStatsResponse'RpcsByMethodEntry LoadBalancerStatsResponse'RpcsByPeer@
+         * 'Proto.Messages_Fields.maybe'value' @:: Lens' LoadBalancerStatsResponse'RpcsByMethodEntry (Prelude.Maybe LoadBalancerStatsResponse'RpcsByPeer)@ -}
 data LoadBalancerStatsResponse'RpcsByMethodEntry
   = LoadBalancerStatsResponse'RpcsByMethodEntry'_constructor {_LoadBalancerStatsResponse'RpcsByMethodEntry'key :: !Data.Text.Text,
                                                               _LoadBalancerStatsResponse'RpcsByMethodEntry'value :: !(Prelude.Maybe LoadBalancerStatsResponse'RpcsByPeer),
@@ -4334,8 +4335,8 @@ instance Control.DeepSeq.NFData LoadBalancerStatsResponse'RpcsByMethodEntry wher
                 (Control.DeepSeq.deepseq
                    (_LoadBalancerStatsResponse'RpcsByMethodEntry'value x__) ()))
 {- | Fields :
-     
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.rpcsByPeer' @:: Lens' LoadBalancerStatsResponse'RpcsByPeer (Data.Map.Map Data.Text.Text Data.Int.Int32)@ -}
+
+         * 'Proto.Messages_Fields.rpcsByPeer' @:: Lens' LoadBalancerStatsResponse'RpcsByPeer (Data.Map.Map Data.Text.Text Data.Int.Int32)@ -}
 data LoadBalancerStatsResponse'RpcsByPeer
   = LoadBalancerStatsResponse'RpcsByPeer'_constructor {_LoadBalancerStatsResponse'RpcsByPeer'rpcsByPeer :: !(Data.Map.Map Data.Text.Text Data.Int.Int32),
                                                        _LoadBalancerStatsResponse'RpcsByPeer'_unknownFields :: !Data.ProtoLens.FieldSet}
@@ -4476,9 +4477,9 @@ instance Control.DeepSeq.NFData LoadBalancerStatsResponse'RpcsByPeer where
              (Control.DeepSeq.deepseq
                 (_LoadBalancerStatsResponse'RpcsByPeer'rpcsByPeer x__) ())
 {- | Fields :
-     
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.key' @:: Lens' LoadBalancerStatsResponse'RpcsByPeer'RpcsByPeerEntry Data.Text.Text@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.value' @:: Lens' LoadBalancerStatsResponse'RpcsByPeer'RpcsByPeerEntry Data.Int.Int32@ -}
+
+         * 'Proto.Messages_Fields.key' @:: Lens' LoadBalancerStatsResponse'RpcsByPeer'RpcsByPeerEntry Data.Text.Text@
+         * 'Proto.Messages_Fields.value' @:: Lens' LoadBalancerStatsResponse'RpcsByPeer'RpcsByPeerEntry Data.Int.Int32@ -}
 data LoadBalancerStatsResponse'RpcsByPeer'RpcsByPeerEntry
   = LoadBalancerStatsResponse'RpcsByPeer'RpcsByPeerEntry'_constructor {_LoadBalancerStatsResponse'RpcsByPeer'RpcsByPeerEntry'key :: !Data.Text.Text,
                                                                        _LoadBalancerStatsResponse'RpcsByPeer'RpcsByPeerEntry'value :: !Data.Int.Int32,
@@ -4639,9 +4640,9 @@ instance Control.DeepSeq.NFData LoadBalancerStatsResponse'RpcsByPeer'RpcsByPeerE
                    (_LoadBalancerStatsResponse'RpcsByPeer'RpcsByPeerEntry'value x__)
                    ()))
 {- | Fields :
-     
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.key' @:: Lens' LoadBalancerStatsResponse'RpcsByPeerEntry Data.Text.Text@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.value' @:: Lens' LoadBalancerStatsResponse'RpcsByPeerEntry Data.Int.Int32@ -}
+
+         * 'Proto.Messages_Fields.key' @:: Lens' LoadBalancerStatsResponse'RpcsByPeerEntry Data.Text.Text@
+         * 'Proto.Messages_Fields.value' @:: Lens' LoadBalancerStatsResponse'RpcsByPeerEntry Data.Int.Int32@ -}
 data LoadBalancerStatsResponse'RpcsByPeerEntry
   = LoadBalancerStatsResponse'RpcsByPeerEntry'_constructor {_LoadBalancerStatsResponse'RpcsByPeerEntry'key :: !Data.Text.Text,
                                                             _LoadBalancerStatsResponse'RpcsByPeerEntry'value :: !Data.Int.Int32,
@@ -4798,8 +4799,8 @@ instance Control.DeepSeq.NFData LoadBalancerStatsResponse'RpcsByPeerEntry where
                 (Control.DeepSeq.deepseq
                    (_LoadBalancerStatsResponse'RpcsByPeerEntry'value x__) ()))
 {- | Fields :
-     
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.rss' @:: Lens' MemorySize Data.Int.Int64@ -}
+
+         * 'Proto.Messages_Fields.rss' @:: Lens' MemorySize Data.Int.Int64@ -}
 data MemorySize
   = MemorySize'_constructor {_MemorySize'rss :: !Data.Int.Int64,
                              _MemorySize'_unknownFields :: !Data.ProtoLens.FieldSet}
@@ -4902,9 +4903,9 @@ instance Control.DeepSeq.NFData MemorySize where
              (_MemorySize'_unknownFields x__)
              (Control.DeepSeq.deepseq (_MemorySize'rss x__) ())
 {- | Fields :
-     
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.type'' @:: Lens' Payload PayloadType@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.body' @:: Lens' Payload Data.ByteString.ByteString@ -}
+
+         * 'Proto.Messages_Fields.type'' @:: Lens' Payload PayloadType@
+         * 'Proto.Messages_Fields.body' @:: Lens' Payload Data.ByteString.ByteString@ -}
 data Payload
   = Payload'_constructor {_Payload'type' :: !PayloadType,
                           _Payload'body :: !Data.ByteString.ByteString,
@@ -5107,10 +5108,10 @@ instance Data.ProtoLens.FieldDefault PayloadType where
 instance Control.DeepSeq.NFData PayloadType where
   rnf x__ = Prelude.seq x__ ()
 {- | Fields :
-     
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.passed' @:: Lens' ReconnectInfo Prelude.Bool@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.backoffMs' @:: Lens' ReconnectInfo [Data.Int.Int32]@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.vec'backoffMs' @:: Lens' ReconnectInfo (Data.Vector.Unboxed.Vector Data.Int.Int32)@ -}
+
+         * 'Proto.Messages_Fields.passed' @:: Lens' ReconnectInfo Prelude.Bool@
+         * 'Proto.Messages_Fields.backoffMs' @:: Lens' ReconnectInfo [Data.Int.Int32]@
+         * 'Proto.Messages_Fields.vec'backoffMs' @:: Lens' ReconnectInfo (Data.Vector.Unboxed.Vector Data.Int.Int32)@ -}
 data ReconnectInfo
   = ReconnectInfo'_constructor {_ReconnectInfo'passed :: !Prelude.Bool,
                                 _ReconnectInfo'backoffMs :: !(Data.Vector.Unboxed.Vector Data.Int.Int32),
@@ -5310,8 +5311,8 @@ instance Control.DeepSeq.NFData ReconnectInfo where
                 (_ReconnectInfo'passed x__)
                 (Control.DeepSeq.deepseq (_ReconnectInfo'backoffMs x__) ()))
 {- | Fields :
-     
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.maxReconnectBackoffMs' @:: Lens' ReconnectParams Data.Int.Int32@ -}
+
+         * 'Proto.Messages_Fields.maxReconnectBackoffMs' @:: Lens' ReconnectParams Data.Int.Int32@ -}
 data ReconnectParams
   = ReconnectParams'_constructor {_ReconnectParams'maxReconnectBackoffMs :: !Data.Int.Int32,
                                   _ReconnectParams'_unknownFields :: !Data.ProtoLens.FieldSet}
@@ -5423,11 +5424,11 @@ instance Control.DeepSeq.NFData ReconnectParams where
              (Control.DeepSeq.deepseq
                 (_ReconnectParams'maxReconnectBackoffMs x__) ())
 {- | Fields :
-     
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.size' @:: Lens' ResponseParameters Data.Int.Int32@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.intervalUs' @:: Lens' ResponseParameters Data.Int.Int32@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.compressed' @:: Lens' ResponseParameters BoolValue@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.maybe'compressed' @:: Lens' ResponseParameters (Prelude.Maybe BoolValue)@ -}
+
+         * 'Proto.Messages_Fields.size' @:: Lens' ResponseParameters Data.Int.Int32@
+         * 'Proto.Messages_Fields.intervalUs' @:: Lens' ResponseParameters Data.Int.Int32@
+         * 'Proto.Messages_Fields.compressed' @:: Lens' ResponseParameters BoolValue@
+         * 'Proto.Messages_Fields.maybe'compressed' @:: Lens' ResponseParameters (Prelude.Maybe BoolValue)@ -}
 data ResponseParameters
   = ResponseParameters'_constructor {_ResponseParameters'size :: !Data.Int.Int32,
                                      _ResponseParameters'intervalUs :: !Data.Int.Int32,
@@ -5629,9 +5630,9 @@ instance Control.DeepSeq.NFData ResponseParameters where
                    (_ResponseParameters'intervalUs x__)
                    (Control.DeepSeq.deepseq (_ResponseParameters'compressed x__) ())))
 {- | Fields :
-     
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.grpcCodeToReturn' @:: Lens' SetReturnStatusRequest Data.Int.Int32@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.grpcStatusDescription' @:: Lens' SetReturnStatusRequest Data.Text.Text@ -}
+
+         * 'Proto.Messages_Fields.grpcCodeToReturn' @:: Lens' SetReturnStatusRequest Data.Int.Int32@
+         * 'Proto.Messages_Fields.grpcStatusDescription' @:: Lens' SetReturnStatusRequest Data.Text.Text@ -}
 data SetReturnStatusRequest
   = SetReturnStatusRequest'_constructor {_SetReturnStatusRequest'grpcCodeToReturn :: !Data.Int.Int32,
                                          _SetReturnStatusRequest'grpcStatusDescription :: !Data.Text.Text,
@@ -5795,23 +5796,23 @@ instance Control.DeepSeq.NFData SetReturnStatusRequest where
                 (Control.DeepSeq.deepseq
                    (_SetReturnStatusRequest'grpcStatusDescription x__) ()))
 {- | Fields :
-     
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.responseType' @:: Lens' SimpleRequest PayloadType@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.responseSize' @:: Lens' SimpleRequest Data.Int.Int32@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.payload' @:: Lens' SimpleRequest Payload@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.maybe'payload' @:: Lens' SimpleRequest (Prelude.Maybe Payload)@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.fillUsername' @:: Lens' SimpleRequest Prelude.Bool@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.fillOauthScope' @:: Lens' SimpleRequest Prelude.Bool@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.responseCompressed' @:: Lens' SimpleRequest BoolValue@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.maybe'responseCompressed' @:: Lens' SimpleRequest (Prelude.Maybe BoolValue)@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.responseStatus' @:: Lens' SimpleRequest EchoStatus@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.maybe'responseStatus' @:: Lens' SimpleRequest (Prelude.Maybe EchoStatus)@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.expectCompressed' @:: Lens' SimpleRequest BoolValue@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.maybe'expectCompressed' @:: Lens' SimpleRequest (Prelude.Maybe BoolValue)@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.fillServerId' @:: Lens' SimpleRequest Prelude.Bool@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.fillGrpclbRouteType' @:: Lens' SimpleRequest Prelude.Bool@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.orcaPerQueryReport' @:: Lens' SimpleRequest TestOrcaReport@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.maybe'orcaPerQueryReport' @:: Lens' SimpleRequest (Prelude.Maybe TestOrcaReport)@ -}
+
+         * 'Proto.Messages_Fields.responseType' @:: Lens' SimpleRequest PayloadType@
+         * 'Proto.Messages_Fields.responseSize' @:: Lens' SimpleRequest Data.Int.Int32@
+         * 'Proto.Messages_Fields.payload' @:: Lens' SimpleRequest Payload@
+         * 'Proto.Messages_Fields.maybe'payload' @:: Lens' SimpleRequest (Prelude.Maybe Payload)@
+         * 'Proto.Messages_Fields.fillUsername' @:: Lens' SimpleRequest Prelude.Bool@
+         * 'Proto.Messages_Fields.fillOauthScope' @:: Lens' SimpleRequest Prelude.Bool@
+         * 'Proto.Messages_Fields.responseCompressed' @:: Lens' SimpleRequest BoolValue@
+         * 'Proto.Messages_Fields.maybe'responseCompressed' @:: Lens' SimpleRequest (Prelude.Maybe BoolValue)@
+         * 'Proto.Messages_Fields.responseStatus' @:: Lens' SimpleRequest EchoStatus@
+         * 'Proto.Messages_Fields.maybe'responseStatus' @:: Lens' SimpleRequest (Prelude.Maybe EchoStatus)@
+         * 'Proto.Messages_Fields.expectCompressed' @:: Lens' SimpleRequest BoolValue@
+         * 'Proto.Messages_Fields.maybe'expectCompressed' @:: Lens' SimpleRequest (Prelude.Maybe BoolValue)@
+         * 'Proto.Messages_Fields.fillServerId' @:: Lens' SimpleRequest Prelude.Bool@
+         * 'Proto.Messages_Fields.fillGrpclbRouteType' @:: Lens' SimpleRequest Prelude.Bool@
+         * 'Proto.Messages_Fields.orcaPerQueryReport' @:: Lens' SimpleRequest TestOrcaReport@
+         * 'Proto.Messages_Fields.maybe'orcaPerQueryReport' @:: Lens' SimpleRequest (Prelude.Maybe TestOrcaReport)@ -}
 data SimpleRequest
   = SimpleRequest'_constructor {_SimpleRequest'responseType :: !PayloadType,
                                 _SimpleRequest'responseSize :: !Data.Int.Int32,
@@ -6415,14 +6416,14 @@ instance Control.DeepSeq.NFData SimpleRequest where
                                            (Control.DeepSeq.deepseq
                                               (_SimpleRequest'orcaPerQueryReport x__) ())))))))))))
 {- | Fields :
-     
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.payload' @:: Lens' SimpleResponse Payload@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.maybe'payload' @:: Lens' SimpleResponse (Prelude.Maybe Payload)@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.username' @:: Lens' SimpleResponse Data.Text.Text@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.oauthScope' @:: Lens' SimpleResponse Data.Text.Text@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.serverId' @:: Lens' SimpleResponse Data.Text.Text@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.grpclbRouteType' @:: Lens' SimpleResponse GrpclbRouteType@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.hostname' @:: Lens' SimpleResponse Data.Text.Text@ -}
+
+         * 'Proto.Messages_Fields.payload' @:: Lens' SimpleResponse Payload@
+         * 'Proto.Messages_Fields.maybe'payload' @:: Lens' SimpleResponse (Prelude.Maybe Payload)@
+         * 'Proto.Messages_Fields.username' @:: Lens' SimpleResponse Data.Text.Text@
+         * 'Proto.Messages_Fields.oauthScope' @:: Lens' SimpleResponse Data.Text.Text@
+         * 'Proto.Messages_Fields.serverId' @:: Lens' SimpleResponse Data.Text.Text@
+         * 'Proto.Messages_Fields.grpclbRouteType' @:: Lens' SimpleResponse GrpclbRouteType@
+         * 'Proto.Messages_Fields.hostname' @:: Lens' SimpleResponse Data.Text.Text@ -}
 data SimpleResponse
   = SimpleResponse'_constructor {_SimpleResponse'payload :: !(Prelude.Maybe Payload),
                                  _SimpleResponse'username :: !Data.Text.Text,
@@ -6776,11 +6777,11 @@ instance Control.DeepSeq.NFData SimpleResponse where
                             (_SimpleResponse'grpclbRouteType x__)
                             (Control.DeepSeq.deepseq (_SimpleResponse'hostname x__) ()))))))
 {- | Fields :
-     
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.payload' @:: Lens' StreamingInputCallRequest Payload@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.maybe'payload' @:: Lens' StreamingInputCallRequest (Prelude.Maybe Payload)@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.expectCompressed' @:: Lens' StreamingInputCallRequest BoolValue@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.maybe'expectCompressed' @:: Lens' StreamingInputCallRequest (Prelude.Maybe BoolValue)@ -}
+
+         * 'Proto.Messages_Fields.payload' @:: Lens' StreamingInputCallRequest Payload@
+         * 'Proto.Messages_Fields.maybe'payload' @:: Lens' StreamingInputCallRequest (Prelude.Maybe Payload)@
+         * 'Proto.Messages_Fields.expectCompressed' @:: Lens' StreamingInputCallRequest BoolValue@
+         * 'Proto.Messages_Fields.maybe'expectCompressed' @:: Lens' StreamingInputCallRequest (Prelude.Maybe BoolValue)@ -}
 data StreamingInputCallRequest
   = StreamingInputCallRequest'_constructor {_StreamingInputCallRequest'payload :: !(Prelude.Maybe Payload),
                                             _StreamingInputCallRequest'expectCompressed :: !(Prelude.Maybe BoolValue),
@@ -6956,8 +6957,8 @@ instance Control.DeepSeq.NFData StreamingInputCallRequest where
                 (Control.DeepSeq.deepseq
                    (_StreamingInputCallRequest'expectCompressed x__) ()))
 {- | Fields :
-     
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.aggregatedPayloadSize' @:: Lens' StreamingInputCallResponse Data.Int.Int32@ -}
+
+         * 'Proto.Messages_Fields.aggregatedPayloadSize' @:: Lens' StreamingInputCallResponse Data.Int.Int32@ -}
 data StreamingInputCallResponse
   = StreamingInputCallResponse'_constructor {_StreamingInputCallResponse'aggregatedPayloadSize :: !Data.Int.Int32,
                                              _StreamingInputCallResponse'_unknownFields :: !Data.ProtoLens.FieldSet}
@@ -7072,16 +7073,16 @@ instance Control.DeepSeq.NFData StreamingInputCallResponse where
              (Control.DeepSeq.deepseq
                 (_StreamingInputCallResponse'aggregatedPayloadSize x__) ())
 {- | Fields :
-     
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.responseType' @:: Lens' StreamingOutputCallRequest PayloadType@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.responseParameters' @:: Lens' StreamingOutputCallRequest [ResponseParameters]@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.vec'responseParameters' @:: Lens' StreamingOutputCallRequest (Data.Vector.Vector ResponseParameters)@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.payload' @:: Lens' StreamingOutputCallRequest Payload@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.maybe'payload' @:: Lens' StreamingOutputCallRequest (Prelude.Maybe Payload)@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.responseStatus' @:: Lens' StreamingOutputCallRequest EchoStatus@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.maybe'responseStatus' @:: Lens' StreamingOutputCallRequest (Prelude.Maybe EchoStatus)@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.orcaOobReport' @:: Lens' StreamingOutputCallRequest TestOrcaReport@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.maybe'orcaOobReport' @:: Lens' StreamingOutputCallRequest (Prelude.Maybe TestOrcaReport)@ -}
+
+         * 'Proto.Messages_Fields.responseType' @:: Lens' StreamingOutputCallRequest PayloadType@
+         * 'Proto.Messages_Fields.responseParameters' @:: Lens' StreamingOutputCallRequest [ResponseParameters]@
+         * 'Proto.Messages_Fields.vec'responseParameters' @:: Lens' StreamingOutputCallRequest (Data.Vector.Vector ResponseParameters)@
+         * 'Proto.Messages_Fields.payload' @:: Lens' StreamingOutputCallRequest Payload@
+         * 'Proto.Messages_Fields.maybe'payload' @:: Lens' StreamingOutputCallRequest (Prelude.Maybe Payload)@
+         * 'Proto.Messages_Fields.responseStatus' @:: Lens' StreamingOutputCallRequest EchoStatus@
+         * 'Proto.Messages_Fields.maybe'responseStatus' @:: Lens' StreamingOutputCallRequest (Prelude.Maybe EchoStatus)@
+         * 'Proto.Messages_Fields.orcaOobReport' @:: Lens' StreamingOutputCallRequest TestOrcaReport@
+         * 'Proto.Messages_Fields.maybe'orcaOobReport' @:: Lens' StreamingOutputCallRequest (Prelude.Maybe TestOrcaReport)@ -}
 data StreamingOutputCallRequest
   = StreamingOutputCallRequest'_constructor {_StreamingOutputCallRequest'responseType :: !PayloadType,
                                              _StreamingOutputCallRequest'responseParameters :: !(Data.Vector.Vector ResponseParameters),
@@ -7433,9 +7434,9 @@ instance Control.DeepSeq.NFData StreamingOutputCallRequest where
                          (Control.DeepSeq.deepseq
                             (_StreamingOutputCallRequest'orcaOobReport x__) ())))))
 {- | Fields :
-     
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.payload' @:: Lens' StreamingOutputCallResponse Payload@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.maybe'payload' @:: Lens' StreamingOutputCallResponse (Prelude.Maybe Payload)@ -}
+
+         * 'Proto.Messages_Fields.payload' @:: Lens' StreamingOutputCallResponse Payload@
+         * 'Proto.Messages_Fields.maybe'payload' @:: Lens' StreamingOutputCallResponse (Prelude.Maybe Payload)@ -}
 data StreamingOutputCallResponse
   = StreamingOutputCallResponse'_constructor {_StreamingOutputCallResponse'payload :: !(Prelude.Maybe Payload),
                                               _StreamingOutputCallResponse'_unknownFields :: !Data.ProtoLens.FieldSet}
@@ -7556,11 +7557,11 @@ instance Control.DeepSeq.NFData StreamingOutputCallResponse where
              (Control.DeepSeq.deepseq
                 (_StreamingOutputCallResponse'payload x__) ())
 {- | Fields :
-     
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.cpuUtilization' @:: Lens' TestOrcaReport Prelude.Double@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.memoryUtilization' @:: Lens' TestOrcaReport Prelude.Double@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.requestCost' @:: Lens' TestOrcaReport (Data.Map.Map Data.Text.Text Prelude.Double)@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.utilization' @:: Lens' TestOrcaReport (Data.Map.Map Data.Text.Text Prelude.Double)@ -}
+
+         * 'Proto.Messages_Fields.cpuUtilization' @:: Lens' TestOrcaReport Prelude.Double@
+         * 'Proto.Messages_Fields.memoryUtilization' @:: Lens' TestOrcaReport Prelude.Double@
+         * 'Proto.Messages_Fields.requestCost' @:: Lens' TestOrcaReport (Data.Map.Map Data.Text.Text Prelude.Double)@
+         * 'Proto.Messages_Fields.utilization' @:: Lens' TestOrcaReport (Data.Map.Map Data.Text.Text Prelude.Double)@ -}
 data TestOrcaReport
   = TestOrcaReport'_constructor {_TestOrcaReport'cpuUtilization :: !Prelude.Double,
                                  _TestOrcaReport'memoryUtilization :: !Prelude.Double,
@@ -7848,9 +7849,9 @@ instance Control.DeepSeq.NFData TestOrcaReport where
                       (_TestOrcaReport'requestCost x__)
                       (Control.DeepSeq.deepseq (_TestOrcaReport'utilization x__) ()))))
 {- | Fields :
-     
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.key' @:: Lens' TestOrcaReport'RequestCostEntry Data.Text.Text@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.value' @:: Lens' TestOrcaReport'RequestCostEntry Prelude.Double@ -}
+
+         * 'Proto.Messages_Fields.key' @:: Lens' TestOrcaReport'RequestCostEntry Data.Text.Text@
+         * 'Proto.Messages_Fields.value' @:: Lens' TestOrcaReport'RequestCostEntry Prelude.Double@ -}
 data TestOrcaReport'RequestCostEntry
   = TestOrcaReport'RequestCostEntry'_constructor {_TestOrcaReport'RequestCostEntry'key :: !Data.Text.Text,
                                                   _TestOrcaReport'RequestCostEntry'value :: !Prelude.Double,
@@ -8004,9 +8005,9 @@ instance Control.DeepSeq.NFData TestOrcaReport'RequestCostEntry where
                 (Control.DeepSeq.deepseq
                    (_TestOrcaReport'RequestCostEntry'value x__) ()))
 {- | Fields :
-     
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.key' @:: Lens' TestOrcaReport'UtilizationEntry Data.Text.Text@
-         * 'Proto.Src.Proto.Grpc.Testing.Messages_Fields.value' @:: Lens' TestOrcaReport'UtilizationEntry Prelude.Double@ -}
+
+         * 'Proto.Messages_Fields.key' @:: Lens' TestOrcaReport'UtilizationEntry Data.Text.Text@
+         * 'Proto.Messages_Fields.value' @:: Lens' TestOrcaReport'UtilizationEntry Prelude.Double@ -}
 data TestOrcaReport'UtilizationEntry
   = TestOrcaReport'UtilizationEntry'_constructor {_TestOrcaReport'UtilizationEntry'key :: !Data.Text.Text,
                                                   _TestOrcaReport'UtilizationEntry'value :: !Prelude.Double,
@@ -8162,7 +8163,7 @@ instance Control.DeepSeq.NFData TestOrcaReport'UtilizationEntry where
 packedFileDescriptor :: Data.ByteString.ByteString
 packedFileDescriptor
   = "\n\
-    \%src/proto/grpc/testing/messages.proto\DC2\fgrpc.testing\"!\n\
+    \\SOmessages.proto\DC2\fgrpc.testing\"!\n\
     \\tBoolValue\DC2\DC4\n\
     \\ENQvalue\CAN\SOH \SOH(\bR\ENQvalue\"L\n\
     \\aPayload\DC2-\n\

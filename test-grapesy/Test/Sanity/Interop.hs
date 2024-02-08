@@ -23,9 +23,9 @@ import Network.GRPC.Server.Binary qualified as Server.Binary
 import Network.GRPC.Server.StreamType qualified as Server
 import Network.GRPC.Spec
 
-import Proto.Src.Proto.Grpc.Testing.Empty
-import Proto.Src.Proto.Grpc.Testing.Messages
-import Proto.Src.Proto.Grpc.Testing.Test
+import Proto.Empty
+import Proto.Messages
+import Proto.Test
 
 import Test.Driver.ClientServer
 
