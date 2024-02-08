@@ -18,10 +18,12 @@ module Network.GRPC.Server.Call (
   , setResponseMetadata
 
     -- ** Protocol specific wrappers
-  , recvFinalInput
-  , sendFinalOutput
   , sendNextOutput
+  , sendFinalOutput
   , sendTrailers
+  , recvNextInput
+  , recvFinalInput
+  , recvEndOfInput
 
     -- ** Low-level\/specialized API
   , initiateResponse
@@ -550,6 +552,41 @@ getRequestTraceContext Call{callRequestHeaders} =
   Protocol specific wrappers
 -------------------------------------------------------------------------------}
 
+-- | Send the next output
+--
+-- If this is the last output, you should call 'sendTrailers' after
+-- (or use 'sendFinalOutput').
+sendNextOutput :: Call rpc -> Output rpc -> IO ()
+sendNextOutput call = sendOutput call . StreamElem
+
+-- | Send final output
+--
+-- See also 'sendTrailers'.
+sendFinalOutput :: Call rpc -> (Output rpc, [CustomMetadata]) -> IO ()
+sendFinalOutput call = sendOutput call . uncurry FinalElem
+
+-- | Send trailers
+--
+-- This tells the client that there will be no more outputs. You should call
+-- this (or 'sendFinalOutput') even when there is no special information to be
+-- included in the trailers.
+sendTrailers :: Call rpc -> [CustomMetadata] -> IO ()
+sendTrailers call = sendOutput call . NoMoreElems
+
+-- | Receive next input
+--
+-- Throws 'ProtocolException' if there are no more inputs.
+recvNextInput :: forall rpc. HasCallStack => Call rpc -> IO (Input rpc)
+recvNextInput call@Call{} = do
+    mInp <- recvInput call
+    case mInp of
+      NoMoreElems    NoMetadata -> err $ TooFewInputs @rpc
+      FinalElem  out NoMetadata -> return out
+      StreamElem out            -> return out
+  where
+    err :: ProtocolException rpc -> IO a
+    err = throwIO . ProtocolException
+
 -- | Receive input, which we expect to be the /final/ input
 --
 -- Throws 'ProtocolException' if the input we receive is not final.
@@ -572,25 +609,19 @@ recvFinalInput call@Call{} = do
     err :: ProtocolException rpc -> IO a
     err = throwIO . ProtocolException
 
--- | Send final output
+-- | Wait for the client to indicate that there are no more inputs
 --
--- See also 'sendTrailers'.
-sendFinalOutput :: Call rpc -> (Output rpc, [CustomMetadata]) -> IO ()
-sendFinalOutput call = sendOutput call . uncurry FinalElem
-
--- | Send the next output
---
--- If this is the last output, you should call 'sendTrailers' after.
-sendNextOutput :: Call rpc -> Output rpc -> IO ()
-sendNextOutput call = sendOutput call . StreamElem
-
--- | Send trailers
---
--- This tells the client that there will be no more outputs. You should call
--- this (or 'sendFinalOutput') even when there is no special information to be
--- included in the trailers.
-sendTrailers :: Call rpc -> [CustomMetadata] -> IO ()
-sendTrailers call = sendOutput call . NoMoreElems
+-- Throws 'ProtocolException' if we received an input.
+recvEndOfInput :: forall rpc. HasCallStack => Call rpc -> IO ()
+recvEndOfInput call@Call{} = do
+    mInp <- recvInput call
+    case mInp of
+      NoMoreElems    NoMetadata -> return ()
+      FinalElem  inp NoMetadata -> err $ TooManyInputs @rpc inp
+      StreamElem inp            -> err $ TooManyInputs @rpc inp
+  where
+    err :: ProtocolException rpc -> IO a
+    err = throwIO . ProtocolException
 
 {-------------------------------------------------------------------------------
   Internal API

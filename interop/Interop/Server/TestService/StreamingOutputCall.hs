@@ -1,43 +1,36 @@
-{-# LANGUAGE OverloadedLabels #-}
-
 module Interop.Server.TestService.StreamingOutputCall (
-    handleStreamingOutputCall
-  , handleStreamingOutputCallRequest
+    handle
+  , handleRequest
   ) where
 
 import Control.Concurrent
 import Control.Monad
 
 import Network.GRPC.Common
-import Network.GRPC.Common.Protobuf
 import Network.GRPC.Server
 import Network.GRPC.Spec
 
-import Proto.Messages
-import Proto.Test
-
-import Interop.Server.Util
+import Interop.API
+import Interop.Util.Messages
 
 -- | Handle @TestService.StreamingOutputCall@
 --
 -- <https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptions.md#streamingoutputcall>
-handleStreamingOutputCall ::
-     Call (Protobuf TestService "streamingOutputCall")
-  -> IO ()
-handleStreamingOutputCall call = do
+handle :: Call StreamingOutputCall -> IO ()
+handle call = do
     request <- recvFinalInput call
-    handleStreamingOutputCallRequest call request
+    handleRequest call request
     sendTrailers call []
 
 -- | Handle specific request
 --
 -- Abstracted out because also used in the @fullDuplexCall@ test.
-handleStreamingOutputCallRequest :: forall meth.
+handleRequest :: forall meth.
      (Output (Protobuf TestService meth) ~ StreamingOutputCallResponse)
   => Call (Protobuf TestService meth)
   -> StreamingOutputCallRequest
   -> IO ()
-handleStreamingOutputCallRequest call request =
+handleRequest call request =
     forM_ (request ^. #responseParameters) $ \responseParameters -> do
       let size, intervalUs :: Int
           size       = fromIntegral $ responseParameters ^. #size
@@ -46,7 +39,7 @@ handleStreamingOutputCallRequest call request =
           shouldCompress :: Bool
           shouldCompress = responseParameters ^. #compressed ^. #value
 
-      payload <- mkPayload COMPRESSABLE size
+      payload <- payloadOfType COMPRESSABLE size
 
       let envelope :: OutboundEnvelope
           envelope = def { outboundEnableCompression = shouldCompress }

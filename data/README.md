@@ -6,5 +6,7 @@
   Used by `demo-server`.
 
 * The SSL certificate `interop.*` is a copy of
-  `grpc-repo/src/python/grpcio_tests/tests/interop/credentials/server1.*`.
+  `grpc-repo/src/python/grpcio_tests/tests/interop/credentials/server1.*`,
+  and `interop-ca.pem` is a copy of
+  `grpc-repo/src/python/grpcio_tests/tests/interop/credentials/ca.pem`.
   Used by `grapesy-interop` (for the gRPC interop tests).

@@ -11,9 +11,15 @@ module Network.GRPC.Client.Call (
   , recvResponseMetadata
 
     -- ** Protocol specific wrappers
+  , sendNextInput
   , sendFinalInput
-  , sendAllInputs
+  , sendEndOfInput
+  , recvNextOutput
   , recvFinalOutput
+  , recvTrailers
+
+    -- ** Repeated send/recv
+  , sendAllInputs
   , recvAllOutputs
 
     -- ** Low-level\/specialized API
@@ -114,7 +120,7 @@ sendInputWithEnvelope Call{callChannel} msg = liftIO $ do
 -- status will result in a 'GrpcException'. Calling 'recvOutput' again after
 -- receiving the trailers is a bug and results in a 'RecvAfterFinal' exception.
 recvOutput ::
-     MonadIO m
+     (MonadIO m, HasCallStack)
   => Call rpc
   -> m (StreamElem [CustomMetadata] (Output rpc))
 recvOutput = fmap (fmap snd) . recvOutputWithEnvelope
@@ -175,6 +181,18 @@ isCallHealthy = Session.isChannelHealthy . callChannel
   Protocol specific wrappers
 -------------------------------------------------------------------------------}
 
+-- | Send the next input
+--
+-- If this is the last input, you should call 'sendFinalInput' instead.
+sendNextInput :: Call rpc -> Input rpc -> IO ()
+sendNextInput call = sendInput call . StreamElem
+
+-- | Send final input
+--
+-- For some servers it is important that the client marks the final input /when
+-- it is sent/. If you really want to send the final input and separately tell
+-- the server that no more inputs will be provided, use 'sendEndOfInput' (or
+-- 'sendInput').
 sendFinalInput ::
      MonadIO m
   => Call rpc
@@ -183,21 +201,27 @@ sendFinalInput ::
 sendFinalInput call input =
     sendInput call (FinalElem input NoMetadata)
 
-sendAllInputs :: forall m rpc.
-     MonadIO m
-  => Call rpc
-  -> m (StreamElem NoMetadata (Input rpc))
-  -> m ()
-sendAllInputs call produceInput = loop
+-- | Indicate that there are no more inputs
+--
+-- See 'sendFinalInput' for additional discussion.
+sendEndOfInput :: MonadIO m => Call rpc -> m ()
+sendEndOfInput call = sendInput call $ NoMoreElems NoMetadata
+
+-- | Receive the next output
+--
+-- Throws 'ProtocolException' if there are no more outputs. Discards metadata.
+recvNextOutput :: forall m rpc.
+     (MonadIO m, HasCallStack)
+  => Call rpc -> m (Output rpc)
+recvNextOutput call@Call{} = liftIO $ do
+    mOut <- recvOutput call
+    case mOut of
+      NoMoreElems     ts -> err $ TooFewOutputs @rpc ts
+      StreamElem out     -> return out
+      FinalElem  out _ts -> return out
   where
-    loop :: m ()
-    loop = do
-        inp <- produceInput
-        sendInput call inp
-        case inp of
-          StreamElem{}  -> loop
-          FinalElem{}   -> return ()
-          NoMoreElems{} -> return ()
+    err :: ProtocolException rpc -> IO a
+    err = throwM . ProtocolException
 
 -- | Receive output, which we expect to be the /final/ output
 --
@@ -206,7 +230,7 @@ sendAllInputs call produceInput = loop
 -- NOTE: If the first output we receive from the server is not marked as final,
 -- we will block until we receive the end-of-stream indication.
 recvFinalOutput :: forall m rpc.
-     MonadIO m
+     (MonadIO m, HasCallStack)
   => Call rpc
   -> m (Output rpc, [CustomMetadata])
 recvFinalOutput call@Call{} = liftIO $ do
@@ -223,6 +247,47 @@ recvFinalOutput call@Call{} = liftIO $ do
   where
     err :: ProtocolException rpc -> IO a
     err = throwM . ProtocolException
+
+-- | Receive trailers
+--
+-- Throws 'ProtocolException' if we received an output.
+recvTrailers :: forall m rpc.
+     (MonadIO m, HasCallStack)
+  => Call rpc -> m [CustomMetadata]
+recvTrailers call@Call{} = liftIO $ do
+    mOut <- recvOutput call
+    case mOut of
+      NoMoreElems     ts -> return ts
+      FinalElem  out _ts -> err $ TooManyOutputs @rpc out
+      StreamElem out     -> err $ TooManyOutputs @rpc out
+  where
+    err :: ProtocolException rpc -> IO a
+    err = throwM . ProtocolException
+
+{-------------------------------------------------------------------------------
+  Repeated send/recv
+
+  These are primarily useful for implementing streaming clients.
+-------------------------------------------------------------------------------}
+
+-- | Send all inputs returned by the specified action
+--
+-- Terminates after the action returns 'FinalElem' or 'NoMoreElems'
+sendAllInputs :: forall m rpc.
+     MonadIO m
+  => Call rpc
+  -> m (StreamElem NoMetadata (Input rpc))
+  -> m ()
+sendAllInputs call produceInput = loop
+  where
+    loop :: m ()
+    loop = do
+        inp <- produceInput
+        sendInput call inp
+        case inp of
+          StreamElem{}  -> loop
+          FinalElem{}   -> return ()
+          NoMoreElems{} -> return ()
 
 recvAllOutputs :: forall m rpc.
      MonadIO m

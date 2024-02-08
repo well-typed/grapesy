@@ -1,27 +1,22 @@
-{-# LANGUAGE OverloadedLabels #-}
-
-module Interop.Server.TestService.FullDuplexCall (handleFullDuplexCall) where
+module Interop.Server.TestService.FullDuplexCall (handle) where
 
 import Network.GRPC.Common
-import Network.GRPC.Common.Protobuf
 import Network.GRPC.Server
 
-import Proto.Messages
-import Proto.Test
-
-import Interop.Server.TestService.StreamingOutputCall
-import Interop.Server.Util
+import Interop.API
+import Interop.Server.Common
+import Interop.Server.TestService.StreamingOutputCall qualified as StreamingOutputCall
 
 -- | Handle @TestService.FullDuplexCall@
 --
 -- <https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptions.md#fullduplexcall>
-handleFullDuplexCall :: Call (Protobuf TestService "fullDuplexCall") -> IO ()
-handleFullDuplexCall call = do
+handle :: Call FullDuplexCall -> IO ()
+handle call = do
     trailers <- constructResponseMetadata call
 
     let handleRequest :: StreamingOutputCallRequest -> IO ()
         handleRequest request = do
-            handleStreamingOutputCallRequest call request
+            StreamingOutputCall.handleRequest call request
             echoStatus (request ^. #responseStatus) trailers
 
         loop :: IO ()

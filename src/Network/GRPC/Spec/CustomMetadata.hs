@@ -65,7 +65,7 @@ data CustomMetadata =
     -- suffix to detect binary headers and properly apply base64 encoding &
     -- decoding as headers are sent and received).
     --
-    -- Since these considered binary data, padding considerations do not apply.
+    -- Since this is binary data, padding considerations do not apply.
     BinaryHeader HeaderName BinaryValue
 
     -- | ASCII header
@@ -130,6 +130,9 @@ isValidHeaderName bs = and [
       BS.Strict.length bs >= 1
     , BS.Strict.all isValidChar bs
     , not $ "grpc-" `BS.Strict.isPrefixOf` bs
+
+      -- @grapesy@ adds and removes the @-bin@ suffix automatically
+    , not $ "-bin" `BS.Strict.isSuffixOf` bs
     ]
   where
     isValidChar :: Word8 -> Bool

@@ -1,28 +1,22 @@
-{-# LANGUAGE OverloadedLabels  #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module Interop.Server.TestService.StreamingInputCall (handleStreamingInputCall) where
+module Interop.Server.TestService.StreamingInputCall (handle) where
 
 import Data.ByteString qualified as BS.Strict
 
 import Network.GRPC.Common
-import Network.GRPC.Common.Protobuf
 import Network.GRPC.Server
 import Network.GRPC.Spec
 
-import Proto.Messages
-import Proto.Test
-
-import Interop.Server.Util
+import Interop.API
+import Interop.Server.Common
 
 -- | Handle @TestService.StreamingInputCall@
 --
 -- <https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptions.md#streaminginputcall>
 -- <https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptions.md#client_compressed_streaming>
-handleStreamingInputCall ::
-     Call (Protobuf TestService "streamingInputCall")
-  -> IO ()
-handleStreamingInputCall call = do
+handle :: Call StreamingInputCall -> IO ()
+handle call = do
     sz <- loop 0
 
     let response :: StreamingInputCallResponse
