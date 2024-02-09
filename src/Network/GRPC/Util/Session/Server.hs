@@ -6,7 +6,6 @@ module Network.GRPC.Util.Session.Server (
   ) where
 
 import Control.Tracer
-import GHC.Stack
 import Network.HTTP.Types qualified as HTTP
 import Network.HTTP2.Server qualified as Server
 
@@ -54,7 +53,7 @@ determineFlowStart sess req
 --
 -- Does not throw any exceptions.
 setupResponseChannel :: forall sess.
-     (AcceptSession sess, HasCallStack)
+     AcceptSession sess
   => sess
   -> Tracer IO (DebugMsg sess)
   -> ConnectionToClient

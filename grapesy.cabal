@@ -88,7 +88,6 @@ library
       Network.GRPC.Common.Protobuf
       Network.GRPC.Common.StreamElem
       Network.GRPC.Common.StreamType
-      Network.GRPC.Internal
       Network.GRPC.Server
       Network.GRPC.Server.Binary
       Network.GRPC.Server.Protobuf
@@ -101,7 +100,6 @@ library
       Network.GRPC.Client.Meta
       Network.GRPC.Client.Session
       Network.GRPC.Client.StreamType
-      Network.GRPC.Internal.NestedException
       Network.GRPC.Server.Call
       Network.GRPC.Server.Context
       Network.GRPC.Server.Handler
@@ -144,6 +142,13 @@ library
       Paths_grapesy
 
       Debug.Concurrent
+
+  if flag(debug)
+    other-modules:
+      Debug.NestedException
+    cpp-options:
+      -DDEBUG
+
   hs-source-dirs:
       src
       debug
@@ -462,4 +467,9 @@ Flag crypton
   description: Use the crypton-x509-* package family instead of x509-*
   default: True
   manual: False
+
+Flag debug
+  description: Enable grapesy internal debugging
+  default: False
+  manual: True
 

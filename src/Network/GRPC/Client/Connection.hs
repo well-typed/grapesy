@@ -271,8 +271,7 @@ data Server =
 -- specification of "Wait for ready" semantics. You may wish to override this
 -- default.
 withConnection ::
-     HasCallStack
-  => ConnParams
+     ConnParams
   -> Server
   -> (Connection -> IO a)
   -> IO a

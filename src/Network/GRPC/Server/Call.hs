@@ -51,7 +51,6 @@ import Network.HTTP2.Server qualified as HTTP2
 import Network.GRPC.Common
 import Network.GRPC.Common.Compression qualified as Compr
 import Network.GRPC.Common.StreamElem qualified as StreamElem
-import Network.GRPC.Internal.NestedException
 import Network.GRPC.Server.Context (ServerContext(..))
 import Network.GRPC.Server.Context qualified as Context
 import Network.GRPC.Server.Session
@@ -280,7 +279,7 @@ runHandler unmaskTopLevel call@Call{callChannel} k = do
     --
     --    So there not really anything we can do here (except perhaps show
     --    the exception in 'serverTopLevel').
-    ignoreUncleanClose :: IO (Maybe Session.ChannelUncleanClose) -> IO ()
+    ignoreUncleanClose :: IO (Maybe SomeException) -> IO ()
     ignoreUncleanClose = void
 
     -- Wait for the handler to terminate
@@ -356,15 +355,11 @@ forwardException call =
 
 -- | Turn exception raised in server handler to error to be sent to the client
 --
--- We strip off any decoration of the exception (such as callstacks), which are
--- primarily intended for debugging the handler, and then 'show' the remaining
--- exception to give the client a clue as to what happened.
---
 -- TODO: There might be a security concern here (server-side exceptions could
 -- potentially leak some sensitive data).
 serverExceptionToClientError :: SomeException -> ProperTrailers
-serverExceptionToClientError wrappedError
-    | Just (err' :: GrpcException) <- fromException unwrappedError
+serverExceptionToClientError err
+    | Just (err' :: GrpcException) <- fromException err
     = grpcExceptionToTrailers err'
 
     -- TODO: There might be a security concern here (server-side exceptions
@@ -372,12 +367,9 @@ serverExceptionToClientError wrappedError
     | otherwise
     = ProperTrailers {
           trailerGrpcStatus  = GrpcError GrpcUnknown
-        , trailerGrpcMessage = Just $ Text.pack (show unwrappedError)
+        , trailerGrpcMessage = Just $ Text.pack (show err)
         , trailerMetadata    = []
         }
-  where
-    unwrappedError :: SomeException
-    unwrappedError = innerNestedException wrappedError
 
 -- | Sent to the client when the handler terminates early
 data HandlerTerminated = HandlerTerminated

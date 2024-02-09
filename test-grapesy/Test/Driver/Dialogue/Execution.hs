@@ -341,15 +341,15 @@ clientLocal testClock mode call = \(LocalSteps steps) ->
            case serverHealth of
              Failed err ->
                case result of
-                 Left (GrpcException GrpcUnknown msg [])
-                   | msg == Just (Text.pack $ show err)
+                 Left (GrpcException GrpcUnknown mMsg [])
+                   | Just msg <- mMsg
+                   , (Text.pack $ show err) `Text.isInfixOf` msg
                    -> True
                  _otherwise -> False
              Disappeared ->
-               -- TODO: Not really sure what exception we get here actually
                case result of
                  Left (GrpcException GrpcUnknown msg [])
-                   | msg == Just "TODO"
+                   | msg == Just "HandlerTerminated"
                    -> True
                  _otherwise -> False
              Alive () ->

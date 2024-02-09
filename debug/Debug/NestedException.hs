@@ -1,4 +1,4 @@
-module Network.GRPC.Internal.NestedException (
+module Debug.NestedException (
     -- * Wrapping exceptions
     HasNestedException(..)
   , maybeNestedException
@@ -35,6 +35,10 @@ import GHC.Stack
 --
 -- In this case, we refer to @e@ as a /nested/ exception and to
 -- 'WrapWithCallStack' as an exception /wrapper/.
+--
+-- We use this exclusively for debugging, because this kind of wrapping makes
+-- it impossible for client code to /catch/ the exception (since wrapping an
+-- exception changes its type).
 class Exception e => HasNestedException e where
   getNestedException :: e -> SomeException
 

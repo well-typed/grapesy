@@ -1,3 +1,5 @@
+{-# LANGUAGE CPP #-}
+
 module Network.GRPC.Util.HTTP2.Stream (
     -- * Streams
     OutputStream -- opaque
@@ -13,7 +15,6 @@ module Network.GRPC.Util.HTTP2.Stream (
   , clientInputStream
   , clientOutputStream
     -- * Exceptions
-  , StreamException(..)
   , ClientDisconnected(..)
   , ServerDisconnected(..)
   ) where
@@ -27,8 +28,12 @@ import Network.HTTP2.Client qualified as Client
 import Network.HTTP2.Server qualified as Server
 
 import Network.GRPC.Util.HTTP2 (fromHeaderTable)
+
+#ifdef DEBUG
+import Debug.NestedException
+#endif
+
 import Text.Show.Pretty
-import Network.GRPC.Internal.NestedException
 
 {-------------------------------------------------------------------------------
   Streams
@@ -169,13 +174,6 @@ clientOutputStream writeChunk' flush' = do
   Exceptions
 -------------------------------------------------------------------------------}
 
-data StreamException = StreamException SomeException CallStack
-  deriving stock (Show)
-  deriving Exception via ExceptionWrapper StreamException
-
-instance HasNestedException StreamException where
-  getNestedException (StreamException e _) = e
-
 -- | Client disconnected unexpectedly
 data ClientDisconnected = ClientDisconnected SomeException
   deriving stock (Show)
@@ -195,4 +193,28 @@ wrapStreamExceptionsWith ::
   -> IO a -> IO a
 wrapStreamExceptionsWith f action =
     action `catch` \err ->
-      throwIO $ f $ toException $ StreamException err callStack
+      throwIO $ f $ toException $ streamException err callStack
+
+{-------------------------------------------------------------------------------
+  Exception wrapping (if DEBUG)
+-------------------------------------------------------------------------------}
+
+#ifdef DEBUG
+
+data StreamException = StreamException SomeException CallStack
+  deriving stock (Show)
+  deriving Exception via ExceptionWrapper StreamException
+
+instance HasNestedException StreamException where
+  getNestedException (StreamException e _) = e
+
+streamException :: SomeException -> CallStack -> SomeException
+streamException err = toException . StreamException err
+
+#else
+
+streamException :: SomeException -> CallStack -> SomeException
+streamException = const
+
+#endif
+

@@ -1,4 +1,7 @@
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
+{-# LANGUAGE CPP #-}
+
+#ifdef DEBUG
 
 module Debug.Concurrent (
     -- * @Control.Concurrent@
@@ -36,7 +39,7 @@ import Control.Concurrent       qualified as Concurrent
 import Control.Concurrent.Async qualified as Async
 import Control.Concurrent.STM   qualified as STM
 
-import Network.GRPC.Internal
+import Debug.NestedException
 
 {-------------------------------------------------------------------------------
   Wrap thread spawning
@@ -66,11 +69,10 @@ asyncWithUnmask k = Async.asyncWithUnmask $ \unmask ->
     wrapThreadBody (k unmask)
 
 wrapThreadBody :: HasCallStack => IO a -> IO a
-wrapThreadBody = id
---wrapThreadBody body = do
---    tid <- myThreadId
---    writeFile ("tmp/" ++ show tid) $ prettyCallStack callStack
---    body
+wrapThreadBody body = do
+    tid <- myThreadId
+    writeFile ("tmp/" ++ show tid) $ prettyCallStack callStack
+    body
 
 {-------------------------------------------------------------------------------
   Wrap exceptions with a callstack
@@ -91,3 +93,17 @@ instance HasNestedException STMException where
 -- handler /outside/ of the STM transaction.
 atomically :: HasCallStack => STM a -> IO a
 atomically act = STM.atomically act `catch` (throwIO . STMException callStack)
+
+#else
+
+module Debug.Concurrent (
+    module ReexportConcurrent
+  , module ReexportAsync
+  , module ReexportSTM
+  ) where
+
+import Control.Concurrent       as ReexportConcurrent
+import Control.Concurrent.Async as ReexportAsync
+import Control.Concurrent.STM   as ReexportSTM
+
+#endif

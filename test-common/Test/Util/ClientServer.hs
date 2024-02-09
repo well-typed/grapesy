@@ -38,7 +38,6 @@ import Network.GRPC.Client qualified as Client
 import Network.GRPC.Common
 import Network.GRPC.Common.Compression (CompressionNegotationFailed)
 import Network.GRPC.Common.Compression qualified as Compr
-import Network.GRPC.Internal
 import Network.GRPC.Server qualified as Server
 import Network.GRPC.Server.Run qualified as Server
 
@@ -246,9 +245,10 @@ isExpectedException cfg assessCustomException topLevel =
       -- Wrappers
       --
 
-      | Just err' <- maybeNestedException err
+      | Just (ServerException err' _) <- fromException err
       = go err'
-
+      | Just (ClientException err' _) <- fromException err
+      = go err'
       | Just (DoubleException { doubleExceptionClient
                               , doubleExceptionServer
                               }) <- fromException err
@@ -261,6 +261,11 @@ isExpectedException cfg assessCustomException topLevel =
               , doubleExceptionServer = expected'
               , doubleExceptionAnnotation = ()
               }
+
+#ifdef DEBUG
+      | Just err' <- maybeNestedException err
+      = go err'
+#endif
 
       --
       -- Custom exceptions
@@ -542,24 +547,16 @@ data ServerException = ServerException {
     , serverExceptionLogs :: [LogMsg]
     }
   deriving stock (GHC.Generic)
-  deriving anyclass (PrettyVal)
+  deriving anyclass (PrettyVal, Exception)
   deriving Show via ShowAsPretty ServerException
-  deriving Exception via ExceptionWrapper ServerException
-
-instance HasNestedException ServerException where
-  getNestedException = serverException
 
 data ClientException = ClientException {
       clientException     :: SomeException
     , clientExceptionLogs :: [LogMsg]
     }
   deriving stock (GHC.Generic)
-  deriving anyclass (PrettyVal)
+  deriving anyclass (PrettyVal, Exception)
   deriving Show via ShowAsPretty ClientException
-  deriving Exception via ExceptionWrapper ClientException
-
-instance HasNestedException ClientException where
-  getNestedException = clientException
 
 data DoubleException e = forall a. (Show a, PrettyVal a) => DoubleException {
       doubleExceptionClient     :: e

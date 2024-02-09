@@ -1,3 +1,5 @@
+{-# LANGUAGE CPP #-}
+
 -- | Monitored threads
 --
 -- Intended for unqualified import.
@@ -11,8 +13,6 @@ module Network.GRPC.Util.Thread (
   , cancelThread
   , waitForThread
   , withThreadInterface
-  , ThreadCancelled(..)
-  , ThreadInterfaceUnavailable(..)
   ) where
 
 import Control.Exception
@@ -20,9 +20,11 @@ import Control.Monad
 import Foreign (newStablePtr, freeStablePtr)
 import GHC.Stack
 
-import Network.GRPC.Internal
-
 import Debug.Concurrent
+
+#ifdef DEBUG
+import Debug.NestedException
+#endif
 
 {-------------------------------------------------------------------------------
   State
@@ -145,22 +147,8 @@ cancelThread state e = join . atomically $ do
   where
     kill :: ThreadId -> IO (Either SomeException a)
     kill tid = do
-        throwTo tid $ ThreadCancelled callStack e
+        throwTo tid $ threadCancelled e callStack
         return $ Left e
-
--- | Exception thrown by 'cancelThread' to the thread to the cancelled
-data ThreadCancelled = ThreadCancelled {
-      -- | Callstack to the call to 'cancelThread'
-      threadCancelledCallStack :: CallStack
-
-      -- | Reason the thread was cancelled
-    , threadCancelledReason :: SomeException
-    }
-  deriving stock (Show)
-  deriving Exception via ExceptionWrapper ThreadCancelled
-
-instance HasNestedException ThreadCancelled where
-  getNestedException = threadCancelledReason
 
 {-------------------------------------------------------------------------------
   Interacting with the thread
@@ -171,7 +159,7 @@ instance HasNestedException ThreadCancelled where
 -- The behaviour of this 'getThreadInterface' depends on the thread state; it
 --
 -- * blocks if the thread in case of 'ThreadNotStarted' or 'ThreadInitializing'
--- * throws 'ThreadInterfaceUnavailable' in case of 'ThreadException'.
+-- * throws 'ThreadDied' in case of 'ThreadException'.
 -- * returns the thread interface otherwise
 --
 -- We do /not/ distinguish between 'ThreadDone' and 'ThreadRunning' here, as
@@ -210,8 +198,7 @@ withThreadInterface state k =
           ThreadInitializing _ -> retry
           ThreadRunning _ a    -> return a
           ThreadDone      a    -> return a
-          ThreadException e    -> throwSTM $
-                                    ThreadInterfaceUnavailable callStack e
+          ThreadException e    -> throwSTM $ threadDied e callStack
 
 -- | Wait for the thread to terminate
 --
@@ -225,23 +212,7 @@ waitForThread state = do
       ThreadInitializing _ -> retry
       ThreadRunning _ _    -> retry
       ThreadDone      a    -> return a
-      ThreadException e    -> throwSTM $ ThreadInterfaceUnavailable callStack e
-
--- | Thread interface unavailable
---
--- Thrown when we task for the thread interface but the thread has died.
-data ThreadInterfaceUnavailable = ThreadInterfaceUnavailable {
-      -- | The 'CallStack' to the call requesting the thread interface
-      threadInterfaceCallStack :: CallStack
-
-      -- | The exception that killed the thread
-    , threadInterfaceException :: SomeException
-    }
-  deriving stock (Show)
-  deriving Exception via ExceptionWrapper ThreadInterfaceUnavailable
-
-instance HasNestedException ThreadInterfaceUnavailable where
-  getNestedException = threadInterfaceException
+      ThreadException e    -> throwSTM $ threadDied e callStack
 
 {-------------------------------------------------------------------------------
   Internal auxiliary
@@ -254,4 +225,56 @@ withoutDeadlockDetection :: IO a -> IO a
 withoutDeadlockDetection k = do
     tid <- myThreadId
     bracket (newStablePtr tid) freeStablePtr $ \_ -> k
+
+{-------------------------------------------------------------------------------
+  Exception wrapping (if DEBUG)
+-------------------------------------------------------------------------------}
+
+#ifdef DEBUG
+
+-- | Thread interface unavailable
+--
+-- Thrown when we task for the thread interface but the thread has died.
+data ThreadDied = ThreadDied {
+      -- | The exception that killed the thread
+      threadInterfaceException :: SomeException
+
+      -- | The 'CallStack' to the call requesting the thread interface
+    , threadInterfaceCallStack :: CallStack
+    }
+  deriving stock (Show)
+  deriving Exception via ExceptionWrapper ThreadDied
+
+instance HasNestedException ThreadDied where
+  getNestedException = threadInterfaceException
+
+-- | Exception thrown by 'cancelThread' to the thread to the cancelled
+data ThreadCancelled = ThreadCancelled {
+      -- | Reason the thread was cancelled
+      threadCancelledReason :: SomeException
+
+      -- | Callstack to the call to 'cancelThread'
+    , threadCancelledCallStack :: CallStack
+    }
+  deriving stock (Show)
+  deriving Exception via ExceptionWrapper ThreadCancelled
+
+instance HasNestedException ThreadCancelled where
+  getNestedException = threadCancelledReason
+
+threadDied :: SomeException -> CallStack -> SomeException
+threadDied err = toException . ThreadDied err
+
+threadCancelled :: SomeException -> CallStack -> SomeException
+threadCancelled err = toException . ThreadCancelled err
+
+#else
+
+threadDied :: SomeException -> CallStack -> SomeException
+threadDied = const
+
+threadCancelled :: SomeException -> CallStack -> SomeException
+threadCancelled = const
+
+#endif
 
