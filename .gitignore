@@ -2,3 +2,4 @@ dist-newstyle
 .envrc
 *.swp
 *.pcapng
+cabal.project.local

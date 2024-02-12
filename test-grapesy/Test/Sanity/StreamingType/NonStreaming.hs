@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP               #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Test.Sanity.StreamingType.NonStreaming (tests) where
@@ -90,6 +91,13 @@ tests = testGroup "Test.Sanity.StreamingType.NonStreaming" [
                     clientCompr = Compr.only Compr.deflate
                   , serverCompr = Compr.only Compr.deflate
                   }
+#ifdef SNAPPY
+            , testCase "snappy" $
+                test_increment def {
+                    clientCompr = Compr.only Compr.snappy
+                  , serverCompr = Compr.only Compr.snappy
+                  }
+#endif
             , testCase "clientChoosesUnsupported" $
                 test_increment def {
                     clientInitCompr = Just Compr.gzip

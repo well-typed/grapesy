@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP              #-}
 {-# LANGUAGE OverloadedLabels #-}
 
 -- | Command line options
@@ -198,6 +199,12 @@ parseCompression = asum [
           Opt.long "deflate"
         , Opt.help "Use deflate compression for all messages"
         ]
+#ifdef SNAPPY
+    , Opt.flag' Compr.snappy $ mconcat [
+          Opt.long "snappy"
+        , Opt.help "Use snappy compression for all messages"
+        ]
+#endif
     ]
 
 parseAPI :: Opt.Parser API

@@ -2,5 +2,5 @@ packages: .
 
 package grapesy
   tests: True
-  flags: +build-demo +build-stress-test +build-interop
+  flags: +build-demo +build-stress-test +build-interop +snappy
   ghc-options: -Werror

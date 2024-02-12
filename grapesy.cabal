@@ -72,6 +72,8 @@ common lang
       -- In 8.10 you might get spurious warnings when using re-exported modules
       -- (e.g. in proto-lens-runtime).
       -Wunused-packages
+  if flag(snappy)
+    cpp-options: -DSNAPPY
 
 library
   import:
@@ -180,6 +182,10 @@ library
     , utf8-string          >= 1.0   && < 1.1
     , zlib                 >= 0.6   && < 0.7
 
+
+  if flag(snappy)
+    build-depends:
+      , snappy-c >= 0.1 && < 0.2
   -- tls 1.7 starts using Kazu's forked versions of x509-* packages
   if flag(crypton)
     -- Lower bounds are the first version of these packages after forking.
@@ -435,3 +441,7 @@ Flag crypton
   default: True
   manual: False
 
+Flag snappy
+  description: Enable snappy compression capabilities
+  default: False
+  manual: True

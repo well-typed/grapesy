@@ -127,7 +127,7 @@ ghcup-jobs: >8.10.4 && <9 || >9.0.1
 ghcup-version: 0.1.19.2
 
 -- Additional apt packages to install
-apt:
+apt: libsnappy-dev
 
 travis-patches:
 

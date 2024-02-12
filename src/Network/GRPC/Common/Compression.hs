@@ -1,3 +1,5 @@
+{-# LANGUAGE CPP #-}
+
 -- | Public 'Compression' API
 --
 -- Intended for unqualified import.
@@ -12,6 +14,9 @@ module Network.GRPC.Common.Compression (
   , noCompression
   , gzip
   , deflate
+#ifdef SNAPPY
+  , snappy
+#endif
   , allSupportedCompression
     -- * Negotation
   , Negotation(..)
