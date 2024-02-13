@@ -4,9 +4,9 @@ module Network.GRPC.Util.Session.Client (
   , setupRequestChannel
   ) where
 
-import Control.Monad
 import Control.Monad.Catch
 import Control.Tracer
+import Data.ByteString.Builder (Builder)
 import Network.HTTP2.Client qualified as Client
 
 import Network.GRPC.Util.HTTP2 (fromHeaderTable)
@@ -16,6 +16,7 @@ import Network.GRPC.Util.Session.Channel
 import Network.GRPC.Util.Thread
 
 import Debug.Concurrent
+import Control.Monad
 
 {-------------------------------------------------------------------------------
   Connection
@@ -90,57 +91,63 @@ setupRequestChannel sess tracer ConnectionToServer{sendRequest} outboundStart = 
                     (requestMethod  requestInfo)
                     (requestPath    requestInfo)
                     (requestHeaders requestInfo)
-                $ \unmask write' flush' -> unmask $ do
-                     threadBody (channelOutbound channel)
-                                unmask
-                                (newTMVarIO (FlowStateRegular regular))
-                              $ \_stVar -> do
-                       stream <- clientOutputStream write' flush'
-                       sendMessageLoop sess tracer regular stream
+                $ outboundThread channel regular
         forkRequest channel req
       FlowStartNoMessages trailers -> do
-        stVar <- newTMVarIO $ FlowStateNoMessages trailers
-        atomically $ writeTVar (channelOutbound channel) $ ThreadDone stVar
-        let req :: Client.Request
+        let state :: FlowState (Outbound sess)
+            state = FlowStateNoMessages trailers
+
+            req :: Client.Request
             req = Client.requestNoBody
                     (requestMethod  requestInfo)
                     (requestPath    requestInfo)
                     (requestHeaders requestInfo)
+        atomically $ writeTVar (channelOutbound channel) $ ThreadDone state
         forkRequest channel req
 
     return channel
   where
     forkRequest :: Channel sess -> Client.Request -> IO ()
     forkRequest channel req =
-        forkThread (channelInbound channel) newEmptyTMVarIO $ \stVar -> do
-          setup <- try $ sendRequest req $ \resp -> do
+        forkThread (channelInbound channel) $ \markReady ->
+          handle (killOutbound channel) $ sendRequest req $ \resp -> do
             responseStatus <- case Client.responseStatus resp of
                                 Just x  -> return x
                                 Nothing -> throwM PeerMissingPseudoHeaderStatus
             let responseHeaders = fromHeaderTable $ Client.responseHeaders resp
                 responseInfo    = ResponseInfo {responseHeaders, responseStatus}
 
-            inboundStart <-
-              if Client.responseBodySize resp == Just 0
-                then FlowStartNoMessages <$>
-                       parseResponseNoMessages sess responseInfo
-                else FlowStartRegular <$>
-                       parseResponseRegular sess responseInfo
+            if Client.responseBodySize resp /= Just 0 then do
+              headers <- parseResponseRegular sess responseInfo
+              regular <- initFlowStateRegular headers
+              stream  <- clientInputStream resp
+              markReady $ FlowStateRegular regular
+              recvMessageLoop sess tracer regular stream
+            else do
+              trailers <- parseResponseNoMessages sess responseInfo
+              markReady $ FlowStateNoMessages trailers
 
-            case inboundStart of
-              FlowStartRegular headers -> do
-                regular <- initFlowStateRegular headers
-                stream  <- clientInputStream resp
-                atomically $ putTMVar stVar $ FlowStateRegular regular
-                recvMessageLoop sess tracer regular stream
-              FlowStartNoMessages trailers ->
-                atomically $ putTMVar stVar $ FlowStateNoMessages trailers
+    -- Kill the outbound thread if we fail to send the request
+    -- (the /inbound/ thread is never started in this case)
+    killOutbound :: Channel sess -> SomeException -> IO ()
+    killOutbound channel err = do
+        void $ cancelThread (channelOutbound channel) err
+        throwM err
 
-          case setup of
-            Right () -> return ()
-            Left  e  -> do
-              void $ cancelThread (channelOutbound channel) e
-              throwM e
+    outboundThread ::
+         Channel sess
+      -> RegularFlowState (Outbound sess)
+      -> (forall x. IO x -> IO x)
+      -> (Builder -> IO ())
+      -> IO ()
+      -> IO ()
+    outboundThread channel regular unmask write' flush' =
+       threadBody (channelOutbound channel) unmask $ \markReady -> do
+         markReady $ FlowStateRegular regular
+         -- Initialize the output stream to initiate the request.
+         -- See 'clientOutputStream' for details.
+         stream <- clientOutputStream write' flush'
+         sendMessageLoop sess tracer regular stream
 
 {-------------------------------------------------------------------------------
    Auxiliary http2

@@ -6,7 +6,6 @@ module Network.GRPC.Util.Session.Server (
   ) where
 
 import Control.Tracer
-import GHC.Stack
 import Network.HTTP.Types qualified as HTTP
 import Network.HTTP2.Server qualified as Server
 
@@ -15,8 +14,6 @@ import Network.GRPC.Util.HTTP2.Stream
 import Network.GRPC.Util.Session.API
 import Network.GRPC.Util.Session.Channel
 import Network.GRPC.Util.Thread
-
-import Debug.Concurrent
 
 {-------------------------------------------------------------------------------
   Connection
@@ -54,7 +51,7 @@ determineFlowStart sess req
 --
 -- Does not throw any exceptions.
 setupResponseChannel :: forall sess.
-     (AcceptSession sess, HasCallStack)
+     AcceptSession sess
   => sess
   -> Tracer IO (DebugMsg sess)
   -> ConnectionToClient
@@ -70,23 +67,24 @@ setupResponseChannel :: forall sess.
 setupResponseChannel sess tracer conn inboundStart startOutbound = do
     channel <- initChannel
 
-    forkThread (channelInbound channel) newEmptyTMVarIO $ \stVar ->
+    forkThread (channelInbound channel) $ \markReady -> do
       case inboundStart of
         FlowStartRegular headers -> do
           regular <- initFlowStateRegular headers
           stream  <- serverInputStream (request conn)
-          atomically $ putTMVar stVar $ FlowStateRegular regular
+          markReady $ FlowStateRegular regular
           recvMessageLoop sess tracer regular stream
-        FlowStartNoMessages trailers ->
-          atomically $ putTMVar stVar $ FlowStateNoMessages trailers
+        FlowStartNoMessages trailers -> do
+          markReady $ FlowStateNoMessages trailers
+          -- Thread terminates immediately
 
-    forkThread (channelOutbound channel) newEmptyTMVarIO $ \stVar -> do
+    forkThread (channelOutbound channel) $ \markReady -> do
       outboundStart <- startOutbound
       let responseInfo = buildResponseInfo sess outboundStart
       case outboundStart of
         FlowStartRegular headers -> do
           regular <- initFlowStateRegular headers
-          atomically $ putTMVar stVar $ FlowStateRegular regular
+          markReady $ FlowStateRegular regular
           let resp :: Server.Response
               resp = setResponseTrailers sess channel
                    $ Server.responseStreaming
@@ -97,7 +95,7 @@ setupResponseChannel sess tracer conn inboundStart startOutbound = do
                         sendMessageLoop sess tracer regular stream
           respond conn resp
         FlowStartNoMessages trailers -> do
-          atomically $ putTMVar stVar $ FlowStateNoMessages trailers
+          markReady $ FlowStateNoMessages trailers
           let resp :: Server.Response
               resp = Server.responseNoBody
                        (responseStatus  responseInfo)

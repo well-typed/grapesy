@@ -86,10 +86,10 @@ import Debug.Concurrent
 -- Each channel is constructed for a /single/ session (request/response).
 data Channel sess = Channel {
       -- | Thread state of the thread receiving messages from the peer
-      channelInbound :: TVar (ThreadState (TMVar (FlowState (Inbound sess))))
+      channelInbound :: TVar (ThreadState (FlowState (Inbound sess)))
 
       -- | Thread state of the thread sending messages to the peer
-    , channelOutbound :: TVar (ThreadState (TMVar (FlowState (Outbound sess))))
+    , channelOutbound :: TVar (ThreadState (FlowState (Outbound sess)))
 
       -- | 'CallStack' of the final call to 'send'
       --
@@ -223,8 +223,8 @@ checkChannelStatus Channel{ channelInbound
                    } = do
     stInbound  <- readTVar channelInbound
     stOutbound <- readTVar channelOutbound
-    channelStatusInbound   <- go stInbound
-    channelStatusOutbound  <- go stOutbound
+    let channelStatusInbound  = toStatus stInbound
+    let channelStatusOutbound = toStatus stOutbound
     channelStatusSentFinal <- isFinal <$> readTVar channelSentFinal
     channelStatusRecvFinal <- isFinal <$> readTVar channelRecvFinal
     return ChannelStatus{
@@ -234,12 +234,12 @@ checkChannelStatus Channel{ channelInbound
       , channelStatusRecvFinal
       }
   where
-    go :: ThreadState (TMVar (FlowState flow)) -> STM (FlowStatus flow)
-    go ThreadNotStarted       = return FlowNotYetEstablished
-    go (ThreadInitializing _) = return FlowNotYetEstablished
-    go (ThreadRunning _ a)    = FlowEstablished <$> readTMVar a
-    go (ThreadDone _)         = return $ FlowTerminated
-    go (ThreadException e)    = return $ FlowFailed e
+    toStatus :: ThreadState (FlowState flow) -> FlowStatus flow
+    toStatus ThreadNotStarted       = FlowNotYetEstablished
+    toStatus (ThreadInitializing _) = FlowNotYetEstablished
+    toStatus (ThreadRunning _ a)    = FlowEstablished a
+    toStatus (ThreadDone _)         = FlowTerminated
+    toStatus (ThreadException e)    = FlowFailed e
 
     isFinal :: Maybe CallStack -> Bool
     isFinal = maybe False (const True)
@@ -277,16 +277,13 @@ getInboundHeaders ::
      Channel sess
   -> IO (Either (NoMessages (Inbound sess)) (Headers (Inbound sess)))
 getInboundHeaders Channel{channelInbound} =
-    withThreadInterface channelInbound aux
+    withThreadInterface channelInbound (return . aux)
   where
     aux :: forall flow.
-         TMVar (FlowState flow)
-      -> STM (Either (NoMessages flow) (Headers flow))
-    aux iface = do
-        st <- readTMVar iface
-        return $ case st of
-          FlowStateRegular    regular  -> Right $ flowHeaders regular
-          FlowStateNoMessages trailers -> Left trailers
+         FlowState flow
+      -> Either (NoMessages flow) (Headers flow)
+    aux (FlowStateRegular    regular)  = Right $ flowHeaders regular
+    aux (FlowStateNoMessages trailers) = Left trailers
 
 -- | Send a message to the node's peer
 --
@@ -301,28 +298,27 @@ send :: forall sess.
 send Channel{channelOutbound, channelSentFinal} msg =
     withThreadInterface channelOutbound aux
   where
-    aux :: TMVar (FlowState (Outbound sess)) -> STM ()
-    aux iface = do
-        -- By checking that we haven't sent the final message yet, we know that this
-        -- call to 'putMVar' will not block indefinitely: the thread that sends
-        -- messages to the peer will get to it eventually (unless it dies, in which
-        -- case the thread status will change and the call to 'getThreadInterface'
-        -- will be retried).
+    aux :: FlowState (Outbound sess) -> STM ()
+    aux st = do
+        -- By checking that we haven't sent the final message yet, we know that
+        -- this call to 'putMVar' will not block indefinitely: the thread that
+        -- sends messages to the peer will get to it eventually (unless it dies,
+        -- in which case the thread status will change and the call to
+        -- 'getThreadInterface' will be retried).
         sentFinal <- readTVar channelSentFinal
         case sentFinal of
           Just cs -> throwSTM $ SendAfterFinal cs
-          Nothing -> do
-            st <- readTMVar iface
-            case st of
-              FlowStateRegular regular -> do
-                StreamElem.whenDefinitelyFinal msg $ \_trailers ->
-                  writeTVar channelSentFinal $ Just callStack
-                putTMVar (flowMsg regular) msg
-              FlowStateNoMessages _ ->
-                -- For outgoing messages, the caller decides to use Trailers-Only,
-                -- so if they then subsequently call 'send', we throw an exception.
-                -- This is different for /inbound/ messages; see 'recv', below.
-                throwSTM $ SendButTrailersOnly
+          Nothing -> return ()
+        case st of
+          FlowStateRegular regular -> do
+            StreamElem.whenDefinitelyFinal msg $ \_trailers ->
+              writeTVar channelSentFinal $ Just callStack
+            putTMVar (flowMsg regular) msg
+          FlowStateNoMessages _ ->
+            -- For outgoing messages, the caller decides to use Trailers-Only,
+            -- so if they then subsequently call 'send', we throw an exception.
+            -- This is different for /inbound/ messages; see 'recv', below.
+            throwSTM $ SendButTrailersOnly
 
 -- | Receive a message from the node's peer
 --
@@ -339,37 +335,38 @@ recv Channel{channelInbound, channelRecvFinal} =
     withThreadInterface channelInbound aux
   where
     aux ::
-         TMVar (FlowState (Inbound sess))
+         FlowState (Inbound sess)
       -> STM ( StreamElem
                  (Either (NoMessages (Inbound sess)) (Trailers (Inbound sess)))
                  (Message (Inbound sess))
              )
-    aux iface = do
-        -- By checking that we haven't received the final message yet, we know that
-        -- this call to 'takeTMVar' will not block indefinitely: the thread that
-        -- receives messages from the peer will get to it eventually (unless it
-        -- dies, in which case the thread status will change and the call to
-        -- 'getThreadInterface' will be retried).
+    aux st = do
+        -- By checking that we haven't received the final message yet, we know
+        -- that this call to 'takeTMVar' will not block indefinitely: the thread
+        -- that receives messages from the peer will get to it eventually
+        -- (unless it dies, in which case the thread status will change and the
+        -- call to 'getThreadInterface' will be retried).
         readFinal <- readTVar channelRecvFinal
         case readFinal of
           Just cs -> throwSTM $ RecvAfterFinal cs
           Nothing -> do
-            -- We get the TMVar in the same transaction as reading from it (below).
-            -- This means that /if/ the thread running 'recvMessageLoop' throws an
-            -- exception and is killed, the 'takeTMVar' below cannot block
-            -- indefinitely (because the transaction will be retried).
-            st <- readTMVar iface
-            case st of
-              FlowStateRegular regular -> do
-                msg <- takeTMVar (flowMsg regular)
-                -- We update 'channelRecvFinal' in the same tx as the read, to
-                -- atomically change from "there is a value" to "all values read".
-                StreamElem.whenDefinitelyFinal msg $ \_trailers ->
-                  writeTVar channelRecvFinal $ Just callStack
-                return $ first Right msg
-              FlowStateNoMessages trailers -> do
-                writeTVar channelRecvFinal $ Just callStack
-                return $ NoMoreElems (Left trailers)
+            -- We get the TMVar in the same transaction as reading from it
+            -- (below). This means that /if/ the thread running
+            -- 'recvMessageLoop' throws an exception and is killed, the
+            -- 'takeTMVar' below cannot block indefinitely (because the
+            -- transaction will be retried).
+            return ()
+        case st of
+          FlowStateRegular regular -> do
+            msg <- takeTMVar (flowMsg regular)
+            -- We update 'channelRecvFinal' in the same tx as the read, to
+            -- atomically change from "there is a value" to "all values read".
+            StreamElem.whenDefinitelyFinal msg $ \_trailers ->
+              writeTVar channelRecvFinal $ Just callStack
+            return $ first Right msg
+          FlowStateNoMessages trailers -> do
+            writeTVar channelRecvFinal $ Just callStack
+            return $ NoMoreElems (Left trailers)
 
 -- | Thrown by 'send'
 --
@@ -405,7 +402,7 @@ data RecvAfterFinal =
 -- See 'close' for discussion.
 waitForOutbound :: HasCallStack => Channel sess -> IO (FlowState (Outbound sess))
 waitForOutbound Channel{channelOutbound} = atomically $
-    readTMVar =<< waitForThread channelOutbound
+    waitForThread channelOutbound
 
 -- | Close the channel
 --
@@ -440,7 +437,7 @@ close Channel{channelOutbound} reason = do
     -- thread will terminate once it reaches the end of the queue
      outbound <- cancelThread channelOutbound channelClosed
      case outbound of
-       Right _   -> return $ Nothing
+       Right ()  -> return $ Nothing
        Left  err -> return $ Just (ChannelUncleanClose err)
   where
     channelClosed :: SomeException
