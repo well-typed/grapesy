@@ -29,7 +29,7 @@ cache: True
 install-dependencies: True
 
 -- Specify 'constraint: ... installed' packages
-installed:
+installed: -all
 
 -- Build tests with
 tests: True

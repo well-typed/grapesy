@@ -59,6 +59,8 @@ jobs:
           chmod a+x "$HOME/.ghcup/bin/ghcup"
           "$HOME/.ghcup/bin/ghcup" install ghc "$HCVER" || (cat "$HOME"/.ghcup/logs/*.* && false)
           "$HOME/.ghcup/bin/ghcup" install cabal 3.10.2.0 || (cat "$HOME"/.ghcup/logs/*.* && false)
+          apt-get update
+          apt-get install -y libsnappy-dev
         env:
           HCKIND: ${{ matrix.compilerKind }}
           HCNAME: ${{ matrix.compiler }}
@@ -162,10 +164,9 @@ jobs:
           cat >> cabal.project <<EOF
           package grapesy
             tests:       True
-            flags:       +build-demo +build-stress-test +build-interop
+            flags:       +build-demo +build-stress-test +build-interop +snappy
             ghc-options: -Werror
           EOF
-          $HCPKG list --simple-output --names-only | perl -ne 'for (split /\s+/) { print "constraints: $_ installed\n" unless /^(grapesy)$/; }' >> cabal.project.local
           cat cabal.project
           cat cabal.project.local
       - name: dump install plan
