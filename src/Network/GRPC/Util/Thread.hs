@@ -50,23 +50,23 @@ data ThreadState a =
 
     -- | Thread terminated with an exception
   | ThreadException SomeException
-  deriving (Show)
+  deriving stock (Show, Functor)
 
 {-------------------------------------------------------------------------------
   Creating threads
 -------------------------------------------------------------------------------}
 
+type ThreadBody a =
+          (a -> IO ()) -- ^ Mark thread ready
+       -> IO ()
+
 newThreadState :: IO (TVar (ThreadState a))
 newThreadState = newTVarIO ThreadNotStarted
 
-forkThread ::
-     TVar (ThreadState a)
-  -> IO a         -- ^ Initialize the thread (runs with exceptions masked)
-  -> (a -> IO ()) -- ^ Main thread body
-  -> IO ()
-forkThread state initThread body =
+forkThread :: HasCallStack => TVar (ThreadState a) -> ThreadBody a -> IO ()
+forkThread state body =
     void $ mask_ $ forkIOWithUnmask $ \unmask ->
-      threadBody state unmask initThread body
+      threadBody state unmask body
 
 -- | Wrap the thread body
 --
@@ -78,13 +78,13 @@ forkThread state initThread body =
 --
 -- If the 'ThreadState' is anything other than 'ThreadNotStarted' on entry,
 -- this function terminates immediately.
-threadBody ::
-     TVar (ThreadState a)
+threadBody :: forall a.
+     HasCallStack
+  => TVar (ThreadState a)
   -> (forall x. IO x -> IO x) -- ^ Unmask exceptions
-  -> IO a         -- ^ Initialize the thread (runs with exceptions masked)
-  -> (a -> IO ()) -- ^ Main thread body
+  -> ThreadBody a
   -> IO ()
-threadBody state unmask initThread body = do
+threadBody state unmask body = do
     tid <- myThreadId
     shouldStart <- atomically $ do
       st <- readTVar state
@@ -95,13 +95,23 @@ threadBody state unmask initThread body = do
         _otherwise -> do
           return False
     when shouldStart $ do
-      iface <- initThread
-      atomically $ writeTVar state $ ThreadRunning tid iface
-      res <- try $ unmask $ body iface
-      atomically $ writeTVar state $
-        case res of
-          Left  e  -> ThreadException e
-          Right () -> ThreadDone iface
+      let markReady :: a -> STM ()
+          markReady = writeTVar state . ThreadRunning tid
+
+          markDone :: Either SomeException () -> STM ()
+          markDone mDone = do
+              modifyTVar state $ \oldState ->
+                case (oldState, mDone) of
+                  (ThreadRunning _ iface, Right ()) ->
+                    ThreadDone iface
+                  (_, Left e) ->
+                    ThreadException e
+                  _otherwise ->
+                    error $ "threadBody: unexpected "
+                         ++ show (const () <$> oldState)
+
+      res <- try $ unmask $ body (atomically . markReady)
+      atomically $ markDone res
 
 {-------------------------------------------------------------------------------
   Stopping
@@ -127,7 +137,7 @@ cancelThread ::
      HasCallStack
   => TVar (ThreadState a)
   -> SomeException
-  -> IO (Either SomeException a)
+  -> IO (Either SomeException ())
 cancelThread state e = join . atomically $ do
     st <- readTVar state
     case st of
@@ -140,8 +150,8 @@ cancelThread state e = join . atomically $ do
         return $ kill tid
       ThreadException e' ->
         return $ return (Left e')
-      ThreadDone a ->
-        return $ return (Right a)
+      ThreadDone _ ->
+        return $ return (Right ())
   where
     kill :: ThreadId -> IO (Either SomeException a)
     kill tid = do
@@ -183,10 +193,6 @@ instance HasNestedException ThreadCancelled where
 -- It should therefore only be used for transactions that can never be blocked
 -- indefinitely.
 --
--- TODO: We could (should?) make the 'Thread' abstraction less general, so that
--- above responsibility for the /caller/ becomes a responsibility of the
--- abstraction instead.
---
 -- Usage note: in practice we use this to interact with threads that in turn
 -- interact with @http2@ (running 'sendMessageLoop' or 'recvMessageLoop').
 -- Although calls into @http2@ may in fact block indefinitely, we will /catch/
@@ -199,8 +205,8 @@ withThreadInterface :: forall a b.
   -> (a -> STM b)
   -> IO b
 withThreadInterface state k =
-    withoutDeadlockDetection $
-      atomically $ k =<< getThreadInterface
+    withoutDeadlockDetection . atomically $
+      k =<< getThreadInterface
   where
     getThreadInterface :: STM a
     getThreadInterface = do
