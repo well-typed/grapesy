@@ -166,6 +166,7 @@ rpcPath proxy = Path (serviceName proxy) (methodName proxy)
 data InvalidResourceHeaders =
     InvalidMethod Strict.ByteString
   | InvalidPath Strict.ByteString
+  deriving stock (Show)
 
 -- | Parse pseudo headers
 parseResourceHeaders ::

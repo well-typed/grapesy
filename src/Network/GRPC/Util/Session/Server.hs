@@ -8,6 +8,8 @@ module Network.GRPC.Util.Session.Server (
 import Control.Tracer
 import Network.HTTP.Types qualified as HTTP
 import Network.HTTP2.Server qualified as Server
+import Control.Monad.XIO (XIO', NeverThrows)
+import Control.Monad.XIO qualified as XIO
 
 import Network.GRPC.Util.HTTP2 (fromHeaderTable)
 import Network.GRPC.Util.HTTP2.Stream
@@ -48,8 +50,6 @@ determineFlowStart sess req
 -- | Setup response channel
 --
 -- The actual response will not immediately be initiated; see below.
---
--- Does not throw any exceptions.
 setupResponseChannel :: forall sess.
      AcceptSession sess
   => sess
@@ -62,47 +62,50 @@ setupResponseChannel :: forall sess.
   -- This function is allowed to block. If it does, no response will not be
   -- initiated until it returns.
   --
-  -- It should /not/ throw any exceptions.
-  -> IO (Channel sess)
-setupResponseChannel sess tracer conn inboundStart startOutbound = do
-    channel <- initChannel
+  -- If this function throws an exception, the response is never initiated;
+  -- this is treated the same was as when we fail to set up the outbound
+  -- connection due to a network failure.
+  -> XIO' NeverThrows (Channel sess)
+setupResponseChannel sess tracer conn inboundStart startOutbound =
+    XIO.unsafeNeverThrowsIO $ do
+      channel <- initChannel
 
-    forkThread (channelInbound channel) $ \markReady -> do
-      case inboundStart of
-        FlowStartRegular headers -> do
-          regular <- initFlowStateRegular headers
-          stream  <- serverInputStream (request conn)
-          markReady $ FlowStateRegular regular
-          recvMessageLoop sess tracer regular stream
-        FlowStartNoMessages trailers -> do
-          markReady $ FlowStateNoMessages trailers
-          -- Thread terminates immediately
+      forkThread (channelInbound channel) $ \unmask markReady -> unmask $ do
+        case inboundStart of
+          FlowStartRegular headers -> do
+            regular <- initFlowStateRegular headers
+            stream  <- serverInputStream (request conn)
+            markReady $ FlowStateRegular regular
+            recvMessageLoop sess tracer regular stream
+          FlowStartNoMessages trailers -> do
+            markReady $ FlowStateNoMessages trailers
+            -- Thread terminates immediately
 
-    forkThread (channelOutbound channel) $ \markReady -> do
-      outboundStart <- startOutbound
-      let responseInfo = buildResponseInfo sess outboundStart
-      case outboundStart of
-        FlowStartRegular headers -> do
-          regular <- initFlowStateRegular headers
-          markReady $ FlowStateRegular regular
-          let resp :: Server.Response
-              resp = setResponseTrailers sess channel
-                   $ Server.responseStreaming
-                           (responseStatus  responseInfo)
-                           (responseHeaders responseInfo)
-                   $ \write' flush' -> do
-                        stream <- serverOutputStream write' flush'
-                        sendMessageLoop sess tracer regular stream
-          respond conn resp
-        FlowStartNoMessages trailers -> do
-          markReady $ FlowStateNoMessages trailers
-          let resp :: Server.Response
-              resp = Server.responseNoBody
-                       (responseStatus  responseInfo)
-                       (responseHeaders responseInfo)
-          respond conn $ resp
+      forkThread (channelOutbound channel) $ \unmask markReady -> unmask $ do
+        outboundStart <- startOutbound
+        let responseInfo = buildResponseInfo sess outboundStart
+        case outboundStart of
+          FlowStartRegular headers -> do
+            regular <- initFlowStateRegular headers
+            markReady $ FlowStateRegular regular
+            let resp :: Server.Response
+                resp = setResponseTrailers sess channel
+                     $ Server.responseStreaming
+                             (responseStatus  responseInfo)
+                             (responseHeaders responseInfo)
+                     $ \write' flush' -> do
+                          stream <- serverOutputStream write' flush'
+                          sendMessageLoop sess tracer regular stream
+            respond conn resp
+          FlowStartNoMessages trailers -> do
+            markReady $ FlowStateNoMessages trailers
+            let resp :: Server.Response
+                resp = Server.responseNoBody
+                         (responseStatus  responseInfo)
+                         (responseHeaders responseInfo)
+            respond conn $ resp
 
-    return channel
+      return channel
 
 {-------------------------------------------------------------------------------
   Auxiliary http2
