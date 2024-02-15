@@ -10,10 +10,15 @@ module Network.GRPC.Server.Context (
   , new
     -- * Configuration
   , ServerParams(..)
+    -- * Logging and failures
   , ServerDebugMsg(..)
+  , CallSetupFailure(..)
   ) where
 
 import Control.Exception
+import Control.Monad.IO.Class
+import Control.Monad.XIO (NeverThrows)
+import Control.Monad.XIO qualified as XIO
 import Control.Tracer
 import Data.ByteString qualified as Strict (ByteString)
 import Data.Default
@@ -56,10 +61,14 @@ data ServerParams = ServerParams {
 
       -- | Top-level hook for request handlers
       --
-      -- The default merely logs any exceptions to stderr.
+      -- The most important responsibility of this function is to deal with
+      -- any exceptions that the handler might throw, but in principle it has
+      -- full control over how requests are handled.
+      --
+      -- The default merely logs any exceptions to 'stderr'.
     , serverTopLevel ::
-           RequestHandler (Either SomeException ())
-        -> RequestHandler ()
+           RequestHandler SomeException ()
+        -> RequestHandler NeverThrows   ()
 
       -- | Override content-type for response to client.
       --
@@ -74,18 +83,15 @@ instance Default ServerParams where
       , serverTopLevel    = defaultServerTopLevel
       , serverContentType = Nothing
       }
-    where
-      defaultServerTopLevel ::
-           RequestHandler (Either SomeException ())
-        -> RequestHandler ()
-      defaultServerTopLevel h unmask req respond = do
-          res <- h unmask req respond
-          case res of
-            Left err -> hPrint stderr err
-            Right () -> return ()
+
+defaultServerTopLevel ::
+     RequestHandler SomeException ()
+  -> RequestHandler NeverThrows   ()
+defaultServerTopLevel h req resp =
+    h req resp `XIO.catchError` (XIO.swallow . liftIO . hPrint stderr)
 
 {-------------------------------------------------------------------------------
-  Logging
+  Logging and failures
 -------------------------------------------------------------------------------}
 
 data ServerDebugMsg =
@@ -98,9 +104,30 @@ data ServerDebugMsg =
        => ServerDebugMsg (Session.DebugMsg (ServerSession rpc))
 
      -- | Could not setup the call to the client
-  | ServerDebugCallSetupFailed SomeException
+  | ServerDebugCallSetupFailed CallSetupFailure
 
 deriving instance Show ServerDebugMsg
 
 instance PrettyVal ServerDebugMsg where
   prettyVal = String . show
+
+-- | We failed to setup the call from the client
+data CallSetupFailure =
+    -- | Client sent resource headers that were not conform the gRPC spec
+    CallSetupInvalidResourceHeaders InvalidResourceHeaders
+
+    -- | No registered handler for the specified path
+    --
+    -- Note on terminology: HTTP has \"methods\" such as POST, GET, etc; gRPC
+    -- supports only POST, and when another HTTP method is chosen, this will
+    -- result in 'CallSetupInvalidResourceHeaders'. However, gRPC itself also
+    -- has the concept of a "method" (a method, or gRPC call, supported by a
+    -- particular service); it's these methods that
+    -- 'CallSetupUnimplementedMethod' is referring to.
+  | CallSetupUnimplementedMethod Path
+
+    -- | Some other exception happened
+  | CallSetupFailed SomeException
+  deriving stock (Show)
+  deriving anyclass (Exception)
+

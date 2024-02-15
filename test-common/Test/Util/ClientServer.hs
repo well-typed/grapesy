@@ -21,7 +21,8 @@ module Test.Util.ClientServer (
   , runTestServer
   ) where
 
-import Control.Exception
+import Control.Exception (throwIO)
+import Control.Monad.Catch
 import Control.Monad.IO.Class
 import Control.Tracer
 import Data.ByteString qualified as Strict (ByteString)
@@ -39,6 +40,8 @@ import Network.GRPC.Common
 import Network.GRPC.Common.Compression (CompressionNegotationFailed)
 import Network.GRPC.Common.Compression qualified as Compr
 import Network.GRPC.Internal
+import Network.GRPC.Internal.XIO (NeverThrows)
+import Network.GRPC.Internal.XIO qualified as XIO
 import Network.GRPC.Server qualified as Server
 import Network.GRPC.Server.Run qualified as Server
 
@@ -222,7 +225,8 @@ isExpectedException cfg assessCustomException topLevel =
       = Right $ ExpectedExceptionGrpc grpc
 
       -- .. server side
-      | Just (compr :: CompressionNegotationFailed) <- fromException err
+      | Just (Server.CallSetupFailed err') <- fromException err
+      , Just (compr :: CompressionNegotationFailed) <- fromException err'
       , compressionNegotationFailure
       = Right $ ExpectedExceptionCompressionNegotationFailed compr
 
@@ -237,10 +241,11 @@ isExpectedException cfg assessCustomException topLevel =
       = Right $ ExpectedExceptionGrpc grpc
 
       -- .. server side
-      | Just err'@(PeerSentInvalidHeaders msg) <- fromException err
+      | Just (Server.CallSetupFailed err') <- fromException err
+      , Just err''@(PeerSentInvalidHeaders msg) <- fromException err'
       , invalidClientContentType
       , "Content-Type" `List.isInfixOf` msg
-      = Right $ ExpectedExceptionPeer err'
+      = Right $ ExpectedExceptionPeer err''
 
       --
       -- Wrappers
@@ -328,16 +333,21 @@ waitForHandlerTermination (ServerHandlerLock lock) = do
 
 topLevelWithHandlerLock ::
      ServerHandlerLock
-  -> Server.RequestHandler (Either SomeException ())
-  -> Server.RequestHandler ()
-topLevelWithHandlerLock (ServerHandlerLock lock) handler unmask req respond = do
-    tid <- myThreadId
-    atomically $ modifyTVar lock $ Map.insert tid HandlerActive
-    res <- handler unmask req respond
-    atomically $ modifyTVar lock $ Map.insert tid $
-      case res of
-        Left err -> HandlerError err
-        Right () -> HandlerDone
+  -> Server.RequestHandler SomeException ()
+  -> Server.RequestHandler NeverThrows   ()
+topLevelWithHandlerLock (ServerHandlerLock lock) handler req respond = do
+    tid <- XIO.unsafeNeverThrowsIO $
+      myThreadId
+    XIO.unsafeNeverThrowsIO $
+      atomically $ modifyTVar lock $ Map.insert tid HandlerActive
+    res <- XIO.tryError $
+      handler req respond
+    XIO.unsafeNeverThrowsIO $
+      atomically $
+        modifyTVar lock $ Map.insert tid $
+          case res of
+            Left err -> HandlerError err
+            Right () -> HandlerDone
 
 {-------------------------------------------------------------------------------
   Server

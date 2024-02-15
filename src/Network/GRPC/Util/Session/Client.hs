@@ -109,7 +109,7 @@ setupRequestChannel sess tracer ConnectionToServer{sendRequest} outboundStart = 
   where
     forkRequest :: Channel sess -> Client.Request -> IO ()
     forkRequest channel req =
-        forkThread (channelInbound channel) $ \markReady ->
+        forkThread (channelInbound channel) $ \unmask markReady -> unmask $ do
           handle (killOutbound channel) $ sendRequest req $ \resp -> do
             responseStatus <- case Client.responseStatus resp of
                                 Just x  -> return x
@@ -142,7 +142,7 @@ setupRequestChannel sess tracer ConnectionToServer{sendRequest} outboundStart = 
       -> IO ()
       -> IO ()
     outboundThread channel regular unmask write' flush' =
-       threadBody (channelOutbound channel) unmask $ \markReady -> do
+       threadBody (channelOutbound channel) $ \markReady -> unmask $ do
          markReady $ FlowStateRegular regular
          -- Initialize the output stream to initiate the request.
          -- See 'clientOutputStream' for details.

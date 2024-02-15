@@ -58,6 +58,7 @@ common lang
       PolyKinds
       QuantifiedConstraints
       RankNTypes
+      RoleAnnotations
       ScopedTypeVariables
       StandaloneDeriving
       TupleSections
@@ -89,6 +90,7 @@ library
       Network.GRPC.Common.StreamElem
       Network.GRPC.Common.StreamType
       Network.GRPC.Internal
+      Network.GRPC.Internal.XIO
       Network.GRPC.Server
       Network.GRPC.Server.Binary
       Network.GRPC.Server.Protobuf
@@ -144,9 +146,13 @@ library
       Paths_grapesy
 
       Debug.Concurrent
+
+      -- TODO: Should move to its own package
+      Control.Monad.XIO
   hs-source-dirs:
       src
       debug
+      xio
   build-depends:
     , async                >= 2.2   && < 2.3
     , base16-bytestring    >= 1.0   && < 1.1
@@ -242,23 +248,23 @@ test-suite test-grapesy
     , grapesy
   build-depends:
       -- External dependencies
-    , async              >= 2.2  && < 2.3
-    , base64-bytestring  >= 1.2  && < 1.3
-    , bytestring         >= 0.10 && < 0.12
-    , containers         >= 0.6  && < 0.7
-    , contra-tracer      >= 0.2  && < 0.3
-    , exceptions         >= 0.10 && < 0.11
-    , mtl                >= 2.2  && < 2.4
-    , pretty-show        >= 1.10 && < 1.11
-    , proto-lens-runtime >= 0.7  && < 0.8
-    , QuickCheck         >= 2.14 && < 2.15
-    , serialise          >= 0.2  && < 0.3
-    , stm                >= 2.5  && < 2.6
-    , tasty              >= 1.4  && < 1.6
-    , tasty-hunit        >= 0.10 && < 0.11
-    , tasty-quickcheck   >= 0.10 && < 0.11
-    , text               >= 1.2  && < 2.1
-    , tls                >= 1.5  && < 1.10
+    , async              >= 2.2   && < 2.3
+    , base64-bytestring  >= 1.2   && < 1.3
+    , bytestring         >= 0.10  && < 0.12
+    , containers         >= 0.6   && < 0.7
+    , contra-tracer      >= 0.2   && < 0.3
+    , exceptions         >= 0.10  && < 0.11
+    , mtl                >= 2.2   && < 2.4
+    , pretty-show        >= 1.10  && < 1.11
+    , proto-lens-runtime >= 0.7   && < 0.8
+    , QuickCheck         >= 2.14  && < 2.15
+    , serialise          >= 0.2   && < 0.3
+    , stm                >= 2.5   && < 2.6
+    , tasty              >= 1.4   && < 1.6
+    , tasty-hunit        >= 0.10  && < 0.11
+    , tasty-quickcheck   >= 0.10  && < 0.11
+    , text               >= 1.2   && < 2.1
+    , tls                >= 1.5   && < 1.10
 
 executable demo-client
   import:
@@ -387,15 +393,16 @@ executable test-stress
     , grapesy
   build-depends:
       -- External dependencies
-    , async                >= 2.2  && < 2.3
-    , bytestring           >= 0.10 && < 0.12
-    , containers           >= 0.6  && < 0.7
-    , contra-tracer        >= 0.2  && < 0.3
-    , optparse-applicative >= 0.16 && < 0.19
-    , pretty-show          >= 1.10 && < 1.11
-    , stm                  >= 2.5  && < 2.6
-    , text                 >= 1.2  && < 2.1
-    , tls                  >= 1.5  && < 1.10
+    , async                >= 2.2   && < 2.3
+    , bytestring           >= 0.10  && < 0.12
+    , containers           >= 0.6   && < 0.7
+    , contra-tracer        >= 0.2   && < 0.3
+    , exceptions           >= 0.10  && < 0.11
+    , optparse-applicative >= 0.16  && < 0.19
+    , pretty-show          >= 1.10  && < 1.11
+    , stm                  >= 2.5   && < 2.6
+    , text                 >= 1.2   && < 2.1
+    , tls                  >= 1.5   && < 1.10
 
   if !flag(build-stress-test)
     buildable:

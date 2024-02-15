@@ -4,6 +4,7 @@
 module Network.GRPC.Util.Thread (
     ThreadState(..)
     -- * Creating threads
+  , ThreadBody
   , newThreadState
   , forkThread
   , threadBody
@@ -57,7 +58,8 @@ data ThreadState a =
 -------------------------------------------------------------------------------}
 
 type ThreadBody a =
-          (a -> IO ()) -- ^ Mark thread ready
+          (forall x. IO x -> IO x) -- ^ Unmask exceptions
+       -> (a -> IO ())             -- ^ Mark thread ready
        -> IO ()
 
 newThreadState :: IO (TVar (ThreadState a))
@@ -66,7 +68,7 @@ newThreadState = newTVarIO ThreadNotStarted
 forkThread :: HasCallStack => TVar (ThreadState a) -> ThreadBody a -> IO ()
 forkThread state body =
     void $ mask_ $ forkIOWithUnmask $ \unmask ->
-      threadBody state unmask body
+      threadBody state $ body unmask
 
 -- | Wrap the thread body
 --
@@ -81,10 +83,9 @@ forkThread state body =
 threadBody :: forall a.
      HasCallStack
   => TVar (ThreadState a)
-  -> (forall x. IO x -> IO x) -- ^ Unmask exceptions
-  -> ThreadBody a
+  -> ((a -> IO ()) -> IO ())
   -> IO ()
-threadBody state unmask body = do
+threadBody state body = do
     tid <- myThreadId
     shouldStart <- atomically $ do
       st <- readTVar state
@@ -110,7 +111,7 @@ threadBody state unmask body = do
                     error $ "threadBody: unexpected "
                          ++ show (const () <$> oldState)
 
-      res <- try $ unmask $ body (atomically . markReady)
+      res <- try $ body (atomically . markReady)
       atomically $ markDone res
 
 {-------------------------------------------------------------------------------
