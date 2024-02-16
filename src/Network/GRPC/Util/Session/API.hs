@@ -17,7 +17,6 @@ import Data.ByteString.Builder (Builder)
 import Data.Kind
 import GHC.Generics qualified as GHC
 import Network.HTTP.Types qualified as HTTP
-import Text.Show.Pretty
 
 import Network.GRPC.Util.Parser
 
@@ -193,4 +192,4 @@ data PeerException =
     -- | HTTP response missing @:status@ pseudo-header
   | PeerMissingPseudoHeaderStatus
   deriving stock (Show, GHC.Generic)
-  deriving anyclass (Exception, PrettyVal)
+  deriving anyclass (Exception)

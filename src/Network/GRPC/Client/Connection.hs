@@ -37,7 +37,6 @@ import Network.Run.TCP qualified as Run
 import Network.Socket
 import Network.TLS (TLSException)
 import System.Random
-import Text.Show.Pretty
 
 import Network.GRPC.Client.Meta (Meta)
 import Network.GRPC.Client.Meta qualified as Meta
@@ -213,9 +212,6 @@ data ClientDebugMsg =
   | ClientDebugFatal FatalException
 
 deriving instance Show ClientDebugMsg
-
-instance PrettyVal ClientDebugMsg where
-  prettyVal = String . show
 
 {-------------------------------------------------------------------------------
   Fatal exceptions (no point reconnecting)

@@ -25,7 +25,6 @@ import Data.Version
 import Generics.SOP qualified as SOP
 import GHC.Generics qualified as GHC
 import Network.HTTP.Types qualified as HTTP
-import Text.Show.Pretty
 
 import Network.GRPC.Spec.Common
 import Network.GRPC.Spec.Compression (CompressionId)
@@ -81,7 +80,6 @@ data IsFinal = Final | NotFinal
 -- | gRPC does not support request trailers (only response trailers)
 data NoMetadata = NoMetadata
   deriving stock (Show, Eq, GHC.Generic)
-  deriving anyclass (PrettyVal)
 
 {-------------------------------------------------------------------------------
   Construction

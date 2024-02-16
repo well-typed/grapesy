@@ -31,7 +31,6 @@ import Data.List.NonEmpty (NonEmpty(..))
 import Data.List.NonEmpty qualified as NE
 import Data.Map (Map)
 import Data.Map qualified as Map
-import Text.Show.Pretty
 
 import Network.GRPC.Spec
 
@@ -101,6 +100,3 @@ data CompressionNegotationFailed =
     CompressionNegotationFailed (NonEmpty CompressionId)
   deriving stock (Show)
   deriving anyclass (Exception)
-
-instance PrettyVal CompressionNegotationFailed where
-  prettyVal = String . show

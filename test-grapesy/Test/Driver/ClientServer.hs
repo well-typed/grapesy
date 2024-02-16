@@ -15,7 +15,6 @@ import Control.Monad.IO.Class
 import Data.Void
 import Test.QuickCheck.Monadic qualified as QuickCheck
 import Test.Tasty.QuickCheck qualified as QuickCheck
-import Text.Show.Pretty
 
 import Network.GRPC.Client qualified as Client
 import Network.GRPC.Common
@@ -41,7 +40,7 @@ instance Default ClientServerTest where
       }
 
 -- | Run client server test, and check for expected failures
-testClientServer :: (Show e, PrettyVal e)
+testClientServer :: Show e
   => (SomeException -> Maybe e)
   -- ^ Check if an exception was expected
   --

@@ -22,7 +22,6 @@ import Control.Tracer
 import Data.ByteString qualified as Strict (ByteString)
 import Data.Default
 import System.IO
-import Text.Show.Pretty
 
 import Network.GRPC.Common.Compression qualified as Compr
 import Network.GRPC.Server.RequestHandler.API
@@ -106,9 +105,6 @@ data ServerDebugMsg =
   | ServerDebugCallSetupFailed CallSetupFailure
 
 deriving instance Show ServerDebugMsg
-
-instance PrettyVal ServerDebugMsg where
-  prettyVal = String . show
 
 -- | We failed to setup the call from the client
 data CallSetupFailure =

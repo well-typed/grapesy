@@ -24,7 +24,6 @@ import Data.Maybe (mapMaybe)
 import GHC.Generics qualified as GHC
 import GHC.Stack
 import Test.QuickCheck
-import Text.Show.Pretty
 
 import Debug.Concurrent
 
@@ -43,7 +42,6 @@ newtype TestClock = TestClock (TVar TestClockTick)
 newtype TestClockTick = TestClockTick Int
   deriving stock (Show, GHC.Generic)
   deriving newtype (Eq, Ord, Enum)
-  deriving anyclass (PrettyVal)
 
 data TestClockException = TestClockException SomeException CallStack
   deriving stock (Show)

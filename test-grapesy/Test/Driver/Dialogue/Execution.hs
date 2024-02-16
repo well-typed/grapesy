@@ -14,9 +14,9 @@ import Data.Proxy
 import Data.Set qualified as Set
 import Data.Text qualified as Text
 import GHC.Generics qualified as GHC
+import GHC.Stack
 import System.IO.Unsafe (unsafePerformIO)
 import System.Timeout (timeout)
-import Text.Show.Pretty
 
 import Network.GRPC.Client qualified as Client
 import Network.GRPC.Client.Binary qualified as Client.Binary
@@ -30,7 +30,6 @@ import Debug.Concurrent
 import Test.Driver.ClientServer
 import Test.Driver.Dialogue.Definition
 import Test.Driver.Dialogue.TestClock
-import Test.Util.PrettyVal
 
 {-------------------------------------------------------------------------------
   Endpoints
@@ -55,10 +54,9 @@ withProxy RPC3 k = k (Proxy @TestRpc3)
   Test failures
 -------------------------------------------------------------------------------}
 
-data TestFailure = TestFailure PrettyCallStack Failure
-  deriving stock (GHC.Generic)
-  deriving anyclass (Exception, PrettyVal)
-  deriving Show via ShowAsPretty TestFailure
+data TestFailure = TestFailure CallStack Failure
+  deriving stock (Show, GHC.Generic)
+  deriving anyclass (Exception)
 
 data Failure =
     -- | Thrown by the server when an unexpected new RPC is initiated
@@ -67,22 +65,16 @@ data Failure =
     -- | Received an unexpected value
   | Unexpected ReceivedUnexpected
   deriving stock (Show, GHC.Generic)
-  deriving anyclass (Exception, PrettyVal)
+  deriving anyclass (Exception)
 
-data ReceivedUnexpected = forall a. (Show a, PrettyVal a) => ReceivedUnexpected {
+data ReceivedUnexpected = forall a. Show a => ReceivedUnexpected {
       received :: a
     }
 
 deriving stock instance Show ReceivedUnexpected
 
-instance PrettyVal ReceivedUnexpected where
-  prettyVal (ReceivedUnexpected{received}) =
-      Rec "ReceivedUnexpected" [
-          ("received", prettyVal received)
-        ]
-
 expect ::
-     (MonadThrow m, Show a, PrettyVal a, HasCallStack)
+     (MonadThrow m, Show a, HasCallStack)
   => (a -> Bool)  -- ^ Expected
   -> a            -- ^ Actually received
   -> m ()
@@ -91,7 +83,7 @@ expect isExpected received
   = return ()
 
   | otherwise
-  = throwM $ TestFailure prettyCallStack $
+  = throwM $ TestFailure callStack $
       Unexpected $ ReceivedUnexpected{received}
 
 {-------------------------------------------------------------------------------
@@ -618,7 +610,7 @@ serverGlobal testClock mode globalStepsVar call = do
   where
     getNextSteps :: [LocalSteps] -> IO (GlobalSteps, LocalSteps)
     getNextSteps [] = do
-        throwM $ TestFailure prettyCallStack $ UnexpectedRequest
+        throwM $ TestFailure callStack $ UnexpectedRequest
     getNextSteps (LocalSteps steps:global') =
         return (GlobalSteps global', LocalSteps steps)
 
@@ -626,7 +618,7 @@ serverGlobal testClock mode globalStepsVar call = do
     annotate steps err = throwM $ AnnotatedServerException {
           serverGlobalException          = err
         , serverGlobalExceptionSteps     = steps
-        , serverGlobalExceptionCallStack = prettyCallStack
+        , serverGlobalExceptionCallStack = callStack
         }
 
 {-------------------------------------------------------------------------------

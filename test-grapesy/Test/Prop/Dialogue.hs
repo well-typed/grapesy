@@ -9,7 +9,6 @@ import GHC.Generics qualified as GHC
 import Test.Tasty
 import Test.Tasty.HUnit
 import Test.Tasty.QuickCheck
-import Text.Show.Pretty
 
 import Network.GRPC.Client (ServerDisconnected(..))
 import Network.GRPC.Common
@@ -18,7 +17,6 @@ import Network.GRPC.Server (ClientDisconnected(..))
 
 import Test.Driver.ClientServer
 import Test.Driver.Dialogue
-import Test.Util.PrettyVal
 
 tests :: TestTree
 tests = testGroup "Test.Prop.Dialogue" [
@@ -100,9 +98,8 @@ data RegressionFailed = RegressionFailed {
       regressionFailedException :: SomeException
     , regressionFailedSteps     :: GlobalSteps
     }
-  deriving stock (GHC.Generic)
-  deriving anyclass (Exception, PrettyVal)
-  deriving Show via ShowAsPretty RegressionFailed
+  deriving stock (Show, GHC.Generic)
+  deriving anyclass (Exception)
 
 data ExpectedUserException =
     ExpectedClientException SomeClientException
@@ -112,7 +109,6 @@ data ExpectedUserException =
   | ExpectedServerDisconnected SomeException
   | ExpectedEarlyTermination
   deriving stock (Show, GHC.Generic)
-  deriving anyclass (PrettyVal)
 
 -- | Custom exceptions
 --

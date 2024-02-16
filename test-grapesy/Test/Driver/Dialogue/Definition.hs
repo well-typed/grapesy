@@ -21,13 +21,12 @@ module Test.Driver.Dialogue.Definition (
 import Control.Exception
 import Data.Set (Set)
 import GHC.Generics qualified as GHC
-import Text.Show.Pretty
+import GHC.Stack
 
 import Network.GRPC.Common
 import Network.GRPC.Internal
 
 import Test.Driver.Dialogue.TestClock
-import Test.Util.PrettyVal
 
 {-------------------------------------------------------------------------------
   Single channel
@@ -43,7 +42,6 @@ data LocalStep =
     ClientAction (Action (Metadata, RPC) NoMetadata)
   | ServerAction (Action Metadata        Metadata)
   deriving stock (Show, Eq, GHC.Generic)
-  deriving anyclass (PrettyVal)
 
 data Action a b =
     -- | Initiate request and response
@@ -70,11 +68,9 @@ data Action a b =
     -- anything with that connection.
   | SleepMilli Int
   deriving stock (Show, Eq, GHC.Generic)
-  deriving anyclass (PrettyVal)
 
 data RPC = RPC1 | RPC2 | RPC3
   deriving stock (Show, Eq, GHC.Generic)
-  deriving anyclass (PrettyVal)
 
 -- | Metadata
 --
@@ -90,14 +86,11 @@ newtype LocalSteps = LocalSteps {
       getLocalSteps :: [(TestClockTick, LocalStep)]
     }
   deriving stock (Show, GHC.Generic)
-  deriving anyclass (PrettyVal)
 
 newtype GlobalSteps = GlobalSteps {
       getGlobalSteps :: [LocalSteps]
     }
-  deriving stock (GHC.Generic)
-  deriving anyclass (PrettyVal)
-  deriving Show via ShowAsPretty GlobalSteps
+  deriving stock (Show, GHC.Generic)
 
 {-------------------------------------------------------------------------------
   User exceptions
@@ -109,16 +102,15 @@ newtype GlobalSteps = GlobalSteps {
 
 data SomeServerException = SomeServerException ExceptionId
   deriving stock (Show, GHC.Generic)
-  deriving anyclass (Exception, PrettyVal)
+  deriving anyclass (Exception)
 
 data SomeClientException = SomeClientException ExceptionId
   deriving stock (Show, GHC.Generic)
-  deriving anyclass (Exception, PrettyVal)
+  deriving anyclass (Exception)
 
 -- | We distinguish exceptions from each other simply by a number
 newtype ExceptionId = ExceptionId Int
   deriving stock (Show, Eq, GHC.Generic)
-  deriving anyclass (PrettyVal)
 
 {-------------------------------------------------------------------------------
   Exception wrappers
@@ -131,11 +123,9 @@ newtype ExceptionId = ExceptionId Int
 data AnnotatedServerException = AnnotatedServerException {
        serverGlobalException          :: SomeException
      , serverGlobalExceptionSteps     :: LocalSteps
-     , serverGlobalExceptionCallStack :: PrettyCallStack
+     , serverGlobalExceptionCallStack :: CallStack
      }
-  deriving stock (GHC.Generic)
-  deriving anyclass (PrettyVal)
-  deriving Show via ShowAsPretty AnnotatedServerException
+  deriving stock (Show, GHC.Generic)
   deriving Exception via ExceptionWrapper AnnotatedServerException
 
 instance HasNestedException AnnotatedServerException where

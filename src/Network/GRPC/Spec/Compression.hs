@@ -26,7 +26,6 @@ import Data.ByteString.UTF8 qualified as BS.Strict.UTF8
 import Data.List.NonEmpty (NonEmpty(..))
 import Data.String
 import GHC.Generics qualified as GHC
-import Text.Show.Pretty
 
 {-------------------------------------------------------------------------------
   Definition
@@ -70,7 +69,6 @@ data CompressionId =
   | Snappy
   | Custom String
   deriving stock (Eq, Ord, GHC.Generic)
-  deriving anyclass (PrettyVal)
 
 serializeCompressionId :: CompressionId -> Strict.ByteString
 serializeCompressionId Identity   = "identity"

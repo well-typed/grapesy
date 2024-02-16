@@ -33,7 +33,6 @@ import Data.Set qualified as Set
 import Data.Text qualified as Text
 import GHC.Generics qualified as GHC
 import Network.TLS
-import Text.Show.Pretty
 
 import Network.GRPC.Client qualified as Client
 import Network.GRPC.Common
@@ -46,8 +45,6 @@ import Network.GRPC.Server qualified as Server
 import Network.GRPC.Server.Run qualified as Server
 
 import Debug.Concurrent
-
-import Test.Util.PrettyVal
 
 import Paths_grapesy
 
@@ -89,7 +86,6 @@ data LogMsg =
     ServerLogMsg Server.ServerDebugMsg
   | ClientLogMsg Client.ClientDebugMsg
   deriving stock (Show, GHC.Generic)
-  deriving anyclass (PrettyVal)
 
 collectLogMsgs :: (MonadIO m) => MVar [a] -> Tracer m a
 collectLogMsgs v = arrow $ emit $ \x -> liftIO $
@@ -143,7 +139,6 @@ data ExpectedException e =
   | ExpectedExceptionDouble (DoubleException (ExpectedException e))
   | ExpectedExceptionCustom e
   deriving stock (Show, GHC.Generic)
-  deriving anyclass (PrettyVal)
 
 data UnexpectedException = UnexpectedException {
       -- | The top-level exception (including any wrapper exceptions)
@@ -551,9 +546,7 @@ data ServerException = ServerException {
       serverException     :: SomeException
     , serverExceptionLogs :: [LogMsg]
     }
-  deriving stock (GHC.Generic)
-  deriving anyclass (PrettyVal)
-  deriving Show via ShowAsPretty ServerException
+  deriving stock (Show, GHC.Generic)
   deriving Exception via ExceptionWrapper ServerException
 
 instance HasNestedException ServerException where
@@ -563,32 +556,18 @@ data ClientException = ClientException {
       clientException     :: SomeException
     , clientExceptionLogs :: [LogMsg]
     }
-  deriving stock (GHC.Generic)
-  deriving anyclass (PrettyVal)
-  deriving Show via ShowAsPretty ClientException
+  deriving stock (Show, GHC.Generic)
   deriving Exception via ExceptionWrapper ClientException
 
 instance HasNestedException ClientException where
   getNestedException = clientException
 
-data DoubleException e = forall a. (Show a, PrettyVal a) => DoubleException {
+data DoubleException e = forall a. Show a => DoubleException {
       doubleExceptionClient     :: e
     , doubleExceptionServer     :: e
     , doubleExceptionAnnotation :: a
     }
   deriving anyclass (Exception)
-  deriving Show via ShowAsPretty (DoubleException e)
 
-instance PrettyVal e => PrettyVal (DoubleException e) where
-  prettyVal DoubleException{ doubleExceptionClient
-                           , doubleExceptionServer
-                           , doubleExceptionAnnotation
-                           } =
-     Rec "DoubleException" [
-         ("doubleExceptionClient", prettyVal doubleExceptionClient)
-       , ("doubleExceptionServer", prettyVal doubleExceptionServer)
-       , ("doubleExceptionAnnotation", prettyVal doubleExceptionAnnotation)
-       ]
-
-
+deriving stock instance Show e => Show (DoubleException e)
 
