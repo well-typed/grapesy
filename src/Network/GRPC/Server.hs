@@ -16,6 +16,7 @@ module Network.GRPC.Server (
     -- * Open (ongoing) call
   , recvInput
   , sendOutput
+  , sendGrpcException
   , getRequestMetadata
   , setResponseMetadata
 

@@ -13,6 +13,7 @@ module Network.GRPC.Server.Call (
     -- * Open (ongoing) call
   , recvInput
   , sendOutput
+  , sendGrpcException
   , getRequestMetadata
   , setResponseMetadata
 
@@ -408,13 +409,12 @@ recvInputWithEnvelope Call{callChannel} =
 
 -- | Send RPC output to the client
 --
--- This will send a @grpc-status@ of @0@ to the client; for anything else (i.e.,
--- to indicate something went wrong), the server handler should throw a
--- 'GrpcException' (the @grapesy@ client API treats this the same way: a
--- @grpc-status@ other than @0@ will be raised as a 'GrpcException').
+-- This will send a 'GrpcStatus' of 'GrpcOk' to the client; for anything else
+-- (i.e., to indicate something went wrong), the server handler should call
+-- 'sendGrpcException'.
 --
--- This is a blocking call if this is the final message (i.e., the call will
--- not return until the message has been written to the HTTP2 stream).
+-- This is a blocking call if this is the final message (i.e., the call will not
+-- return until the message has been written to the HTTP2 stream).
 sendOutput :: Call rpc -> StreamElem [CustomMetadata] (Output rpc) -> IO ()
 sendOutput call = sendOutputWithEnvelope call . fmap (def,)
 
@@ -445,6 +445,28 @@ sendOutputWithEnvelope call@Call{callChannel} msg = do
         , trailerGrpcMessage = Nothing
         , trailerMetadata    = metadata
         }
+
+-- | Send 'GrpcException' to the client
+--
+-- This closes the connection to the client; sending further messages will
+-- result in an exception being thrown.
+--
+-- Instead of calling 'sendGrpcException' handlers can also simply /throw/ the
+-- gRPC exception (the @grapesy@ /client/ API treats this the same way: a
+-- 'GrpcStatus' other than 'GrpcOk' will be raised as a 'GrpcException'). The
+-- difference is primarily one of preference/convenience, but the two are not
+-- /completely/ the same: when the 'GrpcException' is thrown,
+-- 'Context.serverTopLevel' will see the handler throw an exception (and, by
+-- default, log that exception); when using 'sendGrpcException', the handler is
+-- considered to have terminated normally. For handlers defined using
+-- "Network.GRPC.Server.StreamType" throwing the exception is the only option.
+--
+-- Technical note: if the response to the client has not yet been initiated when
+-- 'sendGrpcException' is called, this will make use of the [gRPC
+-- Trailers-Only](https://github.com/grpc/grpc/blob/master/doc/PROTOCOL-HTTP2.md)
+-- case.
+sendGrpcException :: Call rpc -> GrpcException -> IO ()
+sendGrpcException call = sendProperTrailers call . grpcExceptionToTrailers
 
 -- | Get request metadata
 --

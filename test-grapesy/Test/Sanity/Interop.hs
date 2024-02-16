@@ -58,44 +58,36 @@ type Ping = BinaryRpc "test" "ping"
 
 test_callAfterException :: IO String
 test_callAfterException =
-    testClientServer expectInvalidArgument def {
+    testClientServer noCustomExceptions def {
         client = \withConn -> withConn $ \conn -> do
-          resp1 <- call conn 0
+          resp1 <- ping conn 0
           case resp1 of
             Left _  -> return ()
             Right _ -> assertFailure "Expected gRPC exception"
 
-          resp2 <- call conn 1
+          resp2 <- ping conn 1
           case resp2 of
             Left  _ -> assertFailure "Expected pong"
             Right i -> assertEqual "pong" i 1
       , server = [
-            Server.streamingRpcHandler (Proxy @Ping) $
-              Server.Binary.mkNonStreaming $ \(i :: Word) ->
-                if i > 0 then
-                  return i
-                else
-                  throwIO $ GrpcException {
-                      grpcError         = GrpcInvalidArgument
-                    , grpcErrorMessage  = Just "Expected non-zero ping"
-                    , grpcErrorMetadata = []
-                    }
+            Server.mkRpcHandler (Proxy @Ping) $ \call -> do
+              i :: Word <- Server.Binary.recvFinalInput call
+              if i > 0 then
+                Server.Binary.sendFinalOutput call (i, [])
+              else
+                Server.sendGrpcException call $ GrpcException {
+                    grpcError         = GrpcInvalidArgument
+                  , grpcErrorMessage  = Just "Expected non-zero ping"
+                  , grpcErrorMetadata = []
+                  }
           ]
       }
   where
-    call :: Client.Connection -> Word -> IO (Either SomeException Word)
-    call conn =
+    ping :: Client.Connection -> Word -> IO (Either SomeException Word)
+    ping conn =
         fmap (first (innerNestedException :: SomeException -> SomeException))
       . try
       . Client.Binary.nonStreaming conn (Client.rpc @Ping)
-
-    expectInvalidArgument :: SomeException -> Maybe ()
-    expectInvalidArgument e
-      | Just GrpcException{grpcError = GrpcInvalidArgument} <- fromException e
-      = Just ()
-
-      | otherwise
-      = Nothing
 
 {-------------------------------------------------------------------------------
   @empty_unary@
