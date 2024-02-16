@@ -278,7 +278,7 @@ runHandler call@Call{callChannel} k = do
     --    the exception in 'serverTopLevel').
     ignoreUncleanClose :: ExitCase a -> XIO' NeverThrows ()
     ignoreUncleanClose reason =
-        XIO.swallow $ liftIO $ void $ Session.close callChannel reason
+        XIO.swallowIO $ void $ Session.close callChannel reason
 
     -- Wait for the handler to terminate
     --
@@ -339,8 +339,7 @@ runHandler call@Call{callChannel} k = do
 -- We therefore catch and suppress all exceptions here.
 forwardException :: Call rpc -> SomeException -> XIO' NeverThrows ()
 forwardException call =
-      XIO.swallow
-    . liftIO
+      XIO.swallowIO
     . sendProperTrailers call
     . serverExceptionToClientError
 

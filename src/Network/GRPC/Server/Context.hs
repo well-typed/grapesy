@@ -16,7 +16,6 @@ module Network.GRPC.Server.Context (
   ) where
 
 import Control.Exception
-import Control.Monad.IO.Class
 import Control.Monad.XIO (NeverThrows)
 import Control.Monad.XIO qualified as XIO
 import Control.Tracer
@@ -88,7 +87,7 @@ defaultServerTopLevel ::
      RequestHandler SomeException ()
   -> RequestHandler NeverThrows   ()
 defaultServerTopLevel h req resp =
-    h req resp `XIO.catchError` (XIO.swallow . liftIO . hPrint stderr)
+    h req resp `XIO.catchError` (XIO.swallowIO . hPrint stderr)
 
 {-------------------------------------------------------------------------------
   Logging and failures

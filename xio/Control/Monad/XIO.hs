@@ -21,7 +21,6 @@ module Control.Monad.XIO (
   , NeverThrows
   , neverThrows
   , run
-  , swallow
   , swallowIO
   , unsafeNeverThrowsIO
   ) where
@@ -172,26 +171,42 @@ run = runThrow
 neverThrows :: XIO' NeverThrows a -> XIO' e a
 neverThrows = Wrap . unwrap
 
--- | Swallow all exceptions
-swallow :: XIO () -> XIO' e ()
-swallow = handleError $ \_err -> return ()
+-- | Lift 'IO' action and swallow any synchronous exceptions it might throw
+--
+-- Wraps the argument in 'Exception.uninterruptibleMask_'. As such, the provisos
+-- listed for 'Exception.uninterruptibleMask' apply here also. Use with care.
+--
+-- Note that
+--
+-- > swallowIO io
+--
+-- is /NOT/ the same as
+--
+-- > liftIO io `catchError` \_ -> return ()
+--
+-- In the latter, asynchronous exceptions are enabled and therefore potentially
+-- swallowed along with any synchronous exceptions; this is typically not what
+-- you want. In the former, asynchronous exceptions are masked, and the action
+-- itself is wrapped in 'Exception.uninterruptibleMask_' (in case the action is
+-- interruptible). This means that only exceptions thrown by the action /itself/
+-- are swallowed.
+--
+-- This should be preferred over 'unsafeNeverThrowsIO' when possible.
+swallowIO :: IO () -> XIO' e ()
+swallowIO io =
+      Wrap (Exception.uninterruptibleMask_ io)
+    `catchError`
+      \(_ :: SomeException) -> return ()
 
 -- | Lift 'IO' actions that never throw any exceptions
 --
 -- In order to ensure that this cannot throw any asynchronous exceptions, the
--- argument is wrapped in 'Exception.uninterruptibleMask_'; as such, all the
+-- argument is wrapped in 'Exception.uninterruptibleMask_'. As such, the
 -- provisos listed for 'Exception.uninterruptibleMask' apply here also. Use with
 -- care.
 --
 -- It is the responsibility of the caller to ensure that the 'IO' action can
 -- indeed never throw.
---
--- See also 'swallowIO'.
 unsafeNeverThrowsIO :: IO a -> XIO' e a
 unsafeNeverThrowsIO = Wrap . Exception.uninterruptibleMask_
 
--- | Lift 'IO' action and swallow any exceptions it might throw
---
--- This should be preferred over 'unsafeNeverThrowsIO' when possible.
-swallowIO :: IO () -> XIO' e ()
-swallowIO = swallow . liftIO
