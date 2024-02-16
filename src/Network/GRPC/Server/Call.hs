@@ -320,8 +320,14 @@ runHandler call@Call{callChannel} k = do
                  XIO.neverThrows $ ignoreUncleanClose exitReason
                  loop
                Nothing -> do
-                 -- cancelWith will throw the exception and wait for the
-                 -- handler to terminate.
+                 -- If we get an exception while waiting on the handler, there
+                 -- are two possibilities:
+                 --
+                 -- 1. The exception was an asynchronous exception, thrown to us
+                 --    externally. In this case @cancalWith@ will throw the
+                 --    exception to the handler (and wait for it to terminate).
+                 -- 2. The exception was thrown by the handler itself. In this
+                 --    case @cancelWith@ is a no-op.
                  liftIO $ cancelWith handlerThread err
                  throwM err
 
