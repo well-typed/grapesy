@@ -11,8 +11,10 @@ module Test.Util.ClientServer (
     -- ** Evaluation
   , ExpectedException(..)
   , UnexpectedException(..)
+  , DeliberateException(..)
   , isExpectedException
     -- * Run
+  , ClientServerTest(..)
   , runTestClientServer
     -- ** Lower-level functionality
   , ServerHandlerLock -- opaque
@@ -67,6 +69,18 @@ data ClientServerConfig = ClientServerConfig {
 
       -- | Override content-type used by the server
     , serverContentType :: Maybe Strict.ByteString
+
+      -- | Should we expect any clients to terminate early?
+      --
+      -- \"Termination\" here could be either normal termination (no exception,
+      -- but not properly closing the RPC call either) or abnormal termination
+      -- (throwing an exception).
+    , expectEarlyClientTermination :: Bool
+
+      -- | Should we expect any server handlers to terminate early?
+      --
+      -- Same comments for \"termination\" apply.
+    , expectEarlyServerTermination :: Bool
     }
 
 instance Default ClientServerConfig where
@@ -76,6 +90,8 @@ instance Default ClientServerConfig where
     , useTLS            = Nothing
     , clientContentType = Nothing
     , serverContentType = Nothing
+    , expectEarlyClientTermination = False
+    , expectEarlyServerTermination = False
     }
 
 {-------------------------------------------------------------------------------
@@ -131,13 +147,13 @@ data TlsFail =
   Config evaluation (do we expect an error?)
 -------------------------------------------------------------------------------}
 
-data ExpectedException e =
+data ExpectedException =
     ExpectedExceptionTls TLSException
   | ExpectedExceptionGrpc GrpcException
   | ExpectedExceptionCompressionNegotationFailed CompressionNegotationFailed
   | ExpectedExceptionPeer PeerException
-  | ExpectedExceptionDouble (DoubleException (ExpectedException e))
-  | ExpectedExceptionCustom e
+  | ExpectedExceptionDouble (DoubleException ExpectedException)
+  | ExpectedExceptionDeliberate DeliberateException
   deriving stock (Show, GHC.Generic)
 
 data UnexpectedException = UnexpectedException {
@@ -150,6 +166,12 @@ data UnexpectedException = UnexpectedException {
   deriving stock (Show)
   deriving anyclass (Exception)
 
+-- | Exception thrown by client or handler to test exception handling
+data DeliberateException = forall e. Exception e => DeliberateException e
+  deriving anyclass (Exception)
+
+deriving stock instance Show DeliberateException
+
 -- | Check if the given configuration gives rise to expected exceptions
 --
 -- Returns 'Right' the expected exception if any (with any wrapper exceptions
@@ -161,19 +183,14 @@ data UnexpectedException = UnexpectedException {
 -- (TL;DR: /if/ the handler tries to communicate after an
 -- 'KilledByHttp2ThreadManager' exception, it will find that the channel has
 -- been closed).
-isExpectedException :: forall e.
+isExpectedException ::
      ClientServerConfig
-  -> (SomeException -> Maybe e)
-  -- ^ Assess custom exceptiosn
-  --
-  -- Can either return e nested exception, or an evaluation whether the
-  -- exception is expected or not.
   -> SomeException
-  -> Either UnexpectedException (ExpectedException e)
-isExpectedException cfg assessCustomException topLevel =
+  -> Either UnexpectedException ExpectedException
+isExpectedException cfg topLevel =
     go topLevel
   where
-    go :: SomeException -> Either UnexpectedException (ExpectedException e)
+    go :: SomeException -> Either UnexpectedException ExpectedException
     go err
       --
       -- Expected exceptions
@@ -263,13 +280,11 @@ isExpectedException cfg assessCustomException topLevel =
               }
 
       --
-      -- Custom exceptions
+      -- Fall-through
       --
 
       | otherwise
-      = case assessCustomException err of
-          Just err' -> Right $ ExpectedExceptionCustom err'
-          Nothing   -> Left $ UnexpectedException topLevel err
+      = Left $ UnexpectedException topLevel err
 
     compressionNegotationFailure :: Bool
     compressionNegotationFailure =
@@ -327,22 +342,42 @@ waitForHandlerTermination (ServerHandlerLock lock) = do
                                HandlerError e -> return $ Left e
 
 topLevelWithHandlerLock ::
-     ServerHandlerLock
+     ClientServerConfig
+  -> ServerHandlerLock
   -> Server.RequestHandler SomeException ()
   -> Server.RequestHandler NeverThrows   ()
-topLevelWithHandlerLock (ServerHandlerLock lock) handler req respond = do
-    tid <- XIO.unsafeNeverThrowsIO $
-      myThreadId
-    XIO.unsafeNeverThrowsIO $
-      atomically $ modifyTVar lock $ Map.insert tid HandlerActive
-    res <- XIO.tryError $
-      handler req respond
-    XIO.unsafeNeverThrowsIO $
-      atomically $
-        modifyTVar lock $ Map.insert tid $
-          case res of
-            Left err -> HandlerError err
-            Right () -> HandlerDone
+topLevelWithHandlerLock cfg (ServerHandlerLock lock) handler req respond = do
+    tid <- XIO.unsafeNeverThrowsIO $ myThreadId
+
+    let markActive, markDone :: XIO.XIO' NeverThrows ()
+        markActive = XIO.unsafeNeverThrowsIO $
+            atomically $ modifyTVar lock $ Map.insert tid HandlerActive
+        markDone = XIO.unsafeNeverThrowsIO $
+            atomically $ modifyTVar lock $ Map.insert tid $ HandlerDone
+
+        markError :: SomeException -> XIO.XIO' NeverThrows ()
+        markError err = XIO.unsafeNeverThrowsIO $
+            atomically $ modifyTVar lock $ Map.insert tid $ HandlerError err
+
+    markActive
+    res <- XIO.tryError $ handler req respond
+    case res of
+      Right () ->
+        markDone
+      Left e
+
+        | Just (DeliberateException _) <- fromException e' ->
+            markDone
+
+        | Just (Server.ClientDisconnected _) <- fromException e'
+        , expectEarlyClientTermination cfg ->
+            markDone
+
+        | otherwise ->
+            markError e
+
+        where
+          e' = innerNestedException e
 
 {-------------------------------------------------------------------------------
   Server
@@ -391,7 +426,7 @@ runTestServer cfg serverTracer handlerLock serverHandlers = do
         serverParams = Server.ServerParams {
               serverCompression = serverCompr cfg
             , serverDebugTracer = serverTracer
-            , serverTopLevel    = topLevelWithHandlerLock handlerLock
+            , serverTopLevel    = topLevelWithHandlerLock cfg handlerLock
             , serverContentType = serverContentType cfg
             }
 
@@ -404,7 +439,7 @@ runTestServer cfg serverTracer handlerLock serverHandlers = do
 runTestClient :: forall a.
      ClientServerConfig
   -> Tracer IO Client.ClientDebugMsg
-  -> ((forall b. (Client.Connection -> IO b) -> IO b) -> IO a)
+  -> (((Client.Connection -> IO ()) -> IO ()) -> IO a)
   -> IO a
 runTestClient cfg clientTracer clientRun = do
     pubCert <- getDataFileName "grpc-demo.pem"
@@ -473,18 +508,54 @@ runTestClient cfg clientTracer clientRun = do
                 , addressAuthority = Nothing
                 }
 
-    clientRun $ Client.withConnection clientParams clientServer
+        withConn :: (Client.Connection -> IO ()) -> IO ()
+        withConn k = do
+            mb :: Either SomeException b <-
+              try $ Client.withConnection clientParams clientServer k
+            case mb of
+              Right b -> return b
+              Left e
+
+                | Just (DeliberateException _) <- fromException e' ->
+                    return ()
+
+                | Just ChannelDiscarded{} <- fromException e'
+                , expectEarlyClientTermination cfg ->
+                    return ()
+
+                | Just grpcException <- fromException e'
+                , Just msg <- grpcErrorMessage grpcException ->
+                    if | "DeliberateException" `Text.isInfixOf` msg ->
+                           return ()
+
+                       | "HandlerTerminated" `Text.isInfixOf` msg
+                       , expectEarlyServerTermination cfg ->
+                           return ()
+
+                       | otherwise ->
+                           throwIO e
+
+                | otherwise -> do
+                    putStrLn $ "Uhoh: " ++ show e
+                    throwIO e
+
+                where
+                  e' = innerNestedException e
+
+    clientRun withConn
 
 {-------------------------------------------------------------------------------
   Main entry point: run server and client together
 -------------------------------------------------------------------------------}
 
-runTestClientServer :: forall a.
-     ClientServerConfig
-  -> ((forall b. (Client.Connection -> IO b) -> IO b) -> IO a)
-  -> [Server.RpcHandler IO]
-  -> IO a
-runTestClientServer cfg clientRun serverHandlers = do
+data ClientServerTest a = ClientServerTest {
+      config :: ClientServerConfig
+    , client :: ((Client.Connection -> IO ()) -> IO ()) -> IO a
+    , server :: [Server.RpcHandler IO]
+    }
+
+runTestClientServer :: forall a. ClientServerTest a -> IO a
+runTestClientServer (ClientServerTest cfg clientRun serverHandlers) = do
     logMsgVar <- newMVar []
     let logTracer :: Tracer IO LogMsg
         logTracer = collectLogMsgs logMsgVar

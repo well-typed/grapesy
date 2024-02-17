@@ -118,7 +118,7 @@ tests =
 
 test_calculator_cbor :: ClientServerConfig -> IO String
 test_calculator_cbor config = do
-    testClientServer noCustomExceptions $ def {
+    testClientServer $ ClientServerTest {
         config
       , client = \withConn -> withConn $ \conn -> do
           nonStreamingSumCheck conn

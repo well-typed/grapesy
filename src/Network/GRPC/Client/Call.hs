@@ -50,6 +50,9 @@ import Debug.Concurrent
 -- The call is setup in the background, and might not yet have been established
 -- when the body is run. If you want to be sure that the call has been setup,
 -- you can call 'recvResponseMetadata'.
+--
+-- Will throw 'ChannelDiscarded' if the RPC call was not terminated cleanly
+-- at the time of exiting the scope of 'withRPC'.
 withRPC :: forall m rpc a.
      (MonadMask m, MonadIO m, IsRPC rpc, HasCallStack)
   => Connection -> CallParams -> Proxy rpc -> (Call rpc -> m a) -> m a

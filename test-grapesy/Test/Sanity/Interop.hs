@@ -58,8 +58,9 @@ type Ping = BinaryRpc "test" "ping"
 
 test_callAfterException :: IO String
 test_callAfterException =
-    testClientServer noCustomExceptions def {
-        client = \withConn -> withConn $ \conn -> do
+    testClientServer $ ClientServerTest {
+        config = def
+      , client = \withConn -> withConn $ \conn -> do
           resp1 <- ping conn 0
           case resp1 of
             Left _  -> return ()
@@ -104,8 +105,9 @@ type EmptyCall = Protobuf TestService "emptyCall"
 -- minor overhead).
 test_emptyUnary :: IO String
 test_emptyUnary =
-    testClientServer noCustomExceptions def {
-        client = \withConn -> withConn $ \conn ->
+    testClientServer $ ClientServerTest {
+        config = def
+      , client = \withConn -> withConn $ \conn ->
           Client.withRPC conn def (Proxy @EmptyCall) $ \call -> do
             Client.sendFinalInput call (defMessage :: Empty)
             streamElem <- Client.recvOutputWithEnvelope call
@@ -140,8 +142,9 @@ type StreamingOutputCall = Protobuf TestService "streamingOutputCall"
 -- | Test that we can enable and disable compression per message
 test_serverCompressedStreaming :: IO String
 test_serverCompressedStreaming =
-    testClientServer noCustomExceptions def {
-        client = \withConn -> withConn $ \conn ->
+    testClientServer ClientServerTest {
+        config = def
+      , client = \withConn -> withConn $ \conn ->
           Client.withRPC conn def (Proxy @StreamingOutputCall) $ \call -> do
             Client.sendFinalInput call $ defMessage & #responseParameters .~ [
                 defMessage

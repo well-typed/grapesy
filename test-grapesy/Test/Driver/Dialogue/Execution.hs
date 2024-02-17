@@ -190,13 +190,7 @@ data ExecutionMode =
     -- In aggressive mode all calls from the client to the server share the
     -- same connection.
   | Aggressive
-  deriving (Show)
-
-determineExecutionMode :: GlobalSteps -> ExecutionMode
-determineExecutionMode steps =
-    if hasEarlyTermination steps
-      then Conservative
-      else Aggressive
+  deriving stock (Show, Eq)
 
 ifConservative :: Applicative m => ExecutionMode -> m () -> m ()
 ifConservative Conservative k = k
@@ -275,7 +269,7 @@ clientLocal testClock mode call = \(LocalSteps steps) ->
           expect isExpected =<< liftIO (try $ Client.Binary.sendInput call x)
           return True
         Terminate (Just exceptionId) -> do
-          throwM $ SomeClientException exceptionId
+          throwM $ DeliberateException $ SomeClientException exceptionId
         Terminate Nothing ->
           return False
         SleepMilli n -> do
@@ -352,7 +346,7 @@ clientLocal testClock mode call = \(LocalSteps steps) ->
 clientGlobal ::
      TestClock
   -> ExecutionMode
-  -> (forall a. (Client.Connection -> IO a) -> IO a)
+  -> ((Client.Connection -> IO ()) -> IO ())
   -> GlobalSteps
   -> IO ()
 clientGlobal testClock mode withConn = \(GlobalSteps globalSteps) ->
@@ -508,7 +502,7 @@ serverLocal testClock mode call = \(LocalSteps steps) -> do
           expect isExpected received
           return True
         Terminate (Just exceptionId) -> do
-          throwM $ SomeServerException exceptionId
+          throwM $ DeliberateException $ SomeServerException exceptionId
         Terminate Nothing ->
           return False
         SleepMilli n -> do
@@ -625,7 +619,7 @@ serverGlobal testClock mode globalStepsVar call = do
   Top-level
 -------------------------------------------------------------------------------}
 
-execGlobalSteps :: GlobalSteps -> IO ClientServerTest
+execGlobalSteps :: GlobalSteps -> IO (ClientServerTest ())
 execGlobalSteps steps = do
     globalStepsVar <- newMVar (order steps)
     testClock      <- newTestClock
@@ -636,16 +630,28 @@ execGlobalSteps steps = do
         handler rpc = Server.mkRpcHandler rpc $ \call ->
                         serverGlobal testClock mode globalStepsVar call
 
-    return def {
-        client = \conn -> clientGlobal testClock mode conn steps
-      , server = [ handler (Proxy @TestRpc1)
-                 , handler (Proxy @TestRpc2)
-                 , handler (Proxy @TestRpc3)
-                 ]
+    return ClientServerTest {
+        config = def {
+            expectEarlyClientTermination = clientTerminatesEarly
+          , expectEarlyServerTermination = serverTerminatesEarly
+          }
+      , client = \conn ->
+          clientGlobal testClock mode conn steps
+      , server = [
+            handler (Proxy @TestRpc1)
+          , handler (Proxy @TestRpc2)
+          , handler (Proxy @TestRpc3)
+          ]
       }
   where
+    clientTerminatesEarly, serverTerminatesEarly :: Bool
+    (clientTerminatesEarly, serverTerminatesEarly) = hasEarlyTermination steps
+
     mode :: ExecutionMode
-    mode = determineExecutionMode steps
+    mode =
+        if serverTerminatesEarly || clientTerminatesEarly
+          then Conservative
+          else Aggressive
 
     -- For 'clientGlobal' the order doesn't matter, because it spawns a thread
     -- for each 'LocalSteps'. The server however doesn't get this option; the

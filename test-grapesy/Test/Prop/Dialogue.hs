@@ -4,16 +4,12 @@ module Test.Prop.Dialogue (tests) where
 
 import Control.Exception
 import Data.Set qualified as Set
-import Data.Text qualified as Text
 import GHC.Generics qualified as GHC
 import Test.Tasty
 import Test.Tasty.HUnit
 import Test.Tasty.QuickCheck
 
-import Network.GRPC.Client (ServerDisconnected(..))
 import Network.GRPC.Common
-import Network.GRPC.Internal
-import Network.GRPC.Server (ClientDisconnected(..))
 
 import Test.Driver.ClientServer
 import Test.Driver.Dialogue
@@ -76,8 +72,7 @@ _arbitraryWithExceptions (DialogueWithExceptions dialogue) =
 propDialogue :: Dialogue -> Property
 propDialogue dialogue =
     counterexample (show globalSteps) $
-      propClientServer assessCustomException $
-        execGlobalSteps globalSteps
+      propClientServer $ execGlobalSteps globalSteps
   where
     globalSteps :: GlobalSteps
     globalSteps = dialogueGlobalSteps dialogue
@@ -85,8 +80,7 @@ propDialogue dialogue =
 regression :: Dialogue -> IO String
 regression dialogue = do
     handle annotate $
-      testClientServer assessCustomException =<<
-        execGlobalSteps globalSteps
+      testClientServer =<< execGlobalSteps globalSteps
   where
     globalSteps :: GlobalSteps
     globalSteps = dialogueGlobalSteps dialogue
@@ -109,69 +103,6 @@ data ExpectedUserException =
   | ExpectedServerDisconnected SomeException
   | ExpectedEarlyTermination
   deriving stock (Show, GHC.Generic)
-
--- | Custom exceptions
---
--- Technically we should only be expected custom user exceptions when we
--- generate them, but we're not concerned about accidental throws of these
--- custom exceptions.
---
--- TODO: However, it might be useful to be more precise about exactly which
--- gRPC exceptions we expect and when.
-assessCustomException :: SomeException -> Maybe ExpectedUserException
-assessCustomException err
-    --
-    -- Custom exceptions
-    --
-
-    | Just (userEx :: SomeServerException) <- fromException err
-    = Just $ ExpectedServerException userEx
-
-    | Just (userEx :: SomeClientException) <- fromException err
-    = Just $ ExpectedClientException userEx
-
-    -- Server-side exceptions are thrown as 'GrpcException' client-side
-    | Just (grpc :: GrpcException) <- fromException err
-    , GrpcUnknown <- grpcError grpc
-    , Just msg <- grpcErrorMessage grpc
-    , "SomeServerException" `Text.isInfixOf` msg
-    = Just $ ExpectedForwardedToClient grpc
-
-    -- For when the server disconnects /without/ an exception
-    --
-    -- TODO: Ideally, we should really allow for this only if we have reason to
-    -- believe that this case can happen. Currently, this is hiding a previous
-    -- bug where the exception from the handler was reported as
-    -- 'ServerDisconnected' rather than a 'GrpcException'.
-    | Just (ServerDisconnected e) <- fromException err
-    = Just $
-        ExpectedServerDisconnected (innerNestedException e)
-
-    -- Client-side exceptions are reported as 'ClientDisconnected', but without
-    -- additional information (gRPC does not support client-to-server trailers
-    -- so we have no way of informing the server about what went wrong).
-    | Just (ClientDisconnected e) <- fromException err
-    = Just $
-        ExpectedClientDisconnected (innerNestedException e)
-
-    --
-    -- Early termination
-    --
-
-    | Just (ChannelDiscarded _) <- fromException err
-    = Just $ ExpectedEarlyTermination
-    | Just (grpc :: GrpcException) <- fromException err
-    , GrpcUnknown <- grpcError grpc
-    , Just msg <- grpcErrorMessage grpc
-    , "HandlerTerminated" `Text.isInfixOf` msg
-    = Just $ ExpectedForwardedToClient grpc
-
-    --
-    -- Catch-all
-    --
-
-    | otherwise
-    = Nothing
 
 {-------------------------------------------------------------------------------
   Regression tests

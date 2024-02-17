@@ -19,6 +19,7 @@ module Test.Driver.Dialogue.Definition (
   ) where
 
 import Control.Exception
+import Data.Bifunctor
 import Data.Set (Set)
 import GHC.Generics qualified as GHC
 import GHC.Stack
@@ -135,15 +136,17 @@ instance HasNestedException AnnotatedServerException where
   Utility
 -------------------------------------------------------------------------------}
 
-hasEarlyTermination :: GlobalSteps -> Bool
+-- | Check if the client or server terminate early
+hasEarlyTermination :: GlobalSteps -> (Bool, Bool)
 hasEarlyTermination =
-      any isEarlyTermination
-    . map snd
+      bimap or or
+    . unzip
+    . map (isEarlyTermination . snd)
     . concatMap getLocalSteps
     . getGlobalSteps
   where
-    isEarlyTermination :: LocalStep -> Bool
-    isEarlyTermination (ClientAction (Terminate _)) = True
-    isEarlyTermination (ServerAction (Terminate _)) = True
-    isEarlyTermination _                            = False
+    isEarlyTermination :: LocalStep -> (Bool, Bool)
+    isEarlyTermination (ClientAction (Terminate _)) = (True, False)
+    isEarlyTermination (ServerAction (Terminate _)) = (False, True)
+    isEarlyTermination _                            = (False, False)
 
