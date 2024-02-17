@@ -20,11 +20,8 @@ module Network.GRPC.Common.Compression (
   , none
   , require
   , chooseFirst
-    -- ** Exceptions
-  , CompressionNegotationFailed(..)
   ) where
 
-import Control.Exception
 import Data.Default
 import Data.Foldable (toList)
 import Data.List.NonEmpty (NonEmpty(..))
@@ -48,9 +45,13 @@ data Negotation = Negotation {
       -- We will run this only once per open connection, when the server first
       -- tells us their list of supported compression algorithms. Unless
       -- compression negotation has taken place, no compression should be used.
-    , choose ::
-           NonEmpty CompressionId
-        -> Either CompressionNegotationFailed Compression
+      --
+      -- This cannot fail: the least common denominator is to use no
+      -- compression. This must be allowed, because the gRPC specification
+      -- /anyway/ allows a per-message flag to indicate whether the message
+      -- is compressed or not; thus, even if a specific compression algorithm
+      -- is negotiated, there is no guarantee anything is compressed.
+    , choose :: NonEmpty CompressionId -> Compression
 
       -- | All supported compression algorithms
     , supported :: Map CompressionId Compression
@@ -58,7 +59,8 @@ data Negotation = Negotation {
 
 -- | Map 'CompressionId' to 'Compression' for supported algorithms
 getSupported :: Negotation -> CompressionId -> Maybe Compression
-getSupported compr cid = Map.lookup cid (supported compr)
+getSupported _     Identity = Just $ noCompression
+getSupported compr cid      = Map.lookup cid (supported compr)
 
 instance Default Negotation where
   def = chooseFirst allSupportedCompression
@@ -80,23 +82,9 @@ chooseFirst ourSupported = Negotation {
         let isSupported :: Compression -> Bool
             isSupported = (`elem` serverSupported) . compressionId
         in case NE.filter isSupported ourSupported of
-             c:_ -> Right c
-             []  -> Left $ CompressionNegotationFailed serverSupported
+             c:_ -> c
+             []  -> noCompression
     , supported =
         Map.fromList $
           map (\c -> (compressionId c, c)) (toList ourSupported)
     }
-
-{-------------------------------------------------------------------------------
-  Exceptions
--------------------------------------------------------------------------------}
-
--- | Negotation failed
---
--- Unlike 'CompressionException', this is /not/ indicative of a misbehaving
--- peer. It does however mean that we probably cannot talk to this peer.
-data CompressionNegotationFailed =
-    -- | We don't support any of the compression algorithms listed by the peer
-    CompressionNegotationFailed (NonEmpty CompressionId)
-  deriving stock (Show)
-  deriving anyclass (Exception)

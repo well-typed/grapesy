@@ -55,22 +55,20 @@ update compr hdrs meta =
 
 -- Update choice of compression, if necessary
 --
--- We have four possibilities:
+-- We have three possibilities:
 --
--- a. Compression algorithms have already been set
--- b. We chose from the list of server reported supported algorithms
--- c. We rejected all of the server reported supported algorithms
--- d. The server didn't report which algorithms are supported
-updateCompression ::
+-- a. We chose from the list of server reported supported algorithms
+-- b. The server didn't report which algorithms are supported
+-- c. Compression algorithms have already been set
+updateCompression :: forall m.
      MonadThrow m
   => Compr.Negotation
   -> Maybe (NonEmpty CompressionId)
   -> Maybe Compression -> m (Maybe Compression)
 updateCompression negotation accepted = go
   where
-    go (Just compr) = return $ Just compr              -- (a)
-    go Nothing      =
-        case Compr.choose negotation <$> accepted of
-          Just (Right compr) -> return $ Just compr    -- (b)
-          Just (Left err)    -> throwM err             -- (c)
-          Nothing            -> return Nothing         -- (d)
+    go :: Maybe Compression -> m (Maybe Compression)
+    go Nothing      = case Compr.choose negotation <$> accepted of
+                        Just compr -> return $ Just compr  -- (a)
+                        Nothing    -> return Nothing       -- (b)
+    go (Just compr) = return $ Just compr                  -- (c)

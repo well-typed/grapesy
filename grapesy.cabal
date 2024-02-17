@@ -251,6 +251,7 @@ test-suite test-grapesy
     , containers         >= 0.6   && < 0.7
     , contra-tracer      >= 0.2   && < 0.3
     , exceptions         >= 0.10  && < 0.11
+    , http-types         >= 0.12  && < 0.13
     , mtl                >= 2.2   && < 2.4
     , proto-lens-runtime >= 0.7   && < 0.8
     , QuickCheck         >= 2.14  && < 2.15
@@ -393,6 +394,7 @@ executable test-stress
     , containers           >= 0.6   && < 0.7
     , contra-tracer        >= 0.2   && < 0.3
     , exceptions           >= 0.10  && < 0.11
+    , http-types           >= 0.12  && < 0.13
     , optparse-applicative >= 0.16  && < 0.19
     , stm                  >= 2.5   && < 2.6
     , text                 >= 1.2   && < 2.1

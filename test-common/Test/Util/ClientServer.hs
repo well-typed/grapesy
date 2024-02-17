@@ -31,14 +31,13 @@ import Control.Tracer
 import Data.ByteString qualified as Strict (ByteString)
 import Data.Map (Map)
 import Data.Map qualified as Map
-import Data.Set qualified as Set
 import Data.Text qualified as Text
 import GHC.Generics qualified as GHC
+import Network.HTTP.Types qualified as HTTP
 import Network.TLS
 
 import Network.GRPC.Client qualified as Client
 import Network.GRPC.Common
-import Network.GRPC.Common.Compression (CompressionNegotationFailed)
 import Network.GRPC.Common.Compression qualified as Compr
 import Network.GRPC.Internal
 import Network.GRPC.Internal.XIO (NeverThrows)
@@ -182,7 +181,7 @@ isExpectedServerException cfg e
 
   -- Call setup failure
 
-  | Just Server.CallSetupFailed{} <- fromException e'
+  | Just Server.CallSetupInvalidRequestHeaders{} <- fromException e'
   , InvalidOverride _ <- clientContentType cfg
   = True
 
@@ -221,12 +220,9 @@ isExpectedClientException cfg e
 
   -- Call setup failure
 
-  -- TODO: This should not be a gRPC exception; this makes it impossible to
-  -- distinguish between CallSetupFailed and a genuine gRPC exception.
-  | Just grpcException <- fromException e'
-  , Just msg <- grpcErrorMessage grpcException
-  , "PeerSentInvalidHeaders" `Text.isInfixOf` msg
+  | Just (Client.CallSetupUnexpectedStatus status) <- fromException e'
   , InvalidOverride _ <- clientContentType cfg
+  , status == HTTP.badRequest400
   = True
 
   -- Fall-through
@@ -243,7 +239,6 @@ isExpectedClientException cfg e
 data ExpectedException =
     ExpectedExceptionTls TLSException
   | ExpectedExceptionGrpc GrpcException
-  | ExpectedExceptionCompressionNegotationFailed CompressionNegotationFailed
   | ExpectedExceptionPeer PeerException
   | ExpectedExceptionDouble (DoubleException ExpectedException)
   | ExpectedExceptionDeliberate DeliberateException
@@ -319,22 +314,6 @@ isExpectedException cfg topLevel =
           _otherwise ->
             Left $ UnexpectedException topLevel err
 
-      -- Expected exception: compression
-
-      -- .. client side
-      | Just (grpc :: GrpcException) <- fromException err
-      , compressionNegotationFailure
-      , GrpcUnknown <- grpcError grpc
-      , Just msg <- grpcErrorMessage grpc
-      , "CompressionNegotationFailed" `Text.isInfixOf` msg
-      = Right $ ExpectedExceptionGrpc grpc
-
-      -- .. server side
-      | Just (Server.CallSetupFailed err') <- fromException err
-      , Just (compr :: CompressionNegotationFailed) <- fromException err'
-      , compressionNegotationFailure
-      = Right $ ExpectedExceptionCompressionNegotationFailed compr
-
       --
       -- Wrappers
       --
@@ -361,11 +340,6 @@ isExpectedException cfg topLevel =
 
       | otherwise
       = Left $ UnexpectedException topLevel err
-
-    compressionNegotationFailure :: Bool
-    compressionNegotationFailure =
-        Set.disjoint (Map.keysSet (Compr.supported (clientCompr cfg)))
-                     (Map.keysSet (Compr.supported (serverCompr cfg)))
 
 {-------------------------------------------------------------------------------
   Server handler lock
@@ -414,16 +388,16 @@ topLevelWithHandlerLock ::
   -> Server.RequestHandler SomeException ()
   -> Server.RequestHandler NeverThrows   ()
 topLevelWithHandlerLock cfg (ServerHandlerLock lock) handler req respond = do
-    tid <- XIO.unsafeNeverThrowsIO $ myThreadId
+    tid <- XIO.unsafeTrustMe $ myThreadId
 
     let markActive, markDone :: XIO.XIO' NeverThrows ()
-        markActive = XIO.unsafeNeverThrowsIO $
+        markActive = XIO.unsafeTrustMe $
             atomically $ modifyTVar lock $ Map.insert tid HandlerActive
-        markDone = XIO.unsafeNeverThrowsIO $
+        markDone = XIO.unsafeTrustMe $
             atomically $ modifyTVar lock $ Map.insert tid $ HandlerDone
 
         markError :: SomeException -> XIO.XIO' NeverThrows ()
-        markError err = XIO.unsafeNeverThrowsIO $
+        markError err = XIO.unsafeTrustMe $
             atomically $ modifyTVar lock $ Map.insert tid $ HandlerError err
 
     markActive
@@ -435,7 +409,7 @@ topLevelWithHandlerLock cfg (ServerHandlerLock lock) handler req respond = do
         if isExpectedServerException cfg e then
           markDone
         else do
-          XIO.swallowIO $ putStrLn $ "Client uhoh: " ++ show (innerNestedException e)
+          XIO.swallowIO $ putStrLn $ "Server uhoh: " ++ show (innerNestedException e)
           markError e
 
 {-------------------------------------------------------------------------------

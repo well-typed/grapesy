@@ -22,7 +22,7 @@ module Control.Monad.XIO (
   , neverThrows
   , run
   , swallowIO
-  , unsafeNeverThrowsIO
+  , unsafeTrustMe
   ) where
 
 import Control.Exception (Exception, SomeException)
@@ -146,7 +146,7 @@ tryError = handleError (return . Left) . fmap Right
 -- | Mark an 'XIO' action that never throws any exceptions
 --
 -- Since all exceptions in 'XIO' are synchronous, if an action is marked as
--- 'NeverThrows', it will /really/ never throw (unless 'unsafeNeverThrowsIO'
+-- 'NeverThrows', it will /really/ never throw (unless 'unsafeTrustMe'
 -- is abused).
 data NeverThrows
 
@@ -191,22 +191,22 @@ neverThrows = Wrap . unwrap
 -- interruptible). This means that only exceptions thrown by the action /itself/
 -- are swallowed.
 --
--- This should be preferred over 'unsafeNeverThrowsIO' when possible.
+-- This should be preferred over 'unsafeTrustMe' when possible.
 swallowIO :: IO () -> XIO' e ()
 swallowIO io =
       Wrap (Exception.uninterruptibleMask_ io)
     `catchError`
       \(_ :: SomeException) -> return ()
 
--- | Lift 'IO' actions that never throw any exceptions
+-- | Lift 'IO' actions for an arbitrary @XIO' e@ context
+--
+-- This can be used for @IO@ actions that the caller knows to only throw
+-- exceptions of type @e@ (including none, for 'NeverThrows').
 --
 -- In order to ensure that this cannot throw any asynchronous exceptions, the
 -- argument is wrapped in 'Exception.uninterruptibleMask_'. As such, the
 -- provisos listed for 'Exception.uninterruptibleMask' apply here also. Use with
 -- care.
---
--- It is the responsibility of the caller to ensure that the 'IO' action can
--- indeed never throw.
-unsafeNeverThrowsIO :: IO a -> XIO' e a
-unsafeNeverThrowsIO = Wrap . Exception.uninterruptibleMask_
+unsafeTrustMe :: IO a -> XIO' e a
+unsafeTrustMe = Wrap . Exception.uninterruptibleMask_
 

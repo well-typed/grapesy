@@ -36,7 +36,7 @@ determineFlowStart ::
      AcceptSession sess
   => sess
   -> Server.Request
-  -> Either PeerException (FlowStart (Inbound sess))
+  -> IO (FlowStart (Inbound sess))
 determineFlowStart sess req
   | Server.requestBodySize req == Just 0
   = FlowStartNoMessages <$> parseRequestNoMessages sess requestHeaders
@@ -67,7 +67,7 @@ setupResponseChannel :: forall sess.
   -- connection due to a network failure.
   -> XIO' NeverThrows (Channel sess)
 setupResponseChannel sess tracer conn inboundStart startOutbound =
-    XIO.unsafeNeverThrowsIO $ do
+    XIO.unsafeTrustMe $ do
       channel <- initChannel
 
       forkThread (channelInbound channel) $ \unmask markReady -> unmask $ do

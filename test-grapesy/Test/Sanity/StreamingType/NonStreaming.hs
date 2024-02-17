@@ -90,6 +90,10 @@ tests = testGroup "Test.Sanity.StreamingType.NonStreaming" [
                     clientCompr = Compr.require Compr.deflate
                   , serverCompr = Compr.require Compr.deflate
                   }
+
+              -- TODO: The three tests below don't do anything anymore
+              -- (because identity is now always allowed)
+
             , testCaseInfo "serverUnsupported" $
                 test_increment def {
                     clientCompr = Compr.require Compr.gzip

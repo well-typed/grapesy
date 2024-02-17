@@ -3,9 +3,11 @@ module Network.GRPC.Server.Session (
   , ServerInbound
   , ServerOutbound
   , Headers(..)
+    -- * Exceptions
+  , CallSetupFailure(..)
   ) where
 
-import Control.Monad.Except
+import Control.Exception
 import Data.Proxy
 import Network.HTTP.Types qualified as HTTP
 
@@ -63,10 +65,10 @@ instance IsRPC rpc => IsSession (ServerSession rpc) where
   buildMsg _ = buildOutput (Proxy @rpc) . outCompression
 
 instance IsRPC rpc => AcceptSession (ServerSession rpc) where
-  parseRequestRegular server headers = runExcept $ do
+  parseRequestRegular server headers = do
       requestHeaders :: RequestHeaders <-
         case parseRequestHeaders (Proxy @rpc) headers of
-          Left  err  -> throwError $ PeerSentInvalidHeaders err
+          Left  err  -> throwIO $ CallSetupInvalidRequestHeaders err
           Right hdrs -> return hdrs
 
       let cInId :: Maybe CompressionId
@@ -76,17 +78,17 @@ instance IsRPC rpc => AcceptSession (ServerSession rpc) where
           Nothing  -> return noCompression
           Just cid ->
             case Compr.getSupported (serverCompression server) cid of
-              Nothing    -> throwError $ PeerChoseUnsupportedCompression cid
+              Nothing    -> throwIO $ CallSetupUnsupportedCompression cid
               Just compr -> return compr
 
       return InboundHeaders {
-          inbHeaders    = requestHeaders
+          inbHeaders     = requestHeaders
         , inbCompression = cIn
         }
 
-  parseRequestNoMessages _ headers = runExcept $
+  parseRequestNoMessages _ headers =
       case parseRequestHeaders (Proxy @rpc) headers of
-        Left  err  -> throwError $ PeerSentInvalidHeaders err
+        Left  err  -> throwIO $ CallSetupInvalidRequestHeaders err
         Right hdrs -> return hdrs
 
   buildResponseInfo _ start = ResponseInfo {
@@ -98,3 +100,40 @@ instance IsRPC rpc => AcceptSession (ServerSession rpc) where
             FlowStartNoMessages trailers ->
               buildTrailersOnly trailers
       }
+
+{-------------------------------------------------------------------------------
+  Exceptions
+-------------------------------------------------------------------------------}
+
+-- | We failed to setup the call from the client
+data CallSetupFailure =
+    -- | Client sent resource headers that were not conform the gRPC spec
+    CallSetupInvalidResourceHeaders InvalidResourceHeaders
+
+    -- | Invalid request headers
+    --
+    -- 'CallSetupInvalidResourceHeaders' refers to an invalid method (anything
+    -- other than POST) or an invalid path; 'CallSetupInvalidRequestHeaders'
+    -- means we could not parse the HTTP headers according to the gRPC spec.
+  | CallSetupInvalidRequestHeaders String
+
+    -- | Client chose unsupported compression algorithm
+    --
+    -- This is indicative of a misbehaving peer: a client should not use a
+    -- compression algorithm unless they have evidence that the server supports
+    -- it. The server cannot process such a request, as it has no way of
+    -- decompression messages sent by the client.
+  | CallSetupUnsupportedCompression Compr.CompressionId
+
+    -- | No registered handler for the specified path
+    --
+    -- Note on terminology: HTTP has \"methods\" such as POST, GET, etc; gRPC
+    -- supports only POST, and when another HTTP method is chosen, this will
+    -- result in 'CallSetupInvalidResourceHeaders'. However, gRPC itself also
+    -- has the concept of a "method" (a method, or gRPC call, supported by a
+    -- particular service); it's these methods that
+    -- 'CallSetupUnimplementedMethod' is referring to.
+  | CallSetupUnimplementedMethod Path
+  deriving stock (Show)
+  deriving anyclass (Exception)
+

@@ -124,16 +124,14 @@ setupCall :: forall rpc.
      IsRPC rpc
   => Server.ConnectionToClient
   -> ServerContext
-  -> XIO (Call rpc)
+  -> XIO' CallSetupFailure (Call rpc)
 setupCall conn ServerContext{params} = do
-    callRequestHeaders   <- liftIO $ newEmptyTMVarIO
-    callResponseMetadata <- liftIO $ newTVarIO []
-    callResponseKickoff  <- liftIO $ newEmptyTMVarIO
+    callRequestHeaders   <- XIO.unsafeTrustMe $ newEmptyTMVarIO
+    callResponseMetadata <- XIO.unsafeTrustMe $ newTVarIO []
+    callResponseKickoff  <- XIO.unsafeTrustMe $ newEmptyTMVarIO
 
     flowStart :: Session.FlowStart (ServerInbound rpc) <-
-      case Session.determineFlowStart callSession req of
-        Left  err   -> throwM $ toException err
-        Right start -> return start
+      XIO.unsafeTrustMe $ Session.determineFlowStart callSession req
 
     let inboundHeaders :: RequestHeaders
         inboundHeaders =
@@ -142,7 +140,8 @@ setupCall conn ServerContext{params} = do
               Session.FlowStartNoMessages trailers ->            trailers
 
     -- Make request headers available (e.g., see 'getRequestMetadata')
-    liftIO $ atomically $ putTMVar callRequestHeaders inboundHeaders
+    XIO.unsafeTrustMe $
+      atomically $ putTMVar callRequestHeaders inboundHeaders
 
     -- Technically compression is only relevant in the 'KickoffRegular' case
     -- (i.e., in the case that the /server/ responds with messages, rather than
@@ -153,15 +152,7 @@ setupCall conn ServerContext{params} = do
     cOut :: Compression <-
       case requestAcceptCompression inboundHeaders of
          Nothing   -> return noCompression
-         Just cids ->
-           -- If the requests explicitly lists compression algorithms, and
-           -- that list does /not/ include @identity@, then we should not
-           -- default to 'noCompression', even if all other algorithms are
-           -- unsupported. This gives the client the option to /insist/ on
-           -- compression.
-           case Compr.choose compr cids of
-             Right c   -> return c
-             Left  err -> throwM $ toException err
+         Just cids -> return $ Compr.choose compr cids
 
     callChannel :: Session.Channel (ServerSession rpc) <-
       XIO.neverThrows $ Session.setupResponseChannel
