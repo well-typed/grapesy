@@ -37,15 +37,15 @@ tests :: TestTree
 tests = testGroup "Test.Sanity.Interop" [
       -- Preliminaries
       testGroup "preliminary" [
-          testCaseInfo "callAfterException" test_callAfterException
+          testCase "callAfterException" test_callAfterException
         ]
 
       -- Tests from the gRPC interop suite
       --
       -- <https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptions.md#client>
     , testGroup "official" [
-          testCaseInfo "emptyUnary"                test_emptyUnary
-        , testCaseInfo "serverCompressedStreaming" test_serverCompressedStreaming
+          testCase "emptyUnary"                test_emptyUnary
+        , testCase "serverCompressedStreaming" test_serverCompressedStreaming
         ]
     ]
 
@@ -56,7 +56,7 @@ tests = testGroup "Test.Sanity.Interop" [
 
 type Ping = BinaryRpc "test" "ping"
 
-test_callAfterException :: IO String
+test_callAfterException :: IO ()
 test_callAfterException =
     testClientServer $ ClientServerTest {
         config = def
@@ -103,7 +103,7 @@ type EmptyCall = Protobuf TestService "emptyCall"
 -- This test fails if we unconditionally compress (the /compressed/ form of the
 -- empty message is larger than the uncompressed form, as compression introduces
 -- minor overhead).
-test_emptyUnary :: IO String
+test_emptyUnary :: IO ()
 test_emptyUnary =
     testClientServer $ ClientServerTest {
         config = def
@@ -140,7 +140,7 @@ test_emptyUnary =
 type StreamingOutputCall = Protobuf TestService "streamingOutputCall"
 
 -- | Test that we can enable and disable compression per message
-test_serverCompressedStreaming :: IO String
+test_serverCompressedStreaming :: IO ()
 test_serverCompressedStreaming =
     testClientServer ClientServerTest {
         config = def

@@ -2,9 +2,7 @@
 
 module Test.Prop.Dialogue (tests) where
 
-import Control.Exception
 import Data.Set qualified as Set
-import GHC.Generics qualified as GHC
 import Test.Tasty
 import Test.Tasty.HUnit
 import Test.Tasty.QuickCheck
@@ -17,25 +15,25 @@ import Test.Driver.Dialogue
 tests :: TestTree
 tests = testGroup "Test.Prop.Dialogue" [
       testGroup "Regression" [
-          testCaseInfo "trivial1"           $ regression trivial1
-        , testCaseInfo "trivial2"           $ regression trivial2
-        , testCaseInfo "trivial3"           $ regression trivial3
-        , testCaseInfo "concurrent1"        $ regression concurrent1
-        , testCaseInfo "concurrent2"        $ regression concurrent2
-        , testCaseInfo "concurrent3"        $ regression concurrent3
-        , testCaseInfo "concurrent4"        $ regression concurrent4
-        , testCaseInfo "exception1"         $ regression exception1
-        , testCaseInfo "exception2"         $ regression exception2
-        , testCaseInfo "earlyTermination01" $ regression earlyTermination01
-        , testCaseInfo "earlyTermination02" $ regression earlyTermination02
-        , testCaseInfo "earlyTermination03" $ regression earlyTermination03
-        , testCaseInfo "earlyTermination04" $ regression earlyTermination04
-        , testCaseInfo "earlyTermination05" $ regression earlyTermination05
-        , testCaseInfo "earlyTermination06" $ regression earlyTermination06
-        , testCaseInfo "earlyTermination07" $ regression earlyTermination07
-        , testCaseInfo "earlyTermination08" $ regression earlyTermination08
-        , testCaseInfo "earlyTermination09" $ regression earlyTermination09
---        , testCaseInfo "earlyTermination10" $ regression earlyTermination10
+          testCase "trivial1"           $ regression trivial1
+        , testCase "trivial2"           $ regression trivial2
+        , testCase "trivial3"           $ regression trivial3
+        , testCase "concurrent1"        $ regression concurrent1
+        , testCase "concurrent2"        $ regression concurrent2
+        , testCase "concurrent3"        $ regression concurrent3
+        , testCase "concurrent4"        $ regression concurrent4
+        , testCase "exception1"         $ regression exception1
+        , testCase "exception2"         $ regression exception2
+        , testCase "earlyTermination01" $ regression earlyTermination01
+        , testCase "earlyTermination02" $ regression earlyTermination02
+        , testCase "earlyTermination03" $ regression earlyTermination03
+        , testCase "earlyTermination04" $ regression earlyTermination04
+        , testCase "earlyTermination05" $ regression earlyTermination05
+        , testCase "earlyTermination06" $ regression earlyTermination06
+        , testCase "earlyTermination07" $ regression earlyTermination07
+        , testCase "earlyTermination08" $ regression earlyTermination08
+        , testCase "earlyTermination09" $ regression earlyTermination09
+--        , testCase "earlyTermination10" $ regression earlyTermination10
         ]
     , testGroup "Setup" [
           testProperty "shrinkingWellFounded" prop_shrinkingWellFounded
@@ -77,32 +75,12 @@ propDialogue dialogue =
     globalSteps :: GlobalSteps
     globalSteps = dialogueGlobalSteps dialogue
 
-regression :: Dialogue -> IO String
+regression :: Dialogue -> IO ()
 regression dialogue = do
-    handle annotate $
-      testClientServer =<< execGlobalSteps globalSteps
+    testClientServer =<< execGlobalSteps globalSteps
   where
     globalSteps :: GlobalSteps
     globalSteps = dialogueGlobalSteps dialogue
-
-    annotate :: SomeException -> IO String
-    annotate e = throwIO $ RegressionFailed e globalSteps
-
-data RegressionFailed = RegressionFailed {
-      regressionFailedException :: SomeException
-    , regressionFailedSteps     :: GlobalSteps
-    }
-  deriving stock (Show, GHC.Generic)
-  deriving anyclass (Exception)
-
-data ExpectedUserException =
-    ExpectedClientException SomeClientException
-  | ExpectedServerException SomeServerException
-  | ExpectedForwardedToClient GrpcException
-  | ExpectedClientDisconnected SomeException
-  | ExpectedServerDisconnected SomeException
-  | ExpectedEarlyTermination
-  deriving stock (Show, GHC.Generic)
 
 {-------------------------------------------------------------------------------
   Regression tests

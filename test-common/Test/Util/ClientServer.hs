@@ -10,10 +10,7 @@ module Test.Util.ClientServer (
   , TlsOk(..)
   , TlsFail(..)
     -- ** Evaluation
-  , ExpectedException(..)
-  , UnexpectedException(..)
   , DeliberateException(..)
-  , isExpectedException
     -- * Run
   , ClientServerTest(..)
   , runTestClientServer
@@ -166,13 +163,22 @@ data TlsFail =
 
   Ideally 'isExpectedServerException' and 'isExpectedClientException' should
   have identical structure, illustrating that the exceptions are consistent
-  between the server API and the client API. This ideal isn't /quite/ reached;
-  for example, if a server handler throws an exception, the client is informed,
-  but the reverse is not true (the client simply disconnects).
+  between the server API and the client API. This ideal isn't /quite/ reached:
+
+  * If a server handler throws an exception, the client is informed,
+    but the reverse is not true (the client simply disconnects).
+  * TLS exceptions are thrown to the client, but since no handler is ever run,
+    we don't see these exceptions server-side.
 
   TODO: Early server termination does not result in an exception server-side.
   This is inconsistent.
 -------------------------------------------------------------------------------}
+
+-- | Exception thrown by client or handler to test exception handling
+data DeliberateException = forall e. Exception e => DeliberateException e
+  deriving anyclass (Exception)
+
+deriving stock instance Show DeliberateException
 
 isExpectedServerException :: ClientServerConfig -> SomeException -> Bool
 isExpectedServerException cfg e
@@ -277,6 +283,14 @@ isExpectedClientException cfg e
   = True
 
   --
+  -- TLS problems
+  --
+
+  | Just tls <- fromException e'
+  , isExpectedTLSException cfg tls
+  = True
+
+  --
   -- Fall-through
   --
 
@@ -297,114 +311,29 @@ compressionNegotationFailure cfg = or [
     clientSupported = Map.keysSet (Compr.supported (clientCompr cfg))
     serverSupported = Map.keysSet (Compr.supported (serverCompr cfg))
 
-{-------------------------------------------------------------------------------
-  Config evaluation (do we expect an error?)
--------------------------------------------------------------------------------}
-
-data ExpectedException =
-    ExpectedExceptionTls TLSException
-  | ExpectedExceptionGrpc GrpcException
-  | ExpectedExceptionPeer PeerException
-  | ExpectedExceptionDouble (DoubleException ExpectedException)
-  | ExpectedExceptionDeliberate DeliberateException
-  deriving stock (Show, GHC.Generic)
-
-data UnexpectedException = UnexpectedException {
-      -- | The top-level exception (including any wrapper exceptions)
-      unexpectedExceptionTopLevel :: SomeException
-
-      -- | The (possibly nested) exception that was actually unexpected
-    , unexpectedExceptionNested :: SomeException
-    }
-  deriving stock (Show)
-  deriving anyclass (Exception)
-
--- | Exception thrown by client or handler to test exception handling
-data DeliberateException = forall e. Exception e => DeliberateException e
-  deriving anyclass (Exception)
-
-deriving stock instance Show DeliberateException
-
--- | Check if the given configuration gives rise to expected exceptions
---
--- Returns 'Right' the expected exception if any (with any wrapper exceptions
--- removed), 'Left' some (possibly nested) exception if the exception was
--- unexpected.
---
--- NOTE: We /never/ expect the 'KilledByHttp2ThreadManager' exception from
--- @http2@, as we protect the handler from this; see 'runHandler' for details
--- (TL;DR: /if/ the handler tries to communicate after an
--- 'KilledByHttp2ThreadManager' exception, it will find that the channel has
--- been closed).
-isExpectedException ::
-     ClientServerConfig
-  -> SomeException
-  -> Either UnexpectedException ExpectedException
-isExpectedException cfg topLevel =
-    go topLevel
-  where
-    go :: SomeException -> Either UnexpectedException ExpectedException
-    go err
-      --
-      -- Expected exceptions
-      --
-
-      -- Expected exception: TLS
-
-      | Just (tls :: TLSException) <- fromException err
-      = case (useTLS cfg, tls) of
+isExpectedTLSException :: ClientServerConfig -> TLSException -> Bool
+isExpectedTLSException cfg tls =
+    case (useTLS cfg, tls) of
 #if MIN_VERSION_tls(1,9,0)
-          (   Just (TlsFail TlsFailValidation)
-            , HandshakeFailed (Error_Protocol _msg UnknownCa)
-            ) ->
-            Right $ ExpectedExceptionTls tls
-          (   Just (TlsFail TlsFailHostname)
-            , HandshakeFailed (Error_Protocol _msg CertificateUnknown)
-            ) ->
-             Right $ ExpectedExceptionTls tls
+      (   Just (TlsFail TlsFailValidation)
+        , HandshakeFailed (Error_Protocol _msg UnknownCa)
+        ) -> True
+      (   Just (TlsFail TlsFailHostname)
+        , HandshakeFailed (Error_Protocol _msg CertificateUnknown)
+        ) -> True
 #else
-          (   Just (TlsFail TlsFailValidation)
-            , HandshakeFailed (Error_Protocol (_msg, _bool, UnknownCa))
-            ) ->
-            Right $ ExpectedExceptionTls tls
-          (   Just (TlsFail TlsFailHostname)
-            , HandshakeFailed (Error_Protocol (_msg, _bool, CertificateUnknown))
-            ) ->
-             Right $ ExpectedExceptionTls tls
+      (   Just (TlsFail TlsFailValidation)
+        , HandshakeFailed (Error_Protocol (_msg, _bool, UnknownCa))
+        ) -> True
+      (   Just (TlsFail TlsFailHostname)
+        , HandshakeFailed (Error_Protocol (_msg, _bool, CertificateUnknown))
+        ) -> True
 #endif
-          (   Just (TlsFail TlsFailUnsupported)
-            , HandshakeFailed (Error_Packet_Parsing _)
-            ) ->
-             Right $ ExpectedExceptionTls tls
-          _otherwise ->
-            Left $ UnexpectedException topLevel err
-
-      --
-      -- Wrappers
-      --
-
-      | Just err' <- maybeNestedException err
-      = go err'
-
-      | Just (DoubleException { doubleExceptionClient
-                              , doubleExceptionServer
-                              }) <- fromException err
-      = case (go doubleExceptionClient, go doubleExceptionServer) of
-          (Left unexpected, _) -> Left unexpected
-          (_, Left unexpected) -> Left unexpected
-          (Right expected, Right expected') ->
-            Right $ ExpectedExceptionDouble DoubleException {
-                doubleExceptionClient = expected
-              , doubleExceptionServer = expected'
-              , doubleExceptionAnnotation = ()
-              }
-
-      --
-      -- Fall-through
-      --
-
-      | otherwise
-      = Left $ UnexpectedException topLevel err
+      (   Just (TlsFail TlsFailUnsupported)
+        , HandshakeFailed (Error_Packet_Parsing _)
+        ) -> True
+      _otherwise ->
+        False
 
 {-------------------------------------------------------------------------------
   Server handler lock
