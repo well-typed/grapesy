@@ -619,7 +619,7 @@ serverGlobal testClock mode globalStepsVar call = do
   Top-level
 -------------------------------------------------------------------------------}
 
-execGlobalSteps :: GlobalSteps -> IO (ClientServerTest ())
+execGlobalSteps :: GlobalSteps -> IO ClientServerTest
 execGlobalSteps steps = do
     globalStepsVar <- newMVar (order steps)
     testClock      <- newTestClock

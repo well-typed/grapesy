@@ -19,11 +19,11 @@ import Test.Util.ClientServer
 -------------------------------------------------------------------------------}
 
 -- | Run client server test, and check for expected failures
-testClientServer :: ClientServerTest () -> IO ()
+testClientServer :: ClientServerTest -> IO ()
 testClientServer test =
     runTestClientServer test
 
 -- | Turn client server test into property
-propClientServer :: IO (ClientServerTest ()) -> QuickCheck.Property
+propClientServer :: IO ClientServerTest -> QuickCheck.Property
 propClientServer mkTest =
     QuickCheck.monadicIO $ liftIO $ runTestClientServer =<< mkTest

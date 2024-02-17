@@ -467,11 +467,11 @@ runTestServer cfg serverTracer handlerLock serverHandlers = do
   Client
 -------------------------------------------------------------------------------}
 
-runTestClient :: forall a.
+runTestClient ::
      ClientServerConfig
   -> Tracer IO Client.ClientDebugMsg
-  -> (((Client.Connection -> IO ()) -> IO ()) -> IO a)
-  -> IO a
+  -> (((Client.Connection -> IO ()) -> IO ()) -> IO ())
+  -> IO ()
 runTestClient cfg clientTracer clientRun = do
     pubCert <- getDataFileName "grpc-demo.pem"
 
@@ -565,13 +565,13 @@ runTestClient cfg clientTracer clientRun = do
   Main entry point: run server and client together
 -------------------------------------------------------------------------------}
 
-data ClientServerTest a = ClientServerTest {
+data ClientServerTest = ClientServerTest {
       config :: ClientServerConfig
-    , client :: ((Client.Connection -> IO ()) -> IO ()) -> IO a
+    , client :: ((Client.Connection -> IO ()) -> IO ()) -> IO ()
     , server :: [Server.RpcHandler IO]
     }
 
-runTestClientServer :: forall a. ClientServerTest a -> IO a
+runTestClientServer :: ClientServerTest -> IO ()
 runTestClientServer (ClientServerTest cfg clientRun serverHandlers) = do
     logMsgVar <- newMVar []
     let logTracer :: Tracer IO LogMsg
