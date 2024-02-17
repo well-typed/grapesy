@@ -14,9 +14,9 @@ import Data.Proxy
 import Data.Set qualified as Set
 import Data.Text qualified as Text
 import GHC.Generics qualified as GHC
+import GHC.Stack
 import System.IO.Unsafe (unsafePerformIO)
 import System.Timeout (timeout)
-import Text.Show.Pretty
 
 import Network.GRPC.Client qualified as Client
 import Network.GRPC.Client.Binary qualified as Client.Binary
@@ -30,7 +30,6 @@ import Debug.Concurrent
 import Test.Driver.ClientServer
 import Test.Driver.Dialogue.Definition
 import Test.Driver.Dialogue.TestClock
-import Test.Util.PrettyVal
 
 {-------------------------------------------------------------------------------
   Endpoints
@@ -55,10 +54,9 @@ withProxy RPC3 k = k (Proxy @TestRpc3)
   Test failures
 -------------------------------------------------------------------------------}
 
-data TestFailure = TestFailure PrettyCallStack Failure
-  deriving stock (GHC.Generic)
-  deriving anyclass (Exception, PrettyVal)
-  deriving Show via ShowAsPretty TestFailure
+data TestFailure = TestFailure CallStack Failure
+  deriving stock (Show, GHC.Generic)
+  deriving anyclass (Exception)
 
 data Failure =
     -- | Thrown by the server when an unexpected new RPC is initiated
@@ -67,22 +65,16 @@ data Failure =
     -- | Received an unexpected value
   | Unexpected ReceivedUnexpected
   deriving stock (Show, GHC.Generic)
-  deriving anyclass (Exception, PrettyVal)
+  deriving anyclass (Exception)
 
-data ReceivedUnexpected = forall a. (Show a, PrettyVal a) => ReceivedUnexpected {
+data ReceivedUnexpected = forall a. Show a => ReceivedUnexpected {
       received :: a
     }
 
 deriving stock instance Show ReceivedUnexpected
 
-instance PrettyVal ReceivedUnexpected where
-  prettyVal (ReceivedUnexpected{received}) =
-      Rec "ReceivedUnexpected" [
-          ("received", prettyVal received)
-        ]
-
 expect ::
-     (MonadThrow m, Show a, PrettyVal a, HasCallStack)
+     (MonadThrow m, Show a, HasCallStack)
   => (a -> Bool)  -- ^ Expected
   -> a            -- ^ Actually received
   -> m ()
@@ -91,7 +83,7 @@ expect isExpected received
   = return ()
 
   | otherwise
-  = throwM $ TestFailure prettyCallStack $
+  = throwM $ TestFailure callStack $
       Unexpected $ ReceivedUnexpected{received}
 
 {-------------------------------------------------------------------------------
@@ -198,13 +190,7 @@ data ExecutionMode =
     -- In aggressive mode all calls from the client to the server share the
     -- same connection.
   | Aggressive
-  deriving (Show)
-
-determineExecutionMode :: GlobalSteps -> ExecutionMode
-determineExecutionMode steps =
-    if hasEarlyTermination steps
-      then Conservative
-      else Aggressive
+  deriving stock (Show, Eq)
 
 ifConservative :: Applicative m => ExecutionMode -> m () -> m ()
 ifConservative Conservative k = k
@@ -283,7 +269,7 @@ clientLocal testClock mode call = \(LocalSteps steps) ->
           expect isExpected =<< liftIO (try $ Client.Binary.sendInput call x)
           return True
         Terminate (Just exceptionId) -> do
-          throwM $ SomeClientException exceptionId
+          throwM $ DeliberateException $ SomeClientException exceptionId
         Terminate Nothing ->
           return False
         SleepMilli n -> do
@@ -360,7 +346,7 @@ clientLocal testClock mode call = \(LocalSteps steps) ->
 clientGlobal ::
      TestClock
   -> ExecutionMode
-  -> (forall a. (Client.Connection -> IO a) -> IO a)
+  -> ((Client.Connection -> IO ()) -> IO ())
   -> GlobalSteps
   -> IO ()
 clientGlobal testClock mode withConn = \(GlobalSteps globalSteps) ->
@@ -516,7 +502,7 @@ serverLocal testClock mode call = \(LocalSteps steps) -> do
           expect isExpected received
           return True
         Terminate (Just exceptionId) -> do
-          throwM $ SomeServerException exceptionId
+          throwM $ DeliberateException $ SomeServerException exceptionId
         Terminate Nothing ->
           return False
         SleepMilli n -> do
@@ -618,7 +604,7 @@ serverGlobal testClock mode globalStepsVar call = do
   where
     getNextSteps :: [LocalSteps] -> IO (GlobalSteps, LocalSteps)
     getNextSteps [] = do
-        throwM $ TestFailure prettyCallStack $ UnexpectedRequest
+        throwM $ TestFailure callStack $ UnexpectedRequest
     getNextSteps (LocalSteps steps:global') =
         return (GlobalSteps global', LocalSteps steps)
 
@@ -626,7 +612,7 @@ serverGlobal testClock mode globalStepsVar call = do
     annotate steps err = throwM $ AnnotatedServerException {
           serverGlobalException          = err
         , serverGlobalExceptionSteps     = steps
-        , serverGlobalExceptionCallStack = prettyCallStack
+        , serverGlobalExceptionCallStack = callStack
         }
 
 {-------------------------------------------------------------------------------
@@ -644,16 +630,28 @@ execGlobalSteps steps = do
         handler rpc = Server.mkRpcHandler rpc $ \call ->
                         serverGlobal testClock mode globalStepsVar call
 
-    return def {
-        client = \conn -> clientGlobal testClock mode conn steps
-      , server = [ handler (Proxy @TestRpc1)
-                 , handler (Proxy @TestRpc2)
-                 , handler (Proxy @TestRpc3)
-                 ]
+    return ClientServerTest {
+        config = def {
+            expectEarlyClientTermination = clientTerminatesEarly
+          , expectEarlyServerTermination = serverTerminatesEarly
+          }
+      , client = \conn ->
+          clientGlobal testClock mode conn steps
+      , server = [
+            handler (Proxy @TestRpc1)
+          , handler (Proxy @TestRpc2)
+          , handler (Proxy @TestRpc3)
+          ]
       }
   where
+    clientTerminatesEarly, serverTerminatesEarly :: Bool
+    (clientTerminatesEarly, serverTerminatesEarly) = hasEarlyTermination steps
+
     mode :: ExecutionMode
-    mode = determineExecutionMode steps
+    mode =
+        if serverTerminatesEarly || clientTerminatesEarly
+          then Conservative
+          else Aggressive
 
     -- For 'clientGlobal' the order doesn't matter, because it spawns a thread
     -- for each 'LocalSteps'. The server however doesn't get this option; the

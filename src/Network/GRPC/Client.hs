@@ -59,6 +59,8 @@ module Network.GRPC.Client (
 
     -- * Exceptions
   , ServerDisconnected(..)
+  , CallSetupFailure(..)
+  , InvalidTrailers(..)
 
     -- * Debugging
   , ClientDebugMsg(..)
@@ -66,6 +68,7 @@ module Network.GRPC.Client (
 
 import Network.GRPC.Client.Call
 import Network.GRPC.Client.Connection
+import Network.GRPC.Client.Session (CallSetupFailure(..), InvalidTrailers(..))
 import Network.GRPC.Client.StreamType (rpc, rpcWith)
 import Network.GRPC.Spec
 import Network.GRPC.Util.HTTP2.Stream (ServerDisconnected(..))

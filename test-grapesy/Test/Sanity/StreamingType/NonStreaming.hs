@@ -19,87 +19,86 @@ import Test.Driver.ClientServer
 tests :: TestTree
 tests = testGroup "Test.Sanity.StreamingType.NonStreaming" [
       testGroup "increment" [
-          testCaseInfo "default" $
+          testCase "default" $
             test_increment def
         , testGroup "Content-Type" [
               testGroup "ok" [
                   -- Without the +format part
-                  testCaseInfo "application/grpc" $
+                  testCase "application/grpc" $
                     test_increment def {
-                        clientContentType = Just "application/grpc"
+                        clientContentType =
+                          ValidOverride "application/grpc"
                       }
 
                   -- Random other format
                   -- See discussion in 'parseContentType'
-                , testCaseInfo "application/grpc+gibberish" $
+                , testCase "application/grpc+gibberish" $
                     test_increment def {
-                        clientContentType = Just "application/grpc+gibberish"
+                        clientContentType =
+                          ValidOverride "application/grpc+gibberish"
                       }
                 ]
             , testGroup "fail" [
-                  testCaseInfo "application/invalid-subtype" $
+                  testCase "application/invalid-subtype" $
                     test_increment def {
-                        clientContentType = Just "application/invalid-subtype"
+                        clientContentType =
+                          InvalidOverride "application/invalid-subtype"
                       }
 
                   -- gRPC spec does not allow parameters
-                , testCaseInfo "charset" $
+                , testCase "charset" $
                     test_increment def {
-                        clientContentType = Just "application/grpc; charset=us-ascii"
+                        clientContentType =
+                          InvalidOverride "application/grpc; charset=us-ascii"
                       }
                 ]
             ]
         , testGroup "TLS" [
               testGroup "ok" [
-                  testCaseInfo "certAsRoot" $
+                  testCase "certAsRoot" $
                     test_increment def {
                         useTLS = Just $ TlsOk TlsOkCertAsRoot
                       }
-                , testCaseInfo "skipValidation" $
+                , testCase "skipValidation" $
                     test_increment def {
                         useTLS = Just $ TlsOk TlsOkSkipValidation
                       }
                   ]
             , testGroup "fail" [
-                  testCaseInfo "validation" $
+                  testCase "validation" $
                     test_increment def {
                         useTLS = Just $ TlsFail TlsFailValidation
                       }
-                , testCaseInfo "hostname" $
+                , testCase "hostname" $
                     test_increment def {
                         useTLS = Just $ TlsFail TlsFailHostname
                       }
-                , testCaseInfo "unsupported" $
+                , testCase "unsupported" $
                     test_increment def {
                         useTLS = Just $ TlsFail TlsFailUnsupported
                       }
                 ]
             ]
         , testGroup "compression" [
-              testCaseInfo "gzip" $
+              testCase "gzip" $
                 test_increment def {
-                    clientCompr = Compr.require Compr.gzip
-                  , serverCompr = Compr.require Compr.gzip
+                    clientCompr = Compr.only Compr.gzip
+                  , serverCompr = Compr.only Compr.gzip
                   }
-            , testCaseInfo "deflate" $
+            , testCase "deflate" $
                 test_increment def {
-                    clientCompr = Compr.require Compr.deflate
-                  , serverCompr = Compr.require Compr.deflate
+                    clientCompr = Compr.only Compr.deflate
+                  , serverCompr = Compr.only Compr.deflate
                   }
-            , testCaseInfo "serverUnsupported" $
+            , testCase "clientChoosesUnsupported" $
                 test_increment def {
-                    clientCompr = Compr.require Compr.gzip
-                  , serverCompr = Compr.none
+                    clientInitCompr = Just Compr.gzip
+                  , serverCompr     = Compr.none
                   }
-            , testCaseInfo "clientUnsupported" $
+            , testCase "serverChoosesUnsupported" $
                 test_increment def {
-                    clientCompr = Compr.none
-                  , serverCompr = Compr.require Compr.gzip
-                  }
-            , testCaseInfo "mismatch" $
-                test_increment def {
-                    clientCompr = Compr.require Compr.deflate
-                  , serverCompr = Compr.require Compr.gzip
+                    clientCompr = Compr.only   Compr.gzip
+                  , serverCompr = Compr.insist Compr.deflate
                   }
             ]
         ]
@@ -111,8 +110,8 @@ tests = testGroup "Test.Sanity.StreamingType.NonStreaming" [
 
 type BinaryIncrement = BinaryRpc "binary" "increment"
 
-test_increment :: ClientServerConfig -> IO String
-test_increment config = testClientServer noCustomExceptions $ def {
+test_increment :: ClientServerConfig -> IO ()
+test_increment config = testClientServer $ ClientServerTest {
       config
     , client = \withConn -> withConn $ \conn -> do
         Client.withRPC conn def (Proxy @BinaryIncrement) $ \call -> do

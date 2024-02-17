@@ -20,16 +20,18 @@ import Control.Monad.XIO qualified as XIO
 import Control.Tracer
 import Data.Bifunctor
 import Data.ByteString.Builder qualified as Builder
+import Data.ByteString.UTF8 qualified as BS.UTF8
 import Data.Maybe (fromMaybe)
 import Network.HTTP.Types qualified as HTTP
 import Network.HTTP2.Server qualified as HTTP2
 
 import Network.GRPC.Server.Call
-import Network.GRPC.Server.Context (ServerContext, CallSetupFailure(..))
+import Network.GRPC.Server.Context (ServerContext)
 import Network.GRPC.Server.Context qualified as Context
 import Network.GRPC.Server.Handler (RpcHandler(..))
 import Network.GRPC.Server.Handler qualified as Handler
 import Network.GRPC.Server.RequestHandler.API
+import Network.GRPC.Server.Session (CallSetupFailure(..))
 import Network.GRPC.Spec
 import Network.GRPC.Util.Session.Server
 
@@ -44,12 +46,11 @@ requestHandler ::
   -> RequestHandler SomeException ()
 requestHandler handlers ctxt request respond = do
     RpcHandler (handler :: Call rpc -> IO ()) <-
-      findHandler tracer handlers request `XIO.catchError` \failure ->
-        setupFailure tracer respond failure
+      findHandler tracer handlers request `XIO.catchError`
+        setupFailure tracer respond
     call :: Call rpc <- do
-      setupCall connectionToClient ctxt `XIO.catchError` \exception ->
-        setupFailure tracer respond $
-          CallSetupFailed exception
+      setupCall connectionToClient ctxt `XIO.catchError`
+        setupFailure tracer respond
 
     -- TODO: Timeouts
     runHandler call handler
@@ -112,15 +113,19 @@ setupFailure tracer respond failure = do
 -- gRPC specification). We choose to return HTTP errors in this case.
 --
 -- See <https://datatracker.ietf.org/doc/html/rfc7231#section-6.5> for
--- a discussion of the HTTP error codes.
+-- a discussion of the HTTP error codes, specifically
+--
+-- * 400 Bad Request
+--   <https://datatracker.ietf.org/doc/html/rfc7231#section-6.5.1>
+-- * 405 Method Not Allowed
+--   <https://datatracker.ietf.org/doc/html/rfc7231#section-6.5.5>
+--   <https://datatracker.ietf.org/doc/html/rfc7231#section-7.4.1>
 --
 -- Testing out-of-spec errors can be bit awkward. One option is @curl@:
 --
 -- > curl --verbose --http2 --http2-prior-knowledge http://localhost:50051/
 failureResponse :: CallSetupFailure -> HTTP2.Response
 failureResponse (CallSetupInvalidResourceHeaders (InvalidMethod method)) =
-    -- <https://datatracker.ietf.org/doc/html/rfc7231#section-6.5.5>
-    -- <https://datatracker.ietf.org/doc/html/rfc7231#section-7.4.1>
     HTTP2.responseBuilder
       HTTP.methodNotAllowed405
       [("Allow", "POST")]
@@ -129,19 +134,18 @@ failureResponse (CallSetupInvalidResourceHeaders (InvalidMethod method)) =
         , "The only method supported by gRPC is POST.\n"
         ])
 failureResponse (CallSetupInvalidResourceHeaders (InvalidPath path)) =
-    -- <https://datatracker.ietf.org/doc/html/rfc7231#section-6.5.1>
-    HTTP2.responseBuilder
-      HTTP.badRequest400
-      []
-      (Builder.byteString $ "Invalid path " <> path)
+    HTTP2.responseBuilder HTTP.badRequest400 [] . Builder.byteString $
+      "Invalid path " <> path
+failureResponse (CallSetupInvalidRequestHeaders err) =
+    HTTP2.responseBuilder HTTP.badRequest400 [] . Builder.byteString $
+      "Invalid request headers: " <> BS.UTF8.fromString err
+failureResponse (CallSetupUnsupportedCompression cid) =
+    HTTP2.responseBuilder HTTP.badRequest400 [] . Builder.byteString $
+      "Unsupported compression: " <> BS.UTF8.fromString (show cid)
 failureResponse (CallSetupUnimplementedMethod path) =
     HTTP2.responseNoBody HTTP.ok200 $
       buildTrailersOnly . TrailersOnly . grpcExceptionToTrailers $
         grpcUnimplemented path
-failureResponse (CallSetupFailed exception) =
-    HTTP2.responseNoBody HTTP.ok200 $
-       buildTrailersOnly . TrailersOnly $
-         serverExceptionToClientError exception
 
 grpcUnimplemented :: Path -> GrpcException
 grpcUnimplemented path = GrpcException {

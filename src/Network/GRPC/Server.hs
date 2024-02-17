@@ -16,6 +16,7 @@ module Network.GRPC.Server (
     -- * Open (ongoing) call
   , recvInput
   , sendOutput
+  , sendGrpcException
   , getRequestMetadata
   , setResponseMetadata
 
@@ -44,11 +45,12 @@ module Network.GRPC.Server (
 import Network.HTTP2.Server qualified as HTTP2
 
 import Network.GRPC.Server.Call
-import Network.GRPC.Server.Context (ServerParams(..), CallSetupFailure(..))
+import Network.GRPC.Server.Context (ServerParams(..))
 import Network.GRPC.Server.Context qualified as Context
 import Network.GRPC.Server.Handler (RpcHandler(..))
 import Network.GRPC.Server.Handler qualified as Handler
 import Network.GRPC.Server.RequestHandler
+import Network.GRPC.Server.Session (CallSetupFailure(..))
 import Network.GRPC.Util.HTTP2.Stream (ClientDisconnected(..))
 
 {-------------------------------------------------------------------------------

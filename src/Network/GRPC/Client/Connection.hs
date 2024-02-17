@@ -37,7 +37,6 @@ import Network.Run.TCP qualified as Run
 import Network.Socket
 import Network.TLS (TLSException)
 import System.Random
-import Text.Show.Pretty
 
 import Network.GRPC.Client.Meta (Meta)
 import Network.GRPC.Client.Meta qualified as Meta
@@ -128,6 +127,17 @@ data ConnParams = ConnParams {
       --
       -- If not defined, the default @application/grpc+format@ is used.
     , connContentType :: Maybe Strict.ByteString
+
+      -- | Optionally set the initial compression algorithm
+      --
+      -- Under normal circumstances, the @grapesy@ client will only start using
+      -- compression once the server has informed it what compression algorithms
+      -- it supports. This means the first message will necessarily be
+      -- uncompressed. 'connCompression' can be used to override this behaviour,
+      -- but should be used with care: if the server does not support the
+      -- selected compression algorithm, it will not be able to decompress any
+      -- messages sent by the client to the server.
+    , connInitCompression :: Maybe Compression
     }
 
 instance Default ConnParams where
@@ -137,6 +147,7 @@ instance Default ConnParams where
       , connDefaultTimeout  = Nothing
       , connReconnectPolicy = def
       , connContentType     = Nothing
+      , connInitCompression = Nothing
       }
 
 {-------------------------------------------------------------------------------
@@ -214,9 +225,6 @@ data ClientDebugMsg =
 
 deriving instance Show ClientDebugMsg
 
-instance PrettyVal ClientDebugMsg where
-  prettyVal = String . show
-
 {-------------------------------------------------------------------------------
   Fatal exceptions (no point reconnecting)
 -------------------------------------------------------------------------------}
@@ -277,7 +285,7 @@ withConnection ::
   -> (Connection -> IO a)
   -> IO a
 withConnection connParams server k = do
-    connMetaVar  <- newMVar $ Meta.init
+    connMetaVar  <- newMVar $ Meta.init (connInitCompression connParams)
     connStateVar <- newTVarIO ConnectionNotReady
 
     connOutOfScope <- newEmptyMVar

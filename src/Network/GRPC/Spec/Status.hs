@@ -8,7 +8,6 @@ module Network.GRPC.Spec.Status (
 
 import Control.Exception
 import GHC.Generics qualified as GHC
-import Text.Show.Pretty
 
 {-------------------------------------------------------------------------------
   gRPC status
@@ -169,7 +168,7 @@ data GrpcError =
     -- operation.
   | GrpcUnauthenticated
   deriving stock (Show, Eq, GHC.Generic)
-  deriving anyclass (Exception, PrettyVal)
+  deriving anyclass (Exception)
 
 fromGrpcStatus :: GrpcStatus -> Word
 fromGrpcStatus  GrpcOk                            =  0

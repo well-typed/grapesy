@@ -37,15 +37,15 @@ tests :: TestTree
 tests = testGroup "Test.Sanity.Interop" [
       -- Preliminaries
       testGroup "preliminary" [
-          testCaseInfo "callAfterException" test_callAfterException
+          testCase "callAfterException" test_callAfterException
         ]
 
       -- Tests from the gRPC interop suite
       --
       -- <https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptions.md#client>
     , testGroup "official" [
-          testCaseInfo "emptyUnary"                test_emptyUnary
-        , testCaseInfo "serverCompressedStreaming" test_serverCompressedStreaming
+          testCase "emptyUnary"                test_emptyUnary
+        , testCase "serverCompressedStreaming" test_serverCompressedStreaming
         ]
     ]
 
@@ -56,46 +56,39 @@ tests = testGroup "Test.Sanity.Interop" [
 
 type Ping = BinaryRpc "test" "ping"
 
-test_callAfterException :: IO String
+test_callAfterException :: IO ()
 test_callAfterException =
-    testClientServer expectInvalidArgument def {
-        client = \withConn -> withConn $ \conn -> do
-          resp1 <- call conn 0
+    testClientServer $ ClientServerTest {
+        config = def
+      , client = \withConn -> withConn $ \conn -> do
+          resp1 <- ping conn 0
           case resp1 of
             Left _  -> return ()
             Right _ -> assertFailure "Expected gRPC exception"
 
-          resp2 <- call conn 1
+          resp2 <- ping conn 1
           case resp2 of
             Left  _ -> assertFailure "Expected pong"
             Right i -> assertEqual "pong" i 1
       , server = [
-            Server.streamingRpcHandler (Proxy @Ping) $
-              Server.Binary.mkNonStreaming $ \(i :: Word) ->
-                if i > 0 then
-                  return i
-                else
-                  throwIO $ GrpcException {
-                      grpcError         = GrpcInvalidArgument
-                    , grpcErrorMessage  = Just "Expected non-zero ping"
-                    , grpcErrorMetadata = []
-                    }
+            Server.mkRpcHandler (Proxy @Ping) $ \call -> do
+              i :: Word <- Server.Binary.recvFinalInput call
+              if i > 0 then
+                Server.Binary.sendFinalOutput call (i, [])
+              else
+                Server.sendGrpcException call $ GrpcException {
+                    grpcError         = GrpcInvalidArgument
+                  , grpcErrorMessage  = Just "Expected non-zero ping"
+                  , grpcErrorMetadata = []
+                  }
           ]
       }
   where
-    call :: Client.Connection -> Word -> IO (Either SomeException Word)
-    call conn =
+    ping :: Client.Connection -> Word -> IO (Either SomeException Word)
+    ping conn =
         fmap (first (innerNestedException :: SomeException -> SomeException))
       . try
       . Client.Binary.nonStreaming conn (Client.rpc @Ping)
-
-    expectInvalidArgument :: SomeException -> Maybe ()
-    expectInvalidArgument e
-      | Just GrpcException{grpcError = GrpcInvalidArgument} <- fromException e
-      = Just ()
-
-      | otherwise
-      = Nothing
 
 {-------------------------------------------------------------------------------
   @empty_unary@
@@ -110,10 +103,11 @@ type EmptyCall = Protobuf TestService "emptyCall"
 -- This test fails if we unconditionally compress (the /compressed/ form of the
 -- empty message is larger than the uncompressed form, as compression introduces
 -- minor overhead).
-test_emptyUnary :: IO String
+test_emptyUnary :: IO ()
 test_emptyUnary =
-    testClientServer noCustomExceptions def {
-        client = \withConn -> withConn $ \conn ->
+    testClientServer $ ClientServerTest {
+        config = def
+      , client = \withConn -> withConn $ \conn ->
           Client.withRPC conn def (Proxy @EmptyCall) $ \call -> do
             Client.sendFinalInput call (defMessage :: Empty)
             streamElem <- Client.recvOutputWithEnvelope call
@@ -146,10 +140,11 @@ test_emptyUnary =
 type StreamingOutputCall = Protobuf TestService "streamingOutputCall"
 
 -- | Test that we can enable and disable compression per message
-test_serverCompressedStreaming :: IO String
+test_serverCompressedStreaming :: IO ()
 test_serverCompressedStreaming =
-    testClientServer noCustomExceptions def {
-        client = \withConn -> withConn $ \conn ->
+    testClientServer ClientServerTest {
+        config = def
+      , client = \withConn -> withConn $ \conn ->
           Client.withRPC conn def (Proxy @StreamingOutputCall) $ \call -> do
             Client.sendFinalInput call $ defMessage & #responseParameters .~ [
                 defMessage

@@ -22,7 +22,6 @@ import Data.Bifoldable
 import Data.Bifunctor
 import Data.Bitraversable
 import GHC.Generics qualified as GHC
-import Text.Show.Pretty
 
 -- | An element positioned in a stream
 data StreamElem b a =
@@ -62,7 +61,6 @@ data StreamElem b a =
     --   See 'StreamElem' for detailed additional discussion.
   | NoMoreElems b
   deriving stock (Show, Eq, Functor, Foldable, Traversable, GHC.Generic)
-  deriving anyclass (PrettyVal)
 
 instance Bifunctor StreamElem where
   bimap g f (FinalElem   a b) = FinalElem   (f a) (g b)

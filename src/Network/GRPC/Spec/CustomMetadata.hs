@@ -37,11 +37,9 @@ import Data.Word
 import GHC.Generics qualified as GHC
 import GHC.Show
 import Network.HTTP.Types qualified as HTTP
-import Text.Show.Pretty
 
 import Network.GRPC.Spec.Base64
 import Network.GRPC.Util.ByteString (strip, ascii, dropEnd)
-import Network.GRPC.Util.PrettyVal
 
 {-------------------------------------------------------------------------------
   Definition
@@ -82,7 +80,6 @@ data CustomMetadata =
     -- <https://www.rfc-editor.org/rfc/rfc5234#section-3.1>.
   | AsciiHeader HeaderName AsciiValue
   deriving stock (Show, Eq, Ord, GHC.Generic)
-  deriving anyclass (PrettyVal)
 
 customHeaderName :: CustomMetadata -> HeaderName
 customHeaderName (BinaryHeader n _) = n
@@ -106,7 +103,6 @@ newtype HeaderName = UnsafeHeaderName {
     }
   deriving stock (Eq, Ord)
   deriving newtype (IsString)
-  deriving (PrettyVal) via StrictByteString_IsString HeaderName
 
 -- | 'Show' instance relies on the 'HeaderName' pattern synonym
 instance Show HeaderName where
@@ -160,7 +156,6 @@ newtype AsciiValue = UnsafeAsciiValue {
       getAsciiValue :: Strict.ByteString
     }
   deriving stock (Eq, Ord)
-  deriving PrettyVal via StrictByteString_IsString AsciiValue
 
 -- | 'Show' instance relies on the 'AsciiValue' pattern synonym
 instance Show AsciiValue where
@@ -202,7 +197,6 @@ newtype BinaryValue = BinaryValue {
       getBinaryValue :: Strict.ByteString
     }
   deriving stock (Show, Eq, Ord)
-  deriving PrettyVal via StrictByteString_Binary "BinaryValue" BinaryValue
 
 buildBinaryValue :: BinaryValue -> Strict.ByteString
 buildBinaryValue = encodeBase64 . getBinaryValue

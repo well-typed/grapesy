@@ -10,9 +10,8 @@ module Network.GRPC.Server.Context (
   , new
     -- * Configuration
   , ServerParams(..)
-    -- * Logging and failures
+    -- * Logging
   , ServerDebugMsg(..)
-  , CallSetupFailure(..)
   ) where
 
 import Control.Exception
@@ -22,11 +21,10 @@ import Control.Tracer
 import Data.ByteString qualified as Strict (ByteString)
 import Data.Default
 import System.IO
-import Text.Show.Pretty
 
 import Network.GRPC.Common.Compression qualified as Compr
 import Network.GRPC.Server.RequestHandler.API
-import Network.GRPC.Server.Session (ServerSession)
+import Network.GRPC.Server.Session (ServerSession, CallSetupFailure)
 import Network.GRPC.Spec
 import Network.GRPC.Util.Session qualified as Session
 
@@ -90,7 +88,7 @@ defaultServerTopLevel h req resp =
     h req resp `XIO.catchError` (XIO.swallowIO . hPrint stderr)
 
 {-------------------------------------------------------------------------------
-  Logging and failures
+  Logging and failure
 -------------------------------------------------------------------------------}
 
 data ServerDebugMsg =
@@ -106,27 +104,4 @@ data ServerDebugMsg =
   | ServerDebugCallSetupFailed CallSetupFailure
 
 deriving instance Show ServerDebugMsg
-
-instance PrettyVal ServerDebugMsg where
-  prettyVal = String . show
-
--- | We failed to setup the call from the client
-data CallSetupFailure =
-    -- | Client sent resource headers that were not conform the gRPC spec
-    CallSetupInvalidResourceHeaders InvalidResourceHeaders
-
-    -- | No registered handler for the specified path
-    --
-    -- Note on terminology: HTTP has \"methods\" such as POST, GET, etc; gRPC
-    -- supports only POST, and when another HTTP method is chosen, this will
-    -- result in 'CallSetupInvalidResourceHeaders'. However, gRPC itself also
-    -- has the concept of a "method" (a method, or gRPC call, supported by a
-    -- particular service); it's these methods that
-    -- 'CallSetupUnimplementedMethod' is referring to.
-  | CallSetupUnimplementedMethod Path
-
-    -- | Some other exception happened
-  | CallSetupFailed SomeException
-  deriving stock (Show)
-  deriving anyclass (Exception)
 

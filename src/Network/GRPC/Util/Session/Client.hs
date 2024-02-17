@@ -4,9 +4,15 @@ module Network.GRPC.Util.Session.Client (
   , setupRequestChannel
   ) where
 
+import Control.Monad
 import Control.Monad.Catch
 import Control.Tracer
+import Data.ByteString qualified as BS.Strict
+import Data.ByteString qualified as Strict (ByteString)
 import Data.ByteString.Builder (Builder)
+import Data.ByteString.Lazy qualified as BS.Lazy
+import Data.ByteString.Lazy qualified as Lazy (ByteString)
+import Network.HTTP.Types qualified as HTTP
 import Network.HTTP2.Client qualified as Client
 
 import Network.GRPC.Util.HTTP2 (fromHeaderTable)
@@ -16,7 +22,6 @@ import Network.GRPC.Util.Session.Channel
 import Network.GRPC.Util.Thread
 
 import Debug.Concurrent
-import Control.Monad
 
 {-------------------------------------------------------------------------------
   Connection
@@ -114,8 +119,20 @@ setupRequestChannel sess tracer ConnectionToServer{sendRequest} outboundStart = 
             responseStatus <- case Client.responseStatus resp of
                                 Just x  -> return x
                                 Nothing -> throwM PeerMissingPseudoHeaderStatus
+
+            -- Read the entire response body in case of a non-OK response
+            responseBody :: Maybe Lazy.ByteString <-
+              if HTTP.statusIsSuccessful responseStatus then
+                return Nothing
+              else
+                Just <$> readResponseBody resp
+
             let responseHeaders = fromHeaderTable $ Client.responseHeaders resp
-                responseInfo    = ResponseInfo {responseHeaders, responseStatus}
+                responseInfo    = ResponseInfo {
+                                      responseHeaders
+                                    , responseStatus
+                                    , responseBody
+                                    }
 
             if Client.responseBodySize resp /= Just 0 then do
               headers <- parseResponseRegular sess responseInfo
@@ -161,3 +178,14 @@ setRequestTrailers ::
 setRequestTrailers sess channel req =
     Client.setRequestTrailersMaker req $
       outboundTrailersMaker sess channel
+
+readResponseBody :: Client.Response -> IO Lazy.ByteString
+readResponseBody resp = go []
+  where
+    go :: [Strict.ByteString] -> IO Lazy.ByteString
+    go acc = do
+        chunk <- Client.getResponseBodyChunk resp
+        if BS.Strict.null chunk then
+          return $ BS.Lazy.fromChunks (reverse acc)
+        else
+          go (chunk:acc)

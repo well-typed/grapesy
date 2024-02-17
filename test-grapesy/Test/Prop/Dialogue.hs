@@ -2,46 +2,38 @@
 
 module Test.Prop.Dialogue (tests) where
 
-import Control.Exception
 import Data.Set qualified as Set
-import Data.Text qualified as Text
-import GHC.Generics qualified as GHC
 import Test.Tasty
 import Test.Tasty.HUnit
 import Test.Tasty.QuickCheck
-import Text.Show.Pretty
 
-import Network.GRPC.Client (ServerDisconnected(..))
 import Network.GRPC.Common
-import Network.GRPC.Internal
-import Network.GRPC.Server (ClientDisconnected(..))
 
 import Test.Driver.ClientServer
 import Test.Driver.Dialogue
-import Test.Util.PrettyVal
 
 tests :: TestTree
 tests = testGroup "Test.Prop.Dialogue" [
       testGroup "Regression" [
-          testCaseInfo "trivial1"           $ regression trivial1
-        , testCaseInfo "trivial2"           $ regression trivial2
-        , testCaseInfo "trivial3"           $ regression trivial3
-        , testCaseInfo "concurrent1"        $ regression concurrent1
-        , testCaseInfo "concurrent2"        $ regression concurrent2
-        , testCaseInfo "concurrent3"        $ regression concurrent3
-        , testCaseInfo "concurrent4"        $ regression concurrent4
-        , testCaseInfo "exception1"         $ regression exception1
-        , testCaseInfo "exception2"         $ regression exception2
-        , testCaseInfo "earlyTermination01" $ regression earlyTermination01
-        , testCaseInfo "earlyTermination02" $ regression earlyTermination02
-        , testCaseInfo "earlyTermination03" $ regression earlyTermination03
-        , testCaseInfo "earlyTermination04" $ regression earlyTermination04
-        , testCaseInfo "earlyTermination05" $ regression earlyTermination05
-        , testCaseInfo "earlyTermination06" $ regression earlyTermination06
-        , testCaseInfo "earlyTermination07" $ regression earlyTermination07
-        , testCaseInfo "earlyTermination08" $ regression earlyTermination08
-        , testCaseInfo "earlyTermination09" $ regression earlyTermination09
---        , testCaseInfo "earlyTermination10" $ regression earlyTermination10
+          testCase "trivial1"           $ regression trivial1
+        , testCase "trivial2"           $ regression trivial2
+        , testCase "trivial3"           $ regression trivial3
+        , testCase "concurrent1"        $ regression concurrent1
+        , testCase "concurrent2"        $ regression concurrent2
+        , testCase "concurrent3"        $ regression concurrent3
+        , testCase "concurrent4"        $ regression concurrent4
+        , testCase "exception1"         $ regression exception1
+        , testCase "exception2"         $ regression exception2
+        , testCase "earlyTermination01" $ regression earlyTermination01
+        , testCase "earlyTermination02" $ regression earlyTermination02
+        , testCase "earlyTermination03" $ regression earlyTermination03
+        , testCase "earlyTermination04" $ regression earlyTermination04
+        , testCase "earlyTermination05" $ regression earlyTermination05
+        , testCase "earlyTermination06" $ regression earlyTermination06
+        , testCase "earlyTermination07" $ regression earlyTermination07
+        , testCase "earlyTermination08" $ regression earlyTermination08
+        , testCase "earlyTermination09" $ regression earlyTermination09
+--        , testCase "earlyTermination10" $ regression earlyTermination10
         ]
     , testGroup "Setup" [
           testProperty "shrinkingWellFounded" prop_shrinkingWellFounded
@@ -78,104 +70,17 @@ _arbitraryWithExceptions (DialogueWithExceptions dialogue) =
 propDialogue :: Dialogue -> Property
 propDialogue dialogue =
     counterexample (show globalSteps) $
-      propClientServer assessCustomException $
-        execGlobalSteps globalSteps
+      propClientServer $ execGlobalSteps globalSteps
   where
     globalSteps :: GlobalSteps
     globalSteps = dialogueGlobalSteps dialogue
 
-regression :: Dialogue -> IO String
+regression :: Dialogue -> IO ()
 regression dialogue = do
-    handle annotate $
-      testClientServer assessCustomException =<<
-        execGlobalSteps globalSteps
+    testClientServer =<< execGlobalSteps globalSteps
   where
     globalSteps :: GlobalSteps
     globalSteps = dialogueGlobalSteps dialogue
-
-    annotate :: SomeException -> IO String
-    annotate e = throwIO $ RegressionFailed e globalSteps
-
-data RegressionFailed = RegressionFailed {
-      regressionFailedException :: SomeException
-    , regressionFailedSteps     :: GlobalSteps
-    }
-  deriving stock (GHC.Generic)
-  deriving anyclass (Exception, PrettyVal)
-  deriving Show via ShowAsPretty RegressionFailed
-
-data ExpectedUserException =
-    ExpectedClientException SomeClientException
-  | ExpectedServerException SomeServerException
-  | ExpectedForwardedToClient GrpcException
-  | ExpectedClientDisconnected SomeException
-  | ExpectedServerDisconnected SomeException
-  | ExpectedEarlyTermination
-  deriving stock (Show, GHC.Generic)
-  deriving anyclass (PrettyVal)
-
--- | Custom exceptions
---
--- Technically we should only be expected custom user exceptions when we
--- generate them, but we're not concerned about accidental throws of these
--- custom exceptions.
---
--- TODO: However, it might be useful to be more precise about exactly which
--- gRPC exceptions we expect and when.
-assessCustomException :: SomeException -> Maybe ExpectedUserException
-assessCustomException err
-    --
-    -- Custom exceptions
-    --
-
-    | Just (userEx :: SomeServerException) <- fromException err
-    = Just $ ExpectedServerException userEx
-
-    | Just (userEx :: SomeClientException) <- fromException err
-    = Just $ ExpectedClientException userEx
-
-    -- Server-side exceptions are thrown as 'GrpcException' client-side
-    | Just (grpc :: GrpcException) <- fromException err
-    , GrpcUnknown <- grpcError grpc
-    , Just msg <- grpcErrorMessage grpc
-    , "SomeServerException" `Text.isInfixOf` msg
-    = Just $ ExpectedForwardedToClient grpc
-
-    -- For when the server disconnects /without/ an exception
-    --
-    -- TODO: Ideally, we should really allow for this only if we have reason to
-    -- believe that this case can happen. Currently, this is hiding a previous
-    -- bug where the exception from the handler was reported as
-    -- 'ServerDisconnected' rather than a 'GrpcException'.
-    | Just (ServerDisconnected e) <- fromException err
-    = Just $
-        ExpectedServerDisconnected (innerNestedException e)
-
-    -- Client-side exceptions are reported as 'ClientDisconnected', but without
-    -- additional information (gRPC does not support client-to-server trailers
-    -- so we have no way of informing the server about what went wrong).
-    | Just (ClientDisconnected e) <- fromException err
-    = Just $
-        ExpectedClientDisconnected (innerNestedException e)
-
-    --
-    -- Early termination
-    --
-
-    | Just (ChannelDiscarded _) <- fromException err
-    = Just $ ExpectedEarlyTermination
-    | Just (grpc :: GrpcException) <- fromException err
-    , GrpcUnknown <- grpcError grpc
-    , Just msg <- grpcErrorMessage grpc
-    , "HandlerTerminated" `Text.isInfixOf` msg
-    = Just $ ExpectedForwardedToClient grpc
-
-    --
-    -- Catch-all
-    --
-
-    | otherwise
-    = Nothing
 
 {-------------------------------------------------------------------------------
   Regression tests

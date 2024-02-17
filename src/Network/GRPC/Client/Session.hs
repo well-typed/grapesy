@@ -3,10 +3,16 @@ module Network.GRPC.Client.Session (
   , ClientInbound
   , ClientOutbound
   , Headers(..)
+    -- * Exceptions
+  , CallSetupFailure(..)
+  , InvalidTrailers(..)
   ) where
 
 import Control.Exception
 import Control.Monad
+import Data.ByteString.Lazy qualified as BS.Lazy
+import Data.ByteString.Lazy qualified as Lazy (ByteString)
+import Data.Maybe (fromMaybe)
 import Data.Proxy
 import Network.HTTP.Types qualified as HTTP
 
@@ -72,11 +78,13 @@ instance IsRPC rpc => IsSession (ClientSession rpc) where
 instance IsRPC rpc => InitiateSession (ClientSession rpc) where
   parseResponseRegular client info = do
       unless (HTTP.statusCode (responseStatus info) == 200) $
-        throwIO $ ResponseInvalidStatus (responseStatus info)
+        throwIO $ CallSetupUnexpectedStatus
+                    (responseStatus info)
+                    (fromMaybe BS.Lazy.empty $ responseBody info)
 
       responseHeaders :: ResponseHeaders <-
         case parseResponseHeaders (Proxy @rpc) (responseHeaders info) of
-          Left  err    -> throwIO $ ResponseInvalidHeaders err
+          Left  err    -> throwIO $ CallSetupInvalidResponseHeaders err
           Right parsed -> return parsed
 
       let cInId :: Maybe CompressionId
@@ -86,7 +94,7 @@ instance IsRPC rpc => InitiateSession (ClientSession rpc) where
           Nothing  -> return noCompression
           Just cid ->
             case Compr.getSupported (clientCompression client) cid of
-              Nothing    -> throwIO $ ResponseUnsupportedCompression cid
+              Nothing    -> throwIO $ CallSetupUnsupportedCompression cid
               Just compr -> return compr
 
       clientUpdateMeta client responseHeaders
@@ -98,7 +106,9 @@ instance IsRPC rpc => InitiateSession (ClientSession rpc) where
 
   parseResponseNoMessages _ info = do
       unless (HTTP.statusCode (responseStatus info) == 200) $
-        throwIO $ ResponseInvalidStatus (responseStatus info)
+        throwIO $ CallSetupUnexpectedStatus
+                    (responseStatus info)
+                    (fromMaybe BS.Lazy.empty $ responseBody info)
       processResponseTrailers
         (fmap getTrailersOnly . parseTrailersOnly (Proxy @rpc))
         (responseHeaders info)
@@ -136,7 +146,7 @@ processResponseTrailers ::
   -> IO [CustomMetadata]
 processResponseTrailers parse raw =
     case parse raw of
-      Left  err      -> throwIO $ ResponseInvalidTrailers err
+      Left  err      -> throwIO $ InvalidTrailers err
       Right trailers -> case grpcExceptionFromTrailers trailers of
                           Left (_msg, metadata) -> return metadata
                           Right err -> throwIO err
@@ -145,21 +155,33 @@ processResponseTrailers parse raw =
   Exceptions
 -------------------------------------------------------------------------------}
 
-data InvalidResponse =
+data CallSetupFailure =
     -- | Server sent a HTTP status other than 200 OK
     --
-    -- The spec explicitly disallows this; if a particular method is not
-    -- supported, then the server will respond with HTTP 200 and then a
-    -- grpc-status of 'GrpcUnimplemented'.
-    ResponseInvalidStatus HTTP.Status
+    -- This can happen in one of two situations:
+    --
+    -- * We sent a malformed request to the server. This cannot happen in
+    --   @grapesy@ unless 'Network.GRPC.Client.ConnParams' is misconfigured.
+    -- * We are dealing with non-compliant server.
+    --
+    -- We also include the response body.
+    --
+    -- TODO: <https://github.com/well-typed/grapesy/issues/22>.
+    -- The spec /does/ require us to deal with non-compliant servers in limited
+    -- ways. For example, some non-compliant servers might return a HTTP 404
+    -- instead of a HTTP 200 with a 'GrpcStatus' of 'GrpcUnimplemented'. We do
+    -- not yet do this.
+    CallSetupUnexpectedStatus HTTP.Status Lazy.ByteString
 
-    -- | Server chose an unsuppored compression algorithm
-  | ResponseUnsupportedCompression CompressionId
+    -- | Server chose an unsupported compression algorithm
+  | CallSetupUnsupportedCompression CompressionId
 
     -- | We failed to parse the response headers
-  | ResponseInvalidHeaders String
+  | CallSetupInvalidResponseHeaders String
+  deriving stock (Show)
+  deriving anyclass (Exception)
 
-    -- | We failed to parse the response trailers
-  | ResponseInvalidTrailers String
+-- | We failed to parse the response trailers
+data InvalidTrailers = InvalidTrailers String
   deriving stock (Show)
   deriving anyclass (Exception)

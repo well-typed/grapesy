@@ -4,15 +4,15 @@
 module Test.Util.ClientServer (
     -- * Configuraiton
     ClientServerConfig(..)
+  , ContentTypeOverride(..)
     -- ** TLS
   , TlsSetup(..)
   , TlsOk(..)
   , TlsFail(..)
     -- ** Evaluation
-  , ExpectedException(..)
-  , UnexpectedException(..)
-  , isExpectedException
+  , DeliberateException(..)
     -- * Run
+  , ClientServerTest(..)
   , runTestClientServer
     -- ** Lower-level functionality
   , ServerHandlerLock -- opaque
@@ -26,18 +26,17 @@ import Control.Monad.Catch
 import Control.Monad.IO.Class
 import Control.Tracer
 import Data.ByteString qualified as Strict (ByteString)
-import Data.List qualified as List
 import Data.Map (Map)
 import Data.Map qualified as Map
+import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text qualified as Text
 import GHC.Generics qualified as GHC
+import Network.HTTP.Types qualified as HTTP
 import Network.TLS
-import Text.Show.Pretty
 
 import Network.GRPC.Client qualified as Client
 import Network.GRPC.Common
-import Network.GRPC.Common.Compression (CompressionNegotationFailed)
 import Network.GRPC.Common.Compression qualified as Compr
 import Network.GRPC.Internal
 import Network.GRPC.Internal.XIO (NeverThrows)
@@ -47,17 +46,31 @@ import Network.GRPC.Server.Run qualified as Server
 
 import Debug.Concurrent
 
-import Test.Util.PrettyVal
-
 import Paths_grapesy
 
 {-------------------------------------------------------------------------------
   Configuration
 -------------------------------------------------------------------------------}
 
+data ContentTypeOverride =
+    -- | Use the default content-type
+    NoOverride
+
+    -- | Override with a valid alternative content-type
+    --
+    -- It is the responsibility of the test to make sure that this content-type
+    -- is in fact valid.
+  | ValidOverride Strict.ByteString
+
+    -- | Override with an invalid content-type
+  | InvalidOverride Strict.ByteString
+
 data ClientServerConfig = ClientServerConfig {
       -- | Compression algorithms supported by the client
       clientCompr :: Compr.Negotation
+
+      -- | Initial compression algorithm used by the client (if any)
+    , clientInitCompr :: Maybe Compr.Compression
 
       -- | Compression algorithms supported the server
     , serverCompr :: Compr.Negotation
@@ -66,19 +79,34 @@ data ClientServerConfig = ClientServerConfig {
     , useTLS :: Maybe TlsSetup
 
       -- | Override content-type used by the client
-    , clientContentType :: Maybe Strict.ByteString
+    , clientContentType :: ContentTypeOverride
 
       -- | Override content-type used by the server
-    , serverContentType :: Maybe Strict.ByteString
+    , serverContentType :: ContentTypeOverride
+
+      -- | Should we expect any clients to terminate early?
+      --
+      -- \"Termination\" here could be either normal termination (no exception,
+      -- but not properly closing the RPC call either) or abnormal termination
+      -- (throwing an exception).
+    , expectEarlyClientTermination :: Bool
+
+      -- | Should we expect any server handlers to terminate early?
+      --
+      -- Same comments for \"termination\" apply.
+    , expectEarlyServerTermination :: Bool
     }
 
 instance Default ClientServerConfig where
   def = ClientServerConfig {
       clientCompr       = def
+    , clientInitCompr   = Nothing
     , serverCompr       = def
     , useTLS            = Nothing
-    , clientContentType = Nothing
-    , serverContentType = Nothing
+    , clientContentType = NoOverride
+    , serverContentType = NoOverride
+    , expectEarlyClientTermination = False
+    , expectEarlyServerTermination = False
     }
 
 {-------------------------------------------------------------------------------
@@ -89,7 +117,6 @@ data LogMsg =
     ServerLogMsg Server.ServerDebugMsg
   | ClientLogMsg Client.ClientDebugMsg
   deriving stock (Show, GHC.Generic)
-  deriving anyclass (PrettyVal)
 
 collectLogMsgs :: (MonadIO m) => MVar [a] -> Tracer m a
 collectLogMsgs v = arrow $ emit $ \x -> liftIO $
@@ -132,163 +159,181 @@ data TlsFail =
   | TlsFailUnsupported
 
 {-------------------------------------------------------------------------------
-  Config evaluation (do we expect an error?)
+  Expected exceptions
+
+  Ideally 'isExpectedServerException' and 'isExpectedClientException' should
+  have identical structure, illustrating that the exceptions are consistent
+  between the server API and the client API. This ideal isn't /quite/ reached:
+
+  * If a server handler throws an exception, the client is informed,
+    but the reverse is not true (the client simply disconnects).
+  * TLS exceptions are thrown to the client, but since no handler is ever run,
+    we don't see these exceptions server-side.
+
+  TODO: Early server termination does not result in an exception server-side.
+  This is inconsistent.
 -------------------------------------------------------------------------------}
 
-data ExpectedException e =
-    ExpectedExceptionTls TLSException
-  | ExpectedExceptionGrpc GrpcException
-  | ExpectedExceptionCompressionNegotationFailed CompressionNegotationFailed
-  | ExpectedExceptionPeer PeerException
-  | ExpectedExceptionDouble (DoubleException (ExpectedException e))
-  | ExpectedExceptionCustom e
-  deriving stock (Show, GHC.Generic)
-  deriving anyclass (PrettyVal)
-
-data UnexpectedException = UnexpectedException {
-      -- | The top-level exception (including any wrapper exceptions)
-      unexpectedExceptionTopLevel :: SomeException
-
-      -- | The (possibly nested) exception that was actually unexpected
-    , unexpectedExceptionNested :: SomeException
-    }
-  deriving stock (Show)
+-- | Exception thrown by client or handler to test exception handling
+data DeliberateException = forall e. Exception e => DeliberateException e
   deriving anyclass (Exception)
 
--- | Check if the given configuration gives rise to expected exceptions
---
--- Returns 'Right' the expected exception if any (with any wrapper exceptions
--- removed), 'Left' some (possibly nested) exception if the exception was
--- unexpected.
---
--- NOTE: We /never/ expect the 'KilledByHttp2ThreadManager' exception from
--- @http2@, as we protect the handler from this; see 'runHandler' for details
--- (TL;DR: /if/ the handler tries to communicate after an
--- 'KilledByHttp2ThreadManager' exception, it will find that the channel has
--- been closed).
-isExpectedException :: forall e.
-     ClientServerConfig
-  -> (SomeException -> Maybe e)
-  -- ^ Assess custom exceptiosn
+deriving stock instance Show DeliberateException
+
+isExpectedServerException :: ClientServerConfig -> SomeException -> Bool
+isExpectedServerException cfg e
   --
-  -- Can either return e nested exception, or an evaluation whether the
-  -- exception is expected or not.
-  -> SomeException
-  -> Either UnexpectedException (ExpectedException e)
-isExpectedException cfg assessCustomException topLevel =
-    go topLevel
+  -- Deliberate exceptions
+  --
+
+  | Just (DeliberateException _) <- fromException e'
+  = True
+
+  --
+  -- Early client termination
+  --
+
+  | Just Server.ClientDisconnected{} <- fromException e'
+  , expectEarlyClientTermination cfg
+  = True
+
+  --
+  -- Call setup failure
+  --
+
+  | Just Server.CallSetupInvalidRequestHeaders{} <- fromException e'
+  , InvalidOverride _ <- clientContentType cfg
+  = True
+
+  --
+  -- Compression negotation
+  --
+
+  | Just Server.CallSetupUnsupportedCompression{} <- fromException e'
+  , compressionNegotationFailure cfg
+  = True
+
+  --
+  -- Fall-through
+  --
+
+  | otherwise
+  = False
   where
-    go :: SomeException -> Either UnexpectedException (ExpectedException e)
-    go err
-      --
-      -- Expected exceptions
-      --
+    e' = innerNestedException e
 
-      -- Expected exception: TLS
+isExpectedClientException :: ClientServerConfig -> SomeException -> Bool
+isExpectedClientException cfg e
+  --
+  -- Deliberate exceptions
+  --
 
-      | Just (tls :: TLSException) <- fromException err
-      = case (useTLS cfg, tls) of
+  -- Client threw deliberate exception
+  | Just (DeliberateException _) <- fromException e'
+  = True
+
+  -- Server threw deliberat exception
+  | Just grpcException <- fromException e'
+  , Just msg <- grpcErrorMessage grpcException
+  , "DeliberateException" `Text.isInfixOf` msg
+  = True
+
+  --
+  -- Early client termination
+  --
+
+  | Just ChannelDiscarded{} <- fromException e'
+  , expectEarlyClientTermination cfg
+  = True
+
+  --
+  -- Early server termination
+  --
+
+  | Just grpcException <- fromException e'
+  , Just msg <- grpcErrorMessage grpcException
+  , "HandlerTerminated" `Text.isInfixOf` msg
+  , expectEarlyServerTermination cfg
+  = True
+
+  --
+  -- Call setup failure
+  --
+  -- TODO: Perhaps we should verify the contents of the body.
+  --
+
+  | Just (Client.CallSetupUnexpectedStatus status _body) <- fromException e'
+  , InvalidOverride _ <- clientContentType cfg
+  , status == HTTP.badRequest400
+  = True
+
+  --
+  -- Compression negotation
+  --
+
+  -- Client choose unsupported compression
+  | Just (Client.CallSetupUnexpectedStatus status _body) <- fromException e'
+  , compressionNegotationFailure cfg
+  , status == HTTP.badRequest400
+  = True
+
+  -- Server chose unsupported compression
+  | Just Client.CallSetupUnsupportedCompression{} <- fromException e'
+  , compressionNegotationFailure cfg
+  = True
+
+  --
+  -- TLS problems
+  --
+
+  | Just tls <- fromException e'
+  , isExpectedTLSException cfg tls
+  = True
+
+  --
+  -- Fall-through
+  --
+
+  | otherwise
+  = False
+  where
+    e' = innerNestedException e
+
+compressionNegotationFailure :: ClientServerConfig -> Bool
+compressionNegotationFailure cfg = or [
+      Set.disjoint clientSupported serverSupported
+    , case clientInitCompr cfg of
+        Nothing    -> False
+        Just compr -> Compr.compressionId compr `Set.notMember` serverSupported
+    ]
+  where
+    clientSupported, serverSupported :: Set Compr.CompressionId
+    clientSupported = Map.keysSet (Compr.supported (clientCompr cfg))
+    serverSupported = Map.keysSet (Compr.supported (serverCompr cfg))
+
+isExpectedTLSException :: ClientServerConfig -> TLSException -> Bool
+isExpectedTLSException cfg tls =
+    case (useTLS cfg, tls) of
 #if MIN_VERSION_tls(1,9,0)
-          (   Just (TlsFail TlsFailValidation)
-            , HandshakeFailed (Error_Protocol _msg UnknownCa)
-            ) ->
-            Right $ ExpectedExceptionTls tls
-          (   Just (TlsFail TlsFailHostname)
-            , HandshakeFailed (Error_Protocol _msg CertificateUnknown)
-            ) ->
-             Right $ ExpectedExceptionTls tls
+      (   Just (TlsFail TlsFailValidation)
+        , HandshakeFailed (Error_Protocol _msg UnknownCa)
+        ) -> True
+      (   Just (TlsFail TlsFailHostname)
+        , HandshakeFailed (Error_Protocol _msg CertificateUnknown)
+        ) -> True
 #else
-          (   Just (TlsFail TlsFailValidation)
-            , HandshakeFailed (Error_Protocol (_msg, _bool, UnknownCa))
-            ) ->
-            Right $ ExpectedExceptionTls tls
-          (   Just (TlsFail TlsFailHostname)
-            , HandshakeFailed (Error_Protocol (_msg, _bool, CertificateUnknown))
-            ) ->
-             Right $ ExpectedExceptionTls tls
+      (   Just (TlsFail TlsFailValidation)
+        , HandshakeFailed (Error_Protocol (_msg, _bool, UnknownCa))
+        ) -> True
+      (   Just (TlsFail TlsFailHostname)
+        , HandshakeFailed (Error_Protocol (_msg, _bool, CertificateUnknown))
+        ) -> True
 #endif
-          (   Just (TlsFail TlsFailUnsupported)
-            , HandshakeFailed (Error_Packet_Parsing _)
-            ) ->
-             Right $ ExpectedExceptionTls tls
-          _otherwise ->
-            Left $ UnexpectedException topLevel err
-
-      -- Expected exception: compression
-
-      -- .. client side
-      | Just (grpc :: GrpcException) <- fromException err
-      , compressionNegotationFailure
-      , GrpcUnknown <- grpcError grpc
-      , Just msg <- grpcErrorMessage grpc
-      , "CompressionNegotationFailed" `Text.isInfixOf` msg
-      = Right $ ExpectedExceptionGrpc grpc
-
-      -- .. server side
-      | Just (Server.CallSetupFailed err') <- fromException err
-      , Just (compr :: CompressionNegotationFailed) <- fromException err'
-      , compressionNegotationFailure
-      = Right $ ExpectedExceptionCompressionNegotationFailed compr
-
-      -- Expected exception: invalid content-type sent by client
-
-      -- .. client side
-      | Just (grpc :: GrpcException) <- fromException err
-      , invalidClientContentType
-      , GrpcUnknown <- grpcError grpc
-      , Just msg <- grpcErrorMessage grpc
-      , "Content-Type" `Text.isInfixOf` msg
-      = Right $ ExpectedExceptionGrpc grpc
-
-      -- .. server side
-      | Just (Server.CallSetupFailed err') <- fromException err
-      , Just err''@(PeerSentInvalidHeaders msg) <- fromException err'
-      , invalidClientContentType
-      , "Content-Type" `List.isInfixOf` msg
-      = Right $ ExpectedExceptionPeer err''
-
-      --
-      -- Wrappers
-      --
-
-      | Just err' <- maybeNestedException err
-      = go err'
-
-      | Just (DoubleException { doubleExceptionClient
-                              , doubleExceptionServer
-                              }) <- fromException err
-      = case (go doubleExceptionClient, go doubleExceptionServer) of
-          (Left unexpected, _) -> Left unexpected
-          (_, Left unexpected) -> Left unexpected
-          (Right expected, Right expected') ->
-            Right $ ExpectedExceptionDouble DoubleException {
-                doubleExceptionClient = expected
-              , doubleExceptionServer = expected'
-              , doubleExceptionAnnotation = ()
-              }
-
-      --
-      -- Custom exceptions
-      --
-
-      | otherwise
-      = case assessCustomException err of
-          Just err' -> Right $ ExpectedExceptionCustom err'
-          Nothing   -> Left $ UnexpectedException topLevel err
-
-    compressionNegotationFailure :: Bool
-    compressionNegotationFailure =
-        Set.disjoint (Map.keysSet (Compr.supported (clientCompr cfg)))
-                     (Map.keysSet (Compr.supported (serverCompr cfg)))
-
-    -- TODO: By rights /any/ format (not just "gibberish") should be ok
-    invalidClientContentType :: Bool
-    invalidClientContentType = not $
-        case clientContentType cfg of
-          Nothing                           -> True
-          Just "application/grpc"           -> True
-          Just "application/grpc+gibberish" -> True
-          _otherwise                        -> False
+      (   Just (TlsFail TlsFailUnsupported)
+        , HandshakeFailed (Error_Packet_Parsing _)
+        ) -> True
+      _otherwise ->
+        False
 
 {-------------------------------------------------------------------------------
   Server handler lock
@@ -332,22 +377,34 @@ waitForHandlerTermination (ServerHandlerLock lock) = do
                                HandlerError e -> return $ Left e
 
 topLevelWithHandlerLock ::
-     ServerHandlerLock
+     ClientServerConfig
+  -> ServerHandlerLock
   -> Server.RequestHandler SomeException ()
   -> Server.RequestHandler NeverThrows   ()
-topLevelWithHandlerLock (ServerHandlerLock lock) handler req respond = do
-    tid <- XIO.unsafeNeverThrowsIO $
-      myThreadId
-    XIO.unsafeNeverThrowsIO $
-      atomically $ modifyTVar lock $ Map.insert tid HandlerActive
-    res <- XIO.tryError $
-      handler req respond
-    XIO.unsafeNeverThrowsIO $
-      atomically $
-        modifyTVar lock $ Map.insert tid $
-          case res of
-            Left err -> HandlerError err
-            Right () -> HandlerDone
+topLevelWithHandlerLock cfg (ServerHandlerLock lock) handler req respond = do
+    tid <- XIO.unsafeTrustMe $ myThreadId
+
+    let markActive, markDone :: XIO.XIO' NeverThrows ()
+        markActive = XIO.unsafeTrustMe $
+            atomically $ modifyTVar lock $ Map.insert tid HandlerActive
+        markDone = XIO.unsafeTrustMe $
+            atomically $ modifyTVar lock $ Map.insert tid $ HandlerDone
+
+        markError :: SomeException -> XIO.XIO' NeverThrows ()
+        markError err = XIO.unsafeTrustMe $
+            atomically $ modifyTVar lock $ Map.insert tid $ HandlerError err
+
+    markActive
+    res <- XIO.tryError $ handler req respond
+    case res of
+      Right () ->
+        markDone
+      Left e -> do
+        if isExpectedServerException cfg e then
+          markDone
+        else do
+          XIO.swallowIO $ putStrLn $ "Server uhoh: " ++ show (innerNestedException e)
+          markError e
 
 {-------------------------------------------------------------------------------
   Server
@@ -396,8 +453,12 @@ runTestServer cfg serverTracer handlerLock serverHandlers = do
         serverParams = Server.ServerParams {
               serverCompression = serverCompr cfg
             , serverDebugTracer = serverTracer
-            , serverTopLevel    = topLevelWithHandlerLock handlerLock
-            , serverContentType = serverContentType cfg
+            , serverTopLevel    = topLevelWithHandlerLock cfg handlerLock
+            , serverContentType =
+                case serverContentType cfg of
+                  NoOverride            -> Nothing
+                  ValidOverride   ctype -> Just ctype
+                  InvalidOverride ctype -> Just ctype
             }
 
     Server.runServerWithHandlers serverConfig serverParams serverHandlers
@@ -406,20 +467,27 @@ runTestServer cfg serverTracer handlerLock serverHandlers = do
   Client
 -------------------------------------------------------------------------------}
 
-runTestClient :: forall a.
+runTestClient ::
      ClientServerConfig
   -> Tracer IO Client.ClientDebugMsg
-  -> ((forall b. (Client.Connection -> IO b) -> IO b) -> IO a)
-  -> IO a
+  -> (((Client.Connection -> IO ()) -> IO ()) -> IO ())
+  -> IO ()
 runTestClient cfg clientTracer clientRun = do
     pubCert <- getDataFileName "grpc-demo.pem"
 
     let clientParams :: Client.ConnParams
         clientParams = Client.ConnParams {
-              connDebugTracer    = clientTracer
-            , connCompression    = clientCompr cfg
-            , connDefaultTimeout = Nothing
-            , connContentType    = clientContentType cfg
+              connDebugTracer     = clientTracer
+            , connCompression     = clientCompr cfg
+            , connInitCompression = clientInitCompr cfg
+            , connDefaultTimeout  = Nothing
+
+              -- Content-type
+            , connContentType =
+                case clientContentType cfg of
+                  NoOverride            -> Nothing
+                  ValidOverride   ctype -> Just ctype
+                  InvalidOverride ctype -> Just ctype
 
               -- We need a single reconnect, to enable wait-for-ready.
               -- This avoids a race condition between the server starting first
@@ -478,18 +546,33 @@ runTestClient cfg clientTracer clientRun = do
                 , addressAuthority = Nothing
                 }
 
-    clientRun $ Client.withConnection clientParams clientServer
+        withConn :: (Client.Connection -> IO ()) -> IO ()
+        withConn k = do
+            mb :: Either SomeException b <-
+              try $ Client.withConnection clientParams clientServer k
+            case mb of
+              Right b -> return b
+              Left e ->
+                if isExpectedClientException cfg e
+                  then return ()
+                  else do
+                    putStrLn $ "Client uhoh: " ++ show (innerNestedException e)
+                    throwIO e
+
+    clientRun withConn
 
 {-------------------------------------------------------------------------------
   Main entry point: run server and client together
 -------------------------------------------------------------------------------}
 
-runTestClientServer :: forall a.
-     ClientServerConfig
-  -> ((forall b. (Client.Connection -> IO b) -> IO b) -> IO a)
-  -> [Server.RpcHandler IO]
-  -> IO a
-runTestClientServer cfg clientRun serverHandlers = do
+data ClientServerTest = ClientServerTest {
+      config :: ClientServerConfig
+    , client :: ((Client.Connection -> IO ()) -> IO ()) -> IO ()
+    , server :: [Server.RpcHandler IO]
+    }
+
+runTestClientServer :: ClientServerTest -> IO ()
+runTestClientServer (ClientServerTest cfg clientRun serverHandlers) = do
     logMsgVar <- newMVar []
     let logTracer :: Tracer IO LogMsg
         logTracer = collectLogMsgs logMsgVar
@@ -551,9 +634,7 @@ data ServerException = ServerException {
       serverException     :: SomeException
     , serverExceptionLogs :: [LogMsg]
     }
-  deriving stock (GHC.Generic)
-  deriving anyclass (PrettyVal)
-  deriving Show via ShowAsPretty ServerException
+  deriving stock (Show, GHC.Generic)
   deriving Exception via ExceptionWrapper ServerException
 
 instance HasNestedException ServerException where
@@ -563,32 +644,18 @@ data ClientException = ClientException {
       clientException     :: SomeException
     , clientExceptionLogs :: [LogMsg]
     }
-  deriving stock (GHC.Generic)
-  deriving anyclass (PrettyVal)
-  deriving Show via ShowAsPretty ClientException
+  deriving stock (Show, GHC.Generic)
   deriving Exception via ExceptionWrapper ClientException
 
 instance HasNestedException ClientException where
   getNestedException = clientException
 
-data DoubleException e = forall a. (Show a, PrettyVal a) => DoubleException {
+data DoubleException e = forall a. Show a => DoubleException {
       doubleExceptionClient     :: e
     , doubleExceptionServer     :: e
     , doubleExceptionAnnotation :: a
     }
   deriving anyclass (Exception)
-  deriving Show via ShowAsPretty (DoubleException e)
 
-instance PrettyVal e => PrettyVal (DoubleException e) where
-  prettyVal DoubleException{ doubleExceptionClient
-                           , doubleExceptionServer
-                           , doubleExceptionAnnotation
-                           } =
-     Rec "DoubleException" [
-         ("doubleExceptionClient", prettyVal doubleExceptionClient)
-       , ("doubleExceptionServer", prettyVal doubleExceptionServer)
-       , ("doubleExceptionAnnotation", prettyVal doubleExceptionAnnotation)
-       ]
-
-
+deriving stock instance Show e => Show (DoubleException e)
 

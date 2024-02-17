@@ -36,7 +36,6 @@ import Generics.SOP qualified as SOP
 import GHC.Generics qualified as GHC
 import Network.HTTP.Types qualified as HTTP
 import Text.Read (readMaybe)
-import Text.Show.Pretty
 
 import Network.GRPC.Spec.Common
 import Network.GRPC.Spec.Compression (CompressionId)
@@ -98,7 +97,7 @@ data GrpcException = GrpcException {
     , grpcErrorMetadata :: [CustomMetadata]
     }
   deriving stock (Show, Eq, GHC.Generic)
-  deriving anyclass (Exception, PrettyVal)
+  deriving anyclass (Exception)
 
 grpcExceptionFromTrailers ::
      ProperTrailers

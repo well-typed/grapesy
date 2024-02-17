@@ -26,9 +26,8 @@ import Network.HTTP.Types qualified as HTTP
 import Network.HTTP2.Client qualified as Client
 import Network.HTTP2.Server qualified as Server
 
-import Network.GRPC.Util.HTTP2 (fromHeaderTable)
-import Text.Show.Pretty
 import Network.GRPC.Internal.NestedException
+import Network.GRPC.Util.HTTP2 (fromHeaderTable)
 
 {-------------------------------------------------------------------------------
   Streams
@@ -185,9 +184,6 @@ data ClientDisconnected = ClientDisconnected SomeException
 data ServerDisconnected = ServerDisconnected SomeException
   deriving stock (Show)
   deriving anyclass (Exception)
-
-instance PrettyVal ClientDisconnected where prettyVal = String . show
-instance PrettyVal ServerDisconnected where prettyVal = String . show
 
 wrapStreamExceptionsWith ::
      (HasCallStack, Exception e)

@@ -112,14 +112,13 @@ instance CalculatorFunction fun => IsRPC (Calc fun) where
 tests :: TestTree
 tests =
     testGroup "Test.Sanity.StreamingType.CustomFormat" [
-        testCaseInfo "calculator" $
-          test_calculator_cbor def
+        testCase "calculator" test_calculator_cbor
       ]
 
-test_calculator_cbor :: ClientServerConfig -> IO String
-test_calculator_cbor config = do
-    testClientServer noCustomExceptions $ def {
-        config
+test_calculator_cbor :: IO ()
+test_calculator_cbor = do
+    testClientServer $ ClientServerTest {
+        config = def
       , client = \withConn -> withConn $ \conn -> do
           nonStreamingSumCheck conn
           serverStreamingSumCheck conn

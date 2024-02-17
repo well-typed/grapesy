@@ -18,20 +18,17 @@ module Network.GRPC.Common.Compression (
   , getSupported
     -- ** Specific negotation strategies
   , none
-  , require
   , chooseFirst
-    -- ** Exceptions
-  , CompressionNegotationFailed(..)
+  , only
+  , insist
   ) where
 
-import Control.Exception
 import Data.Default
 import Data.Foldable (toList)
 import Data.List.NonEmpty (NonEmpty(..))
 import Data.List.NonEmpty qualified as NE
 import Data.Map (Map)
 import Data.Map qualified as Map
-import Text.Show.Pretty
 
 import Network.GRPC.Spec
 
@@ -42,6 +39,9 @@ import Network.GRPC.Spec
 -- | Compression negotation
 data Negotation = Negotation {
       -- | Which algorithms should be offered (in this order) to the peer?
+      --
+      -- This should normally always include 'Identity' (see 'choose');
+      -- but see 'insist'.
       offer :: NonEmpty CompressionId
 
       -- | Choose compression algorithm
@@ -49,9 +49,13 @@ data Negotation = Negotation {
       -- We will run this only once per open connection, when the server first
       -- tells us their list of supported compression algorithms. Unless
       -- compression negotation has taken place, no compression should be used.
-    , choose ::
-           NonEmpty CompressionId
-        -> Either CompressionNegotationFailed Compression
+      --
+      -- This cannot fail: the least common denominator is to use no
+      -- compression. This must be allowed, because the gRPC specification
+      -- /anyway/ allows a per-message flag to indicate whether the message
+      -- is compressed or not; thus, even if a specific compression algorithm
+      -- is negotiated, there is no guarantee anything is compressed.
+    , choose :: NonEmpty CompressionId -> Compression
 
       -- | All supported compression algorithms
     , supported :: Map CompressionId Compression
@@ -66,41 +70,39 @@ instance Default Negotation where
 
 -- | Disable all compression
 none :: Negotation
-none = require noCompression
+none = insist noCompression
 
--- | Insist on the specified algorithm
-require :: Compression -> Negotation
-require = chooseFirst . (:| [])
-
--- | Choose the first algorithm that appears in the list of client supported
+-- | Choose the first algorithm that appears in the list of peer supported
+--
+-- Precondition: the list should include the identity.
 chooseFirst :: NonEmpty Compression -> Negotation
 chooseFirst ourSupported = Negotation {
       offer =
         fmap compressionId ourSupported
-    , choose = \serverSupported ->
-        let isSupported :: Compression -> Bool
-            isSupported = (`elem` serverSupported) . compressionId
-        in case NE.filter isSupported ourSupported of
-             c:_ -> Right c
-             []  -> Left $ CompressionNegotationFailed serverSupported
+    , choose = \peerSupported ->
+        let peerSupports :: Compression -> Bool
+            peerSupports = (`elem` peerSupported) . compressionId
+        in case NE.filter peerSupports ourSupported of
+             c:_ -> c
+             []  -> noCompression
     , supported =
         Map.fromList $
           map (\c -> (compressionId c, c)) (toList ourSupported)
     }
 
-{-------------------------------------------------------------------------------
-  Exceptions
--------------------------------------------------------------------------------}
+-- | Only use the given algorithm, if the peer supports it
+only :: Compression -> Negotation
+only compr = chooseFirst (compr :| [noCompression])
 
--- | Negotation failed
+-- | Insist on the specified algorithm, /no matter what the peer offers/
 --
--- Unlike 'CompressionException', this is /not/ indicative of a misbehaving
--- peer. It does however mean that we probably cannot talk to this peer.
-data CompressionNegotationFailed =
-    -- | We don't support any of the compression algorithms listed by the peer
-    CompressionNegotationFailed (NonEmpty CompressionId)
-  deriving stock (Show)
-  deriving anyclass (Exception)
-
-instance PrettyVal CompressionNegotationFailed where
-  prettyVal = String . show
+-- This is dangerous: if the peer does not supported the specified algorithm,
+-- it will be unable to decompress any messages. Primarily used for testing.
+--
+-- See also 'only'.
+insist :: Compression -> Negotation
+insist compr = Negotation {
+      offer     = compressionId compr :| []
+    , choose    = \_ -> compr
+    , supported = Map.singleton (compressionId compr) compr
+    }

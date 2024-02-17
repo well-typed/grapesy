@@ -16,13 +16,11 @@ import Data.Set (Set)
 import Data.Set qualified as Set
 import GHC.Generics qualified as GHC
 import Test.QuickCheck
-import Text.Show.Pretty
 
 import Network.GRPC.Common
 
 import Test.Driver.Dialogue.Definition
 import Test.Driver.Dialogue.TestClock
-import Test.Util.PrettyVal
 
 {-------------------------------------------------------------------------------
   Metadata
@@ -275,9 +273,7 @@ ensureCorrectUsage = go Map.empty []
 newtype Dialogue = Dialogue {
       getDialogue :: [(Int, LocalStep)]
     }
-  deriving stock (Eq, GHC.Generic)
-  deriving anyclass (PrettyVal)
-  deriving Show via ShowAsPretty Dialogue
+  deriving stock (Show, Eq, GHC.Generic)
 
 dialogueGlobalSteps :: Dialogue -> GlobalSteps
 dialogueGlobalSteps =
@@ -400,14 +396,10 @@ shrinkInterleaved f (i, a) = (i, ) <$> f a
 -------------------------------------------------------------------------------}
 
 newtype DialogueWithoutExceptions = DialogueWithoutExceptions Dialogue
-  deriving stock (Eq, GHC.Generic)
-  deriving anyclass (PrettyVal)
-  deriving Show via ShowAsPretty DialogueWithoutExceptions
+  deriving stock (Show, Eq, GHC.Generic)
 
 newtype DialogueWithExceptions = DialogueWithExceptions Dialogue
-  deriving stock (Eq, GHC.Generic)
-  deriving anyclass (PrettyVal)
-  deriving Show via ShowAsPretty DialogueWithExceptions
+  deriving stock (Show, Eq, GHC.Generic)
 
 instance Arbitrary DialogueWithoutExceptions where
   arbitrary = do
