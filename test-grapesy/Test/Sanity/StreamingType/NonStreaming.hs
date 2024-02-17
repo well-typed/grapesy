@@ -26,26 +26,30 @@ tests = testGroup "Test.Sanity.StreamingType.NonStreaming" [
                   -- Without the +format part
                   testCaseInfo "application/grpc" $
                     test_increment def {
-                        clientContentType = Just "application/grpc"
+                        clientContentType =
+                          ValidOverride "application/grpc"
                       }
 
                   -- Random other format
                   -- See discussion in 'parseContentType'
                 , testCaseInfo "application/grpc+gibberish" $
                     test_increment def {
-                        clientContentType = Just "application/grpc+gibberish"
+                        clientContentType =
+                          ValidOverride "application/grpc+gibberish"
                       }
                 ]
             , testGroup "fail" [
                   testCaseInfo "application/invalid-subtype" $
                     test_increment def {
-                        clientContentType = Just "application/invalid-subtype"
+                        clientContentType =
+                          InvalidOverride "application/invalid-subtype"
                       }
 
                   -- gRPC spec does not allow parameters
                 , testCaseInfo "charset" $
                     test_increment def {
-                        clientContentType = Just "application/grpc; charset=us-ascii"
+                        clientContentType =
+                          InvalidOverride "application/grpc; charset=us-ascii"
                       }
                 ]
             ]

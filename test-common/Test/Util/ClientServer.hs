@@ -4,6 +4,7 @@
 module Test.Util.ClientServer (
     -- * Configuraiton
     ClientServerConfig(..)
+  , ContentTypeOverride(..)
     -- ** TLS
   , TlsSetup(..)
   , TlsOk(..)
@@ -28,7 +29,6 @@ import Control.Monad.Catch
 import Control.Monad.IO.Class
 import Control.Tracer
 import Data.ByteString qualified as Strict (ByteString)
-import Data.List qualified as List
 import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Set qualified as Set
@@ -54,6 +54,19 @@ import Paths_grapesy
   Configuration
 -------------------------------------------------------------------------------}
 
+data ContentTypeOverride =
+    -- | Use the default content-type
+    NoOverride
+
+    -- | Override with a valid alternative content-type
+    --
+    -- It is the responsibility of the test to make sure that this content-type
+    -- is in fact valid.
+  | ValidOverride Strict.ByteString
+
+    -- | Override with an invalid content-type
+  | InvalidOverride Strict.ByteString
+
 data ClientServerConfig = ClientServerConfig {
       -- | Compression algorithms supported by the client
       clientCompr :: Compr.Negotation
@@ -65,10 +78,10 @@ data ClientServerConfig = ClientServerConfig {
     , useTLS :: Maybe TlsSetup
 
       -- | Override content-type used by the client
-    , clientContentType :: Maybe Strict.ByteString
+    , clientContentType :: ContentTypeOverride
 
       -- | Override content-type used by the server
-    , serverContentType :: Maybe Strict.ByteString
+    , serverContentType :: ContentTypeOverride
 
       -- | Should we expect any clients to terminate early?
       --
@@ -88,8 +101,8 @@ instance Default ClientServerConfig where
       clientCompr       = def
     , serverCompr       = def
     , useTLS            = Nothing
-    , clientContentType = Nothing
-    , serverContentType = Nothing
+    , clientContentType = NoOverride
+    , serverContentType = NoOverride
     , expectEarlyClientTermination = False
     , expectEarlyServerTermination = False
     }
@@ -242,23 +255,6 @@ isExpectedException cfg topLevel =
       , compressionNegotationFailure
       = Right $ ExpectedExceptionCompressionNegotationFailed compr
 
-      -- Expected exception: invalid content-type sent by client
-
-      -- .. client side
-      | Just (grpc :: GrpcException) <- fromException err
-      , invalidClientContentType
-      , GrpcUnknown <- grpcError grpc
-      , Just msg <- grpcErrorMessage grpc
-      , "Content-Type" `Text.isInfixOf` msg
-      = Right $ ExpectedExceptionGrpc grpc
-
-      -- .. server side
-      | Just (Server.CallSetupFailed err') <- fromException err
-      , Just err''@(PeerSentInvalidHeaders msg) <- fromException err'
-      , invalidClientContentType
-      , "Content-Type" `List.isInfixOf` msg
-      = Right $ ExpectedExceptionPeer err''
-
       --
       -- Wrappers
       --
@@ -290,15 +286,6 @@ isExpectedException cfg topLevel =
     compressionNegotationFailure =
         Set.disjoint (Map.keysSet (Compr.supported (clientCompr cfg)))
                      (Map.keysSet (Compr.supported (serverCompr cfg)))
-
-    -- TODO: By rights /any/ format (not just "gibberish") should be ok
-    invalidClientContentType :: Bool
-    invalidClientContentType = not $
-        case clientContentType cfg of
-          Nothing                           -> True
-          Just "application/grpc"           -> True
-          Just "application/grpc+gibberish" -> True
-          _otherwise                        -> False
 
 {-------------------------------------------------------------------------------
   Server handler lock
@@ -364,20 +351,30 @@ topLevelWithHandlerLock cfg (ServerHandlerLock lock) handler req respond = do
     case res of
       Right () ->
         markDone
-      Left e
+      Left e -> do
+        if isExpectedServerException cfg e then
+          markDone
+        else do
+          XIO.swallowIO $ putStrLn $ "Client uhoh: " ++ show (innerNestedException e)
+          markError e
 
-        | Just (DeliberateException _) <- fromException e' ->
-            markDone
+isExpectedServerException :: ClientServerConfig -> SomeException -> Bool
+isExpectedServerException cfg e
+  | Just (DeliberateException _) <- fromException e'
+  = True
 
-        | Just (Server.ClientDisconnected _) <- fromException e'
-        , expectEarlyClientTermination cfg ->
-            markDone
+  | Just Server.ClientDisconnected{} <- fromException e'
+  , expectEarlyClientTermination cfg
+  = True
 
-        | otherwise ->
-            markError e
+  | Just Server.CallSetupFailed{} <- fromException e'
+  , InvalidOverride _ <- clientContentType cfg
+  = True
 
-        where
-          e' = innerNestedException e
+  | otherwise
+  = False
+  where
+    e' = innerNestedException e
 
 {-------------------------------------------------------------------------------
   Server
@@ -427,7 +424,11 @@ runTestServer cfg serverTracer handlerLock serverHandlers = do
               serverCompression = serverCompr cfg
             , serverDebugTracer = serverTracer
             , serverTopLevel    = topLevelWithHandlerLock cfg handlerLock
-            , serverContentType = serverContentType cfg
+            , serverContentType =
+                case serverContentType cfg of
+                  NoOverride            -> Nothing
+                  ValidOverride   ctype -> Just ctype
+                  InvalidOverride ctype -> Just ctype
             }
 
     Server.runServerWithHandlers serverConfig serverParams serverHandlers
@@ -449,7 +450,11 @@ runTestClient cfg clientTracer clientRun = do
               connDebugTracer    = clientTracer
             , connCompression    = clientCompr cfg
             , connDefaultTimeout = Nothing
-            , connContentType    = clientContentType cfg
+            , connContentType    =
+                case clientContentType cfg of
+                  NoOverride            -> Nothing
+                  ValidOverride   ctype -> Just ctype
+                  InvalidOverride ctype -> Just ctype
 
               -- We need a single reconnect, to enable wait-for-ready.
               -- This avoids a race condition between the server starting first
@@ -514,35 +519,47 @@ runTestClient cfg clientTracer clientRun = do
               try $ Client.withConnection clientParams clientServer k
             case mb of
               Right b -> return b
-              Left e
-
-                | Just (DeliberateException _) <- fromException e' ->
-                    return ()
-
-                | Just ChannelDiscarded{} <- fromException e'
-                , expectEarlyClientTermination cfg ->
-                    return ()
-
-                | Just grpcException <- fromException e'
-                , Just msg <- grpcErrorMessage grpcException ->
-                    if | "DeliberateException" `Text.isInfixOf` msg ->
-                           return ()
-
-                       | "HandlerTerminated" `Text.isInfixOf` msg
-                       , expectEarlyServerTermination cfg ->
-                           return ()
-
-                       | otherwise ->
-                           throwIO e
-
-                | otherwise -> do
-                    putStrLn $ "Uhoh: " ++ show e
+              Left e ->
+                if isExpectedClientException cfg e
+                  then return ()
+                  else do
+                    putStrLn $ "Client uhoh: " ++ show (innerNestedException e)
                     throwIO e
 
-                where
-                  e' = innerNestedException e
-
     clientRun withConn
+
+isExpectedClientException :: ClientServerConfig -> SomeException -> Bool
+isExpectedClientException cfg e
+  | Just (DeliberateException _) <- fromException e'
+  = True
+
+  | Just ChannelDiscarded{} <- fromException e'
+  , expectEarlyClientTermination cfg
+  = True
+
+  | Just grpcException <- fromException e'
+  , Just msg <- grpcErrorMessage grpcException
+  , "DeliberateException" `Text.isInfixOf` msg
+  = True
+
+  | Just grpcException <- fromException e'
+  , Just msg <- grpcErrorMessage grpcException
+  , "HandlerTerminated" `Text.isInfixOf` msg
+  , expectEarlyServerTermination cfg
+  = True
+
+  -- TODO: This should not be a gRPC exception; this makes it impossible to
+  -- distinguish between CallSetupFailed and a genuine gRPC exception.
+  | Just grpcException <- fromException e'
+  , Just msg <- grpcErrorMessage grpcException
+  , "PeerSentInvalidHeaders" `Text.isInfixOf` msg
+  , InvalidOverride _ <- clientContentType cfg
+  = True
+
+  | otherwise
+  = False
+  where
+    e' = innerNestedException e
 
 {-------------------------------------------------------------------------------
   Main entry point: run server and client together

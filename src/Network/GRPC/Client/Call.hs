@@ -127,7 +127,7 @@ recvOutput = fmap (fmap snd) . recvOutputWithEnvelope
 --
 -- Most applications will never need to use this function.
 recvOutputWithEnvelope ::
-     MonadIO m
+     (MonadIO m, HasCallStack)
   => Call rpc
   -> m (StreamElem [CustomMetadata] (InboundEnvelope, Output rpc))
 recvOutputWithEnvelope Call{callChannel} = liftIO $
