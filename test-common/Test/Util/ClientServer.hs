@@ -157,6 +157,86 @@ data TlsFail =
   | TlsFailUnsupported
 
 {-------------------------------------------------------------------------------
+  Expected exceptions
+
+  Ideally 'isExpectedServerException' and 'isExpectedClientException' should
+  have identical structure, illustrating that the exceptions are consistent
+  between the server API and the client API.
+
+  TODO: Early server termination does not result in an exception server-side.
+  This is inconsistent.
+-------------------------------------------------------------------------------}
+
+isExpectedServerException :: ClientServerConfig -> SomeException -> Bool
+isExpectedServerException cfg e
+  -- Deliberate exceptions
+
+  | Just (DeliberateException _) <- fromException e'
+  = True
+
+  -- Early client termination
+
+  | Just Server.ClientDisconnected{} <- fromException e'
+  , expectEarlyClientTermination cfg
+  = True
+
+  -- Call setup failure
+
+  | Just Server.CallSetupFailed{} <- fromException e'
+  , InvalidOverride _ <- clientContentType cfg
+  = True
+
+  -- Fall-through
+
+  | otherwise
+  = False
+  where
+    e' = innerNestedException e
+
+isExpectedClientException :: ClientServerConfig -> SomeException -> Bool
+isExpectedClientException cfg e
+  -- Deliberate exceptions
+
+  | Just (DeliberateException _) <- fromException e'
+  = True
+
+  | Just grpcException <- fromException e'
+  , Just msg <- grpcErrorMessage grpcException
+  , "DeliberateException" `Text.isInfixOf` msg
+  = True
+
+  -- Early client termination
+
+  | Just ChannelDiscarded{} <- fromException e'
+  , expectEarlyClientTermination cfg
+  = True
+
+  -- Early server termination
+
+  | Just grpcException <- fromException e'
+  , Just msg <- grpcErrorMessage grpcException
+  , "HandlerTerminated" `Text.isInfixOf` msg
+  , expectEarlyServerTermination cfg
+  = True
+
+  -- Call setup failure
+
+  -- TODO: This should not be a gRPC exception; this makes it impossible to
+  -- distinguish between CallSetupFailed and a genuine gRPC exception.
+  | Just grpcException <- fromException e'
+  , Just msg <- grpcErrorMessage grpcException
+  , "PeerSentInvalidHeaders" `Text.isInfixOf` msg
+  , InvalidOverride _ <- clientContentType cfg
+  = True
+
+  -- Fall-through
+
+  | otherwise
+  = False
+  where
+    e' = innerNestedException e
+
+{-------------------------------------------------------------------------------
   Config evaluation (do we expect an error?)
 -------------------------------------------------------------------------------}
 
@@ -358,24 +438,6 @@ topLevelWithHandlerLock cfg (ServerHandlerLock lock) handler req respond = do
           XIO.swallowIO $ putStrLn $ "Client uhoh: " ++ show (innerNestedException e)
           markError e
 
-isExpectedServerException :: ClientServerConfig -> SomeException -> Bool
-isExpectedServerException cfg e
-  | Just (DeliberateException _) <- fromException e'
-  = True
-
-  | Just Server.ClientDisconnected{} <- fromException e'
-  , expectEarlyClientTermination cfg
-  = True
-
-  | Just Server.CallSetupFailed{} <- fromException e'
-  , InvalidOverride _ <- clientContentType cfg
-  = True
-
-  | otherwise
-  = False
-  where
-    e' = innerNestedException e
-
 {-------------------------------------------------------------------------------
   Server
 -------------------------------------------------------------------------------}
@@ -527,39 +589,6 @@ runTestClient cfg clientTracer clientRun = do
                     throwIO e
 
     clientRun withConn
-
-isExpectedClientException :: ClientServerConfig -> SomeException -> Bool
-isExpectedClientException cfg e
-  | Just (DeliberateException _) <- fromException e'
-  = True
-
-  | Just ChannelDiscarded{} <- fromException e'
-  , expectEarlyClientTermination cfg
-  = True
-
-  | Just grpcException <- fromException e'
-  , Just msg <- grpcErrorMessage grpcException
-  , "DeliberateException" `Text.isInfixOf` msg
-  = True
-
-  | Just grpcException <- fromException e'
-  , Just msg <- grpcErrorMessage grpcException
-  , "HandlerTerminated" `Text.isInfixOf` msg
-  , expectEarlyServerTermination cfg
-  = True
-
-  -- TODO: This should not be a gRPC exception; this makes it impossible to
-  -- distinguish between CallSetupFailed and a genuine gRPC exception.
-  | Just grpcException <- fromException e'
-  , Just msg <- grpcErrorMessage grpcException
-  , "PeerSentInvalidHeaders" `Text.isInfixOf` msg
-  , InvalidOverride _ <- clientContentType cfg
-  = True
-
-  | otherwise
-  = False
-  where
-    e' = innerNestedException e
 
 {-------------------------------------------------------------------------------
   Main entry point: run server and client together
