@@ -18,8 +18,9 @@ module Network.GRPC.Common.Compression (
   , getSupported
     -- ** Specific negotation strategies
   , none
-  , require
   , chooseFirst
+  , only
+  , insist
   ) where
 
 import Data.Default
@@ -38,6 +39,9 @@ import Network.GRPC.Spec
 -- | Compression negotation
 data Negotation = Negotation {
       -- | Which algorithms should be offered (in this order) to the peer?
+      --
+      -- This should normally always include 'Identity' (see 'choose');
+      -- but see 'insist'.
       offer :: NonEmpty CompressionId
 
       -- | Choose compression algorithm
@@ -59,32 +63,46 @@ data Negotation = Negotation {
 
 -- | Map 'CompressionId' to 'Compression' for supported algorithms
 getSupported :: Negotation -> CompressionId -> Maybe Compression
-getSupported _     Identity = Just $ noCompression
-getSupported compr cid      = Map.lookup cid (supported compr)
+getSupported compr cid = Map.lookup cid (supported compr)
 
 instance Default Negotation where
   def = chooseFirst allSupportedCompression
 
 -- | Disable all compression
 none :: Negotation
-none = require noCompression
+none = insist noCompression
 
--- | Insist on the specified algorithm
-require :: Compression -> Negotation
-require = chooseFirst . (:| [])
-
--- | Choose the first algorithm that appears in the list of client supported
+-- | Choose the first algorithm that appears in the list of peer supported
+--
+-- Precondition: the list should include the identity.
 chooseFirst :: NonEmpty Compression -> Negotation
 chooseFirst ourSupported = Negotation {
       offer =
         fmap compressionId ourSupported
-    , choose = \serverSupported ->
-        let isSupported :: Compression -> Bool
-            isSupported = (`elem` serverSupported) . compressionId
-        in case NE.filter isSupported ourSupported of
+    , choose = \peerSupported ->
+        let peerSupports :: Compression -> Bool
+            peerSupports = (`elem` peerSupported) . compressionId
+        in case NE.filter peerSupports ourSupported of
              c:_ -> c
              []  -> noCompression
     , supported =
         Map.fromList $
           map (\c -> (compressionId c, c)) (toList ourSupported)
+    }
+
+-- | Only use the given algorithm, if the peer supports it
+only :: Compression -> Negotation
+only compr = chooseFirst (compr :| [noCompression])
+
+-- | Insist on the specified algorithm, /no matter what the peer offers/
+--
+-- This is dangerous: if the peer does not supported the specified algorithm,
+-- it will be unable to decompress any messages. Primarily used for testing.
+--
+-- See also 'only'.
+insist :: Compression -> Negotation
+insist compr = Negotation {
+      offer     = compressionId compr :| []
+    , choose    = \_ -> compr
+    , supported = Map.singleton (compressionId compr) compr
     }

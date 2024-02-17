@@ -99,6 +99,7 @@ instance IsRPC rpc => AcceptSession (ServerSession rpc) where
               buildResponseHeaders (Proxy @rpc) (outHeaders headers)
             FlowStartNoMessages trailers ->
               buildTrailersOnly trailers
+      , responseBody = Nothing
       }
 
 {-------------------------------------------------------------------------------

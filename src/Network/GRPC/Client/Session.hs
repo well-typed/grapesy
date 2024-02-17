@@ -10,6 +10,9 @@ module Network.GRPC.Client.Session (
 
 import Control.Exception
 import Control.Monad
+import Data.ByteString.Lazy qualified as BS.Lazy
+import Data.ByteString.Lazy qualified as Lazy (ByteString)
+import Data.Maybe (fromMaybe)
 import Data.Proxy
 import Network.HTTP.Types qualified as HTTP
 
@@ -75,7 +78,9 @@ instance IsRPC rpc => IsSession (ClientSession rpc) where
 instance IsRPC rpc => InitiateSession (ClientSession rpc) where
   parseResponseRegular client info = do
       unless (HTTP.statusCode (responseStatus info) == 200) $
-        throwIO $ CallSetupUnexpectedStatus (responseStatus info)
+        throwIO $ CallSetupUnexpectedStatus
+                    (responseStatus info)
+                    (fromMaybe BS.Lazy.empty $ responseBody info)
 
       responseHeaders :: ResponseHeaders <-
         case parseResponseHeaders (Proxy @rpc) (responseHeaders info) of
@@ -101,7 +106,9 @@ instance IsRPC rpc => InitiateSession (ClientSession rpc) where
 
   parseResponseNoMessages _ info = do
       unless (HTTP.statusCode (responseStatus info) == 200) $
-        throwIO $ CallSetupUnexpectedStatus (responseStatus info)
+        throwIO $ CallSetupUnexpectedStatus
+                    (responseStatus info)
+                    (fromMaybe BS.Lazy.empty $ responseBody info)
       processResponseTrailers
         (fmap getTrailersOnly . parseTrailersOnly (Proxy @rpc))
         (responseHeaders info)
@@ -157,12 +164,14 @@ data CallSetupFailure =
     --   @grapesy@ unless 'Network.GRPC.Client.ConnParams' is misconfigured.
     -- * We are dealing with non-compliant server.
     --
+    -- We also include the response body.
+    --
     -- TODO: <https://github.com/well-typed/grapesy/issues/22>.
     -- The spec /does/ require us to deal with non-compliant servers in limited
     -- ways. For example, some non-compliant servers might return a HTTP 404
     -- instead of a HTTP 200 with a 'GrpcStatus' of 'GrpcUnimplemented'. We do
     -- not yet do this.
-    CallSetupUnexpectedStatus HTTP.Status
+    CallSetupUnexpectedStatus HTTP.Status Lazy.ByteString
 
     -- | Server chose an unsupported compression algorithm
   | CallSetupUnsupportedCompression CompressionId

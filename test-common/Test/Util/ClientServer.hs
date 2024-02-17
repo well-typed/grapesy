@@ -31,6 +31,8 @@ import Control.Tracer
 import Data.ByteString qualified as Strict (ByteString)
 import Data.Map (Map)
 import Data.Map qualified as Map
+import Data.Set (Set)
+import Data.Set qualified as Set
 import Data.Text qualified as Text
 import GHC.Generics qualified as GHC
 import Network.HTTP.Types qualified as HTTP
@@ -70,6 +72,9 @@ data ClientServerConfig = ClientServerConfig {
       -- | Compression algorithms supported by the client
       clientCompr :: Compr.Negotation
 
+      -- | Initial compression algorithm used by the client (if any)
+    , clientInitCompr :: Maybe Compr.Compression
+
       -- | Compression algorithms supported the server
     , serverCompr :: Compr.Negotation
 
@@ -98,6 +103,7 @@ data ClientServerConfig = ClientServerConfig {
 instance Default ClientServerConfig where
   def = ClientServerConfig {
       clientCompr       = def
+    , clientInitCompr   = Nothing
     , serverCompr       = def
     , useTLS            = Nothing
     , clientContentType = NoOverride
@@ -160,7 +166,9 @@ data TlsFail =
 
   Ideally 'isExpectedServerException' and 'isExpectedClientException' should
   have identical structure, illustrating that the exceptions are consistent
-  between the server API and the client API.
+  between the server API and the client API. This ideal isn't /quite/ reached;
+  for example, if a server handler throws an exception, the client is informed,
+  but the reverse is not true (the client simply disconnects).
 
   TODO: Early server termination does not result in an exception server-side.
   This is inconsistent.
@@ -168,24 +176,40 @@ data TlsFail =
 
 isExpectedServerException :: ClientServerConfig -> SomeException -> Bool
 isExpectedServerException cfg e
+  --
   -- Deliberate exceptions
+  --
 
   | Just (DeliberateException _) <- fromException e'
   = True
 
+  --
   -- Early client termination
+  --
 
   | Just Server.ClientDisconnected{} <- fromException e'
   , expectEarlyClientTermination cfg
   = True
 
+  --
   -- Call setup failure
+  --
 
   | Just Server.CallSetupInvalidRequestHeaders{} <- fromException e'
   , InvalidOverride _ <- clientContentType cfg
   = True
 
+  --
+  -- Compression negotation
+  --
+
+  | Just Server.CallSetupUnsupportedCompression{} <- fromException e'
+  , compressionNegotationFailure cfg
+  = True
+
+  --
   -- Fall-through
+  --
 
   | otherwise
   = False
@@ -194,23 +218,31 @@ isExpectedServerException cfg e
 
 isExpectedClientException :: ClientServerConfig -> SomeException -> Bool
 isExpectedClientException cfg e
+  --
   -- Deliberate exceptions
+  --
 
+  -- Client threw deliberate exception
   | Just (DeliberateException _) <- fromException e'
   = True
 
+  -- Server threw deliberat exception
   | Just grpcException <- fromException e'
   , Just msg <- grpcErrorMessage grpcException
   , "DeliberateException" `Text.isInfixOf` msg
   = True
 
+  --
   -- Early client termination
+  --
 
   | Just ChannelDiscarded{} <- fromException e'
   , expectEarlyClientTermination cfg
   = True
 
+  --
   -- Early server termination
+  --
 
   | Just grpcException <- fromException e'
   , Just msg <- grpcErrorMessage grpcException
@@ -218,19 +250,52 @@ isExpectedClientException cfg e
   , expectEarlyServerTermination cfg
   = True
 
+  --
   -- Call setup failure
+  --
+  -- TODO: Perhaps we should verify the contents of the body.
+  --
 
-  | Just (Client.CallSetupUnexpectedStatus status) <- fromException e'
+  | Just (Client.CallSetupUnexpectedStatus status _body) <- fromException e'
   , InvalidOverride _ <- clientContentType cfg
   , status == HTTP.badRequest400
   = True
 
+  --
+  -- Compression negotation
+  --
+
+  -- Client choose unsupported compression
+  | Just (Client.CallSetupUnexpectedStatus status _body) <- fromException e'
+  , compressionNegotationFailure cfg
+  , status == HTTP.badRequest400
+  = True
+
+  -- Server chose unsupported compression
+  | Just Client.CallSetupUnsupportedCompression{} <- fromException e'
+  , compressionNegotationFailure cfg
+  = True
+
+  --
   -- Fall-through
+  --
 
   | otherwise
   = False
   where
     e' = innerNestedException e
+
+compressionNegotationFailure :: ClientServerConfig -> Bool
+compressionNegotationFailure cfg = or [
+      Set.disjoint clientSupported serverSupported
+    , case clientInitCompr cfg of
+        Nothing    -> False
+        Just compr -> Compr.compressionId compr `Set.notMember` serverSupported
+    ]
+  where
+    clientSupported, serverSupported :: Set Compr.CompressionId
+    clientSupported = Map.keysSet (Compr.supported (clientCompr cfg))
+    serverSupported = Map.keysSet (Compr.supported (serverCompr cfg))
 
 {-------------------------------------------------------------------------------
   Config evaluation (do we expect an error?)
@@ -483,10 +548,13 @@ runTestClient cfg clientTracer clientRun = do
 
     let clientParams :: Client.ConnParams
         clientParams = Client.ConnParams {
-              connDebugTracer    = clientTracer
-            , connCompression    = clientCompr cfg
-            , connDefaultTimeout = Nothing
-            , connContentType    =
+              connDebugTracer     = clientTracer
+            , connCompression     = clientCompr cfg
+            , connInitCompression = clientInitCompr cfg
+            , connDefaultTimeout  = Nothing
+
+              -- Content-type
+            , connContentType =
                 case clientContentType cfg of
                   NoOverride            -> Nothing
                   ValidOverride   ctype -> Just ctype

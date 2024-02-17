@@ -82,32 +82,23 @@ tests = testGroup "Test.Sanity.StreamingType.NonStreaming" [
         , testGroup "compression" [
               testCaseInfo "gzip" $
                 test_increment def {
-                    clientCompr = Compr.require Compr.gzip
-                  , serverCompr = Compr.require Compr.gzip
+                    clientCompr = Compr.only Compr.gzip
+                  , serverCompr = Compr.only Compr.gzip
                   }
             , testCaseInfo "deflate" $
                 test_increment def {
-                    clientCompr = Compr.require Compr.deflate
-                  , serverCompr = Compr.require Compr.deflate
+                    clientCompr = Compr.only Compr.deflate
+                  , serverCompr = Compr.only Compr.deflate
                   }
-
-              -- TODO: The three tests below don't do anything anymore
-              -- (because identity is now always allowed)
-
-            , testCaseInfo "serverUnsupported" $
+            , testCaseInfo "clientChoosesUnsupported" $
                 test_increment def {
-                    clientCompr = Compr.require Compr.gzip
-                  , serverCompr = Compr.none
+                    clientInitCompr = Just Compr.gzip
+                  , serverCompr     = Compr.none
                   }
-            , testCaseInfo "clientUnsupported" $
+            , testCaseInfo "serverChoosesUnsupported" $
                 test_increment def {
-                    clientCompr = Compr.none
-                  , serverCompr = Compr.require Compr.gzip
-                  }
-            , testCaseInfo "mismatch" $
-                test_increment def {
-                    clientCompr = Compr.require Compr.deflate
-                  , serverCompr = Compr.require Compr.gzip
+                    clientCompr = Compr.only   Compr.gzip
+                  , serverCompr = Compr.insist Compr.deflate
                   }
             ]
         ]

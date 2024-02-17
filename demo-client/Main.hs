@@ -116,7 +116,7 @@ connParams cmd = def {
           else connDebugTracer def
     , connCompression =
         case cmdCompression cmd of
-          Just alg -> Compr.require alg
+          Just alg -> Compr.only alg
           Nothing  -> connCompression def
     , connDefaultTimeout =
         Timeout Second . TimeoutValue <$> cmdTimeout cmd

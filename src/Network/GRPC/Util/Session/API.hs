@@ -14,6 +14,7 @@ module Network.GRPC.Util.Session.API (
 
 import Control.Exception
 import Data.ByteString.Builder (Builder)
+import Data.ByteString.Lazy qualified as Lazy (ByteString)
 import Data.Kind
 import GHC.Generics qualified as GHC
 import Network.HTTP.Types qualified as HTTP
@@ -37,6 +38,7 @@ data RequestInfo = RequestInfo {
 data ResponseInfo = ResponseInfo {
       responseStatus  :: HTTP.Status
     , responseHeaders :: [HTTP.Header]
+    , responseBody    :: Maybe Lazy.ByteString -- ^ Only for errors
     }
 
 {-------------------------------------------------------------------------------

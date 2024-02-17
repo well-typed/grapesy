@@ -33,9 +33,9 @@ data Meta = Meta {
   deriving stock (Show)
 
 -- | Initial connection state
-init :: Meta
-init = Meta {
-      outboundCompression = Nothing
+init :: Maybe Compression -> Meta
+init initCompr = Meta {
+      outboundCompression = initCompr
     }
 
 {-------------------------------------------------------------------------------
