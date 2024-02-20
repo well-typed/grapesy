@@ -3,6 +3,7 @@
 -- See @docs/demo.md@ for documentation.
 module Main (main) where
 
+import Control.Concurrent
 import Control.Exception
 import Control.Tracer
 import System.IO
@@ -11,8 +12,6 @@ import System.Mem (performMajorGC)
 import Network.GRPC.Client
 import Network.GRPC.Common
 import Network.GRPC.Common.Compression qualified as Compr
-
-import Debug.Concurrent
 
 import Demo.Client.Cmdline
 import Demo.Client.Util.DelayOr

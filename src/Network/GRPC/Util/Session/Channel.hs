@@ -19,9 +19,7 @@ module Network.GRPC.Util.Session.Channel (
     -- * Closing
   , waitForOutbound
   , close
-  , ChannelUncleanClose(..)
   , ChannelDiscarded(..)
-  , ChannelException(..)
   , ChannelAborted(..)
     -- ** Exceptions
     -- * Constructing channels
@@ -37,6 +35,7 @@ module Network.GRPC.Util.Session.Channel (
   , DebugMsg(..)
   ) where
 
+import Control.Concurrent.STM
 import Control.Exception
 import Control.Monad.Catch
 import Control.Tracer
@@ -50,13 +49,10 @@ import Network.HTTP2.Internal qualified as HTTP2
 
 import Network.GRPC.Common.StreamElem (StreamElem(..))
 import Network.GRPC.Common.StreamElem qualified as StreamElem
-import Network.GRPC.Internal
 import Network.GRPC.Util.HTTP2.Stream
 import Network.GRPC.Util.Parser
 import Network.GRPC.Util.Session.API
 import Network.GRPC.Util.Thread
-
-import Debug.Concurrent
 
 {-------------------------------------------------------------------------------
   Definitions
@@ -400,7 +396,7 @@ data RecvAfterFinal =
 -- | Wait for the outbound thread to terminate
 --
 -- See 'close' for discussion.
-waitForOutbound :: HasCallStack => Channel sess -> IO (FlowState (Outbound sess))
+waitForOutbound :: Channel sess -> IO (FlowState (Outbound sess))
 waitForOutbound Channel{channelOutbound} = atomically $
     waitForThread channelOutbound
 
@@ -430,7 +426,7 @@ close ::
      HasCallStack
   => Channel sess
   -> ExitCase a    -- ^ The reason why the channel is being closed
-  -> IO (Maybe ChannelUncleanClose)
+  -> IO (Maybe SomeException)
 close Channel{channelOutbound} reason = do
     -- We leave the inbound thread running. Although the channel is closed,
     -- there might still be unprocessed messages in the queue. The inbound
@@ -438,24 +434,14 @@ close Channel{channelOutbound} reason = do
      outbound <- cancelThread channelOutbound channelClosed
      case outbound of
        Right ()  -> return $ Nothing
-       Left  err -> return $ Just (ChannelUncleanClose err)
+       Left  err -> return $ Just err
   where
     channelClosed :: SomeException
     channelClosed =
         case reason of
           ExitCaseSuccess _   -> toException $ ChannelDiscarded callStack
-          ExitCaseException e -> toException $ ChannelException callStack e
           ExitCaseAbort       -> toException $ ChannelAborted   callStack
-
--- | Thrown by 'close' if not all outbound messages have been processed
---
--- See 'close' for discussion.
-data ChannelUncleanClose = ChannelUncleanClose SomeException
-  deriving stock (Show)
-  deriving Exception via ExceptionWrapper ChannelUncleanClose
-
-instance HasNestedException ChannelUncleanClose where
-  getNestedException (ChannelUncleanClose e) = e
+          ExitCaseException e -> e
 
 -- | Channel was closed because it was discarded
 --
@@ -464,14 +450,6 @@ instance HasNestedException ChannelUncleanClose where
 data ChannelDiscarded = ChannelDiscarded CallStack
   deriving stock (Show)
   deriving anyclass (Exception)
-
--- | Channel was closed with an exception
-data ChannelException = ChannelException CallStack SomeException
-  deriving stock (Show)
-  deriving Exception via ExceptionWrapper ChannelException
-
-instance HasNestedException ChannelException where
-  getNestedException (ChannelException _ e) = e
 
 -- | Channel was closed for an unknown reason
 --

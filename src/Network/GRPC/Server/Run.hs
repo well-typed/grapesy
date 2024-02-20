@@ -11,6 +11,7 @@ module Network.GRPC.Server.Run (
   , runServerWithHandlers
   ) where
 
+import Control.Concurrent.Async (concurrently_)
 import Control.Exception
 import Data.Default
 import Network.ByteOrder (BufferSize)
@@ -23,8 +24,6 @@ import Network.TLS qualified as TLS
 import Network.GRPC.Server (mkGrpcServer, ServerParams, RpcHandler)
 import Network.GRPC.Util.TLS (SslKeyLog(..))
 import Network.GRPC.Util.TLS qualified as Util.TLS
-
-import Debug.Concurrent
 
 {-------------------------------------------------------------------------------
   Configuration

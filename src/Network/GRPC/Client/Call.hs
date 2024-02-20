@@ -22,6 +22,7 @@ module Network.GRPC.Client.Call (
   , recvOutputWithEnvelope
   ) where
 
+import Control.Concurrent.STM
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
@@ -37,9 +38,6 @@ import Network.GRPC.Common
 import Network.GRPC.Common.StreamElem qualified as StreamElem
 import Network.GRPC.Spec
 import Network.GRPC.Util.Session qualified as Session
-import Network.GRPC.Util.Session.Channel (ChannelUncleanClose(..))
-
-import Debug.Concurrent
 
 {-------------------------------------------------------------------------------
   Open a call
@@ -63,7 +61,7 @@ withRPC conn callParams proxy k =
         (\call -> liftIO . closeRPC call)
         k
   where
-    throwUnclean :: (a, Maybe ChannelUncleanClose) -> m a
+    throwUnclean :: (a, Maybe SomeException) -> m a
     throwUnclean (_, Just err) = throwM err
     throwUnclean (x, Nothing)  = return x
 
@@ -74,7 +72,7 @@ withRPC conn callParams proxy k =
 -- See 'Session.close' for detailed discussion.
 closeRPC ::
      HasCallStack
-  => Call rpc -> ExitCase a -> IO (Maybe ChannelUncleanClose)
+  => Call rpc -> ExitCase a -> IO (Maybe SomeException)
 closeRPC = Session.close . callChannel
 
 {-------------------------------------------------------------------------------

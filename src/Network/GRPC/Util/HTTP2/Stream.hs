@@ -13,7 +13,6 @@ module Network.GRPC.Util.HTTP2.Stream (
   , clientInputStream
   , clientOutputStream
     -- * Exceptions
-  , StreamException(..)
   , ClientDisconnected(..)
   , ServerDisconnected(..)
   ) where
@@ -26,7 +25,6 @@ import Network.HTTP.Types qualified as HTTP
 import Network.HTTP2.Client qualified as Client
 import Network.HTTP2.Server qualified as Server
 
-import Network.GRPC.Internal.NestedException
 import Network.GRPC.Util.HTTP2 (fromHeaderTable)
 
 {-------------------------------------------------------------------------------
@@ -168,27 +166,33 @@ clientOutputStream writeChunk' flush' = do
   Exceptions
 -------------------------------------------------------------------------------}
 
-data StreamException = StreamException SomeException CallStack
-  deriving stock (Show)
-  deriving Exception via ExceptionWrapper StreamException
-
-instance HasNestedException StreamException where
-  getNestedException (StreamException e _) = e
-
 -- | Client disconnected unexpectedly
-data ClientDisconnected = ClientDisconnected SomeException
+--
+-- /If/ you choose to catch this exception, you are advised to match against
+-- the type, rather than against the constructor, and then use the record
+-- accessors to get access to the fields. Future versions of @grapesy@ may
+-- record more information.
+data ClientDisconnected = ClientDisconnected {
+      clientDisconnectedException :: SomeException
+    , clientDisconnectedCallStack :: CallStack
+    }
   deriving stock (Show)
   deriving anyclass (Exception)
 
 -- | Server disconnected unexpectedly
-data ServerDisconnected = ServerDisconnected SomeException
+--
+-- See comments for 'ClientDisconnected' on how to catch this exception.
+data ServerDisconnected = ServerDisconnected {
+      serverDisconnectedException :: SomeException
+    , serverDisconnectedCallstack :: CallStack
+    }
   deriving stock (Show)
   deriving anyclass (Exception)
 
 wrapStreamExceptionsWith ::
      (HasCallStack, Exception e)
-  => (SomeException -> e)
+  => (SomeException -> CallStack -> e)
   -> IO a -> IO a
 wrapStreamExceptionsWith f action =
     action `catch` \err ->
-      throwIO $ f $ toException $ StreamException err callStack
+      throwIO $ f err callStack

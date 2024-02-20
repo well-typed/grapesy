@@ -8,9 +8,9 @@
 #
 # For more information, see https://github.com/haskell-CI/haskell-ci
 #
-# version: 0.17.20240109
+# version: 0.18
 #
-# REGENDATA ("0.17.20240109",["github","cabal.project.ci"])
+# REGENDATA ("0.18",["github","cabal.project.ci"])
 #
 name: Haskell-CI
 on:

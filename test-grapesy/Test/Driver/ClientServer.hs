@@ -18,6 +18,9 @@ module Test.Driver.ClientServer (
   , DeliberateException(..)
   ) where
 
+import Control.Concurrent
+import Control.Concurrent.Async
+import Control.Concurrent.STM
 import Control.Exception (throwIO)
 import Control.Monad
 import Control.Monad.Catch
@@ -38,13 +41,10 @@ import Test.Tasty.QuickCheck qualified as QuickCheck
 import Network.GRPC.Client qualified as Client
 import Network.GRPC.Common
 import Network.GRPC.Common.Compression qualified as Compr
-import Network.GRPC.Internal
 import Network.GRPC.Internal.XIO (NeverThrows)
 import Network.GRPC.Internal.XIO qualified as XIO
 import Network.GRPC.Server qualified as Server
 import Network.GRPC.Server.Run qualified as Server
-
-import Debug.Concurrent
 
 import Paths_grapesy
 
@@ -200,14 +200,14 @@ isExpectedServerException cfg e
   -- Deliberate exceptions
   --
 
-  | Just (DeliberateException _) <- fromException e'
+  | Just (DeliberateException _) <- fromException e
   = True
 
   --
   -- Early client termination
   --
 
-  | Just Server.ClientDisconnected{} <- fromException e'
+  | Just Server.ClientDisconnected{} <- fromException e
   , expectEarlyClientTermination cfg
   = True
 
@@ -215,7 +215,7 @@ isExpectedServerException cfg e
   -- Call setup failure
   --
 
-  | Just Server.CallSetupInvalidRequestHeaders{} <- fromException e'
+  | Just Server.CallSetupInvalidRequestHeaders{} <- fromException e
   , InvalidOverride _ <- clientContentType cfg
   = True
 
@@ -223,7 +223,7 @@ isExpectedServerException cfg e
   -- Compression negotation
   --
 
-  | Just Server.CallSetupUnsupportedCompression{} <- fromException e'
+  | Just Server.CallSetupUnsupportedCompression{} <- fromException e
   , compressionNegotationFailure cfg
   = True
 
@@ -233,8 +233,6 @@ isExpectedServerException cfg e
 
   | otherwise
   = False
-  where
-    e' = innerNestedException e
 
 isExpectedClientException :: ClientServerConfig -> SomeException -> Bool
 isExpectedClientException cfg e
@@ -243,11 +241,11 @@ isExpectedClientException cfg e
   --
 
   -- Client threw deliberate exception
-  | Just (DeliberateException _) <- fromException e'
+  | Just (DeliberateException _) <- fromException e
   = True
 
   -- Server threw deliberat exception
-  | Just grpcException <- fromException e'
+  | Just grpcException <- fromException e
   , Just msg <- grpcErrorMessage grpcException
   , "DeliberateException" `Text.isInfixOf` msg
   = True
@@ -256,7 +254,7 @@ isExpectedClientException cfg e
   -- Early client termination
   --
 
-  | Just ChannelDiscarded{} <- fromException e'
+  | Just ChannelDiscarded{} <- fromException e
   , expectEarlyClientTermination cfg
   = True
 
@@ -264,7 +262,7 @@ isExpectedClientException cfg e
   -- Early server termination
   --
 
-  | Just grpcException <- fromException e'
+  | Just grpcException <- fromException e
   , Just msg <- grpcErrorMessage grpcException
   , "HandlerTerminated" `Text.isInfixOf` msg
   , expectEarlyServerTermination cfg
@@ -276,7 +274,7 @@ isExpectedClientException cfg e
   -- TODO: Perhaps we should verify the contents of the body.
   --
 
-  | Just (Client.CallSetupUnexpectedStatus status _body) <- fromException e'
+  | Just (Client.CallSetupUnexpectedStatus status _body) <- fromException e
   , InvalidOverride _ <- clientContentType cfg
   , status == HTTP.badRequest400
   = True
@@ -286,13 +284,13 @@ isExpectedClientException cfg e
   --
 
   -- Client choose unsupported compression
-  | Just (Client.CallSetupUnexpectedStatus status _body) <- fromException e'
+  | Just (Client.CallSetupUnexpectedStatus status _body) <- fromException e
   , compressionNegotationFailure cfg
   , status == HTTP.badRequest400
   = True
 
   -- Server chose unsupported compression
-  | Just Client.CallSetupUnsupportedCompression{} <- fromException e'
+  | Just Client.CallSetupUnsupportedCompression{} <- fromException e
   , compressionNegotationFailure cfg
   = True
 
@@ -300,7 +298,7 @@ isExpectedClientException cfg e
   -- TLS problems
   --
 
-  | Just tls <- fromException e'
+  | Just tls <- fromException e
   , isExpectedTLSException cfg tls
   = True
 
@@ -310,8 +308,6 @@ isExpectedClientException cfg e
 
   | otherwise
   = False
-  where
-    e' = innerNestedException e
 
 compressionNegotationFailure :: ClientServerConfig -> Bool
 compressionNegotationFailure cfg = or [
@@ -517,15 +513,15 @@ runTestServer cfg serverTracer firstTestFailure handlerLock serverHandlers = do
 -------------------------------------------------------------------------------}
 
 type TestClient =
-          -- | Test-appropriate connection parameters
           Client.ConnParams
-          -- | Test server to connect to
+          -- ^ Test-appropriate connection parameters
        -> Client.Server
-          -- | Delimit test scope
+          -- ^ Test server to connect to
+       -> (IO () -> IO ())
+          -- ^ Delimit test scope
           --
           -- Any test failures will be limited to this scope. Important when
           -- running multiple tests.
-       -> (IO () -> IO ())
        -> IO ()
 
 simpleTestClient :: (Client.Connection -> IO ()) -> TestClient
@@ -622,8 +618,6 @@ runTestClient cfg clientTracer firstTestFailure clientRun = do
               Left err | isExpectedClientException cfg err ->
                 return ()
               Left err -> do
-                -- TODO: Remove the uhohs
-                putStrLn $ "Client uhoh: " ++ show (innerNestedException err)
                 markTestFailure firstTestFailure err
                 throwIO TestFailure
 

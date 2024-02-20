@@ -6,7 +6,6 @@ module Test.Sanity.Interop (tests) where
 
 import Control.Exception
 import Control.Monad
-import Data.Bifunctor
 import Data.ByteString qualified as BS.Strict
 import Data.Proxy
 import Test.Tasty
@@ -17,7 +16,6 @@ import Network.GRPC.Client.StreamType.IO.Binary qualified as Client.Binary
 import Network.GRPC.Common
 import Network.GRPC.Common.Protobuf
 import Network.GRPC.Common.StreamElem qualified as StreamElem
-import Network.GRPC.Internal
 import Network.GRPC.Server qualified as Server
 import Network.GRPC.Server.Binary qualified as Server.Binary
 import Network.GRPC.Server.StreamType qualified as Server
@@ -85,10 +83,7 @@ test_callAfterException =
       }
   where
     ping :: Client.Connection -> Word -> IO (Either SomeException Word)
-    ping conn =
-        fmap (first (innerNestedException :: SomeException -> SomeException))
-      . try
-      . Client.Binary.nonStreaming conn (Client.rpc @Ping)
+    ping conn = try . Client.Binary.nonStreaming conn (Client.rpc @Ping)
 
 {-------------------------------------------------------------------------------
   @empty_unary@

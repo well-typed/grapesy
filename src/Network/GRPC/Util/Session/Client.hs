@@ -4,6 +4,7 @@ module Network.GRPC.Util.Session.Client (
   , setupRequestChannel
   ) where
 
+import Control.Concurrent.STM
 import Control.Monad
 import Control.Monad.Catch
 import Control.Tracer
@@ -20,8 +21,6 @@ import Network.GRPC.Util.HTTP2.Stream
 import Network.GRPC.Util.Session.API
 import Network.GRPC.Util.Session.Channel
 import Network.GRPC.Util.Thread
-
-import Debug.Concurrent
 
 {-------------------------------------------------------------------------------
   Connection
