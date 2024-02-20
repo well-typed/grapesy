@@ -213,7 +213,6 @@ test-suite test-grapesy
       exitcode-stdio-1.0
   hs-source-dirs:
       test-grapesy
-      test-common
       debug
       proto
   main-is:
@@ -231,7 +230,6 @@ test-suite test-grapesy
       Test.Sanity.Interop
       Test.Sanity.StreamingType.CustomFormat
       Test.Sanity.StreamingType.NonStreaming
-      Test.Util.ClientServer
 
       Paths_grapesy
 
