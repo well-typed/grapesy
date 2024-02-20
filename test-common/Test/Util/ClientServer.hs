@@ -24,17 +24,18 @@ module Test.Util.ClientServer (
   ) where
 
 import Control.Exception (throwIO)
+import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
 import Control.Tracer
 import Data.ByteString qualified as Strict (ByteString)
-import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text qualified as Text
 import GHC.Generics qualified as GHC
 import Network.HTTP.Types qualified as HTTP
+import Network.HTTP2.Server qualified as HTTP2.Server
 import Network.TLS
 
 import Network.GRPC.Client qualified as Client
@@ -338,75 +339,106 @@ isExpectedTLSException cfg tls =
         False
 
 {-------------------------------------------------------------------------------
-  Server handler lock
-
-  We don't want to terminate the test when some of the server handlers are
-  still running; this will result in those handlers being killed with a
-  'KilledByHttp2ThreadManager' exception, confusing the test results.
-
-  Moreover, when a handler throws an exception, that request is simply aborted,
-  but the server does not shut down. However, for the sake of testing, if a
-  handler throws an unexpected exception, the test should fail. We therefore
-  monitor for these exceptions.
+  Test failures
 -------------------------------------------------------------------------------}
 
-data HandlerState =
-    HandlerActive
-  | HandlerDone
-  | HandlerError SomeException
-  deriving stock (Show)
+-- | Test failure
+--
+-- When a test fails, we want to report the /first/ test failure; anything else
+-- might result in difficult to debug test cases, because that first test
+-- failure (first exception) might have all kinds of hard-to-predict
+-- consequences. This is somewhat tricky to achieve in a concurrent test
+-- setting; for example, if a server handler throws an exception, this exception
+-- will be raised in the client also, but we want a guarantee that we see the
+-- /handler/ exception, not the client one. We therefore wrap every client test
+-- and every handler in an exception wrapper which, after verifying that the
+-- exception was not expected, will write the exception (i.e., the test failure)
+-- to a test-wide 'FirstTestFailure'.
+--
+-- We then run the client in a separate thread, and wait for it to finish, /or/
+-- for a test failure to be reported. Doing these two checks independently means
+-- that if the client deadlocks because of some test failure somewhere else, we
+-- don't wait but instead report the test failure. In the client we throw
+-- 'TestFailure' if we do see a test failure; this helps in tests where we run
+-- multiple clients, as it signals that there is no point waiting for the other
+-- tests to terminate.
+--
+-- In a similar fashion we then wait for all handlers to terminate also or,
+-- again, for some test failure to be reported. (In this case the exception is
+-- not rethrown, because handlers should never throw at all.)
+--
+-- Finally, we check 'FirstTestFailure', report failure if it's set, or test
+-- success otherwise.
+--
+-- Note: if we have multiple independent clients, running independent tests,
+-- then we have multiple concurrent test failures, there /is/ no clear notion
+-- of a \"first\" test failure. However, in this case which exception we report
+-- as \"the\" test failure is not very important; by definition, in this case
+-- the one exception cannot be the /cause/ for the other exception (if it was,
+-- then one must happen /before/ the other).
+newtype FirstTestFailure = FirstTestFailure (TMVar SomeException)
 
-newtype ServerHandlerLock = ServerHandlerLock (TVar (Map ThreadId HandlerState))
+data TestFailure = TestFailure
+  deriving stock (Show)
+  deriving anyclass (Exception)
+
+-- | Mark test failure
+--
+-- Does nothing if an earlier test failure has already been marked.
+markTestFailure :: FirstTestFailure -> SomeException  -> IO ()
+markTestFailure (FirstTestFailure firstTestFailure) err =
+    void $ atomically $ tryPutTMVar firstTestFailure err
+
+{-------------------------------------------------------------------------------
+  Server handler lock
+-------------------------------------------------------------------------------}
+
+-- |  Server handler lock
+--
+-- Handlers are initiated by calls from clients, but may outlive the connection
+-- to the client. Therefore, after we wait for the clients to terminate, we
+-- should also wait for all handlers to terminate.
+--
+-- See 'FirstTestFailure' for discussion of handler exceptions.
+newtype ServerHandlerLock = ServerHandlerLock (TVar Int)
 
 newServerHandlerLock :: IO ServerHandlerLock
-newServerHandlerLock = ServerHandlerLock <$> newTVarIO Map.empty
+newServerHandlerLock = ServerHandlerLock <$> newTVarIO 0
 
-waitForHandlerTermination :: ServerHandlerLock -> STM (Either SomeException ())
+waitForHandlerTermination :: ServerHandlerLock -> STM ()
 waitForHandlerTermination (ServerHandlerLock lock) = do
-    go [] =<< Map.toList <$> readTVar lock
-  where
-    -- We only want to retry if no handlers errored out
-    go ::
-         [ThreadId]                  -- Active
-      -> [(ThreadId, HandlerState)]  -- Still to consider
-      -> STM (Either SomeException ())
-    go active []           = if null active
-                               then return $ Right ()
-                               else retry
-    go active ((h, st):hs) = case st of
-                               HandlerActive  -> go (h:active) hs
-                               HandlerDone    -> go    active  hs
-                               HandlerError e -> return $ Left e
+    activeHandlers <- readTVar lock
+    when (activeHandlers > 0) retry
 
 topLevelWithHandlerLock ::
      ClientServerConfig
+  -> FirstTestFailure
   -> ServerHandlerLock
   -> Server.RequestHandler SomeException ()
   -> Server.RequestHandler NeverThrows   ()
-topLevelWithHandlerLock cfg (ServerHandlerLock lock) handler req respond = do
-    tid <- XIO.unsafeTrustMe $ myThreadId
-
-    let markActive, markDone :: XIO.XIO' NeverThrows ()
-        markActive = XIO.unsafeTrustMe $
-            atomically $ modifyTVar lock $ Map.insert tid HandlerActive
-        markDone = XIO.unsafeTrustMe $
-            atomically $ modifyTVar lock $ Map.insert tid $ HandlerDone
-
-        markError :: SomeException -> XIO.XIO' NeverThrows ()
-        markError err = XIO.unsafeTrustMe $
-            atomically $ modifyTVar lock $ Map.insert tid $ HandlerError err
-
-    markActive
-    res <- XIO.tryError $ handler req respond
-    case res of
-      Right () ->
+topLevelWithHandlerLock cfg firstTestFailure (ServerHandlerLock lock) handler =
+    handler'
+  where
+    handler' ::
+         HTTP2.Server.Request
+      -> (HTTP2.Server.Response -> IO ())
+      -> XIO.XIO' NeverThrows ()
+    handler' req respond = do
+        markActive
+        result <- XIO.tryError $ handler req respond
+        XIO.unsafeTrustMe $
+          case result of
+            Right () ->
+              return ()
+            Left err | isExpectedServerException cfg err ->
+              return ()
+            Left err ->
+              markTestFailure firstTestFailure err
         markDone
-      Left e -> do
-        if isExpectedServerException cfg e then
-          markDone
-        else do
-          XIO.swallowIO $ putStrLn $ "Server uhoh: " ++ show (innerNestedException e)
-          markError e
+
+    markActive, markDone :: XIO.XIO' NeverThrows ()
+    markActive = XIO.unsafeTrustMe $ atomically $ modifyTVar lock (\n -> n + 1)
+    markDone   = XIO.unsafeTrustMe $ atomically $ modifyTVar lock (\n -> n - 1)
 
 {-------------------------------------------------------------------------------
   Server
@@ -415,10 +447,11 @@ topLevelWithHandlerLock cfg (ServerHandlerLock lock) handler req respond = do
 runTestServer ::
      ClientServerConfig
   -> Tracer IO Server.ServerDebugMsg
+  -> FirstTestFailure
   -> ServerHandlerLock
   -> [Server.RpcHandler IO]
   -> IO ()
-runTestServer cfg serverTracer handlerLock serverHandlers = do
+runTestServer cfg serverTracer firstTestFailure handlerLock serverHandlers = do
     pubCert <- getDataFileName "grpc-demo.pem"
     privKey <- getDataFileName "grpc-demo.key"
 
@@ -453,9 +486,12 @@ runTestServer cfg serverTracer handlerLock serverHandlers = do
 
         serverParams :: Server.ServerParams
         serverParams = Server.ServerParams {
-              serverCompression = serverCompr cfg
-            , serverDebugTracer = serverTracer
-            , serverTopLevel    = topLevelWithHandlerLock cfg handlerLock
+              serverCompression =
+                serverCompr cfg
+            , serverDebugTracer =
+                serverTracer
+            , serverTopLevel =
+                topLevelWithHandlerLock cfg firstTestFailure handlerLock
             , serverContentType =
                 case serverContentType cfg of
                   NoOverride            -> Nothing
@@ -489,9 +525,10 @@ simpleTestClient test params testServer delimitTestScope =
 runTestClient ::
      ClientServerConfig
   -> Tracer IO Client.ClientDebugMsg
+  -> FirstTestFailure
   -> TestClient
   -> IO ()
-runTestClient cfg clientTracer clientRun = do
+runTestClient cfg clientTracer firstTestFailure clientRun = do
     pubCert <- getDataFileName "grpc-demo.pem"
 
     let clientParams :: Client.ConnParams
@@ -567,16 +604,17 @@ runTestClient cfg clientTracer clientRun = do
 
         delimitTestScope :: IO () -> IO ()
         delimitTestScope test = do
-            testResult :: Either SomeException () <- try test
-            case testResult of
+            result :: Either SomeException () <- try test
+            case result of
               Right () ->
                 return ()
-              Left e | isExpectedClientException cfg e ->
+              Left err | isExpectedClientException cfg err ->
                 return ()
-              Left e -> do
+              Left err -> do
                 -- TODO: Remove the uhohs
-                putStrLn $ "Client uhoh: " ++ show (innerNestedException e)
-                throwIO e
+                putStrLn $ "Client uhoh: " ++ show (innerNestedException err)
+                markTestFailure firstTestFailure err
+                throwIO TestFailure
 
     clientRun clientParams clientServer delimitTestScope
 
@@ -592,89 +630,62 @@ data ClientServerTest = ClientServerTest {
 
 runTestClientServer :: ClientServerTest -> IO ()
 runTestClientServer (ClientServerTest cfg clientRun serverHandlers) = do
-    logMsgVar <- newMVar []
-    let logTracer :: Tracer IO LogMsg
-        logTracer = collectLogMsgs logMsgVar
-
-    -- Start server
+    -- Setup client and server
+    logMsgVar         <- newMVar []
+    firstTestFailure  <- newEmptyTMVarIO
     serverHandlerLock <- newServerHandlerLock
-    server <- async $ do
-      runTestServer
-        cfg
-        (contramap ServerLogMsg logTracer)
-        serverHandlerLock
-        serverHandlers
 
-    -- Start client
-    --
-    -- We run this in its own thread, so we can catch its exceptions separately
-    -- from the one from the server (see below)
-    client <- async $
-      runTestClient
-        cfg
-        (contramap ClientLogMsg logTracer)
-        clientRun
+    let server :: IO ()
+        server =
+          runTestServer
+            cfg
+            (contramap ServerLogMsg $ collectLogMsgs logMsgVar)
+            (FirstTestFailure firstTestFailure)
+            serverHandlerLock
+            serverHandlers
 
-    -- The server never shuts down under normal circumstances; so we wait for
-    -- the client to terminate, then wait for any potential still-running
-    -- server handlers to terminate, monitoring for exceptions, and then shut
-    -- down the server.
-    clientRes <- waitCatch client
-    serverRes <- atomically $ waitForHandlerTermination serverHandlerLock
-    cancel server
+    let client :: IO ()
+        client =
+          runTestClient
+            cfg
+            (contramap ClientLogMsg $ collectLogMsgs logMsgVar)
+            (FirstTestFailure firstTestFailure)
+            clientRun
 
-    logMsgs <- reverse <$> readMVar logMsgVar
+    -- Run the test
+    testResult :: Maybe SomeException <-
+      -- Start the server
+      withAsync server $ \_serverThread ->
+        -- Start the client
+        withAsync client $ \clientThread -> do
+          -- Wait for clients to terminate (or test failure)
+          atomically $
+              (void $ waitCatchSTM clientThread)
+            `orElse`
+              (void $ readTMVar firstTestFailure)
 
-    -- We are careful to report exceptions from the client and the server
-    -- independently: an exception in one can cause an exception in the other,
-    -- but if would then show only one of those two exceptions, it might hide
-    -- the reason reason for the failure.
-    case (serverRes, clientRes) of
-      (Right (), Right a) ->
-        return a
-      (Left serverErr, Right _) ->
-        throwIO $ ServerException {
-            serverException     = serverErr
-          , serverExceptionLogs = logMsgs
-          }
-      (Right (), Left clientErr) ->
-        throwIO $ ClientException {
-            clientException     = clientErr
-          , clientExceptionLogs = logMsgs
-          }
-      (Left serverErr, Left clientErr) ->
-        throwIO $ DoubleException {
-            doubleExceptionServer     = serverErr
-          , doubleExceptionClient     = clientErr
-          , doubleExceptionAnnotation = logMsgs
-          }
+          -- Wait for handlers to terminate (or test failure)
+          -- (Note that the server /itself/ normally never terminates)
+          atomically $
+              (waitForHandlerTermination serverHandlerLock)
+            `orElse`
+              (void $ readTMVar firstTestFailure)
 
-data ServerException = ServerException {
-      serverException     :: SomeException
-    , serverExceptionLogs :: [LogMsg]
+          -- Get the test result, and leave the scope of both @withAsync@ calls
+          -- (thereby killing the client and server if they are still running)
+          atomically $ tryReadTMVar firstTestFailure
+
+    -- Provide additional information in case of a test failure
+    case testResult of
+      Nothing      -> return () -- Test passed
+      Just failure -> do
+        logMsgs <- reverse <$> readMVar logMsgVar
+        throwIO $ ClientServerFailure logMsgs failure
+
+data ClientServerFailure = ClientServerFailure {
+      clientServerLogs    :: [LogMsg]
+    , clientServerFailure :: SomeException
     }
-  deriving stock (Show, GHC.Generic)
-  deriving Exception via ExceptionWrapper ServerException
-
-instance HasNestedException ServerException where
-  getNestedException = serverException
-
-data ClientException = ClientException {
-      clientException     :: SomeException
-    , clientExceptionLogs :: [LogMsg]
-    }
-  deriving stock (Show, GHC.Generic)
-  deriving Exception via ExceptionWrapper ClientException
-
-instance HasNestedException ClientException where
-  getNestedException = clientException
-
-data DoubleException e = forall a. Show a => DoubleException {
-      doubleExceptionClient     :: e
-    , doubleExceptionServer     :: e
-    , doubleExceptionAnnotation :: a
-    }
+  deriving stock (Show)
   deriving anyclass (Exception)
-
-deriving stock instance Show e => Show (DoubleException e)
 
