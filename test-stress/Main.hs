@@ -41,7 +41,7 @@ main = do
 
 runClient :: Test -> IO ()
 runClient test =
-    runTestClient def nullTracer $ \withConn -> withConn $ \conn ->
+    runTestClient def nullTracer $ simpleTestClient $ \conn ->
       case test of
         ManyShortLived ->
           clientManyShortLived conn

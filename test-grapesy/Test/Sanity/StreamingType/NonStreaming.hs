@@ -113,7 +113,7 @@ type BinaryIncrement = BinaryRpc "binary" "increment"
 test_increment :: ClientServerConfig -> IO ()
 test_increment config = testClientServer $ ClientServerTest {
       config
-    , client = \withConn -> withConn $ \conn -> do
+    , client = simpleTestClient $ \conn -> do
         Client.withRPC conn def (Proxy @BinaryIncrement) $ \call -> do
           Binary.sendFinalInput @Word8 call 1
           resp <- fst <$> Binary.recvFinalOutput @Word8 call

@@ -29,7 +29,7 @@ type Simple = BinaryRpc "HalfClosedLocal" "simple"
 test_simple :: IO ()
 test_simple = testClientServer $ ClientServerTest {
       config = def
-    , client = \withConn -> withConn $ \conn ->
+    , client = simpleTestClient $ \conn ->
           Client.withRPC conn def (Proxy @Simple) $ \call -> do
             [] <- Client.recvAllOutputs call $ \_ -> error "unexpected output"
             forM_ [0 .. 99] $ \i ->
@@ -70,7 +70,7 @@ type TrailersOnly = BinaryRpc "HalfClosedLocal" "trailersOnly"
 test_trailersOnly :: IO ()
 test_trailersOnly = testClientServer $ ClientServerTest {
       config = def
-    , client = \withConn -> withConn $ \conn ->
+    , client = simpleTestClient $ \conn ->
           Client.withRPC conn def (Proxy @TrailersOnly) $ \call -> do
             [] <- Client.recvAllOutputs call $ \_ -> error "unexpected output"
             forM_ [0 .. 99] $ \i ->

@@ -346,14 +346,16 @@ clientLocal testClock mode call = \(LocalSteps steps) ->
 clientGlobal ::
      TestClock
   -> ExecutionMode
-  -> ((Client.Connection -> IO ()) -> IO ())
   -> GlobalSteps
-  -> IO ()
-clientGlobal testClock mode withConn = \(GlobalSteps globalSteps) ->
+  -> TestClient
+clientGlobal testClock mode global connParams testServer delimitTestScope =
     case mode of
-      Aggressive   -> withConn $ \conn -> go (Just conn) [] globalSteps
-      Conservative -> go Nothing [] globalSteps
+      Aggressive   -> withConn $ \c -> go (Just c) [] (getGlobalSteps global)
+      Conservative ->                  go Nothing  [] (getGlobalSteps global)
   where
+    withConn :: (Client.Connection -> IO ()) -> IO ()
+    withConn = Client.withConnection connParams testServer
+
     go :: Maybe Client.Connection -> [Async ()] -> [LocalSteps] -> IO ()
     go _ threads [] = do
         -- Wait for all threads to finish
@@ -362,13 +364,16 @@ clientGlobal testClock mode withConn = \(GlobalSteps globalSteps) ->
         -- that is now rethrown here in the main test. This will also cause us
         -- to leave the scope of all enclosing calls to @withAsync@, thereby
         -- cancelling all other concurrent threads.
+        --
+        -- (It is therefore important that we catch any /excepted/ exceptions
+        -- locally; this is done by the call to @delimitTestScope@.)
         mapM_ wait threads
     go mConn threads (c:cs) =
         withAsync (runLocalSteps mConn c) $ \newThread ->
           go mConn (newThread:threads) cs
 
     runLocalSteps :: Maybe Client.Connection -> LocalSteps -> IO ()
-    runLocalSteps mConn (LocalSteps steps) = do
+    runLocalSteps mConn (LocalSteps steps) = delimitTestScope $ do
         case steps of
           (tick, ClientAction (Initiate (metadata, rpc))) : steps' -> do
             _reachedTick <- waitForTestClockTick testClock tick
@@ -635,8 +640,7 @@ execGlobalSteps steps = do
             expectEarlyClientTermination = clientTerminatesEarly
           , expectEarlyServerTermination = serverTerminatesEarly
           }
-      , client = \conn ->
-          clientGlobal testClock mode conn steps
+      , client = clientGlobal testClock mode steps
       , server = [
             handler (Proxy @TestRpc1)
           , handler (Proxy @TestRpc2)

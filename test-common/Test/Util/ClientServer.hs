@@ -13,6 +13,8 @@ module Test.Util.ClientServer (
   , DeliberateException(..)
     -- * Run
   , ClientServerTest(..)
+  , TestClient
+  , simpleTestClient
   , runTestClientServer
     -- ** Lower-level functionality
   , ServerHandlerLock -- opaque
@@ -467,10 +469,27 @@ runTestServer cfg serverTracer handlerLock serverHandlers = do
   Client
 -------------------------------------------------------------------------------}
 
+type TestClient =
+          -- | Test-appropriate connection parameters
+          Client.ConnParams
+          -- | Test server to connect to
+       -> Client.Server
+          -- | Delimit test scope
+          --
+          -- Any test failures will be limited to this scope. Important when
+          -- running multiple tests.
+       -> (IO () -> IO ())
+       -> IO ()
+
+simpleTestClient :: (Client.Connection -> IO ()) -> TestClient
+simpleTestClient test params testServer delimitTestScope =
+    Client.withConnection params testServer $ \conn ->
+      delimitTestScope $ test conn
+
 runTestClient ::
      ClientServerConfig
   -> Tracer IO Client.ClientDebugMsg
-  -> (((Client.Connection -> IO ()) -> IO ()) -> IO ())
+  -> TestClient
   -> IO ()
 runTestClient cfg clientTracer clientRun = do
     pubCert <- getDataFileName "grpc-demo.pem"
@@ -546,20 +565,20 @@ runTestClient cfg clientTracer clientRun = do
                 , addressAuthority = Nothing
                 }
 
-        withConn :: (Client.Connection -> IO ()) -> IO ()
-        withConn k = do
-            mb :: Either SomeException b <-
-              try $ Client.withConnection clientParams clientServer k
-            case mb of
-              Right b -> return b
-              Left e ->
-                if isExpectedClientException cfg e
-                  then return ()
-                  else do
-                    putStrLn $ "Client uhoh: " ++ show (innerNestedException e)
-                    throwIO e
+        delimitTestScope :: IO () -> IO ()
+        delimitTestScope test = do
+            testResult :: Either SomeException () <- try test
+            case testResult of
+              Right () ->
+                return ()
+              Left e | isExpectedClientException cfg e ->
+                return ()
+              Left e -> do
+                -- TODO: Remove the uhohs
+                putStrLn $ "Client uhoh: " ++ show (innerNestedException e)
+                throwIO e
 
-    clientRun withConn
+    clientRun clientParams clientServer delimitTestScope
 
 {-------------------------------------------------------------------------------
   Main entry point: run server and client together
@@ -567,7 +586,7 @@ runTestClient cfg clientTracer clientRun = do
 
 data ClientServerTest = ClientServerTest {
       config :: ClientServerConfig
-    , client :: ((Client.Connection -> IO ()) -> IO ()) -> IO ()
+    , client :: TestClient
     , server :: [Server.RpcHandler IO]
     }
 

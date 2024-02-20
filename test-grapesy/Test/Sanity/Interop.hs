@@ -60,7 +60,7 @@ test_callAfterException :: IO ()
 test_callAfterException =
     testClientServer $ ClientServerTest {
         config = def
-      , client = \withConn -> withConn $ \conn -> do
+      , client = simpleTestClient $ \conn -> do
           resp1 <- ping conn 0
           case resp1 of
             Left _  -> return ()
@@ -107,7 +107,7 @@ test_emptyUnary :: IO ()
 test_emptyUnary =
     testClientServer $ ClientServerTest {
         config = def
-      , client = \withConn -> withConn $ \conn ->
+      , client = simpleTestClient $ \conn ->
           Client.withRPC conn def (Proxy @EmptyCall) $ \call -> do
             Client.sendFinalInput call (defMessage :: Empty)
             streamElem <- Client.recvOutputWithEnvelope call
@@ -144,7 +144,7 @@ test_serverCompressedStreaming :: IO ()
 test_serverCompressedStreaming =
     testClientServer ClientServerTest {
         config = def
-      , client = \withConn -> withConn $ \conn ->
+      , client = simpleTestClient $ \conn ->
           Client.withRPC conn def (Proxy @StreamingOutputCall) $ \call -> do
             Client.sendFinalInput call $ defMessage & #responseParameters .~ [
                 defMessage
