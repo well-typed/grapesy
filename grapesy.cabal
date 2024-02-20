@@ -371,34 +371,22 @@ executable test-stress
       lang
   hs-source-dirs:
       test-stress
-      test-common
       debug
   main-is:
       Main.hs
   ghc-options:
       -threaded
   other-modules:
+      Test.Stress.Client
       Test.Stress.Cmdline
-      Test.Util.ClientServer
-
-      Paths_grapesy
-
-      Debug.Concurrent
+      Test.Stress.Server
+      Test.Stress.Server.API
   build-depends:
       -- Internal dependencies
     , grapesy
   build-depends:
       -- External dependencies
-    , async                >= 2.2   && < 2.3
-    , bytestring           >= 0.10  && < 0.12
-    , containers           >= 0.6   && < 0.7
-    , contra-tracer        >= 0.2   && < 0.3
-    , exceptions           >= 0.10  && < 0.11
-    , http-types           >= 0.12  && < 0.13
-    , optparse-applicative >= 0.16  && < 0.19
-    , stm                  >= 2.5   && < 2.6
-    , text                 >= 1.2   && < 2.1
-    , tls                  >= 1.5   && < 1.10
+    , optparse-applicative >= 0.16 && < 0.19
 
   if !flag(build-stress-test)
     buildable:
