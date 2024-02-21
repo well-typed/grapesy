@@ -14,6 +14,7 @@ module Test.Driver.Dialogue.TestClock (
 
 import Prelude hiding (id)
 
+import Control.Concurrent.STM
 import Control.Exception
 import Control.Monad
 import Data.List.NonEmpty (NonEmpty(..))
@@ -24,8 +25,6 @@ import Data.Maybe (mapMaybe)
 import GHC.Generics qualified as GHC
 import GHC.Stack
 import Test.QuickCheck
-
-import Debug.Concurrent
 
 {-------------------------------------------------------------------------------
   Test clock

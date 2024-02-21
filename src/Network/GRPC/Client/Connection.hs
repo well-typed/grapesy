@@ -21,6 +21,8 @@ module Network.GRPC.Client.Connection (
   , exponentialBackoff
   ) where
 
+import Control.Concurrent
+import Control.Concurrent.STM
 import Control.Monad
 import Control.Monad.Catch
 import Control.Tracer
@@ -48,8 +50,6 @@ import Network.GRPC.Util.HTTP2.Stream (ServerDisconnected(..))
 import Network.GRPC.Util.Session qualified as Session
 import Network.GRPC.Util.TLS (ServerValidation(..), SslKeyLog(..))
 import Network.GRPC.Util.TLS qualified as Util.TLS
-
-import Debug.Concurrent
 
 {-------------------------------------------------------------------------------
   Connection API
@@ -279,8 +279,7 @@ data Server =
 -- specification of "Wait for ready" semantics. You may wish to override this
 -- default.
 withConnection ::
-     HasCallStack
-  => ConnParams
+     ConnParams
   -> Server
   -> (Connection -> IO a)
   -> IO a
@@ -345,7 +344,7 @@ startRPC Connection{connMetaVar, connParams, connStateVar} _ callParams = do
               Nothing -> ExitCaseSuccess ()
               Just exitWithException ->
                 ExitCaseException . toException $
-                  ServerDisconnected exitWithException
+                  ServerDisconnected exitWithException callStack
       _mAlreadyClosed <- Session.close channel exitReason
       return ()
 

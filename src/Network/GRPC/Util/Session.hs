@@ -35,9 +35,7 @@ module Network.GRPC.Util.Session (
     -- ** Closing
   , waitForOutbound
   , close
-  , ChannelUncleanClose(..)
   , ChannelDiscarded(..)
-  , ChannelException(..)
   , ChannelAborted(..)
     -- ** Construction
     -- *** Client

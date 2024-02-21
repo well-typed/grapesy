@@ -9,6 +9,7 @@ module Network.GRPC.Client.StreamType (
   , rpc
   ) where
 
+import Control.Concurrent.Async
 import Control.Monad.Catch
 import Control.Monad.IO.Class
 import Control.Monad.Reader
@@ -20,8 +21,6 @@ import Network.GRPC.Client.Connection
 import Network.GRPC.Common.StreamElem
 import Network.GRPC.Common.StreamType
 import Network.GRPC.Spec
-
-import Debug.Concurrent
 
 {-------------------------------------------------------------------------------
   CanCallRPC

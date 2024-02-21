@@ -12,8 +12,6 @@ module Test.Driver.Dialogue.Definition (
   , SomeClientException(..)
   , SomeServerException(..)
   , ExceptionId(..)
-    -- ** Wrappers
-  , AnnotatedServerException(..)
     -- * Utility
   , hasEarlyTermination
   ) where
@@ -22,10 +20,8 @@ import Control.Exception
 import Data.Bifunctor
 import Data.Set (Set)
 import GHC.Generics qualified as GHC
-import GHC.Stack
 
 import Network.GRPC.Common
-import Network.GRPC.Internal
 
 import Test.Driver.Dialogue.TestClock
 
@@ -112,25 +108,6 @@ data SomeClientException = SomeClientException ExceptionId
 -- | We distinguish exceptions from each other simply by a number
 newtype ExceptionId = ExceptionId Int
   deriving stock (Show, Eq, GHC.Generic)
-
-{-------------------------------------------------------------------------------
-  Exception wrappers
--------------------------------------------------------------------------------}
-
--- | Annotated server handler exception
---
--- When a server handler throws an exception, it is useful to know what that
--- particular handler was executing.
-data AnnotatedServerException = AnnotatedServerException {
-       serverGlobalException          :: SomeException
-     , serverGlobalExceptionSteps     :: LocalSteps
-     , serverGlobalExceptionCallStack :: CallStack
-     }
-  deriving stock (Show, GHC.Generic)
-  deriving Exception via ExceptionWrapper AnnotatedServerException
-
-instance HasNestedException AnnotatedServerException where
-  getNestedException = serverGlobalException
 
 {-------------------------------------------------------------------------------
   Utility

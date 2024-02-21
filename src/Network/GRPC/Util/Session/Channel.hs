@@ -19,12 +19,11 @@ module Network.GRPC.Util.Session.Channel (
     -- * Closing
   , waitForOutbound
   , close
-  , ChannelUncleanClose(..)
   , ChannelDiscarded(..)
-  , ChannelException(..)
   , ChannelAborted(..)
     -- ** Exceptions
     -- * Constructing channels
+  , linkOutboundToInbound
   , sendMessageLoop
   , recvMessageLoop
   , outboundTrailersMaker
@@ -37,8 +36,10 @@ module Network.GRPC.Util.Session.Channel (
   , DebugMsg(..)
   ) where
 
+import Control.Concurrent.STM
 import Control.Exception
-import Control.Monad.Catch
+import Control.Monad
+import Control.Monad.Catch (ExitCase(..))
 import Control.Tracer
 import Data.Bifunctor
 import Data.ByteString qualified as BS.Strict
@@ -50,13 +51,10 @@ import Network.HTTP2.Internal qualified as HTTP2
 
 import Network.GRPC.Common.StreamElem (StreamElem(..))
 import Network.GRPC.Common.StreamElem qualified as StreamElem
-import Network.GRPC.Internal
 import Network.GRPC.Util.HTTP2.Stream
 import Network.GRPC.Util.Parser
 import Network.GRPC.Util.Session.API
 import Network.GRPC.Util.Thread
-
-import Debug.Concurrent
 
 {-------------------------------------------------------------------------------
   Definitions
@@ -400,7 +398,7 @@ data RecvAfterFinal =
 -- | Wait for the outbound thread to terminate
 --
 -- See 'close' for discussion.
-waitForOutbound :: HasCallStack => Channel sess -> IO (FlowState (Outbound sess))
+waitForOutbound :: Channel sess -> IO (FlowState (Outbound sess))
 waitForOutbound Channel{channelOutbound} = atomically $
     waitForThread channelOutbound
 
@@ -421,7 +419,7 @@ waitForOutbound Channel{channelOutbound} = atomically $
 -- * The connection to the peer was lost
 -- * Proper procedure for outbound messages was not followed (see above)
 --
--- In this case, 'close' will return a 'ChannelUncleanClose' exception.
+-- In this case, 'close' will return an exception.
 --
 -- TODO: @http2@ does not offer an API for indicating that we want to ignore
 -- further output. We should check that this does not result in memory leak (if
@@ -430,7 +428,7 @@ close ::
      HasCallStack
   => Channel sess
   -> ExitCase a    -- ^ The reason why the channel is being closed
-  -> IO (Maybe ChannelUncleanClose)
+  -> IO (Maybe SomeException)
 close Channel{channelOutbound} reason = do
     -- We leave the inbound thread running. Although the channel is closed,
     -- there might still be unprocessed messages in the queue. The inbound
@@ -438,24 +436,14 @@ close Channel{channelOutbound} reason = do
      outbound <- cancelThread channelOutbound channelClosed
      case outbound of
        Right ()  -> return $ Nothing
-       Left  err -> return $ Just (ChannelUncleanClose err)
+       Left  err -> return $ Just err
   where
     channelClosed :: SomeException
     channelClosed =
         case reason of
           ExitCaseSuccess _   -> toException $ ChannelDiscarded callStack
-          ExitCaseException e -> toException $ ChannelException callStack e
           ExitCaseAbort       -> toException $ ChannelAborted   callStack
-
--- | Thrown by 'close' if not all outbound messages have been processed
---
--- See 'close' for discussion.
-data ChannelUncleanClose = ChannelUncleanClose SomeException
-  deriving stock (Show)
-  deriving Exception via ExceptionWrapper ChannelUncleanClose
-
-instance HasNestedException ChannelUncleanClose where
-  getNestedException (ChannelUncleanClose e) = e
+          ExitCaseException e -> e
 
 -- | Channel was closed because it was discarded
 --
@@ -464,14 +452,6 @@ instance HasNestedException ChannelUncleanClose where
 data ChannelDiscarded = ChannelDiscarded CallStack
   deriving stock (Show)
   deriving anyclass (Exception)
-
--- | Channel was closed with an exception
-data ChannelException = ChannelException CallStack SomeException
-  deriving stock (Show)
-  deriving Exception via ExceptionWrapper ChannelException
-
-instance HasNestedException ChannelException where
-  getNestedException (ChannelException _ e) = e
 
 -- | Channel was closed for an unknown reason
 --
@@ -492,6 +472,25 @@ data ChannelAborted = ChannelAborted CallStack
   attempt to interact with them after they have been killed will be handled by
   'getThreadInterface' throwing 'ThreadInterfaceUnavailable'.
 -------------------------------------------------------------------------------}
+
+-- | Link outbound thread to the inbound thread
+--
+-- This should be wrapped around the body of the inbound thread. It ensures that
+-- when the inbound thread throws an exception, the outbound thread dies also.
+-- This improves predictability of exceptions: the inbound thread spends most of
+-- its time blocked on messages from the peer, and will therefore notice when
+-- the connection is lost. This is not true for the outbound thread, which
+-- spends most of its time blocked waiting for messages to send to the peer.
+linkOutboundToInbound :: Channel sess -> IO a -> IO a
+linkOutboundToInbound channel inbound =
+    handle killOutbound inbound
+  where
+    killOutbound :: SomeException -> IO a
+    killOutbound err = do
+        -- After cancelThread returns, 'channelOutbound' has been updated, and
+        -- considered dead, even if perhaps the thread is still cleaning up.
+        void $ cancelThread (channelOutbound channel) err
+        throwIO err
 
 -- | Send all messages to the node's peer
 sendMessageLoop :: forall sess.

@@ -4,7 +4,7 @@ module Network.GRPC.Util.Session.Client (
   , setupRequestChannel
   ) where
 
-import Control.Monad
+import Control.Concurrent.STM
 import Control.Monad.Catch
 import Control.Tracer
 import Data.ByteString qualified as BS.Strict
@@ -20,8 +20,6 @@ import Network.GRPC.Util.HTTP2.Stream
 import Network.GRPC.Util.Session.API
 import Network.GRPC.Util.Session.Channel
 import Network.GRPC.Util.Thread
-
-import Debug.Concurrent
 
 {-------------------------------------------------------------------------------
   Connection
@@ -114,8 +112,8 @@ setupRequestChannel sess tracer ConnectionToServer{sendRequest} outboundStart = 
   where
     forkRequest :: Channel sess -> Client.Request -> IO ()
     forkRequest channel req =
-        forkThread (channelInbound channel) $ \unmask markReady -> unmask $ do
-          handle (killOutbound channel) $ sendRequest req $ \resp -> do
+        forkThread (channelInbound channel) $ \unmask markReady -> unmask $
+          linkOutboundToInbound channel $ sendRequest req $ \resp -> do
             responseStatus <- case Client.responseStatus resp of
                                 Just x  -> return x
                                 Nothing -> throwM PeerMissingPseudoHeaderStatus
@@ -143,13 +141,6 @@ setupRequestChannel sess tracer ConnectionToServer{sendRequest} outboundStart = 
             else do
               trailers <- parseResponseNoMessages sess responseInfo
               markReady $ FlowStateNoMessages trailers
-
-    -- Kill the outbound thread if we fail to send the request
-    -- (the /inbound/ thread is never started in this case)
-    killOutbound :: Channel sess -> SomeException -> IO ()
-    killOutbound channel err = do
-        void $ cancelThread (channelOutbound channel) err
-        throwM err
 
     outboundThread ::
          Channel sess

@@ -89,7 +89,6 @@ library
       Network.GRPC.Common.Protobuf
       Network.GRPC.Common.StreamElem
       Network.GRPC.Common.StreamType
-      Network.GRPC.Internal
       Network.GRPC.Internal.XIO
       Network.GRPC.Server
       Network.GRPC.Server.Binary
@@ -103,7 +102,6 @@ library
       Network.GRPC.Client.Meta
       Network.GRPC.Client.Session
       Network.GRPC.Client.StreamType
-      Network.GRPC.Internal.NestedException
       Network.GRPC.Server.Call
       Network.GRPC.Server.Context
       Network.GRPC.Server.Handler
@@ -144,13 +142,10 @@ library
 
       Paths_grapesy
 
-      Debug.Concurrent
-
       -- TODO: Should move to its own package
       Control.Monad.XIO
   hs-source-dirs:
       src
-      debug
       xio
   build-depends:
     , async                >= 2.2   && < 2.3
@@ -213,8 +208,6 @@ test-suite test-grapesy
       exitcode-stdio-1.0
   hs-source-dirs:
       test-grapesy
-      test-common
-      debug
       proto
   main-is:
       Main.hs
@@ -231,15 +224,12 @@ test-suite test-grapesy
       Test.Sanity.Interop
       Test.Sanity.StreamingType.CustomFormat
       Test.Sanity.StreamingType.NonStreaming
-      Test.Util.ClientServer
 
       Paths_grapesy
 
       Proto.Empty
       Proto.Messages
       Proto.Test
-
-      Debug.Concurrent
   build-depends:
       -- Internal dependencies
     , grapesy
@@ -252,6 +242,7 @@ test-suite test-grapesy
     , contra-tracer      >= 0.2   && < 0.3
     , exceptions         >= 0.10  && < 0.11
     , http-types         >= 0.12  && < 0.13
+    , http2              >= 5.1.1 && < 5.2
     , mtl                >= 2.2   && < 2.4
     , proto-lens-runtime >= 0.7   && < 0.8
     , QuickCheck         >= 2.14  && < 2.15
@@ -270,7 +261,6 @@ executable demo-client
       demo-client
       demo-common
       proto
-      debug
   main-is:
       Main.hs
   ghc-options:
@@ -294,8 +284,6 @@ executable demo-client
       Proto.Helloworld_Fields
       Proto.RouteGuide
       Proto.RouteGuide_Fields
-
-      Debug.Concurrent
   build-depends:
       -- Internal dependencies
     , grapesy
@@ -309,7 +297,6 @@ executable demo-client
     , pipes                >= 4.3  && < 4.4
     , pipes-safe           >= 2.3  && < 2.4
     , proto-lens-runtime   >= 0.7  && < 0.8
-    , stm                  >= 2.5  && < 2.6
     , text                 >= 1.2  && < 2.1
     , transformers         >= 0.5  && < 0.7
 
@@ -324,7 +311,6 @@ executable demo-server
       demo-server
       demo-common
       proto
-      debug
   main-is:
       Main.hs
   ghc-options:
@@ -342,22 +328,18 @@ executable demo-server
       Proto.RouteGuide_Fields
 
       Paths_grapesy
-
-      Debug.Concurrent
   build-depends:
       -- Internal dependencies
     , grapesy
   build-depends:
       -- External dependencies
     , aeson                >= 1.5  && < 2.2
-    , async                >= 2.2  && < 2.3
     , containers           >= 0.6  && < 0.7
     , contra-tracer        >= 0.2  && < 0.3
     , mtl                  >= 2.2  && < 2.4
     , network              >= 3.1  && < 3.2
     , optparse-applicative >= 0.16 && < 0.19
     , proto-lens-runtime   >= 0.7  && < 0.8
-    , stm                  >= 2.5  && < 2.6
     , text                 >= 1.2  && < 2.1
     , time                 >= 1.9  && < 1.13
     , transformers         >= 0.5  && < 0.7
@@ -371,34 +353,21 @@ executable test-stress
       lang
   hs-source-dirs:
       test-stress
-      test-common
-      debug
   main-is:
       Main.hs
   ghc-options:
       -threaded
   other-modules:
+      Test.Stress.Client
       Test.Stress.Cmdline
-      Test.Util.ClientServer
-
-      Paths_grapesy
-
-      Debug.Concurrent
+      Test.Stress.Server
+      Test.Stress.Server.API
   build-depends:
       -- Internal dependencies
     , grapesy
   build-depends:
       -- External dependencies
-    , async                >= 2.2   && < 2.3
-    , bytestring           >= 0.10  && < 0.12
-    , containers           >= 0.6   && < 0.7
-    , contra-tracer        >= 0.2   && < 0.3
-    , exceptions           >= 0.10  && < 0.11
-    , http-types           >= 0.12  && < 0.13
-    , optparse-applicative >= 0.16  && < 0.19
-    , stm                  >= 2.5   && < 2.6
-    , text                 >= 1.2   && < 2.1
-    , tls                  >= 1.5   && < 1.10
+    , optparse-applicative >= 0.16 && < 0.19
 
   if !flag(build-stress-test)
     buildable:

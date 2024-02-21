@@ -12,18 +12,14 @@ module Network.GRPC.Util.Thread (
   , cancelThread
   , waitForThread
   , withThreadInterface
-  , ThreadCancelled(..)
-  , ThreadInterfaceUnavailable(..)
   ) where
 
+import Control.Concurrent
+import Control.Concurrent.STM
 import Control.Exception
 import Control.Monad
 import Foreign (newStablePtr, freeStablePtr)
 import GHC.Stack
-
-import Network.GRPC.Internal
-
-import Debug.Concurrent
 
 {-------------------------------------------------------------------------------
   State
@@ -135,8 +131,7 @@ threadBody state body = do
 -- argument to 'cancelThread', or an earlier exception if the thread was already
 -- killed), or the thread interface if the thread had already terminated.
 cancelThread ::
-     HasCallStack
-  => TVar (ThreadState a)
+     TVar (ThreadState a)
   -> SomeException
   -> IO (Either SomeException ())
 cancelThread state e = join . atomically $ do
@@ -156,22 +151,8 @@ cancelThread state e = join . atomically $ do
   where
     kill :: ThreadId -> IO (Either SomeException a)
     kill tid = do
-        throwTo tid $ ThreadCancelled callStack e
+        throwTo tid $ e
         return $ Left e
-
--- | Exception thrown by 'cancelThread' to the thread to the cancelled
-data ThreadCancelled = ThreadCancelled {
-      -- | Callstack to the call to 'cancelThread'
-      threadCancelledCallStack :: CallStack
-
-      -- | Reason the thread was cancelled
-    , threadCancelledReason :: SomeException
-    }
-  deriving stock (Show)
-  deriving Exception via ExceptionWrapper ThreadCancelled
-
-instance HasNestedException ThreadCancelled where
-  getNestedException = threadCancelledReason
 
 {-------------------------------------------------------------------------------
   Interacting with the thread
@@ -201,8 +182,7 @@ instance HasNestedException ThreadCancelled where
 -- ever throws a "blocked indefinitely" exception, this should be reported as a
 -- bug in @grapesy@.
 withThreadInterface :: forall a b.
-     HasCallStack
-  => TVar (ThreadState a)
+     TVar (ThreadState a)
   -> (a -> STM b)
   -> IO b
 withThreadInterface state k =
@@ -217,14 +197,13 @@ withThreadInterface state k =
           ThreadInitializing _ -> retry
           ThreadRunning _ a    -> return a
           ThreadDone      a    -> return a
-          ThreadException e    -> throwSTM $
-                                    ThreadInterfaceUnavailable callStack e
+          ThreadException e    -> throwSTM e
 
 -- | Wait for the thread to terminate
 --
 -- This is similar to 'getThreadInterface', but retries when the thread is still
 -- running.
-waitForThread :: HasCallStack => TVar (ThreadState a) -> STM a
+waitForThread :: TVar (ThreadState a) -> STM a
 waitForThread state = do
     st <- readTVar state
     case st of
@@ -232,23 +211,7 @@ waitForThread state = do
       ThreadInitializing _ -> retry
       ThreadRunning _ _    -> retry
       ThreadDone      a    -> return a
-      ThreadException e    -> throwSTM $ ThreadInterfaceUnavailable callStack e
-
--- | Thread interface unavailable
---
--- Thrown when we task for the thread interface but the thread has died.
-data ThreadInterfaceUnavailable = ThreadInterfaceUnavailable {
-      -- | The 'CallStack' to the call requesting the thread interface
-      threadInterfaceCallStack :: CallStack
-
-      -- | The exception that killed the thread
-    , threadInterfaceException :: SomeException
-    }
-  deriving stock (Show)
-  deriving Exception via ExceptionWrapper ThreadInterfaceUnavailable
-
-instance HasNestedException ThreadInterfaceUnavailable where
-  getNestedException = threadInterfaceException
+      ThreadException e    -> throwSTM e
 
 {-------------------------------------------------------------------------------
   Internal auxiliary

@@ -4,6 +4,9 @@ module Test.Driver.Dialogue.Execution (
     execGlobalSteps
   ) where
 
+import Control.Concurrent
+import Control.Concurrent.Async
+import Control.Concurrent.STM
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.State
@@ -15,7 +18,6 @@ import Data.Set qualified as Set
 import Data.Text qualified as Text
 import GHC.Generics qualified as GHC
 import GHC.Stack
-import System.IO.Unsafe (unsafePerformIO)
 import System.Timeout (timeout)
 
 import Network.GRPC.Client qualified as Client
@@ -24,8 +26,6 @@ import Network.GRPC.Common
 import Network.GRPC.Common.Binary
 import Network.GRPC.Server qualified as Server
 import Network.GRPC.Server.Binary qualified as Server.Binary
-
-import Debug.Concurrent
 
 import Test.Driver.ClientServer
 import Test.Driver.Dialogue.Definition
@@ -90,32 +90,22 @@ expect isExpected received
   Health
 -------------------------------------------------------------------------------}
 
--- | Health
+-- | Health of the peer (server/client)
 --
 -- When the client is expecting a response from the server, it needs to know the
 -- "health" of the server, that is, is the server still alive, or did it fail
 -- with some kind exception? The same is true for the server when it expects a
 -- response from the client. Therefore, the client interpretation keeps track of
 -- the health of the server, and vice versa.
-data Health e a = Alive a | Failed e | Disappeared
+data PeerHealth =
+    PeerAlive
+  | PeerFailed DeliberateException
+  | PeerDisappeared
   deriving stock (Show)
 
-type ServerHealth = Health SomeServerException
-type ClientHealth = Health SomeClientException
-
-instance Functor (Health e) where
-  fmap  = liftM
-instance Applicative (Health e) where
-  pure  = Alive
-  (<*>) = ap
-instance Monad (Health e) where
-  return = pure
-  Alive x     >>= f = f x
-  Failed e    >>= _ = Failed e
-  Disappeared >>= _ = Disappeared
-
-ifAlive :: (a -> Health e b) -> Health e a -> Health e b
-ifAlive = (=<<)
+ifPeerAlive :: PeerHealth -> PeerHealth -> PeerHealth
+ifPeerAlive PeerAlive  = id
+ifPeerAlive peerFailed = const peerFailed
 
 {-------------------------------------------------------------------------------
   Execution mode
@@ -228,7 +218,7 @@ clientLocal ::
   -> LocalSteps
   -> IO ()
 clientLocal testClock mode call = \(LocalSteps steps) ->
-    evalStateT (go steps) (Alive ()) `finally`
+    evalStateT (go steps) PeerAlive `finally`
       skipMissedSteps testClock mode ourStep steps
   where
     ourStep :: ExecutionMode -> LocalStep -> Bool
@@ -237,10 +227,9 @@ clientLocal testClock mode call = \(LocalSteps steps) ->
     ourStep Conservative (ClientAction _) = False
     ourStep Conservative (ServerAction _) = True
 
-    go :: [(TestClockTick, LocalStep)] -> StateT (ServerHealth ()) IO ()
+    go :: [(TestClockTick, LocalStep)] -> StateT PeerHealth IO ()
     go []                     = return ()
     go ((tick, step) : steps) = do
-        waitFor "client"
         case step of
           ClientAction action -> do
             _reachedTick <- liftIO $ waitForTestClockTick testClock tick
@@ -260,7 +249,7 @@ clientLocal testClock mode call = \(LocalSteps steps) ->
     -- exit (thereby closing the RPC call)
     clientAct ::
          Action (Metadata, RPC) NoMetadata
-      -> StateT (ServerHealth ()) IO Bool
+      -> StateT PeerHealth IO Bool
     clientAct = \case
         Initiate _ ->
           error "clientLocal: unexpected Initiate"
@@ -278,7 +267,7 @@ clientLocal testClock mode call = \(LocalSteps steps) ->
 
     reactToServer ::
            Action Metadata Metadata
-        -> StateT (ServerHealth ()) IO ()
+        -> StateT PeerHealth IO ()
     reactToServer = \case
         Initiate expectedMetadata -> liftIO $ do
           receivedMetadata <- Client.recvResponseMetadata call
@@ -301,15 +290,15 @@ clientLocal testClock mode call = \(LocalSteps steps) ->
     -- See 'reactToClientTermination' for discussion.
     reactToServerTermination ::
          Maybe ExceptionId
-      -> StateT (ServerHealth ()) IO ()
+      -> StateT PeerHealth IO ()
     reactToServerTermination mErr = do
         liftIO $ void . timeout 5_000_000 $ atomically $ do
           healthy <- Client.isCallHealthy call
           when healthy $ retry
-        modify $ ifAlive $ \() ->
+        modify $ ifPeerAlive $
           case mErr of
-            Just i  -> Failed $ SomeServerException i
-            Nothing -> Disappeared
+            Just i  -> PeerFailed $ DeliberateException (SomeServerException i)
+            Nothing -> PeerDisappeared
 
     -- Adjust expectation when communicating with the server
     --
@@ -318,27 +307,26 @@ clientLocal testClock mode call = \(LocalSteps steps) ->
     adjustExpectation :: forall a.
          Eq a
       => a
-      -> StateT (ServerHealth ()) IO (Either GrpcException a -> Bool)
+      -> StateT PeerHealth IO (Either GrpcException a -> Bool)
     adjustExpectation x =
         return . aux =<< get
      where
-       aux :: ServerHealth () -> Either GrpcException a -> Bool
+       aux :: PeerHealth -> Either GrpcException a -> Bool
        aux serverHealth result =
            case serverHealth of
-             Failed err ->
+             PeerFailed err ->
                case result of
                  Left (GrpcException GrpcUnknown msg [])
                    | msg == Just (Text.pack $ show err)
                    -> True
                  _otherwise -> False
-             Disappeared ->
-               -- TODO: Not really sure what exception we get here actually
+             PeerDisappeared ->
                case result of
                  Left (GrpcException GrpcUnknown msg [])
-                   | msg == Just "TODO"
+                   | msg == Just "HandlerTerminated"
                    -> True
                  _otherwise -> False
-             Alive () ->
+             PeerAlive ->
                case result of
                  Right x'   -> x == x'
                  _otherwise -> False
@@ -346,14 +334,16 @@ clientLocal testClock mode call = \(LocalSteps steps) ->
 clientGlobal ::
      TestClock
   -> ExecutionMode
-  -> ((Client.Connection -> IO ()) -> IO ())
   -> GlobalSteps
-  -> IO ()
-clientGlobal testClock mode withConn = \(GlobalSteps globalSteps) ->
+  -> TestClient
+clientGlobal testClock mode global connParams testServer delimitTestScope =
     case mode of
-      Aggressive   -> withConn $ \conn -> go (Just conn) [] globalSteps
-      Conservative -> go Nothing [] globalSteps
+      Aggressive   -> withConn $ \c -> go (Just c) [] (getGlobalSteps global)
+      Conservative ->                  go Nothing  [] (getGlobalSteps global)
   where
+    withConn :: (Client.Connection -> IO ()) -> IO ()
+    withConn = Client.withConnection connParams testServer
+
     go :: Maybe Client.Connection -> [Async ()] -> [LocalSteps] -> IO ()
     go _ threads [] = do
         -- Wait for all threads to finish
@@ -362,13 +352,16 @@ clientGlobal testClock mode withConn = \(GlobalSteps globalSteps) ->
         -- that is now rethrown here in the main test. This will also cause us
         -- to leave the scope of all enclosing calls to @withAsync@, thereby
         -- cancelling all other concurrent threads.
+        --
+        -- (It is therefore important that we catch any /excepted/ exceptions
+        -- locally; this is done by the call to @delimitTestScope@.)
         mapM_ wait threads
     go mConn threads (c:cs) =
         withAsync (runLocalSteps mConn c) $ \newThread ->
           go mConn (newThread:threads) cs
 
     runLocalSteps :: Maybe Client.Connection -> LocalSteps -> IO ()
-    runLocalSteps mConn (LocalSteps steps) = do
+    runLocalSteps mConn (LocalSteps steps) = delimitTestScope $ do
         case steps of
           (tick, ClientAction (Initiate (metadata, rpc))) : steps' -> do
             _reachedTick <- waitForTestClockTick testClock tick
@@ -404,47 +397,6 @@ clientGlobal testClock mode withConn = \(GlobalSteps globalSteps) ->
             error $ "clientGlobal: expected Initiate, got " ++ show steps
 
 {-------------------------------------------------------------------------------
-  Debugging: control who is allowed to take a step
--------------------------------------------------------------------------------}
-
-promptLock :: MVar ()
-{-# NOINLINE promptLock #-}
-promptLock = unsafePerformIO $ newMVar ()
-
-promptVar :: TVar [String]
-{-# NOINLINE promptVar #-}
-promptVar = unsafePerformIO $ newTVarIO []
-
-waitFor :: MonadIO m => String -> m ()
--- waitFor = _waitForEnabled
-waitFor _ = return ()
-
-_waitForEnabled :: MonadIO m => String -> m ()
-_waitForEnabled label = liftIO $ do
-    -- We spawn a prompt for each call to 'waitFor': @n@ calls to 'waitFor' will
-    -- need @n@ prompts. The order doesn't matter, each prompt is equivalent to
-    -- every other, but we don't want multiple prompts at once, so we require
-    -- that we hold the 'promptLock'.
-    _ <- forkIO $ do
-      line <- withMVar promptLock $ \() -> do
-        let loop :: IO String
-            loop = do
-                str <- getLine
-                if null str
-                  then loop
-                  else return str
-        loop
-      atomically $ modifyTVar promptVar (line :)
-    -- Only consume our own prompt
-    putStrLn $ "Waiting for " ++ show label
-    atomically $ do
-      prompts <- readTVar promptVar
-      case break (== label) prompts of
-        (_ , []   ) -> retry
-        (ps, _:ps') -> writeTVar promptVar (ps ++ ps')
-    putStrLn $ "Got " ++ show label
-
-{-------------------------------------------------------------------------------
   Server-side interpretation
 
   The server-side is slightly different, since the infrastructure spawns
@@ -457,7 +409,7 @@ serverLocal ::
   -> Server.Call (BinaryRpc serv meth)
   -> LocalSteps -> IO ()
 serverLocal testClock mode call = \(LocalSteps steps) -> do
-    evalStateT (go steps) (Alive ()) `finally`
+    evalStateT (go steps) PeerAlive `finally`
       skipMissedSteps testClock mode ourStep steps
   where
     ourStep :: ExecutionMode -> LocalStep -> Bool
@@ -466,10 +418,9 @@ serverLocal testClock mode call = \(LocalSteps steps) -> do
     ourStep Conservative (ClientAction _) = False
     ourStep Conservative (ServerAction _) = True
 
-    go :: [(TestClockTick, LocalStep)] -> StateT (ClientHealth ()) IO ()
+    go :: [(TestClockTick, LocalStep)] -> StateT PeerHealth IO ()
     go []                     = return ()
     go ((tick, step) : steps) = do
-        waitFor "server"
         case step of
           ServerAction action -> do
             _reachedTick <- liftIO $ waitForTestClockTick testClock tick
@@ -489,7 +440,7 @@ serverLocal testClock mode call = \(LocalSteps steps) -> do
     -- terminate (thereby terminating the handler)
     serverAct ::
          Action Metadata Metadata
-      -> StateT (ClientHealth ()) IO Bool
+      -> StateT PeerHealth IO Bool
     serverAct = \case
         Initiate metadata -> liftIO $ do
           Server.setResponseMetadata call (Set.toList metadata)
@@ -511,7 +462,7 @@ serverLocal testClock mode call = \(LocalSteps steps) -> do
 
     reactToClient ::
            Action (Metadata, RPC) NoMetadata
-        -> StateT (ClientHealth ()) IO ()
+        -> StateT PeerHealth IO ()
     reactToClient = \case
         Initiate _ ->
           error "serverLocal: unexpected ClientInitiateRequest"
@@ -529,7 +480,7 @@ serverLocal testClock mode call = \(LocalSteps steps) -> do
 
     reactToClientTermination ::
          Maybe ExceptionId
-      -> StateT (ClientHealth ()) IO ()
+      -> StateT PeerHealth IO ()
     reactToClientTermination mErr = do
         -- Wait for the client-side exception to become noticable server-side.
         -- Under normal circumstances the server will only notice this when
@@ -541,31 +492,31 @@ serverLocal testClock mode call = \(LocalSteps steps) -> do
           when healthy $ retry
 
         -- Update client health, /if/ the client was alive at this point
-        modify $ ifAlive $ \() ->
+        modify $ ifPeerAlive $
           case mErr of
-            Just i  -> Failed $ SomeClientException i
-            Nothing -> Disappeared
+            Just i  -> PeerFailed $ DeliberateException (SomeClientException i)
+            Nothing -> PeerDisappeared
 
     -- Adjust expectation when communicating with the client
     adjustExpectation :: forall a.
          Eq a
       => a
-      -> StateT (ClientHealth ()) IO (Either Server.ClientDisconnected a -> Bool)
+      -> StateT PeerHealth IO (Either Server.ClientDisconnected a -> Bool)
     adjustExpectation x =
         return . aux =<< get
      where
-       aux :: ClientHealth () -> Either Server.ClientDisconnected a -> Bool
+       aux :: PeerHealth -> Either Server.ClientDisconnected a -> Bool
        aux clientHealth result =
            case clientHealth of
-             Failed _err ->
+             PeerFailed _err ->
                case result of
-                 Left (Server.ClientDisconnected _) -> True
-                 _otherwise                         -> False
-             Disappeared ->
+                 Left Server.ClientDisconnected{} -> True
+                 _otherwise                       -> False
+             PeerDisappeared ->
                case result of
-                 Left (Server.ClientDisconnected _) -> True
-                 _otherwise                         -> False
-             Alive () ->
+                 Left Server.ClientDisconnected{} -> True
+                 _otherwise                       -> False
+             PeerAlive ->
                case result of
                  Right x'   -> x == x'
                  _otherwise -> False
@@ -587,33 +538,25 @@ serverGlobal testClock mode globalStepsVar call = do
     -- See discussion in clientGlobal (runLocalSteps)
     advanceTestClock testClock
 
-    handle (annotate steps) $ do
-     case getLocalSteps steps of
-       -- It is important that we do this 'expect' outside the scope of the
-       -- @modifyMVar@: if we do not, then if the expect fails, we'd leave the
-       -- @MVar@ unchanged, and the next request would use the wrong steps.
-       (_tick, ClientAction (Initiate (metadata, _rpc))) : steps' -> do
-         -- We don't care about the timeout the client sets; if the server
-         -- takes too long, the /client/ will check that it gets the expected
-         -- exception.
-         receivedMetadata <- Server.getRequestMetadata call
-         expect (== metadata) $ Set.fromList receivedMetadata
-         serverLocal testClock mode call $ LocalSteps steps'
-       _otherwise ->
-          error "serverGlobal: expected ClientInitiateRequest"
+    case getLocalSteps steps of
+      -- It is important that we do this 'expect' outside the scope of the
+      -- @modifyMVar@: if we do not, then if the expect fails, we'd leave the
+      -- @MVar@ unchanged, and the next request would use the wrong steps.
+      (_tick, ClientAction (Initiate (metadata, _rpc))) : steps' -> do
+        -- We don't care about the timeout the client sets; if the server
+        -- takes too long, the /client/ will check that it gets the expected
+        -- exception.
+        receivedMetadata <- Server.getRequestMetadata call
+        expect (== metadata) $ Set.fromList receivedMetadata
+        serverLocal testClock mode call $ LocalSteps steps'
+      _otherwise ->
+         error "serverGlobal: expected ClientInitiateRequest"
   where
     getNextSteps :: [LocalSteps] -> IO (GlobalSteps, LocalSteps)
     getNextSteps [] = do
         throwM $ TestFailure callStack $ UnexpectedRequest
     getNextSteps (LocalSteps steps:global') =
         return (GlobalSteps global', LocalSteps steps)
-
-    annotate :: LocalSteps -> SomeException -> IO ()
-    annotate steps err = throwM $ AnnotatedServerException {
-          serverGlobalException          = err
-        , serverGlobalExceptionSteps     = steps
-        , serverGlobalExceptionCallStack = callStack
-        }
 
 {-------------------------------------------------------------------------------
   Top-level
@@ -635,8 +578,7 @@ execGlobalSteps steps = do
             expectEarlyClientTermination = clientTerminatesEarly
           , expectEarlyServerTermination = serverTerminatesEarly
           }
-      , client = \conn ->
-          clientGlobal testClock mode conn steps
+      , client = clientGlobal testClock mode steps
       , server = [
             handler (Proxy @TestRpc1)
           , handler (Proxy @TestRpc2)

@@ -4,14 +4,13 @@ module Demo.Client.Util.DelayOr (
   , yieldAll
   ) where
 
+import Control.Concurrent hiding (yield)
 import Control.Tracer
 import Data.List.NonEmpty (NonEmpty(..))
 import Data.List.NonEmpty qualified as NE
 import Pipes
 
 import Network.GRPC.Common
-
-import Debug.Concurrent hiding (yield)
 
 import Demo.Common.Logging
 

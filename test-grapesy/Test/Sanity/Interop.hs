@@ -6,7 +6,6 @@ module Test.Sanity.Interop (tests) where
 
 import Control.Exception
 import Control.Monad
-import Data.Bifunctor
 import Data.ByteString qualified as BS.Strict
 import Data.Proxy
 import Test.Tasty
@@ -17,7 +16,6 @@ import Network.GRPC.Client.StreamType.IO.Binary qualified as Client.Binary
 import Network.GRPC.Common
 import Network.GRPC.Common.Protobuf
 import Network.GRPC.Common.StreamElem qualified as StreamElem
-import Network.GRPC.Internal
 import Network.GRPC.Server qualified as Server
 import Network.GRPC.Server.Binary qualified as Server.Binary
 import Network.GRPC.Server.StreamType qualified as Server
@@ -60,7 +58,7 @@ test_callAfterException :: IO ()
 test_callAfterException =
     testClientServer $ ClientServerTest {
         config = def
-      , client = \withConn -> withConn $ \conn -> do
+      , client = simpleTestClient $ \conn -> do
           resp1 <- ping conn 0
           case resp1 of
             Left _  -> return ()
@@ -85,10 +83,7 @@ test_callAfterException =
       }
   where
     ping :: Client.Connection -> Word -> IO (Either SomeException Word)
-    ping conn =
-        fmap (first (innerNestedException :: SomeException -> SomeException))
-      . try
-      . Client.Binary.nonStreaming conn (Client.rpc @Ping)
+    ping conn = try . Client.Binary.nonStreaming conn (Client.rpc @Ping)
 
 {-------------------------------------------------------------------------------
   @empty_unary@
@@ -107,7 +102,7 @@ test_emptyUnary :: IO ()
 test_emptyUnary =
     testClientServer $ ClientServerTest {
         config = def
-      , client = \withConn -> withConn $ \conn ->
+      , client = simpleTestClient $ \conn ->
           Client.withRPC conn def (Proxy @EmptyCall) $ \call -> do
             Client.sendFinalInput call (defMessage :: Empty)
             streamElem <- Client.recvOutputWithEnvelope call
@@ -144,7 +139,7 @@ test_serverCompressedStreaming :: IO ()
 test_serverCompressedStreaming =
     testClientServer ClientServerTest {
         config = def
-      , client = \withConn -> withConn $ \conn ->
+      , client = simpleTestClient $ \conn ->
           Client.withRPC conn def (Proxy @StreamingOutputCall) $ \call -> do
             Client.sendFinalInput call $ defMessage & #responseParameters .~ [
                 defMessage
