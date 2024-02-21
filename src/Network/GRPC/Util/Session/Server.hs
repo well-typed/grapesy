@@ -5,11 +5,11 @@ module Network.GRPC.Util.Session.Server (
   , setupResponseChannel
   ) where
 
+import Control.Monad.XIO (XIO', NeverThrows)
+import Control.Monad.XIO qualified as XIO
 import Control.Tracer
 import Network.HTTP.Types qualified as HTTP
 import Network.HTTP2.Server qualified as Server
-import Control.Monad.XIO (XIO', NeverThrows)
-import Control.Monad.XIO qualified as XIO
 
 import Network.GRPC.Util.HTTP2 (fromHeaderTable)
 import Network.GRPC.Util.HTTP2.Stream
@@ -70,16 +70,17 @@ setupResponseChannel sess tracer conn inboundStart startOutbound =
     XIO.unsafeTrustMe $ do
       channel <- initChannel
 
-      forkThread (channelInbound channel) $ \unmask markReady -> unmask $ do
-        case inboundStart of
-          FlowStartRegular headers -> do
-            regular <- initFlowStateRegular headers
-            stream  <- serverInputStream (request conn)
-            markReady $ FlowStateRegular regular
-            recvMessageLoop sess tracer regular stream
-          FlowStartNoMessages trailers -> do
-            markReady $ FlowStateNoMessages trailers
-            -- Thread terminates immediately
+      forkThread (channelInbound channel) $ \unmask markReady -> unmask $
+        linkOutboundToInbound channel $ do
+          case inboundStart of
+            FlowStartRegular headers -> do
+              regular <- initFlowStateRegular headers
+              stream  <- serverInputStream (request conn)
+              markReady $ FlowStateRegular regular
+              recvMessageLoop sess tracer regular stream
+            FlowStartNoMessages trailers -> do
+              markReady $ FlowStateNoMessages trailers
+              -- Thread terminates immediately
 
       forkThread (channelOutbound channel) $ \unmask markReady -> unmask $ do
         outboundStart <- startOutbound

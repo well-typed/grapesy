@@ -23,6 +23,7 @@ module Network.GRPC.Util.Session.Channel (
   , ChannelAborted(..)
     -- ** Exceptions
     -- * Constructing channels
+  , linkOutboundToInbound
   , sendMessageLoop
   , recvMessageLoop
   , outboundTrailersMaker
@@ -37,7 +38,8 @@ module Network.GRPC.Util.Session.Channel (
 
 import Control.Concurrent.STM
 import Control.Exception
-import Control.Monad.Catch
+import Control.Monad
+import Control.Monad.Catch (ExitCase(..))
 import Control.Tracer
 import Data.Bifunctor
 import Data.ByteString qualified as BS.Strict
@@ -417,7 +419,7 @@ waitForOutbound Channel{channelOutbound} = atomically $
 -- * The connection to the peer was lost
 -- * Proper procedure for outbound messages was not followed (see above)
 --
--- In this case, 'close' will return a 'ChannelUncleanClose' exception.
+-- In this case, 'close' will return an exception.
 --
 -- TODO: @http2@ does not offer an API for indicating that we want to ignore
 -- further output. We should check that this does not result in memory leak (if
@@ -470,6 +472,25 @@ data ChannelAborted = ChannelAborted CallStack
   attempt to interact with them after they have been killed will be handled by
   'getThreadInterface' throwing 'ThreadInterfaceUnavailable'.
 -------------------------------------------------------------------------------}
+
+-- | Link outbound thread to the inbound thread
+--
+-- This should be wrapped around the body of the inbound thread. It ensures that
+-- when the inbound thread throws an exception, the outbound thread dies also.
+-- This improves predictability of exceptions: the inbound thread spends most of
+-- its time blocked on messages from the peer, and will therefore notice when
+-- the connection is lost. This is not true for the outbound thread, which
+-- spends most of its time blocked waiting for messages to send to the peer.
+linkOutboundToInbound :: Channel sess -> IO a -> IO a
+linkOutboundToInbound channel inbound =
+    handle killOutbound inbound
+  where
+    killOutbound :: SomeException -> IO a
+    killOutbound err = do
+        -- After cancelThread returns, 'channelOutbound' has been updated, and
+        -- considered dead, even if perhaps the thread is still cleaning up.
+        void $ cancelThread (channelOutbound channel) err
+        throwIO err
 
 -- | Send all messages to the node's peer
 sendMessageLoop :: forall sess.

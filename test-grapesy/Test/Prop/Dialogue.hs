@@ -33,7 +33,7 @@ tests = testGroup "Test.Prop.Dialogue" [
         , testCase "earlyTermination07" $ regression earlyTermination07
         , testCase "earlyTermination08" $ regression earlyTermination08
         , testCase "earlyTermination09" $ regression earlyTermination09
---        , testCase "earlyTermination10" $ regression earlyTermination10
+        , testCase "earlyTermination10" $ regression earlyTermination10
         ]
     , testGroup "Setup" [
           testProperty "shrinkingWellFounded" prop_shrinkingWellFounded
@@ -283,8 +283,8 @@ earlyTermination09 = Dialogue [
     ]
 
 -- | Client throws after the server sends their initial metadata
-_earlyTermination10 :: Dialogue
-_earlyTermination10 = Dialogue [
+earlyTermination10 :: Dialogue
+earlyTermination10 = Dialogue [
       (0, ClientAction $ Initiate (Set.fromList [], RPC1))
     , (0, ServerAction $ Initiate (Set.fromList []))
     , (0, ClientAction $ Terminate (Just (ExceptionId 1)))

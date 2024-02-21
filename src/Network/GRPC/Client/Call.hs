@@ -166,7 +166,7 @@ recvResponseMetadata Call{callChannel} =
 -- | Check if the connection is still OK
 --
 -- This is inherently non-deterministic: the connection to the server could have
--- been lost and we might not yet realize, it the connnection could be lost
+-- been lost and we might not yet realize, or the connnection could be lost
 -- straight after 'isCallHealthy' returns. Use with caution.
 isCallHealthy :: Call rpc -> STM Bool
 isCallHealthy = Session.isChannelHealthy . callChannel
