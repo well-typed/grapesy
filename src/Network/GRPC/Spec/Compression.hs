@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP               #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Compression
@@ -16,6 +17,9 @@ module Network.GRPC.Spec.Compression (
   , noCompression
   , gzip
   , deflate
+#ifdef SNAPPY
+  , snappy
+#endif
   ) where
 
 import Codec.Compression.GZip qualified as GZip
@@ -26,6 +30,10 @@ import Data.ByteString.UTF8 qualified as BS.Strict.UTF8
 import Data.List.NonEmpty (NonEmpty(..))
 import Data.String
 import GHC.Generics qualified as GHC
+
+#ifdef SNAPPY
+import Codec.Compression.SnappyC.Framed qualified as Snappy
+#endif
 
 {-------------------------------------------------------------------------------
   Definition
@@ -51,7 +59,14 @@ instance Show Compression where
 -- The order of this list is important: algorithms listed earlier are preferred
 -- over algorithms listed later.
 allSupportedCompression :: NonEmpty Compression
-allSupportedCompression = gzip :| [deflate, noCompression]
+allSupportedCompression =
+    gzip :|
+      [ deflate
+#ifdef SNAPPY
+      , snappy
+#endif
+      , noCompression
+      ]
 
 {-------------------------------------------------------------------------------
   Compression ID
@@ -125,3 +140,15 @@ deflate = Compression {
     , compress      = Deflate.compress
     , decompress    = Deflate.decompress
     }
+
+#ifdef SNAPPY
+-- | Snappy compression
+--
+-- TODO: We should deal with exceptions during decompression
+snappy :: Compression
+snappy = Compression {
+      compressionId = Snappy
+    , compress      = Snappy.compress
+    , decompress    = Snappy.decompress
+    }
+#endif

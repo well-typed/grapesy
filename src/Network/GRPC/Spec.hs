@@ -1,3 +1,5 @@
+{-# LANGUAGE CPP #-}
+
 -- | Pure implementation of the gRPC spec
 --
 -- Most code will not need to use this module directly.
@@ -45,6 +47,9 @@ module Network.GRPC.Spec (
   , noCompression
   , gzip
   , deflate
+#ifdef SNAPPY
+  , snappy
+#endif
   , allSupportedCompression
     -- * Requests
   , RequestHeaders(..)
