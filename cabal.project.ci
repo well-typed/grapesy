@@ -2,5 +2,7 @@ packages: .
 
 package grapesy
   tests: True
+  -- Force the snappy flag to true for CI
   flags: +build-demo +build-stress-test +build-interop +snappy
+  -- Insist on no warnings
   ghc-options: -Werror

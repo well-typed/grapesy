@@ -66,12 +66,14 @@ common lang
       TypeFamilies
       TypeOperators
       UndecidableInstances
+
   if impl(ghc >= 9.0)
     ghc-options:
       -- This was introduced in 8.10, but it does not work reliably until 9.0.
       -- In 8.10 you might get spurious warnings when using re-exported modules
       -- (e.g. in proto-lens-runtime).
       -Wunused-packages
+
   if flag(snappy)
     cpp-options: -DSNAPPY
 
@@ -182,10 +184,22 @@ library
     , utf8-string          >= 1.0   && < 1.1
     , zlib                 >= 0.6   && < 0.7
 
-
+  -- Snappy can be a bit tricky to install on some systems, so we make it an
+  -- optional dependency. Snappy support can be explicitly disabled by clearing
+  -- the @snappy@ flag manually
+  --
+  -- > package grapesy
+  -- >    flags: -snappy
+  --
+  -- or by setting an unsatisfiable constraint on @snappy-c@
+  --
+  -- > constraints: snappy-c<0
+  --
+  -- It can be explicitly /enabled/ by setting the @snappy@ flag manually.
   if flag(snappy)
     build-depends:
       , snappy-c >= 0.1 && < 0.2
+
   -- tls 1.7 starts using Kazu's forked versions of x509-* packages
   if flag(crypton)
     -- Lower bounds are the first version of these packages after forking.
@@ -443,5 +457,5 @@ Flag crypton
 
 Flag snappy
   description: Enable snappy compression capabilities
-  default: False
-  manual: True
+  default: True
+  manual: False

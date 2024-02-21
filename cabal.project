@@ -2,4 +2,4 @@ packages: .
 
 package grapesy
   tests: True
-  flags: +build-demo +build-stress-test +build-interop +snappy
+  flags: +build-demo +build-stress-test +build-interop
