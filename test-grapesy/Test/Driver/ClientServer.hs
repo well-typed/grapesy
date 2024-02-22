@@ -47,6 +47,7 @@ import Network.GRPC.Server qualified as Server
 import Network.GRPC.Server.Run qualified as Server
 
 import Paths_grapesy
+import Network.GRPC.Client (ConnParams(connOverridePingRateLimit))
 
 {-------------------------------------------------------------------------------
   Top-level
@@ -540,10 +541,11 @@ runTestClient cfg clientTracer firstTestFailure clientRun = do
 
     let clientParams :: Client.ConnParams
         clientParams = Client.ConnParams {
-              connDebugTracer     = clientTracer
-            , connCompression     = clientCompr cfg
-            , connInitCompression = clientInitCompr cfg
-            , connDefaultTimeout  = Nothing
+              connDebugTracer           = clientTracer
+            , connCompression           = clientCompr cfg
+            , connInitCompression       = clientInitCompr cfg
+            , connDefaultTimeout        = Nothing
+            , connOverridePingRateLimit = Nothing
 
               -- Content-type
             , connContentType =

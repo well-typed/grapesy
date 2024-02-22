@@ -138,16 +138,33 @@ data ConnParams = ConnParams {
       -- selected compression algorithm, it will not be able to decompress any
       -- messages sent by the client to the server.
     , connInitCompression :: Maybe Compression
+
+      -- | Override ping rate limit
+      --
+      -- The @http2@ library imposes a ping rate limit as a security measure
+      -- against
+      -- [CVE-2019-9512](https://www.cve.org/CVERecord?id=CVE-2019-9512). By
+      -- default (as of version 5.1.2) it sets this limit at 10 pings/second. If
+      -- you find yourself being disconnected from a gRPC peer because that peer
+      -- is sending too many pings (you will see an
+      -- [EnhanceYourCalm](https://hackage.haskell.org/package/http2-5.1.2/docs/Network-HTTP2-Client.html#t:ErrorCode)
+      -- exception, corresponding to the
+      -- [ENHANCE_YOUR_CALM](https://www.rfc-editor.org/rfc/rfc9113#ErrorCodes)
+      -- HTTP/2 error code), you may wish to increase this limit. If you are
+      -- connecting to a peer that you trust, you can set this limit to
+      -- 'maxBound' (effectively turning off protecting against ping flooding).
+    , connOverridePingRateLimit :: Maybe Int
     }
 
 instance Default ConnParams where
   def = ConnParams {
-        connDebugTracer     = nullTracer
-      , connCompression     = def
-      , connDefaultTimeout  = Nothing
-      , connReconnectPolicy = def
-      , connContentType     = Nothing
-      , connInitCompression = Nothing
+        connDebugTracer           = nullTracer
+      , connCompression           = def
+      , connDefaultTimeout        = Nothing
+      , connReconnectPolicy       = def
+      , connContentType           = Nothing
+      , connInitCompression       = Nothing
+      , connOverridePingRateLimit = Nothing
       }
 
 {-------------------------------------------------------------------------------
@@ -458,9 +475,9 @@ stayConnected connParams server connStateVar connOutOfScope =
         mRes <- try $
           case server of
             ServerInsecure addr ->
-              connectInsecure attempt addr
+              connectInsecure connParams attempt addr
             ServerSecure validation sslKeyLog addr ->
-              connectSecure attempt validation sslKeyLog addr
+              connectSecure connParams attempt validation sslKeyLog addr
 
         thisReconnectPolicy <- atomically $ do
           putTMVar (attemptClosed attempt) $ either Just (\() -> Nothing) mRes
@@ -497,8 +514,8 @@ stayConnected connParams server connStateVar connOutOfScope =
     tracer = connDebugTracer connParams
 
 -- | Insecure connection (no TLS)
-connectInsecure :: Attempt -> Address -> IO ()
-connectInsecure attempt addr =
+connectInsecure :: ConnParams -> Attempt -> Address -> IO ()
+connectInsecure connParams attempt addr =
     runTCPClient addr $ \sock -> do
       bracket (HTTP2.Client.allocSimpleConfig sock writeBufferSize)
               HTTP2.Client.freeSimpleConfig $ \conf ->
@@ -511,16 +528,23 @@ connectInsecure attempt addr =
           takeMVar $ attemptOutOfScope attempt
   where
     clientConfig :: HTTP2.Client.ClientConfig
-    clientConfig = HTTP2.Client.defaultClientConfig {
-          HTTP2.Client.authority = authority addr
-        }
+    clientConfig = overridePingRateLimit connParams $
+        HTTP2.Client.defaultClientConfig {
+            HTTP2.Client.authority = authority addr
+          }
 
     tracer :: Tracer IO ClientDebugMsg
     tracer = connDebugTracer $ attemptParams attempt
 
 -- | Secure connection (using TLS)
-connectSecure :: Attempt -> ServerValidation -> SslKeyLog -> Address -> IO ()
-connectSecure attempt validation sslKeyLog addr = do
+connectSecure ::
+     ConnParams
+  -> Attempt
+  -> ServerValidation
+  -> SslKeyLog
+  -> Address
+  -> IO ()
+connectSecure connParams attempt validation sslKeyLog addr = do
     keyLogger <- Util.TLS.keyLogger sslKeyLog
     caStore   <- Util.TLS.validationCAStore validation
 
@@ -536,10 +560,10 @@ connectSecure attempt validation sslKeyLog addr = do
             }
 
         clientConfig :: HTTP2.Client.ClientConfig
-        clientConfig =
-          HTTP2.TLS.Client.defaultClientConfig
-            settings
-            (authority addr)
+        clientConfig = overridePingRateLimit connParams $
+            HTTP2.TLS.Client.defaultClientConfig
+              settings
+              (authority addr)
 
     HTTP2.TLS.Client.runWithConfig
           clientConfig
@@ -567,6 +591,22 @@ authority addr =
     case addressAuthority addr of
       Nothing   -> addressHost addr
       Just auth -> auth
+
+-- | Override ping rate limit
+overridePingRateLimit ::
+     ConnParams
+  -> HTTP2.Client.ClientConfig -> HTTP2.Client.ClientConfig
+overridePingRateLimit connParams clientConfig = clientConfig {
+      HTTP2.Client.settings = settings {
+          HTTP2.Client.pingRateLimit =
+            case connOverridePingRateLimit connParams of
+              Nothing    -> HTTP2.Client.pingRateLimit settings
+              Just limit -> limit
+        }
+    }
+  where
+    settings :: HTTP2.Client.Settings
+    settings = HTTP2.Client.settings clientConfig
 
 {-------------------------------------------------------------------------------
   Auxiliary http2
