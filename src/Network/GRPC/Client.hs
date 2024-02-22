@@ -43,9 +43,15 @@ module Network.GRPC.Client (
   , recvResponseMetadata
 
     -- ** Protocol specific wrappers
+  , sendNextInput
   , sendFinalInput
-  , sendAllInputs
+  , sendEndOfInput
+  , recvNextOutput
   , recvFinalOutput
+  , recvTrailers
+
+    -- ** Repeated send/recv
+  , sendAllInputs
   , recvAllOutputs
 
     -- ** Low-level\/specialized API

@@ -9,6 +9,8 @@ The gRPC repo defines a set of interoperability tests; relevant documentation:
 In this document we describe how to setup and run these tests, and provide
 some suggestions for debugging.
 
+TODO: This document needs cleaning up.
+
 ## Setup
 
 ### Set up the git repo
@@ -113,7 +115,48 @@ Make sure all changes you want to test are committed:
 * Make sure that the `grapesy` subrepo in the `grpc-repo` points to the
   `grapesy` branch you want to test.
 
-### Testing `grapesy` as a server
+### Server reachability
+
+To test whether the `grapesy` server can be reached at all, we can ping it:
+
+```bash
+cabal run grapesy-interop -- --ping
+```
+
+### TLS
+
+You can pass `--use_tls=false` to disable TLS; the official Interop tests
+support this command line argument also. To ping a server over TLS, run
+
+```bash
+cabal run grapesy-interop -- --ping \
+  --server_host_override=foo.test.google.fr \
+  --use_test_ca=true
+```
+
+The server respects the `SSLKEYLOGFILE` environment variable, which can be
+useful for Wireshark debugging; see [/dev/wireshark.md](/dev/wireshark.md) for
+some suggestions on how to setup Wireshark.
+
+### To rebuild the Docker image with the `grapesy` deps
+
+When the `grapesy` dependencies change (and especially when it requires newer
+versions of packages that aren't yet known in the cabal package database),
+you need to rebuild the Docker image.
+
+```bash
+grapesy/dev/grapesy-deps-docker$ docker build . -t edsko/grapesy-deps:latest
+```
+
+then upload it
+
+```bash
+$ docker push edsko/grapesy-deps:latest
+```
+
+## Testing `grapesy` as a server
+
+### Automatic execution
 
 To run the tests automatically:
 
@@ -144,8 +187,10 @@ flag, which creates a bash script that executes the individual tests:
 Create the docker containers:
 
 ```bash
-tools/run_tests/run_interop_tests.py -l python -s grapesy --use_docker --manual
+tools/run_tests/run_interop_tests.py -l go -s grapesy --use_docker --manual
 ```
+
+(the `go` Interop tests are the quickest to build, by quite a margin).
 
 Start the server
 
@@ -169,47 +214,116 @@ If the tests fail, it may be more convenient to run the server directly on the
 host, bypassing docker:
 
 ```bash
-cabal run grapesy-interop -- --server
+grapesy$ cabal run grapesy-interop -- --server
 ```
 
 By default, the server will use TLS and run on port 50052.
 
-### Testing `grapesy` as a client
+## Testing `grapesy` as a client
 
-TODO
+### Automatic execution
 
-## Debugging
-
-### Server reachability
-
-To test whether the server can be reached at all, we can ping it:
+To run the tests automatically:
 
 ```bash
-cabal run grapesy-interop -- --ping
+grpc-repo$ tools/run_tests/run_interop_tests.py -l grapesy -s go     --use_docker
+grpc-repo$ tools/run_tests/run_interop_tests.py -l grapesy -s python --use_docker
+grpc-repo$ tools/run_tests/run_interop_tests.py -l grapesy -s c++    --use_docker
+grpc-repo$ tools/run_tests/run_interop_tests.py -l grapesy -s java   --use_docker
 ```
 
-### TLS
+### Manual execution
 
-You can pass `--use_tls=false` to disable TLS; this will not work with the
-interop tests, but can be used together with `--ping` to understand if TLS
-is the problem.
-
-The server respects the `SSLKEYLOGFILE` environment variable, which can be
-useful for Wireshark debugging; see [/dev/wireshark.md](/dev/wireshark.md) for
-some suggestions on how to setup Wireshark.
-
-## To rebuild the Docker image with the `grapesy` deps
-
-When the `grapesy` dependencies change (and especially when it requires newer
-versions of packages that aren't yet known in the cabal package database),
-you need to rebuild the Docker image:
+During development, manual execution is more convenient, and the `grapesy`
+client can be run outside of docker.
 
 ```bash
-grapesy/dev/grapesy-deps-docker$ docker build . -t edsko/grapesy-deps:latest
+grpc-repo$ tools/run_tests/run_interop_tests.py -l grapesy -s java --use_docker --manual
 ```
 
-then upload it
+Start the server
 
 ```bash
-$ docker push edsko/grapesy-deps:latest
+grpc-repo$ bash ./interop_server_cmds.sh
 ```
+
+Take a note of the port
+
+```bash
+$ docker ps
+CONTAINER ID   IMAGE               ..  PORTS
+833c9f2a84ea   grpc_interop_go:..  ..  0.0.0.0:32768->8080/tcp
+```
+
+and run the client:
+
+```bash
+grpc-repo$ SERVER_PORT=32768 bash ./interop_client_cmds.sh
+```
+
+Alternatively, you can also run the tests manually:
+
+```bash
+grapesy$ cabal run grapesy-interop -- \
+  --client \
+  --port=32768 \
+  --server_host_override=foo.test.google.fr \
+  --use_test_ca=true \
+  --test_case=empty_unary
+```
+
+Omit the `--test_case` argument to run all tests.
+
+
+## Testing against local grapesy build
+
+### Building the reference clients/servers
+
+First prepare all the reference servers and clients by running the following
+in the `grpc-repo`:
+
+```bash
+tools/run_tests/run_interop_tests.py -l java -s java --use_docker --manual &&
+  mv interop_server_cmds.sh java_server.sh &&
+  mv interop_client_cmds.sh java_client.sh
+
+tools/run_tests/run_interop_tests.py -l c++ -s c++ --use_docker --manual &&
+  mv interop_server_cmds.sh cxx_server.sh &&
+  mv interop_client_cmds.sh cxx_client.sh
+
+tools/run_tests/run_interop_tests.py -l go -s go --use_docker --manual &&
+  mv interop_server_cmds.sh go_server.sh &&
+  mv interop_client_cmds.sh go_client.sh
+
+tools/run_tests/run_interop_tests.py -l python -s python --use_docker --manual &&
+  mv interop_server_cmds.sh python_server.sh &&
+  mv interop_client_cmds.sh python_client.sh
+```
+
+### Running the grapesy client
+
+Choose one of the servers to run
+
+```bash
+grpc-repo$ bash ./cxx_server.sh
+```
+
+Take a note of the server port
+
+```bash
+docker ps
+```
+
+Can now run individual tests (you'll need to specify the right port):
+
+```bash
+grapesy$ cabal run grapesy-interop -- \
+  --client \
+  --port=32770 \
+  --server_host_override=foo.test.google.fr \
+  --use_test_ca=true \
+  --test_case=empty_unary
+```
+
+or omit the `--test_case` argument to run al tests.
+

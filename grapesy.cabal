@@ -14,6 +14,7 @@ data-files:         route_guide_db.json
                     grpc-demo.key
                     interop.pem
                     interop.key
+                    interop-ca.pem
 tested-with:        GHC==8.10.7
                   , GHC==9.2.8
                   , GHC==9.4.8
@@ -396,23 +397,49 @@ executable test-stress
 executable grapesy-interop
   import:
       lang
+  default-extensions:
+      OverloadedLabels
   hs-source-dirs:
       interop
       proto
   main-is:
       Main.hs
   other-modules:
+      Interop.API
+      Interop.Client
+      Interop.Client.Common
       Interop.Client.Connect
       Interop.Client.Ping
+      Interop.Client.TestCase.CancelAfterBegin
+      Interop.Client.TestCase.CancelAfterFirstResponse
+      Interop.Client.TestCase.ClientCompressedStreaming
+      Interop.Client.TestCase.ClientCompressedUnary
+      Interop.Client.TestCase.ClientStreaming
+      Interop.Client.TestCase.CustomMetadata
+      Interop.Client.TestCase.EmptyStream
+      Interop.Client.TestCase.EmptyUnary
+      Interop.Client.TestCase.LargeUnary
+      Interop.Client.TestCase.PingPong
+      Interop.Client.TestCase.ServerCompressedStreaming
+      Interop.Client.TestCase.ServerCompressedUnary
+      Interop.Client.TestCase.ServerStreaming
+      Interop.Client.TestCase.SpecialStatusMessage
+      Interop.Client.TestCase.StatusCodeAndMessage
+      Interop.Client.TestCase.TimeoutOnSleepingServer
+      Interop.Client.TestCase.UnimplementedMethod
+      Interop.Client.TestCase.UnimplementedService
       Interop.Cmdline
       Interop.Server
+      Interop.Server.Common
       Interop.Server.PingService.Ping
       Interop.Server.TestService.EmptyCall
       Interop.Server.TestService.FullDuplexCall
       Interop.Server.TestService.StreamingInputCall
       Interop.Server.TestService.StreamingOutputCall
       Interop.Server.TestService.UnaryCall
-      Interop.Server.Util
+      Interop.Util.ANSI
+      Interop.Util.Exceptions
+      Interop.Util.Messages
 
       Paths_grapesy
 
@@ -423,6 +450,7 @@ executable grapesy-interop
   build-depends:
     , grapesy
   build-depends:
+    , ansi-terminal
     , base
     , bytestring
     , exceptions

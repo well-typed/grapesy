@@ -1,27 +1,42 @@
-module Interop.Client.Connect (connect) where
+module Interop.Client.Connect (testServer) where
 
 import Network.GRPC.Client
 import Network.GRPC.Common
 
 import Interop.Cmdline
 
-connect :: Cmdline -> (Connection -> IO a) -> IO a
-connect cmdline = withConnection params server
-  where
-    params :: ConnParams
-    params = def
+-- | Test server to connect to
+--
+-- The spec says
+--
+-- > Clients must not disable certificate checking.
+--
+-- <https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptions.md>
+testServer :: Cmdline -> Server
+testServer cmdline
+  | cmdUseTLS cmdline
+  = ServerSecure
+          (ValidateServer certStore)
+          SslKeyLogFromEnv
+          serverAddress
 
-    server :: Server
-    server
-      | cmdUseTLS cmdline
-      = ServerSecure NoServerValidation SslKeyLogFromEnv serverAddress
+  | otherwise
+  = ServerInsecure serverAddress
+  where
+    certStore :: CertificateStoreSpec
+    certStore
+      | cmdUseTestCA cmdline
+      = mconcat [
+            certStoreFromSystem
+          , certStoreFromPath $ cmdRootCA cmdline
+          ]
 
       | otherwise
-      = ServerInsecure serverAddress
+      = certStoreFromSystem
 
     serverAddress :: Address
     serverAddress = Address {
           addressHost      = cmdHost cmdline
         , addressPort      = cmdPort cmdline
-        , addressAuthority = Nothing
+        , addressAuthority = cmdServerHostOverride cmdline
         }

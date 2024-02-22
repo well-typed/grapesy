@@ -2,6 +2,7 @@ module Main where
 
 import System.IO
 
+import Interop.Client (client)
 import Interop.Client.Ping
 import Interop.Cmdline
 import Interop.Server (server)
@@ -19,5 +20,5 @@ main = do
     cmdline <- getCmdline
     case cmdMode cmdline of
       Server -> server cmdline
-      Client -> fail "client not yet implemented"
+      Client -> client cmdline
       Ping   -> ping cmdline

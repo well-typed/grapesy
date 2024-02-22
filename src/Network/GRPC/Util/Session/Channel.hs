@@ -500,33 +500,32 @@ sendMessageLoop :: forall sess.
   -> RegularFlowState (Outbound sess)
   -> OutputStream
   -> IO ()
-sendMessageLoop sess tracer st stream =
-    go $ buildMsg sess (flowHeaders st)
+sendMessageLoop sess tracer st stream = do
+    trailers <- loop
+    atomically $ putTMVar (flowTerminated st) trailers
   where
-    go :: (Message (Outbound sess) -> Builder) -> IO ()
-    go build = do
-        trailers <- loop
-        atomically $ putTMVar (flowTerminated st) trailers
-      where
-        loop :: IO (Trailers (Outbound sess))
-        loop = do
-            traceWith tracer $ NodeSendAwaitMsg
-            msg <- atomically $ takeTMVar (flowMsg st)
-            traceWith tracer $ NodeSendMsg msg
+    build :: (Message (Outbound sess) -> Builder)
+    build = buildMsg sess (flowHeaders st)
 
-            case msg of
-              StreamElem x -> do
-                writeChunk stream $ build x
-                flush stream
-                loop
-              FinalElem x trailers -> do
-                -- We don't flush the last message, so that http2 can mark the
-                -- stream as END_STREAM (rather than having to send a separate
-                -- empty data frame).
-                writeChunk stream $ build x
-                return trailers
-              NoMoreElems trailers -> do
-                return trailers
+    loop :: IO (Trailers (Outbound sess))
+    loop = do
+        traceWith tracer $ NodeSendAwaitMsg
+        msg <- atomically $ takeTMVar (flowMsg st)
+        traceWith tracer $ NodeSendMsg msg
+
+        case msg of
+          StreamElem x -> do
+            writeChunk stream $ build x
+            flush stream
+            loop
+          FinalElem x trailers -> do
+            -- We don't flush the last message, so that http2 can mark the
+            -- stream as END_STREAM (rather than having to send a separate
+            -- empty data frame).
+            writeChunk stream $ build x
+            return trailers
+          NoMoreElems trailers -> do
+            return trailers
 
 -- | Receive all messages sent by the node's peer
 --

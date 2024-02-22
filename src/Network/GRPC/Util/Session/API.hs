@@ -34,12 +34,14 @@ data RequestInfo = RequestInfo {
     , requestPath    :: HTTP2.Path
     , requestHeaders :: [HTTP.Header]
     }
+  deriving (Show)
 
 data ResponseInfo = ResponseInfo {
       responseStatus  :: HTTP.Status
     , responseHeaders :: [HTTP.Header]
     , responseBody    :: Maybe Lazy.ByteString -- ^ Only for errors
     }
+  deriving (Show)
 
 {-------------------------------------------------------------------------------
   Main definition

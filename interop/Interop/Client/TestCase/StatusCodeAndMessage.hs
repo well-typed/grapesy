@@ -1,0 +1,54 @@
+{-# LANGUAGE OverloadedStrings #-}
+
+module Interop.Client.TestCase.StatusCodeAndMessage (runTest) where
+
+import Control.Exception
+import Data.Text (Text)
+
+import Network.GRPC.Client
+import Network.GRPC.Common
+import Network.GRPC.Spec
+
+import Interop.API
+import Interop.Client.Connect
+import Interop.Cmdline
+import Interop.Util.Exceptions
+
+-- | <https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptions.md#status_code_and_message>
+runTest :: Cmdline -> IO ()
+runTest cmdline = do
+    withConnection def (testServer cmdline) $ \conn -> do
+      -- 1. UnaryCall
+      withRPC conn def (Proxy @UnaryCall) $ \call -> do
+        sendFinalInput call simpleRequest
+        resp <- try $ recvFinalOutput call
+        verifyResponse resp
+
+      -- 2. FullDuplexCall
+      withRPC conn def (Proxy @FullDuplexCall) $ \call -> do
+        sendFinalInput call streamingRequest
+        resp <- try $ recvFinalOutput call
+        verifyResponse resp
+  where
+    simpleRequest :: SimpleRequest
+    simpleRequest = defMessage & #responseStatus .~ echoStatus
+
+    streamingRequest :: StreamingOutputCallRequest
+    streamingRequest = defMessage & #responseStatus .~ echoStatus
+
+    -- Spec mandates the use of code 2, which is 'GrpcUnknown'
+    echoStatus :: EchoStatus
+    echoStatus =
+        defMessage
+          & #code    .~ fromIntegral (fromGrpcStatus $ GrpcError GrpcUnknown)
+          & #message .~ statusMessage
+
+    statusMessage :: Text
+    statusMessage = "test status message"
+
+    verifyResponse :: Either GrpcException a -> IO ()
+    verifyResponse (Right _) =
+        assertFailure "Expected UNKNOWN"
+    verifyResponse (Left err) = do
+        assertEqual GrpcUnknown          $ grpcError        err
+        assertEqual (Just statusMessage) $ grpcErrorMessage err

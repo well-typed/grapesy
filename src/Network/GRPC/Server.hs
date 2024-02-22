@@ -21,10 +21,12 @@ module Network.GRPC.Server (
   , setResponseMetadata
 
     -- ** Protocol specific wrappers
-  , recvFinalInput
-  , sendFinalOutput
   , sendNextOutput
+  , sendFinalOutput
   , sendTrailers
+  , recvNextInput
+  , recvFinalInput
+  , recvEndOfInput
 
     -- ** Low-level\/specialized API
   , initiateResponse

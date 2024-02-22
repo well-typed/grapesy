@@ -1,18 +1,15 @@
-{-# LANGUAGE OverloadedLabels  #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module Interop.Server.TestService.UnaryCall (handleUnaryCall) where
+module Interop.Server.TestService.UnaryCall (handle) where
 
 import Network.GRPC.Common
-import Network.GRPC.Common.Protobuf
 import Network.GRPC.Common.StreamElem qualified as StreamElem
 import Network.GRPC.Server
 import Network.GRPC.Spec
 
-import Proto.Messages
-import Proto.Test
-
-import Interop.Server.Util
+import Interop.API
+import Interop.Server.Common
+import Interop.Util.Messages
 
 -- | Handle @TestService.UnaryCall@
 --
@@ -20,8 +17,8 @@ import Interop.Server.Util
 -- we need to deal with metadata.
 --
 -- <https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptions.md#unarycall>
-handleUnaryCall :: Call (Protobuf TestService "unaryCall") -> IO ()
-handleUnaryCall call = do
+handle :: Call UnaryCall -> IO ()
+handle call = do
     -- Send initial metadata, hold on the trailers
     trailers <- constructResponseMetadata call
 
@@ -39,7 +36,7 @@ handleUnaryCall call = do
     checkInboundCompression expectCompressed inboundEnvelope
 
     -- Send response
-    payload <- mkPayload (request ^. #responseType) (request ^. #responseSize)
+    payload <- payloadOfType (request ^. #responseType) (request ^. #responseSize)
 
     let outboundEnvelope :: OutboundEnvelope
         outboundEnvelope = def {

@@ -1,7 +1,6 @@
 module Interop.Server (server) where
 
 import Control.Monad.Catch (generalBracket, ExitCase(..))
-import Data.Proxy
 
 import Network.GRPC.Common
 import Network.GRPC.Server
@@ -9,18 +8,17 @@ import Network.GRPC.Server.Protobuf
 import Network.GRPC.Server.Run
 import Network.GRPC.Server.StreamType
 
-import Paths_grapesy
-
 import Proto.Ping
-import Proto.Test
 
+import Interop.API
 import Interop.Cmdline
-import Interop.Server.PingService.Ping
-import Interop.Server.TestService.EmptyCall
-import Interop.Server.TestService.FullDuplexCall
-import Interop.Server.TestService.StreamingInputCall
-import Interop.Server.TestService.StreamingOutputCall
-import Interop.Server.TestService.UnaryCall
+
+import Interop.Server.PingService.Ping                qualified as Ping
+import Interop.Server.TestService.EmptyCall           qualified as EmptyCall
+import Interop.Server.TestService.FullDuplexCall      qualified as FullDuplexCall
+import Interop.Server.TestService.StreamingInputCall  qualified as StreamingInputCall
+import Interop.Server.TestService.StreamingOutputCall qualified as StreamingOutputCall
+import Interop.Server.TestService.UnaryCall           qualified as UnaryCall
 
 {-------------------------------------------------------------------------------
   Handlers
@@ -37,18 +35,18 @@ import Interop.Server.TestService.UnaryCall
 
 methodsPingService :: Methods IO (ProtobufMethodsOf PingService)
 methodsPingService =
-      Method (mkNonStreaming handlePing)
+      Method (mkNonStreaming Ping.handle)
     $ NoMoreMethods
 
 methodsTestService :: Methods IO (ProtobufMethodsOf TestService)
 methodsTestService =
       UnsupportedMethod -- cacheableUnaryCall
-    $ Method (mkNonStreaming handleEmptyCall)
-    $ RawMethod (mkRpcHandler Proxy handleFullDuplexCall)
+    $ Method (mkNonStreaming EmptyCall.handle)
+    $ RawMethod (mkRpcHandler Proxy FullDuplexCall.handle)
     $ UnsupportedMethod -- halfDuplexCall
-    $ RawMethod (mkRpcHandler Proxy handleStreamingInputCall)
-    $ RawMethod (mkRpcHandler Proxy handleStreamingOutputCall)
-    $ RawMethod (mkRpcHandler Proxy handleUnaryCall)
+    $ RawMethod (mkRpcHandler Proxy StreamingInputCall.handle)
+    $ RawMethod (mkRpcHandler Proxy StreamingOutputCall.handle)
+    $ RawMethod (mkRpcHandler Proxy UnaryCall.handle)
     $ UnsupportedMethod -- unimplementedCall
     $ NoMoreMethods
 
@@ -63,36 +61,35 @@ services =
 -------------------------------------------------------------------------------}
 
 server :: Cmdline -> IO ()
-server cmdline = showStartStop $ do
-    serverConfig <-
-      if cmdUseTLS cmdline then do
-        pubCert <- getDataFileName "interop.pem"
-        privKey <- getDataFileName "interop.key"
-
-        return ServerConfig {
+server cmdline = showStartStop $
+    runServerWithHandlers
+      serverConfig
+      def
+      (fromServices services)
+  where
+    serverConfig :: ServerConfig
+    serverConfig
+      | cmdUseTLS cmdline
+      = ServerConfig {
             serverInsecure = Nothing
           , serverSecure   = Just SecureConfig {
                 secureHost       = "0.0.0.0"
               , securePort       = cmdPort cmdline
-              , securePubCert    = pubCert
+              , securePubCert    = cmdPubCert cmdline
               , secureChainCerts = []
-              , securePrivKey    = privKey
+              , securePrivKey    = cmdPrivKey cmdline
               , secureSslKeyLog  = SslKeyLogFromEnv
               }
           }
-      else
-        return ServerConfig {
+
+     | otherwise
+     = ServerConfig {
             serverSecure   = Nothing
           , serverInsecure = Just InsecureConfig {
                 insecureHost = Nothing
               , insecurePort = cmdPort cmdline
               }
           }
-
-    runServerWithHandlers
-      serverConfig
-      def
-      (fromServices services)
 
 {-------------------------------------------------------------------------------
   Internal auxiliary

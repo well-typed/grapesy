@@ -1,12 +1,10 @@
-module Interop.Server.TestService.EmptyCall (handleEmptyCall) where
+module Interop.Server.TestService.EmptyCall (handle) where
 
-import Network.GRPC.Common.Protobuf
-
-import Proto.Empty
+import Interop.API
 
 -- | Handle @TestService.EmptyCall@
 --
 -- <https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptions.md#emptycall>
-handleEmptyCall :: Empty -> IO Empty
-handleEmptyCall _ = return defMessage
+handle :: Empty -> IO Empty
+handle _ = return defMessage
 
