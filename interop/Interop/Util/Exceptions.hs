@@ -7,6 +7,8 @@ module Interop.Util.Exceptions (
   , assertUnrecognized
   , assertBool
   , assertEqual
+  , assertThrows
+  , assertTerminatesWithinSeconds
     -- * Re-exports
   , HasCallStack
   , throwIO
@@ -15,6 +17,7 @@ module Interop.Util.Exceptions (
 import Control.Exception
 import Data.List (intercalate)
 import GHC.Stack
+import System.Timeout
 
 data TestSkipped = TestSkipped String
   deriving stock (Show)
@@ -63,3 +66,19 @@ assertEqual expected actual
 
   | otherwise
   = assertFailure $ "Expected: " ++ show expected ++ ", actual: " ++ show actual
+
+assertThrows :: (HasCallStack, Exception e) => (e -> IO ()) -> IO a -> IO ()
+assertThrows p io = do
+    ma <- try io
+    case ma of
+      Right _  -> assertFailure "Expected exception"
+      Left err -> p err
+
+assertTerminatesWithinSeconds :: Int -> IO () -> IO ()
+assertTerminatesWithinSeconds s io = do
+    result <- timeout (s * 1_000_000) io
+    case result of
+      Nothing -> assertFailure "Timeout"
+      Just () -> return ()
+
+

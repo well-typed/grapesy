@@ -30,14 +30,14 @@ instance ( KnownSymbol serv
   type Input  (BinaryRpc serv meth) = Lazy.ByteString
   type Output (BinaryRpc serv meth) = Lazy.ByteString
 
-  serializationFormat _ = "binary"
-  serviceName         _ = Text.pack $ symbolVal (Proxy @serv)
-  methodName          _ = Text.pack $ symbolVal (Proxy @meth)
-  messageType         _ = "bytestring"
-  serializeInput      _ = id
-  serializeOutput     _ = id
-  deserializeInput    _ = return
-  deserializeOutput   _ = return
+  rpcContentType         _ = defaultRpcContentType "binary"
+  rpcServiceName         _ = Text.pack $ symbolVal (Proxy @serv)
+  rpcMethodName          _ = Text.pack $ symbolVal (Proxy @meth)
+  rpcMessageType         _ = "bytestring"
+  rpcSerializeInput      _ = id
+  rpcSerializeOutput     _ = id
+  rpcDeserializeInput    _ = return
+  rpcDeserializeOutput   _ = return
 
 -- | For the binary protocol we do not check communication protocols
 instance SupportsStreamingType (BinaryRpc serv meth) styp

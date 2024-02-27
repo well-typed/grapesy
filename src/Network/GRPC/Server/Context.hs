@@ -18,7 +18,6 @@ import Control.Exception
 import Control.Monad.XIO (NeverThrows)
 import Control.Monad.XIO qualified as XIO
 import Control.Tracer
-import Data.ByteString qualified as Strict (ByteString)
 import Data.Default
 import System.IO
 
@@ -69,8 +68,9 @@ data ServerParams = ServerParams {
 
       -- | Override content-type for response to client.
       --
-      -- If not defined, the default @application/grpc+format@ is used.
-    , serverContentType :: Maybe Strict.ByteString
+      -- Set to 'Nothing' to omit the content-type header completely
+      -- (this is not conform the gRPC spec).
+    , serverContentType :: Maybe ContentType
     }
 
 instance Default ServerParams where
@@ -78,7 +78,7 @@ instance Default ServerParams where
         serverCompression = def
       , serverDebugTracer = nullTracer
       , serverTopLevel    = defaultServerTopLevel
-      , serverContentType = Nothing
+      , serverContentType = Just ContentTypeDefault
       }
 
 defaultServerTopLevel ::

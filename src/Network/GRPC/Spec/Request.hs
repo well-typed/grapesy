@@ -15,15 +15,20 @@ module Network.GRPC.Spec.Request (
   , parseRequestHeaders
   ) where
 
+import Control.Monad.Except
 import Data.ByteString qualified as Strict (ByteString)
 import Data.ByteString.Char8 qualified as BS.Strict.C8
+import Data.ByteString.UTF8 qualified as BS.Strict.UTF8
 import Data.List (intersperse)
 import Data.List.NonEmpty (NonEmpty)
+import Data.Map.Strict (Map)
+import Data.Map.Strict qualified as Map
 import Data.Maybe (catMaybes)
 import Data.SOP
 import Data.Version
 import Generics.SOP qualified as SOP
 import GHC.Generics qualified as GHC
+import GHC.Stack
 import Network.HTTP.Types qualified as HTTP
 
 import Network.GRPC.Spec.Common
@@ -49,7 +54,7 @@ data RequestHeaders = RequestHeaders {
       requestTimeout :: Maybe Timeout
 
       -- | Custom metadata
-    , requestMetadata :: [CustomMetadata]
+    , requestMetadata :: Map HeaderName HeaderValue
 
       -- | Compression used for outgoing messages
     , requestCompression :: Maybe CompressionId
@@ -63,8 +68,8 @@ data RequestHeaders = RequestHeaders {
 
       -- | Optionally, override the content-type
       --
-      -- By default the content type will be set to @application/grpc+format@.
-    , requestOverrideContentType :: Maybe Strict.ByteString
+      -- Set to 'Nothing' to omit the content-type header altogether.
+    , requestContentType :: Maybe ContentType
 
       -- | Trace context (for OpenTelemetry)
     , requestTraceContext :: Maybe TraceContext
@@ -90,10 +95,12 @@ data NoMetadata = NoMetadata
 -- > Request-Headers →
 -- >   Call-Definition
 -- >   *Custom-Metadata
-buildRequestHeaders :: IsRPC rpc => Proxy rpc -> RequestHeaders -> [HTTP.Header]
+buildRequestHeaders ::
+     (IsRPC rpc, HasCallStack)
+  => Proxy rpc -> RequestHeaders -> [HTTP.Header]
 buildRequestHeaders proxy callParams@RequestHeaders{requestMetadata} = concat [
       callDefinition proxy callParams
-    , map buildCustomMetadata requestMetadata
+    , map buildCustomMetadata $ Map.toList requestMetadata
     ]
 
 -- | Call definition
@@ -123,41 +130,22 @@ buildRequestHeaders proxy callParams@RequestHeaders{requestMetadata} = concat [
 -- @TE@ should come /after/ @Authority@ (if using). However, we will not include
 -- the reserved headers here /at all/, as they are automatically added by
 -- `http2`.
-callDefinition :: IsRPC rpc => Proxy rpc -> RequestHeaders -> [HTTP.Header]
+callDefinition ::
+     (IsRPC rpc, HasCallStack)
+  => Proxy rpc -> RequestHeaders -> [HTTP.Header]
 callDefinition proxy = \hdrs -> catMaybes [
       hdrTimeout <$> requestTimeout hdrs
     , Just $ buildTe
-    , Just $ buildContentType proxy (requestOverrideContentType hdrs)
+    , buildContentType proxy <$> requestContentType hdrs
     , Just $ buildMessageType
-    , buildMessageEncoding       <$> requestCompression       hdrs
+    , buildMessageEncoding <$> requestCompression hdrs
     , buildMessageAcceptEncoding <$> requestAcceptCompression hdrs
     , Just $ buildUserAgent
-    , buildGrpcTraceBin          <$> requestTraceContext hdrs
+    , buildGrpcTraceBin <$> requestTraceContext hdrs
     ]
   where
-    -- > Timeout      → "grpc-timeout" TimeoutValue TimeoutUnit
-    -- > TimeoutValue → {positive integer as ASCII string of at most 8 digits}
-    -- > TimeoutUnit  → Hour / Minute / Second / Millisecond / Microsecond / Nanosecond
-    -- > Hour         → "H"
-    -- > Minute       → "M"
-    -- > Second       → "S"
-    -- > Millisecond  → "m"
-    -- > Microsecond  → "u"
-    -- > Nanosecond   → "n"
     hdrTimeout :: Timeout -> HTTP.Header
-    hdrTimeout (Timeout unit val) = (
-          "grpc-timeout"
-        , mconcat [
-              BS.Strict.C8.pack $ show $ getTimeoutValue val
-            , case unit of
-                Hour        -> "H"
-                Minute      -> "M"
-                Second      -> "S"
-                Millisecond -> "m"
-                Microsecond -> "u"
-                Nanosecond  -> "n"
-            ]
-        )
+    hdrTimeout t = ("grpc-timeout", buildTimeout t)
 
     -- > TE → "te" "trailers" # Used to detect incompatible proxies
     buildTe :: HTTP.Header
@@ -167,7 +155,7 @@ callDefinition proxy = \hdrs -> catMaybes [
     buildMessageType :: HTTP.Header
     buildMessageType = (
           "grpc-message-type"
-        , PercentEncoding.encode $ messageType proxy
+        , PercentEncoding.encode $ rpcMessageType proxy
         )
 
     -- > User-Agent → "user-agent" {structured user-agent string}
@@ -209,40 +197,44 @@ callDefinition proxy = \hdrs -> catMaybes [
 -------------------------------------------------------------------------------}
 
 -- | Parse request headers
-parseRequestHeaders ::
-     IsRPC rpc
+parseRequestHeaders :: forall rpc m.
+     (IsRPC rpc, MonadError (HTTP.Status, Strict.ByteString) m)
   => Proxy rpc
-  -> [HTTP.Header] -> Either String RequestHeaders
+  -> [HTTP.Header] -> m RequestHeaders
 parseRequestHeaders proxy =
       runPartialParser uninitRequestHeaders
     . mapM_ parseHeader
   where
-    parseHeader ::
-         HTTP.Header
-      -> PartialParser RequestHeaders (Either String) ()
+    parseHeader :: HTTP.Header -> PartialParser RequestHeaders m ()
     parseHeader hdr@(name, value)
       | name == "user-agent"
       = return () -- TODO
 
       | name == "grpc-timeout"
-      = return () -- TODO
+      = update updTimeout $ \_ ->
+          fmap Just . httpError HTTP.badRequest400 $
+            parseTimeout value
 
       | name == "grpc-encoding"
       = update updCompression $ \_ ->
-          Just <$> parseMessageEncoding hdr
+          fmap Just . httpError HTTP.badRequest400 $
+            parseMessageEncoding hdr
 
       | name == "grpc-accept-encoding"
       = update updAcceptCompression $ \_ ->
-          Just <$> parseMessageAcceptEncoding hdr
+          fmap Just . httpError HTTP.badRequest400 $
+            parseMessageAcceptEncoding hdr
 
       | name == "grpc-trace-bin"
       = update updTraceContext $ \_ ->
-          Just <$> (parseBinaryValue value >>= parseTraceContext)
+          fmap Just . httpError HTTP.badRequest400 $
+            parseBinaryValue value >>= parseTraceContext
 
       -- /If/ the @te@ header is present we check its value, but we do not
       -- insist that it is present (technically this is not conform spec).
       | name == "te"
-      = expectHeaderValue hdr ["trailers"]
+      = httpError HTTP.badRequest400 $
+          expectHeaderValue hdr ["trailers"]
 
       -- Dealing with 'content-type' and 'grpc-message-type' is a bit subtle.
       -- In /principle/ the headers should /tell/ us what kind of RPC we are
@@ -251,35 +243,43 @@ parseRequestHeaders proxy =
       -- previously) determines these values, and so we merely need to check
       -- that they match the values we expect.
       --
-      -- TODO: For content types that aren't application/grpc (with or without
-      -- a subtype), we should throw HTTP 415 Unsupported Media Type response
-      --
-      -- TODO: We should throw an error if these headers are not present.
+      -- If these headers are absent, we simply assume that they implicitly
+      -- have the values we expect.
       | name == "content-type"
-      = parseContentType proxy hdr
+      = update updContentType $ \_ ->
+          fmap Just . httpError HTTP.unsupportedMediaType415 $
+            parseContentType proxy hdr
+
       | name == "grpc-message-type"
-      = expectHeaderValue hdr [PercentEncoding.encode (messageType proxy)]
+      = httpError HTTP.badRequest400 $
+          expectHeaderValue hdr [PercentEncoding.encode (rpcMessageType proxy)]
 
       -- Everything else we parse as custom metadata
       | otherwise
-      = parseCustomMetadata hdr >>= update updCustom . fmap . (:)
+      = httpError HTTP.badRequest400 (parseCustomMetadata hdr) >>=
+        update updCustom . fmap . uncurry Map.insert
 
     -- All of these headers are optional
-    uninitRequestHeaders :: Partial (Either String) RequestHeaders
+    uninitRequestHeaders :: Partial m RequestHeaders
     uninitRequestHeaders =
-           Right (Nothing :: Maybe Timeout)
-        :* Right ([]      :: [CustomMetadata])
-        :* Right (Nothing :: Maybe CompressionId)
-        :* Right (Nothing :: Maybe (NonEmpty CompressionId))
-        :* Right (Nothing :: Maybe Strict.ByteString)
-        :* Right (Nothing :: Maybe TraceContext)
+           return (Nothing   :: Maybe Timeout)
+        :* return (Map.empty :: Map HeaderName HeaderValue)
+        :* return (Nothing   :: Maybe CompressionId)
+        :* return (Nothing   :: Maybe (NonEmpty CompressionId))
+        :* return (Nothing   :: Maybe ContentType)
+        :* return (Nothing   :: Maybe TraceContext)
         :* Nil
 
-    (    _updTimeout
+    (    updTimeout
       :* updCustom
       :* updCompression
       :* updAcceptCompression
-      :* _updOverrideContentType
+      :* updContentType
       :* updTraceContext
       :* Nil ) = partialUpdates (Proxy @RequestHeaders)
 
+    httpError ::
+         MonadError (HTTP.Status, Strict.ByteString) m'
+      => HTTP.Status -> Either String a -> m' a
+    httpError code (Left err) = throwError (code, BS.Strict.UTF8.fromString err)
+    httpError _    (Right a)  = return a

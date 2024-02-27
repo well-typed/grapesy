@@ -88,7 +88,7 @@ buildInput ::
   -> Compression
   -> (OutboundEnvelope, Input rpc)
   -> Builder
-buildInput = buildMsg . serializeInput
+buildInput = buildMsg . rpcSerializeInput
 
 -- | Serialize RPC output
 buildOutput ::
@@ -97,7 +97,7 @@ buildOutput ::
   -> Compression
   -> (OutboundEnvelope, Output rpc)
   -> Builder
-buildOutput = buildMsg . serializeOutput
+buildOutput = buildMsg . rpcSerializeOutput
 
 -- | Generalization of 'buildInput' and 'buildOutput'
 buildMsg ::
@@ -160,14 +160,14 @@ parseInput ::
   => Proxy rpc
   -> Compression
   -> Parser (InboundEnvelope, Input rpc)
-parseInput = parseMsg . deserializeInput
+parseInput = parseMsg . rpcDeserializeInput
 
 parseOutput ::
      IsRPC rpc
   => Proxy rpc
   -> Compression
   -> Parser (InboundEnvelope, Output rpc)
-parseOutput = parseMsg . deserializeOutput
+parseOutput = parseMsg . rpcDeserializeOutput
 
 parseMsg :: forall x.
      (Lazy.ByteString -> Either String x)

@@ -1,7 +1,5 @@
 module Interop.Client.TestCase.UnimplementedMethod (runTest) where
 
-import Control.Exception
-
 import Network.GRPC.Client
 import Network.GRPC.Common
 import Network.GRPC.Client.StreamType.IO
@@ -15,9 +13,5 @@ import Interop.Util.Exceptions
 runTest :: Cmdline -> IO ()
 runTest cmdline =
     withConnection def (testServer cmdline) $ \conn -> do
-      resp <- try $ nonStreaming conn (rpc @UnimplementedCall) defMessage
-      case resp of
-        Right _empty ->
-          assertFailure "Expected UNIMPLEMENTED"
-        Left err ->
-          assertEqual GrpcUnimplemented $ grpcError err
+      assertThrows (assertEqual GrpcUnimplemented . grpcError) $
+        nonStreaming conn (rpc @UnimplementedCall) defMessage

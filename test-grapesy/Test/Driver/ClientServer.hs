@@ -26,7 +26,6 @@ import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
 import Control.Tracer
-import Data.ByteString qualified as Strict (ByteString)
 import Data.Map qualified as Map
 import Data.Set (Set)
 import Data.Set qualified as Set
@@ -45,6 +44,7 @@ import Network.GRPC.Internal.XIO (NeverThrows)
 import Network.GRPC.Internal.XIO qualified as XIO
 import Network.GRPC.Server qualified as Server
 import Network.GRPC.Server.Run qualified as Server
+import Network.GRPC.Spec
 
 import Paths_grapesy
 import Network.GRPC.Client (ConnParams(connOverridePingRateLimit))
@@ -107,10 +107,10 @@ data ContentTypeOverride =
     --
     -- It is the responsibility of the test to make sure that this content-type
     -- is in fact valid.
-  | ValidOverride Strict.ByteString
+  | ValidOverride ContentType
 
     -- | Override with an invalid content-type
-  | InvalidOverride Strict.ByteString
+  | InvalidOverride ContentType
 
 instance Default ClientServerConfig where
   def = ClientServerConfig {
@@ -255,8 +255,9 @@ isExpectedClientException cfg e
   -- Early client termination
   --
 
-  | Just ChannelDiscarded{} <- fromException e
+  | Just grpcException <- fromException e
   , expectEarlyClientTermination cfg
+  , grpcError grpcException == GrpcCancelled
   = True
 
   --
@@ -277,7 +278,7 @@ isExpectedClientException cfg e
 
   | Just (Client.CallSetupUnexpectedStatus status _body) <- fromException e
   , InvalidOverride _ <- clientContentType cfg
-  , status == HTTP.badRequest400
+  , status == HTTP.unsupportedMediaType415
   = True
 
   --

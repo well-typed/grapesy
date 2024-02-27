@@ -70,8 +70,23 @@ runTest CancelAfterBegin          = CancelAfterBegin.runTest
 runTest CancelAfterFirstResponse  = CancelAfterFirstResponse.runTest
 runTest TimeoutOnSleepingServer   = TimeoutOnSleepingServer.runTest
 
+skips :: Cmdline -> TestCase -> Bool
+skips cmdline test = or [
+      elem test (cmdSkipTest cmdline)
+    , cmdSkipCompression cmdline && elem test [
+          ClientCompressedUnary
+        , ServerCompressedUnary
+        , ClientCompressedStreaming
+        , ServerCompressedStreaming
+        ]
+    , cmdSkipClientCompression cmdline && elem test [
+          ClientCompressedUnary
+        , ClientCompressedStreaming
+        ]
+    ]
+
 testCase :: Cmdline -> IORef TestStats -> TestCase -> IO ()
-testCase cmdline stats test = do
+testCase cmdline stats test = unless (skips cmdline test) $ do
     result <- try $ runTest test cmdline
     case result of
       Right () ->

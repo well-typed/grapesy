@@ -11,12 +11,13 @@
 --
 -- Intended for unqualified import.
 module Network.GRPC.Spec.Common (
-    -- * Construction
-    buildContentType
+    -- * Content type
+    ContentType(..)
+  , buildContentType
+  , parseContentType
+    -- * Message encoding
   , buildMessageEncoding
   , buildMessageAcceptEncoding
-    -- * Parsing
-  , parseContentType
   , parseMessageEncoding
   , parseMessageAcceptEncoding
   ) where
@@ -26,15 +27,16 @@ import Control.Monad.Except
 import Data.ByteString qualified as BS.Strict
 import Data.ByteString qualified as Strict (ByteString)
 import Data.ByteString.Char8 qualified as BS.Strict.C8
+import Data.Default
 import Data.Foldable (toList)
-import Data.List (intersperse, stripPrefix)
+import Data.List (intersperse)
 import Data.List.NonEmpty (NonEmpty(..))
-import Data.Maybe (fromMaybe)
 import Data.Proxy
 import Network.HTTP.Types qualified as HTTP
 
 import Network.GRPC.Spec.Compression
 import Network.GRPC.Spec.RPC
+import Network.GRPC.Spec.RPC.Unknown
 import Network.GRPC.Util.ByteString
 import Network.GRPC.Util.Partial
 
@@ -45,71 +47,96 @@ import Network.GRPC.Util.Partial
   >   [("+proto" / "+json" / {custom})]
 -------------------------------------------------------------------------------}
 
+-- | Content type
+data ContentType =
+    -- | The default content type for this RPC
+    --
+    -- This corresponds to @application/grpc+format@, where @format@ is given
+    -- by 'serializationFormat'
+    ContentTypeDefault
+
+    -- | Override the content type
+    --
+    -- Depending on the choice of override, this may or may not be conform spec.
+    -- See <https://datatracker.ietf.org/doc/html/rfc2045#section-5> for a spec
+    -- of the Content-Type header; the gRPC spec however disallows most of what
+    -- is technically allowed by this RPC.
+  | ContentTypeOverride Strict.ByteString
+  deriving stock (Show, Eq)
+
+instance Default ContentType where
+  def = ContentTypeDefault
+
 buildContentType ::
      IsRPC rpc
   => Proxy rpc
-  -> Maybe Strict.ByteString -- ^ Optional override
+  -> ContentType
   -> HTTP.Header
-buildContentType proxy mOverride = (
+buildContentType proxy contentType = (
       "content-type"
-    , fromMaybe defaultContentType mOverride
+    , case contentType of
+       ContentTypeDefault    -> defaultContentType
+       ContentTypeOverride x -> x
     )
   where
     defaultContentType :: Strict.ByteString
-    defaultContentType = "application/grpc+" <> serializationFormat proxy
+    defaultContentType = rpcContentType proxy
 
 parseContentType :: forall m rpc.
      (MonadError String m, IsRPC rpc)
   => Proxy rpc
   -> HTTP.Header
-  -> m ()
+  -> m ContentType
 parseContentType proxy (name, hdr) = do
-    -- See <https://datatracker.ietf.org/doc/html/rfc2045#section-5> for a spec
-    -- of the Content-Type header; the gRPC spec however disallows most of what
-    -- is technically allowed by this RPC.
+    if hdr == rpcContentType proxy then
+      return ContentTypeDefault
+    else do
+      -- Headers must be ASCII, justifying the use of BS.Strict.C8.
+      -- See <https://www.rfc-editor.org/rfc/rfc7230#section-3.2.4>.
+      -- The gRPC spec does not allow for quoted strings.
+      withoutPrefix <-
+        case BS.Strict.C8.stripPrefix "application/grpc" hdr of
+          Nothing -> err "missing \"application/grpc\" prefix"
+          Just remainder -> return remainder
 
-    -- The gRPC spec does not allow for quoted strings.
-    withoutPrefix <-
-      case stripPrefix "application/grpc" hdrAscii of
-        Nothing -> err "missing \"application/grpc\" prefix"
-        Just remainder -> return remainder
+      -- The gRPC spec does not allow for any parameters.
+      when (';' `BS.Strict.C8.elem` withoutPrefix) $
+        err "unexpected parameter"
 
-    -- The gRPC spec does not allow for any parameters.
-    when (';' `elem` withoutPrefix) $
-      err "unexpected parameter"
-
-    -- Check format
-    --
-    -- The only @format@ we should allow is @serializationFormat proxy@.
-    -- However, some non-conforming proxies use formats such as
-    -- @application/grpc+octet-stream@. We therefore ignore @format@ here.
-    case withoutPrefix of
-      []          -> return () -- Accept "application/grpc"
-      '+':_format -> return () -- Accept "application/grpc+<format>"
-      _otherwise  -> err "invalid subtype"
+      -- Check format
+      --
+      -- The only @format@ we should allow is @serializationFormat proxy@.
+      -- However, some non-conforming proxies use formats such as
+      -- @application/grpc+octet-stream@. We therefore ignore @format@ here.
+      if BS.Strict.C8.null withoutPrefix then
+        -- Accept "application/grpc"
+        return $ ContentTypeOverride hdr
+      else
+        case BS.Strict.C8.stripPrefix "+" withoutPrefix of
+          Just _format ->
+            -- Accept "application/grpc+<format>"
+            return $ ContentTypeOverride hdr
+          Nothing ->
+            err "invalid subtype"
   where
-    -- ASCII justified by <https://www.rfc-editor.org/rfc/rfc7230#section-3.2.4>
-    hdrAscii :: String
-    hdrAscii = BS.Strict.C8.unpack hdr
-
     err :: String -> m a
     err reason =
        throwError $ concat [
-           "Unexpected value "
-         , show hdrAscii
-         , " for header "
+           "Unexpected value \""
+         , BS.Strict.C8.unpack hdr
+         , "\" for header "
          , show name
          , ": "
          , reason
-         , ". Expected "
-         , show ("application/grpc" :: String)
-         , " or "
-         , show $
-                "application/grpc+"
-             ++ BS.Strict.C8.unpack (serializationFormat proxy)
-         , ", with "
-         , show ("application/grpc+{other_format}" :: String)
-         , " also accepted."
+         , ". Expected \""
+         , BS.Strict.C8.unpack $
+             rpcContentType (Proxy @(UnknownRpc Nothing Nothing))
+         , "\" or \""
+         , BS.Strict.C8.unpack $
+             rpcContentType proxy
+         , "\", with \""
+         , "application/grpc+{other_format}"
+         , "\" also accepted."
          ]
 
 {-------------------------------------------------------------------------------

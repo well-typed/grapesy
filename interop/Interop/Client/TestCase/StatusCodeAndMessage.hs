@@ -2,7 +2,6 @@
 
 module Interop.Client.TestCase.StatusCodeAndMessage (runTest) where
 
-import Control.Exception
 import Data.Text (Text)
 
 import Network.GRPC.Client
@@ -21,14 +20,12 @@ runTest cmdline = do
       -- 1. UnaryCall
       withRPC conn def (Proxy @UnaryCall) $ \call -> do
         sendFinalInput call simpleRequest
-        resp <- try $ recvFinalOutput call
-        verifyResponse resp
+        assertThrows verifyError $ recvFinalOutput call
 
       -- 2. FullDuplexCall
       withRPC conn def (Proxy @FullDuplexCall) $ \call -> do
         sendFinalInput call streamingRequest
-        resp <- try $ recvFinalOutput call
-        verifyResponse resp
+        assertThrows verifyError $ recvFinalOutput call
   where
     simpleRequest :: SimpleRequest
     simpleRequest = defMessage & #responseStatus .~ echoStatus
@@ -46,9 +43,7 @@ runTest cmdline = do
     statusMessage :: Text
     statusMessage = "test status message"
 
-    verifyResponse :: Either GrpcException a -> IO ()
-    verifyResponse (Right _) =
-        assertFailure "Expected UNKNOWN"
-    verifyResponse (Left err) = do
+    verifyError :: GrpcException -> IO ()
+    verifyError err = do
         assertEqual GrpcUnknown          $ grpcError        err
         assertEqual (Just statusMessage) $ grpcErrorMessage err

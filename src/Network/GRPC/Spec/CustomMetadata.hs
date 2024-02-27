@@ -7,8 +7,8 @@
 -- Intended for unqualified import.
 module Network.GRPC.Spec.CustomMetadata (
     -- * Definition
-    CustomMetadata(..)
-  , customHeaderName
+    CustomMetadata
+  , HeaderValue(..)
     -- * Header-Name
   , HeaderName(HeaderName)
   , getHeaderName
@@ -24,8 +24,6 @@ module Network.GRPC.Spec.CustomMetadata (
     -- * To and from HTTP headers
   , buildCustomMetadata
   , parseCustomMetadata
-    -- * Convenience
-  , lookupCustomMetadata
   ) where
 
 import Control.Monad.Except
@@ -56,7 +54,9 @@ import Network.GRPC.Util.ByteString (strip, ascii, dropEnd)
 -- Custom metadata order is not guaranteed to be preserved except for values
 -- with duplicate header names. Duplicate header names may have their values
 -- joined with "," as the delimiter and be considered semantically equivalent.
-data CustomMetadata =
+type CustomMetadata = (HeaderName, HeaderValue)
+
+data HeaderValue =
     -- | Binary header
     --
     -- Binary headers will be base-64 encoded.
@@ -66,7 +66,7 @@ data CustomMetadata =
     -- decoding as headers are sent and received).
     --
     -- Since this is binary data, padding considerations do not apply.
-    BinaryHeader HeaderName BinaryValue
+    BinaryHeader BinaryValue
 
     -- | ASCII header
     --
@@ -78,12 +78,8 @@ data CustomMetadata =
     -- about what exactly constitutes \"padding\", but the ABNF spec defines it
     -- as "space and horizontal tab"
     -- <https://www.rfc-editor.org/rfc/rfc5234#section-3.1>.
-  | AsciiHeader HeaderName AsciiValue
+  | AsciiHeader AsciiValue
   deriving stock (Show, Eq, Ord, GHC.Generic)
-
-customHeaderName :: CustomMetadata -> HeaderName
-customHeaderName (BinaryHeader n _) = n
-customHeaderName (AsciiHeader  n _) = n
 
 {-------------------------------------------------------------------------------
   Header-Name
@@ -129,7 +125,10 @@ isValidHeaderName :: Strict.ByteString -> Bool
 isValidHeaderName bs = and [
       BS.Strict.length bs >= 1
     , BS.Strict.all isValidChar bs
+
+      -- Reserved header names
     , not $ "grpc-" `BS.Strict.isPrefixOf` bs
+    , bs /= "te"
 
       -- @grapesy@ adds and removes the @-bin@ suffix automatically
     , not $ "-bin" `BS.Strict.isSuffixOf` bs
@@ -215,11 +214,11 @@ parseBinaryValue bs =
 -------------------------------------------------------------------------------}
 
 buildCustomMetadata :: CustomMetadata -> HTTP.Header
-buildCustomMetadata (BinaryHeader name value) = (
+buildCustomMetadata (name, BinaryHeader value) = (
       CI.mk $ getHeaderName name <> "-bin"
     , buildBinaryValue value
     )
-buildCustomMetadata (AsciiHeader name value) = (
+buildCustomMetadata (name, AsciiHeader value) = (
       CI.mk $ getHeaderName name
     , getAsciiValue value
     )
@@ -238,7 +237,7 @@ parseCustomMetadata (name, value)
       (_, Left err) ->
         throwError $ "Cannot decode binary header: " ++ err
       (Just name', Right value') ->
-        return $ BinaryHeader name' value'
+        return (name', BinaryHeader value')
 
   | otherwise
   = case ( safeHeaderName (CI.foldedCase name)
@@ -249,25 +248,4 @@ parseCustomMetadata (name, value)
       (_, Nothing) ->
         throwError $ "Invalid ASCII header value: " ++ show value
       (Just name', Just value') ->
-        return $ AsciiHeader name' value'
-
-{-------------------------------------------------------------------------------
-  Convenience functions
--------------------------------------------------------------------------------}
-
-lookupCustomMetadata ::
-     HeaderName
-  -> [CustomMetadata]
-  -> Maybe (Either BinaryValue AsciiValue)
-lookupCustomMetadata name = go
-  where
-    go :: [CustomMetadata] -> Maybe (Either BinaryValue AsciiValue)
-    go []     = Nothing
-    go (h:hs) =
-        case h of
-          BinaryHeader name' value | name == name' ->
-            Just $ Left value
-          AsciiHeader name' value | name == name' ->
-            Just $ Right value
-          _otherwise ->
-            go hs
+        return (name', AsciiHeader value')

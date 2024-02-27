@@ -18,7 +18,7 @@ module Test.Driver.Dialogue.Definition (
 
 import Control.Exception
 import Data.Bifunctor
-import Data.Set (Set)
+import Data.Map.Strict (Map)
 import GHC.Generics qualified as GHC
 
 import Network.GRPC.Common
@@ -70,10 +70,7 @@ data RPC = RPC1 | RPC2 | RPC3
   deriving stock (Show, Eq, GHC.Generic)
 
 -- | Metadata
---
--- We use 'Set' for 'CustomMetadata' rather than a list, because we do not
--- want to test that the /order/ of the metadata is matched.
-type Metadata = Set CustomMetadata
+type Metadata = Map HeaderName HeaderValue
 
 {-------------------------------------------------------------------------------
   Many channels (bird's-eye view)

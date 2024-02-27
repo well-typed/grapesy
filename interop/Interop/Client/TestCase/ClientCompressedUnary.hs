@@ -2,8 +2,6 @@
 
 module Interop.Client.TestCase.ClientCompressedUnary (runTest) where
 
-import Control.Exception
-
 import Network.GRPC.Client
 import Network.GRPC.Common
 import Network.GRPC.Spec
@@ -53,8 +51,7 @@ checkServerSupportsCompressedRequest :: Connection -> IO ()
 checkServerSupportsCompressedRequest conn =
     withRPC conn def (Proxy @UnaryCall) $ \call -> do
       sendInputWithEnvelope call $ FinalElem featureProbe NoMetadata
-      mResp <- try $ recvFinalOutput call
-      expectInvalidArgument mResp
+      expectInvalidArgument $ recvFinalOutput call
   where
     -- Expect compressed, but is /not/ actually compressed
     featureProbe :: (OutboundEnvelope, SimpleRequest)

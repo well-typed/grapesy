@@ -161,7 +161,7 @@ buildResourceHeaders ResourceHeaders{resourcePath, resourceMethod} =
       }
 
 rpcPath :: IsRPC rpc => Proxy rpc -> Path
-rpcPath proxy = Path (serviceName proxy) (methodName proxy)
+rpcPath proxy = Path (rpcServiceName proxy) (rpcMethodName proxy)
 
 data InvalidResourceHeaders =
     InvalidMethod Strict.ByteString

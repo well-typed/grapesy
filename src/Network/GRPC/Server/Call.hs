@@ -36,6 +36,7 @@ module Network.GRPC.Server.Call (
     -- ** Internal API
   , sendProperTrailers
   , serverExceptionToClientError
+  , getRequestTimeout
   ) where
 
 import Control.Concurrent.Async
@@ -49,6 +50,7 @@ import Control.Monad.XIO qualified as XIO
 import Control.Tracer
 import Data.Bifunctor
 import Data.Default
+import Data.Map.Strict qualified as Map
 import Data.Text qualified as Text
 import GHC.Stack
 import Network.HTTP2.Internal qualified as HTTP2
@@ -69,17 +71,19 @@ import Network.GRPC.Util.Session.Server qualified as Server
   Definition
 -------------------------------------------------------------------------------}
 
+-- | Open connection to a client
 data Call rpc = IsRPC rpc => Call {
-      -- | Server state (across all calls)
-      callSession :: ServerSession rpc
+      -- | Server context (across all calls)
+      callContext :: ServerContext
+
+      -- | Server session (for this call)
+    , callSession :: ServerSession rpc
 
       -- | Bidirectional channel to the client
     , callChannel :: Session.Channel (ServerSession rpc)
 
       -- | Request headers
-      --
-      -- This is filled once we get the request headers
-    , callRequestHeaders :: TMVar RequestHeaders
+    , callRequestHeaders :: RequestHeaders
 
       -- | Response metadata
       --
@@ -126,23 +130,18 @@ setupCall :: forall rpc.
   => Server.ConnectionToClient
   -> ServerContext
   -> XIO' CallSetupFailure (Call rpc)
-setupCall conn ServerContext{params} = do
-    callRequestHeaders   <- XIO.unsafeTrustMe $ newEmptyTMVarIO
+setupCall conn callContext@ServerContext{params} = do
     callResponseMetadata <- XIO.unsafeTrustMe $ newTVarIO []
     callResponseKickoff  <- XIO.unsafeTrustMe $ newEmptyTMVarIO
 
     flowStart :: Session.FlowStart (ServerInbound rpc) <-
       XIO.unsafeTrustMe $ Session.determineFlowStart callSession req
 
-    let inboundHeaders :: RequestHeaders
-        inboundHeaders =
+    let callRequestHeaders :: RequestHeaders
+        callRequestHeaders =
             case flowStart of
               Session.FlowStartRegular    headers  -> inbHeaders headers
               Session.FlowStartNoMessages trailers ->            trailers
-
-    -- Make request headers available (e.g., see 'getRequestMetadata')
-    XIO.unsafeTrustMe $
-      atomically $ putTMVar callRequestHeaders inboundHeaders
 
     -- Technically compression is only relevant in the 'KickoffRegular' case
     -- (i.e., in the case that the /server/ responds with messages, rather than
@@ -151,7 +150,7 @@ setupCall conn ServerContext{params} = do
     -- simplify control flow, therefore, we do compression negotation early,
     -- to avoid having to deal with compression negotation failure later.
     cOut :: Compression <-
-      case requestAcceptCompression inboundHeaders of
+      case requestAcceptCompression callRequestHeaders of
          Nothing   -> return noCompression
          Just cids -> return $ Compr.choose compr cids
 
@@ -164,7 +163,8 @@ setupCall conn ServerContext{params} = do
         (mkOutboundHeaders callResponseMetadata callResponseKickoff cOut)
 
     return Call{
-        callSession
+        callContext
+      , callSession
       , callRequestHeaders
       , callResponseMetadata
       , callResponseKickoff
@@ -203,14 +203,10 @@ setupCall conn ServerContext{params} = do
           KickoffRegular ->
             return $ Session.FlowStartRegular $ OutboundHeaders {
                 outHeaders = ResponseHeaders {
-                    responseCompression =
-                      Just $ Compr.compressionId cOut
-                  , responseAcceptCompression =
-                      Just $ Compr.offer compr
-                  , responseMetadata =
-                      responseMetadata
-                  , responseOverrideContentType =
-                      Context.serverContentType params
+                    responseCompression       = Just $ Compr.compressionId cOut
+                  , responseAcceptCompression = Just $ Compr.offer compr
+                  , responseMetadata          = Map.fromList responseMetadata
+                  , responseContentType       = Context.serverContentType params
                   }
               , outCompression = cOut
               }
@@ -351,13 +347,11 @@ serverExceptionToClientError err
     | Just (err' :: GrpcException) <- fromException err
     = grpcExceptionToTrailers err'
 
-    -- TODO: There might be a security concern here (server-side exceptions
-    -- could potentially leak some sensitive data).
     | otherwise
     = ProperTrailers {
-          trailerGrpcStatus  = GrpcError GrpcUnknown
-        , trailerGrpcMessage = Just $ Text.pack (show err)
-        , trailerMetadata    = []
+          properTrailersGrpcStatus  = GrpcError GrpcUnknown
+        , properTrailersGrpcMessage = Just $ Text.pack (show err)
+        , properTrailersMetadata    = Map.empty
         }
 
 -- | Sent to the client when the handler terminates early
@@ -426,9 +420,9 @@ sendOutputWithEnvelope call@Call{callChannel} msg = do
   where
     mkTrailers :: [CustomMetadata] -> ProperTrailers
     mkTrailers metadata = ProperTrailers {
-          trailerGrpcStatus  = GrpcOk
-        , trailerGrpcMessage = Nothing
-        , trailerMetadata    = metadata
+          properTrailersGrpcStatus  = GrpcOk
+        , properTrailersGrpcMessage = Nothing
+        , properTrailersMetadata    = Map.fromList metadata
         }
 
 -- | Send 'GrpcException' to the client
@@ -455,11 +449,12 @@ sendGrpcException call = sendProperTrailers call . grpcExceptionToTrailers
 
 -- | Get request metadata
 --
--- This will block until we have received the initial request /headers/ (but may
--- well return before we receive the first /message/ from the client).
+-- The request metadata is included in the client's request headers when they
+-- first make the request, and is therefore available immediately to the handler
+-- (even if the first /message/ from the client may not yet have been sent).
 getRequestMetadata :: Call rpc -> IO [CustomMetadata]
 getRequestMetadata Call{callRequestHeaders} =
-    atomically $ requestMetadata <$> readTMVar callRequestHeaders
+    return $ Map.toList $ requestMetadata callRequestHeaders
 
 -- | Set the initial response metadata
 --
@@ -518,16 +513,19 @@ initiateResponse Call{callResponseKickoff} =
 --
 -- Throws 'ResponseAlreadyInitiated' if the response has already been initiated.
 sendTrailersOnly :: Call rpc -> [CustomMetadata] -> IO ()
-sendTrailersOnly Call{callResponseKickoff} metadata = do
+sendTrailersOnly Call{callContext, callResponseKickoff} metadata = do
     updated <- atomically $ tryPutTMVar callResponseKickoff $
                  KickoffTrailersOnly trailers
     unless updated $ throwIO ResponseAlreadyInitiated
   where
+    ServerContext{params} = callContext
+
     trailers :: TrailersOnly
-    trailers = TrailersOnly $ ProperTrailers {
-          trailerGrpcStatus  = GrpcOk
-        , trailerGrpcMessage = Nothing
-        , trailerMetadata    = metadata
+    trailers = TrailersOnly {
+          trailersOnlyGrpcStatus  = GrpcOk
+        , trailersOnlyGrpcMessage = Nothing
+        , trailersOnlyMetadata    = Map.fromList metadata
+        , trailersOnlyContentType = Context.serverContentType params
         }
 
 data ResponseAlreadyInitiated = ResponseAlreadyInitiated
@@ -546,7 +544,7 @@ isCallHealthy = Session.isChannelHealthy . callChannel
 -- This provides (minimal) support for OpenTelemetry.
 getRequestTraceContext :: Call rpc -> IO (Maybe TraceContext)
 getRequestTraceContext Call{callRequestHeaders} =
-    atomically $ requestTraceContext <$> readTMVar callRequestHeaders
+    return $ requestTraceContext callRequestHeaders
 
 {-------------------------------------------------------------------------------
   Protocol specific wrappers
@@ -635,11 +633,24 @@ recvEndOfInput call@Call{} = do
 --
 -- If no messages have been sent yet, we make use of the @Trailers-Only@ case.
 sendProperTrailers :: Call rpc -> ProperTrailers -> IO ()
-sendProperTrailers Call{callResponseKickoff, callChannel} trailers = do
-    updated <- atomically $ tryPutTMVar callResponseKickoff $
-                 KickoffTrailersOnly (TrailersOnly trailers)
+sendProperTrailers Call{callContext, callResponseKickoff, callChannel}
+                   trailers = do
+    updated <-
+      atomically $ tryPutTMVar callResponseKickoff . KickoffTrailersOnly $
+        properTrailersToTrailersOnly (
+            trailers
+          , Context.serverContentType params
+          )
     unless updated $
       -- If we didn't update, then the response has already been initiated and
       -- we cannot make use of the Trailers-Only case.
       Session.send callChannel (NoMoreElems trailers)
     void $ Session.waitForOutbound callChannel
+  where
+    ServerContext{params} = callContext
+
+-- | Get the timeout
+--
+-- This is internal API: the timeout is automatically imposed on the handler.
+getRequestTimeout :: Call rpc -> Maybe Timeout
+getRequestTimeout call = requestTimeout $ callRequestHeaders call

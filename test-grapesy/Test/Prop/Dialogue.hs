@@ -2,7 +2,7 @@
 
 module Test.Prop.Dialogue (tests) where
 
-import Data.Set qualified as Set
+import Data.Map.Strict qualified as Map
 import Test.Tasty
 import Test.Tasty.HUnit
 import Test.Tasty.QuickCheck
@@ -92,8 +92,8 @@ regression dialogue = do
 -- itself) is that the server gets the chance to terminate cleanly.
 trivial1 :: Dialogue
 trivial1 = Dialogue [
-      (0, ClientAction $ Initiate (Set.fromList [], RPC1))
-    , (0, ServerAction $ Send (NoMoreElems (Set.fromList [])))
+      (0, ClientAction $ Initiate (Map.empty, RPC1))
+    , (0, ServerAction $ Send (NoMoreElems (Map.empty)))
     , (0, ClientAction $ Send (NoMoreElems NoMetadata))
       -- Prevent client from closing the connection immediately:
     , (0, ClientAction $ SleepMilli 1)
@@ -103,8 +103,8 @@ trivial1 = Dialogue [
 -- close the connection immediately)
 trivial2 :: Dialogue
 trivial2 = Dialogue [
-      (0, ClientAction $ Initiate (Set.fromList [], RPC1))
-    , (0, ServerAction $ Send (NoMoreElems (Set.fromList [])))
+      (0, ClientAction $ Initiate (Map.empty, RPC1))
+    , (0, ServerAction $ Send (NoMoreElems (Map.empty)))
     , (0, ClientAction $ Send (NoMoreElems NoMetadata))
     ]
 
@@ -112,8 +112,8 @@ trivial2 = Dialogue [
 -- server closed their end
 trivial3 :: Dialogue
 trivial3 = Dialogue [
-      (0, ClientAction $ Initiate (Set.fromList [], RPC1))
-    , (0, ServerAction $ Send (NoMoreElems (Set.fromList [])))
+      (0, ClientAction $ Initiate (Map.empty, RPC1))
+    , (0, ServerAction $ Send (NoMoreElems (Map.empty)))
     , (0, ClientAction $ Send (StreamElem 1234))
     , (0, ClientAction $ Send (NoMoreElems NoMetadata))
       -- Prevent client from closing the connection immediately:
@@ -129,19 +129,19 @@ trivial3 = Dialogue [
 concurrent1 :: Dialogue
 concurrent1 = Dialogue [
       (0, ClientAction $ Send (NoMoreElems NoMetadata))
-    , (1, ServerAction $ Send (NoMoreElems (Set.fromList [])))
+    , (1, ServerAction $ Send (NoMoreElems (Map.empty)))
     ]
 
 concurrent2 :: Dialogue
 concurrent2 = Dialogue [
       (1, ClientAction $ Send (NoMoreElems NoMetadata))
-    , (0, ServerAction $ Send (NoMoreElems (Set.fromList [])))
+    , (0, ServerAction $ Send (NoMoreElems (Map.empty)))
     ]
 
 concurrent3 :: Dialogue
 concurrent3 = Dialogue [
-      (1, ClientAction $ Initiate (Set.fromList [AsciiHeader "md2" "b"], RPC1))
-    , (0, ClientAction $ Initiate (Set.fromList [AsciiHeader "md1" "a"], RPC1))
+      (1, ClientAction $ Initiate (Map.fromList [("md2", AsciiHeader "b")], RPC1))
+    , (0, ClientAction $ Initiate (Map.fromList [("md1", AsciiHeader "a")], RPC1))
     ]
 
 -- | Test that the final is received
@@ -150,8 +150,8 @@ concurrent3 = Dialogue [
 concurrent4 :: Dialogue
 concurrent4 = Dialogue [
       (1 , ClientAction $ Send (FinalElem 1 NoMetadata))
-    , (0 , ServerAction $ Send (FinalElem 2 (Set.fromList [])))
-    , (1 , ServerAction $ Send (FinalElem 3 (Set.fromList [])))
+    , (0 , ServerAction $ Send (FinalElem 2 (Map.empty)))
+    , (1 , ServerAction $ Send (FinalElem 3 (Map.empty)))
     , (0 , ClientAction $ Send (FinalElem 4 NoMetadata))
     ]
 
@@ -173,7 +173,7 @@ concurrent4 = Dialogue [
 -- connection. (Here or as a sanity tests.)
 exception1 :: Dialogue
 exception1 = Dialogue [
-      (0, ClientAction $ Initiate (Set.fromList [], RPC1))
+      (0, ClientAction $ Initiate (Map.empty, RPC1))
     , (0, ServerAction $ Terminate (Just (ExceptionId 0)))
     , (0, ClientAction $ Send (NoMoreElems NoMetadata))
     ]
@@ -181,15 +181,15 @@ exception1 = Dialogue [
 -- | Client-side exception
 exception2 :: Dialogue
 exception2 = Dialogue [
-      (0, ClientAction $ Initiate (Set.fromList [], RPC1))
+      (0, ClientAction $ Initiate (Map.empty, RPC1))
     , (0, ClientAction $ Terminate (Just (ExceptionId 0)))
-    , (0, ServerAction $ Send (NoMoreElems (Set.fromList [])))
+    , (0, ServerAction $ Send (NoMoreElems (Map.empty)))
     ]
 
 -- | Server handler terminates before the client expects it
 earlyTermination01 :: Dialogue
 earlyTermination01 = Dialogue [
-      (0, ClientAction (Initiate (Set.fromList [], RPC1)))
+      (0, ClientAction (Initiate (Map.empty, RPC1)))
     , (0, ServerAction (Terminate Nothing))
     , (0, ClientAction (Send (NoMoreElems NoMetadata)))
     ]
@@ -197,9 +197,9 @@ earlyTermination01 = Dialogue [
 -- | Client terminates before the server handler expects it
 earlyTermination02 :: Dialogue
 earlyTermination02 = Dialogue [
-      (0, ClientAction $ Initiate (Set.fromList [], RPC1))
+      (0, ClientAction $ Initiate (Map.empty, RPC1))
     , (0, ClientAction $ Terminate Nothing)
-    , (0, ServerAction $ Send (NoMoreElems (Set.fromList [])))
+    , (0, ServerAction $ Send (NoMoreElems (Map.empty)))
     ]
 
 -- | Variation on early client-side termination that tends to trigger a
@@ -208,25 +208,25 @@ earlyTermination02 = Dialogue [
 -- in the same manner (as 'ClientDisconnected' exceptions).
 earlyTermination03 :: Dialogue
 earlyTermination03 = Dialogue [
-      (1, ClientAction $ Initiate (Set.fromList [], RPC1 ))
-    , (0, ClientAction $ Initiate (Set.fromList [], RPC1))
+      (1, ClientAction $ Initiate (Map.empty, RPC1 ))
+    , (0, ClientAction $ Initiate (Map.empty, RPC1))
     , (1, ClientAction $ Terminate (Just (ExceptionId 0)))
     , (0, ClientAction $ Send (NoMoreElems NoMetadata))
-    , (1, ServerAction $ Send (NoMoreElems (Set.fromList [])))
-    , (0, ServerAction $ Send (NoMoreElems (Set.fromList [])))
+    , (1, ServerAction $ Send (NoMoreElems (Map.empty)))
+    , (0, ServerAction $ Send (NoMoreElems (Map.empty)))
     ]
 
 -- | Another minor variation on 'earlyTermination03', which tends to trigger yet
 -- another codepath
 earlyTermination04 :: Dialogue
 earlyTermination04 = Dialogue [
-      (0, ClientAction $ Initiate (Set.fromList [], RPC1))
-    , (0, ServerAction $ Initiate (Set.fromList []))
-    , (1, ClientAction $ Initiate (Set.fromList [], RPC1 ))
+      (0, ClientAction $ Initiate (Map.empty, RPC1))
+    , (0, ServerAction $ Initiate (Map.empty))
+    , (1, ClientAction $ Initiate (Map.empty, RPC1 ))
     , (1, ClientAction $ Terminate (Just (ExceptionId 0)))
-    , (1, ServerAction $ Send (NoMoreElems (Set.fromList [])))
+    , (1, ServerAction $ Send (NoMoreElems (Map.empty)))
     , (0, ClientAction $ Send (NoMoreElems NoMetadata))
-    , (0, ServerAction $ Send (NoMoreElems (Set.fromList [])))
+    , (0, ServerAction $ Send (NoMoreElems (Map.empty)))
     ]
 
 -- Test that early termination in one call does not affect the other. This is
@@ -234,11 +234,11 @@ earlyTermination04 = Dialogue [
 -- 'clientGlobal'.
 earlyTermination05 :: Dialogue
 earlyTermination05 = Dialogue [
-      (1, ClientAction $ Initiate (Set.fromList [],RPC1))
+      (1, ClientAction $ Initiate (Map.empty,RPC1))
     , (1, ServerAction $ Terminate Nothing)
-    , (0, ClientAction $ Initiate (Set.fromList [],RPC1))
+    , (0, ClientAction $ Initiate (Map.empty,RPC1))
     , (0, ClientAction $ Send (NoMoreElems NoMetadata))
-    , (0, ServerAction $ Send (NoMoreElems (Set.fromList [])))
+    , (0, ServerAction $ Send (NoMoreElems (Map.empty)))
     , (1, ClientAction $ Send (NoMoreElems NoMetadata))
     ]
 
@@ -252,16 +252,16 @@ earlyTermination05 = Dialogue [
 -- each operation in a synchronous manner.
 earlyTermination06 :: Dialogue
 earlyTermination06 = Dialogue [
-      (0, ClientAction $ Initiate (Set.fromList [], RPC1))
+      (0, ClientAction $ Initiate (Map.empty, RPC1))
     , (0, ClientAction $ Send (StreamElem 0))
     , (0, ClientAction $ Terminate (Just (ExceptionId 0)))
-    , (0, ServerAction $ Send (NoMoreElems (Set.fromList [])))
+    , (0, ServerAction $ Send (NoMoreElems (Map.empty)))
     ]
 
 -- | Server-side early termination
 earlyTermination07 :: Dialogue
 earlyTermination07 = Dialogue [
-      (0, ServerAction $ Initiate (Set.fromList []))
+      (0, ServerAction $ Initiate (Map.empty))
     , (0, ServerAction $ Terminate (Just (ExceptionId 0)))
     ]
 
@@ -278,15 +278,15 @@ earlyTermination08 = Dialogue [
 -- | Like 'earlyTermination07', but now without an exception
 earlyTermination09 :: Dialogue
 earlyTermination09 = Dialogue [
-      (0, ServerAction $ Initiate (Set.fromList []))
+      (0, ServerAction $ Initiate (Map.empty))
     , (0, ServerAction $ Terminate Nothing)
     ]
 
 -- | Client throws after the server sends their initial metadata
 earlyTermination10 :: Dialogue
 earlyTermination10 = Dialogue [
-      (0, ClientAction $ Initiate (Set.fromList [], RPC1))
-    , (0, ServerAction $ Initiate (Set.fromList []))
+      (0, ClientAction $ Initiate (Map.empty, RPC1))
+    , (0, ServerAction $ Initiate (Map.empty))
     , (0, ClientAction $ Terminate (Just (ExceptionId 1)))
-    , (0, ServerAction $ Send (NoMoreElems (Set.fromList [])))
+    , (0, ServerAction $ Send (NoMoreElems (Map.empty)))
     ]

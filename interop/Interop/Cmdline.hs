@@ -42,6 +42,10 @@ data Cmdline = Cmdline {
     , cmdRootCA  :: FilePath
     , cmdPubCert :: FilePath
     , cmdPrivKey :: FilePath
+
+    , cmdSkipTest              :: [TestCase]
+    , cmdSkipCompression       :: Bool
+    , cmdSkipClientCompression :: Bool
     }
   deriving (Show)
 
@@ -96,7 +100,7 @@ data TestCase =
   | CancelAfterBegin
   | CancelAfterFirstResponse
   | TimeoutOnSleepingServer
-  deriving (Enum, Bounded)
+  deriving (Eq, Enum, Bounded)
 
 instance Show TestCase where
   show EmptyUnary                = "empty_unary"
@@ -117,7 +121,6 @@ instance Show TestCase where
   show CancelAfterBegin          = "cancel_after_begin"
   show CancelAfterFirstResponse  = "cancel_after_first_response"
   show TimeoutOnSleepingServer   = "timeout_on_sleeping_server"
-
 
 {-------------------------------------------------------------------------------
   Get command line args
@@ -140,7 +143,6 @@ getCmdline = do
               ]
 
     Opt.execParser opts
-
 
 {-------------------------------------------------------------------------------
   Parsers
@@ -195,23 +197,41 @@ parseCmdline rootCA pubCert privKey =
             , Opt.value True
             , Opt.showDefault
             ])
+
+      --
+      -- Additional command line arguments
+      --
+
       <*> (Opt.strOption $ mconcat [
-              Opt.long "root-ca"
+              Opt.long "root_ca"
             , Opt.value rootCA
             , Opt.showDefault
             , Opt.help "Root certificate authority"
             ])
       <*> (Opt.strOption $ mconcat [
-              Opt.long "pub-cert"
+              Opt.long "pub_cert"
             , Opt.value pubCert
             , Opt.showDefault
             , Opt.help "Server certificate"
             ])
       <*> (Opt.strOption $ mconcat [
-              Opt.long "priv-key"
+              Opt.long "priv_key"
              ,Opt.value privKey
             , Opt.showDefault
             , Opt.help "Server private key"
+            ])
+
+      <*> (Opt.many $ Opt.option readTestCase $ mconcat [
+              Opt.long "skip_test"
+            , Opt.help "Skip test case (all --skip-xyz arguments are ignored by the server)"
+            ])
+      <*> (Opt.switch $ mconcat [
+              Opt.long "skip_compression"
+            , Opt.help "Skip compression tests"
+            ])
+      <*> (Opt.switch $ mconcat [
+              Opt.long "skip_client_compression"
+            , Opt.help "Skip client compression tests"
             ])
 
 parseMode :: Opt.Parser Mode
