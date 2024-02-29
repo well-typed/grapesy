@@ -4,6 +4,7 @@
 -- | Test functionality required by the gRPC interop tests
 module Test.Sanity.Interop (tests) where
 
+import Control.Concurrent (threadDelay)
 import Control.Exception
 import Control.Monad
 import Data.ByteString qualified as BS.Strict
@@ -12,6 +13,7 @@ import Test.Tasty
 import Test.Tasty.HUnit
 
 import Network.GRPC.Client qualified as Client
+import Network.GRPC.Client.Binary qualified as Client.Binary
 import Network.GRPC.Client.StreamType.IO.Binary qualified as Client.Binary
 import Network.GRPC.Common
 import Network.GRPC.Common.Protobuf
@@ -33,14 +35,13 @@ import Test.Driver.ClientServer
 
 tests :: TestTree
 tests = testGroup "Test.Sanity.Interop" [
-      -- Preliminaries
       testGroup "preliminary" [
           testCase "callAfterException" test_callAfterException
         ]
-
-      -- Tests from the gRPC interop suite
-      --
-      -- <https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptions.md#client>
+    , testGroup "cancellation" [
+          testCase "client" test_cancellation_client
+        , testCase "server" test_cancellation_server
+        ]
     , testGroup "official" [
           testCase "emptyUnary"                test_emptyUnary
         , testCase "serverCompressedStreaming" test_serverCompressedStreaming
@@ -205,9 +206,67 @@ test_serverCompressedStreaming =
           assertFailure "Expected value"
 
 {-------------------------------------------------------------------------------
-  @client_compressed_streaming@
-
-  <https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptions.md#client_compressed_streaming>
+  Cancellation
 -------------------------------------------------------------------------------}
 
--- TODO
+type StreamNats = BinaryRpc "test" "nats"
+
+test_cancellation_client :: IO ()
+test_cancellation_client =
+    testClientServer ClientServerTest {
+        config = def {
+            expectEarlyClientTermination = True
+          }
+      , client = simpleTestClient $ \conn -> do
+          -- We wait for the first input, but then cancel the request
+          result :: Either GrpcException (Maybe Int) <- try $
+            Client.withRPC conn def (Proxy @StreamNats) $ \call -> do
+              StreamElem.value <$> Client.Binary.recvOutput call
+
+          -- Since we did not tell the server that we have sent our final
+          -- outbound message, the client should receive a CANCELLED exception.
+          case result of
+            Left err ->
+              assertEqual "grpcError" GrpcCancelled $ grpcError err
+            Right _ ->
+              assertFailure "Expected exception"
+      , server = [
+          Server.mkRpcHandler (Proxy @StreamNats) $ \call -> do
+            forM_ [1 .. 100] $ \(i :: Int) -> do
+              Server.Binary.sendNextOutput call i
+              threadDelay 100_000
+            Server.sendTrailers call []
+        ]
+      }
+
+test_cancellation_server :: IO ()
+test_cancellation_server =
+    testClientServer ClientServerTest {
+        config = def {
+            expectEarlyServerTermination = True
+          }
+      , client = simpleTestClient $ \conn -> do
+          result :: Either GrpcException [Int] <- try $
+            Client.withRPC conn def (Proxy @StreamNats) $ \call -> do
+              Client.sendEndOfInput call
+              let loop :: [Int] -> IO [Int]
+                  loop acc = do
+                      mx <- StreamElem.value <$> Client.Binary.recvOutput call
+                      case mx of
+                        Nothing -> return $ reverse acc
+                        Just x  -> loop (x:acc)
+              loop []
+          case result of
+            Left err -> do
+              assertEqual "grpcError" GrpcUnknown $
+                grpcError err
+              assertEqual "grpcErrorMessage" (Just "HandlerTerminated") $
+                grpcErrorMessage err
+            Right _ ->
+              assertFailure "Expected exception"
+      , server = [
+          -- The server sends only one value, then gives up
+          Server.mkRpcHandler (Proxy @StreamNats) $ \call -> do
+            Server.Binary.sendNextOutput call (1 :: Int)
+        ]
+      }

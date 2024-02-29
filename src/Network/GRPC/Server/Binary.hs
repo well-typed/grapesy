@@ -6,8 +6,10 @@
 module Network.GRPC.Server.Binary (
     -- | Convenience wrappers using @binary@ for serialization/deserialization
     sendOutput
+  , sendNextOutput
   , sendFinalOutput
   , recvInput
+  , recvNextInput
   , recvFinalInput
     -- * Streaming types
   , mkNonStreaming
@@ -39,6 +41,14 @@ sendOutput ::
 sendOutput call out =
     Server.sendOutput call (encode <$> out)
 
+sendNextOutput ::
+     Binary a
+  => Call (BinaryRpc serv meth)
+  -> a
+  -> IO ()
+sendNextOutput call out =
+    Server.sendNextOutput call (encode out)
+
 sendFinalOutput ::
      Binary a
   => Call (BinaryRpc serv meth)
@@ -51,8 +61,15 @@ recvInput ::
      (Binary a, HasCallStack)
   => Call (BinaryRpc serv meth)
   -> IO (StreamElem NoMetadata a)
-recvInput call = do
+recvInput call =
     Server.recvInput call >>= traverse decodeOrThrow
+
+recvNextInput ::
+     (Binary a, HasCallStack)
+  => Call (BinaryRpc serv meth)
+  -> IO a
+recvNextInput call =
+    Server.recvNextInput call >>= decodeOrThrow
 
 recvFinalInput ::
      (Binary a, HasCallStack)

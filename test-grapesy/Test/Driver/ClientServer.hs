@@ -184,9 +184,6 @@ data TlsFail =
     but the reverse is not true (the client simply disconnects).
   * TLS exceptions are thrown to the client, but since no handler is ever run,
     we don't see these exceptions server-side.
-
-  TODO: Early server termination does not result in an exception server-side.
-  This is inconsistent.
 -------------------------------------------------------------------------------}
 
 -- | Exception thrown by client or handler to test exception handling
@@ -210,6 +207,14 @@ isExpectedServerException cfg e
 
   | Just Server.ClientDisconnected{} <- fromException e
   , expectEarlyClientTermination cfg
+  = True
+
+  --
+  -- Early server termination
+  --
+
+  | Just Server.HandlerTerminated{} <- fromException e
+  , expectEarlyServerTermination cfg
   = True
 
   --

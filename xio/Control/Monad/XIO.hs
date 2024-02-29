@@ -24,6 +24,7 @@ module Control.Monad.XIO (
   , neverThrows
   , run
   , swallowIO
+  , swallowIO'
   , unsafeTrustMe
   ) where
 
@@ -223,6 +224,15 @@ swallowIO io =
       Wrap (Exception.uninterruptibleMask_ io)
     `catchError`
       \(_ :: SomeException) -> return ()
+
+-- | Generalization of 'swallowIO', indicating if the action was successful
+--
+-- Returns @True@ if the action terminated without raising any exceptions.
+swallowIO' :: IO () -> XIO' e Bool
+swallowIO' io =
+      Wrap (Exception.uninterruptibleMask_ io >> return True)
+    `catchError`
+      \(_ :: SomeException) -> return False
 
 -- | Lift 'IO' actions for an arbitrary @XIO' e@ context
 --

@@ -65,7 +65,10 @@ import Network.GRPC.Spec
 --   this will result in a 'Network.GRPC.Server.ClientDisconnected' exception,
 --   which the handler can catch and deal with.
 --
--- TODO: What if the /handler/ wants to terminate?
+-- Cancellation is always at the request of the /client/. If the /handler/
+-- terminates early (that is, before sending the final output and trailers), a
+-- 'Network.GRPC.Server.HandlerTerminated' exception will be raised and sent to
+-- the client as 'GrpcException' with 'GrpcUnknown' error code.
 data RpcHandler m = forall rpc. IsRPC rpc => RpcHandler {
       -- | Handler proper
       runRpcHandler :: Call rpc -> m ()
