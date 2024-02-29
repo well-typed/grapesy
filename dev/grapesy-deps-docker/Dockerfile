@@ -1,4 +1,6 @@
 FROM haskell:9.2.8
+RUN apt-get update
+RUN apt-get install -y libsnappy-dev
 RUN mkdir /var/local/git
 RUN git clone https://github.com/well-typed/grapesy.git /var/local/git/grapesy
 WORKDIR /var/local/git/grapesy
