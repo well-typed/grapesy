@@ -152,7 +152,7 @@ As a sanity check, you can try to run the Python reference client against the
 Python reference server:
 
 ```bash
-grpc_repo$ tools/run_tests/run_interop_tests.py -l python -s python --use_docker
+grpc_repo$ tools/run_tests/run_interop_tests.py -l go -s go --use_docker
 ```
 
 All tests should pass.
@@ -239,7 +239,9 @@ All tests should pass.
 > connection without sending `DEADLINE_EXCEEDED` to the client. The Java
 > _client_ does not notice this because (it seems) it imposes a _local_ timeout
 > also, and doesn't even _connect_ to the server: the test even passes without
-> the server running at all.
+> the server running at all. (And indeed, the other clients don't seem precise
+> enough here: the `grapesy` server was passing this test before it implemented
+> timeouts _at all_.)
 
 It is also possible to only run one specific test case, for example:
 
@@ -265,10 +267,15 @@ To run `grapsey` as as server, run
 grapesy$ cabal run grapesy-interop -- --server
 ```
 
-By default, this will run the server on port 50052 (though this can be
-changed using `--port`).
+By default, this will run the server on port 50052 (though this can be changed
+using `--port`). To test if the server can be reached at all, `grapesy-interop`
+has a `--ping` mode:
 
-Then run the reference clients:
+```bash
+grapesy$ cabal run grapesy-interop -- --ping
+```
+
+To run the reference clients:
 
 ```bash
 grpc-repo$ SERVER_PORT=50052 bash ./python_client.sh
@@ -279,3 +286,85 @@ grpc-repo$ SERVER_PORT=50052 bash ./java_client.sh
 
 Only the ORCA tests are expected to fail (you may wish to disable those by
 editing the client scripts).
+
+## Running automatic tests
+
+So far we've been running the interop tests in "manual" mode. To run them
+in automatic mode, we need to integrate `grapesy` with the gRPC testing
+infrastructure. This is done in a clone of the repo:
+
+```bash
+grpc-repo$ git remote add edsko git@github.com:edsko/grpc.git
+grpc-repo$ git fetch --all
+grpc-repo$ git checkout --track edsko/grapesy
+grpc-repo$ git submodule update --init
+```
+
+_Everything_ that you want to test by running the automatic tests
+**must be committed to the repository** (because the first thing the tests will
+do is clone the local repo inside the Docker container); this includes the
+checkout of `grapesy` you want to test, which is why it's included as a subrepo.
+
+### Running `grapesy` as a server
+
+To run `grapesy` against a reference server, run
+
+```bash
+grpc-repo$ tools/run_tests/run_interop_tests.py -l python -s grapesy --use_docker
+grpc-repo$ tools/run_tests/run_interop_tests.py -l c++    -s grapesy --use_docker
+grpc-repo$ tools/run_tests/run_interop_tests.py -l go     -s grapesy --use_docker
+grpc-repo$ tools/run_tests/run_interop_tests.py -l java   -s grapesy --use_docker
+```
+
+All tests should pass.
+
+### Running `grapesy` as a client
+
+To run `grapesy` against a reference client, run
+
+```bash
+grpc-repo$ tools/run_tests/run_interop_tests.py -l grapesy -s python --use_docker
+grpc-repo$ tools/run_tests/run_interop_tests.py -l grapesy -s c++    --use_docker
+grpc-repo$ tools/run_tests/run_interop_tests.py -l grapesy -s go     --use_docker
+grpc-repo$ tools/run_tests/run_interop_tests.py -l grapesy -s java   --use_docker
+```
+
+The only failures we currently expect are (non-deterministic) TLS handshake
+failures. It's unclear at present where these are coming from (these don't seem
+to happen when `grapesy` is run locally instead of in Docker).
+
+### Debugging
+
+To debug issues with the automatic tests, it's useful to switch back to
+manual mode. For example,
+
+```bash
+grpc-repo$ tools/run_tests/run_interop_tests.py -l grapesy -s python --use_docker --manual &&
+  mv interop_server_cmds.sh grapesy_to_python-server.sh &&
+  mv interop_client_cmds.sh grapesy_to_python-client.sh
+```
+
+Run the server (in this example, Python):
+
+```bash
+grpc-repo$ bash ./grapesy_to_python-server.sh
+```
+
+Take a note of the server port:
+
+```bash
+$ docker ps --format 'table {{.Image}}\t{{.Ports}}'
+IMAGE                                                      PORTS
+grpc_interop_python:8f4411cd-383b-4d58-b855-e4d52ade4372   0.0.0.0:32781->8080/tcp
+```
+
+and run the client (in this case, `grapesy`):
+
+```bash
+grpc-repo$ SERVER_PORT=32781 bash ./grapesy_to_python-client.sh
+```
+
+This still uses `grapesy` inside of docker rather than locally, so is a more
+faithful reproduction of what happens with the automatic tests. Nonetheless,
+the TLS handshake failures common in the automatic test runs don't seem to
+happen here, so the setup is not identical.
