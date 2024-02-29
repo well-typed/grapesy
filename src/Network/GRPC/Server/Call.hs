@@ -37,6 +37,9 @@ module Network.GRPC.Server.Call (
   , sendProperTrailers
   , serverExceptionToClientError
   , getRequestTimeout
+
+    -- * Exceptions
+  , HandlerTerminated(..)
   ) where
 
 import Control.Concurrent.Async
@@ -240,13 +243,17 @@ runHandler call@Call{callChannel} k = do
     handlerTeardown (Right ()) = do
         -- Handler terminated successfully, but may not have sent final message.
         -- /If/ the final message was sent, 'forwardException' does nothing.
-        XIO.neverThrows $ do
-          forwardException call $ toException HandlerTerminated
+        forwarded <- XIO.neverThrows $ do
+          forwarded <- forwardException call $ toException HandlerTerminated
           ignoreUncleanClose $ ExitCaseSuccess ()
+          return forwarded
+        when forwarded $
+          -- The handler terminated before it sent the final message.
+          throwM HandlerTerminated
     handlerTeardown (Left err) = do
         -- The handler threw an exception. Attempt to tell the client.
         XIO.neverThrows $ do
-          forwardException call err
+          void $ forwardException call err
           ignoreUncleanClose $ ExitCaseException err
         throwM err
 
@@ -331,10 +338,11 @@ runHandler call@Call{callChannel} k = do
 -- * It is possible the exception was thrown /after/ the handler already send
 --   the trailers to the client.
 --
--- We therefore catch and suppress all exceptions here.
-forwardException :: Call rpc -> SomeException -> XIO' NeverThrows ()
+-- We therefore catch and suppress all exceptions here. Returns @True@ if the
+-- forwarding was successful, @False@ if it raised an exception.
+forwardException :: Call rpc -> SomeException -> XIO' NeverThrows Bool
 forwardException call =
-      XIO.swallowIO
+      XIO.swallowIO'
     . sendProperTrailers call
     . serverExceptionToClientError
 
@@ -354,7 +362,10 @@ serverExceptionToClientError err
         , properTrailersMetadata    = Map.empty
         }
 
--- | Sent to the client when the handler terminates early
+-- | Handler terminated early
+--
+-- This gets thrown in the handler, and sent to the client, when the handler
+-- terminates before sending the final output and trailers.
 data HandlerTerminated = HandlerTerminated
   deriving stock (Show)
   deriving anyclass (Exception)

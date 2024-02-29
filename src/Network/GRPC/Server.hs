@@ -37,8 +37,9 @@ module Network.GRPC.Server (
   , getRequestTraceContext
 
     -- * Exceptions
-  , ClientDisconnected(..)
   , CallSetupFailure(..)
+  , ClientDisconnected(..)
+  , HandlerTerminated(..)
 
     -- * Debugging
   , Context.ServerDebugMsg(..)

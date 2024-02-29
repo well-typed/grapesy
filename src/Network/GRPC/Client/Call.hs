@@ -59,9 +59,13 @@ import Network.GRPC.Util.Session qualified as Session
 -- when the body is run. If you want to be sure that the call has been setup,
 -- you can call 'recvResponseMetadata'.
 --
--- Leaving the scope of 'withRPC' before the call is terminated is considered a
--- cancellation, and accordingly throws a 'GrpcException' with 'GrpcCancelled';
--- see also <https://grpc.io/docs/guides/cancellation/>.
+-- Leaving the scope of 'withRPC' before the client informs the server that they
+-- have sent their last message (using 'sendInput' or 'sendEndOfInput') is
+-- considered a cancellation, and accordingly throws a 'GrpcException' with
+-- 'GrpcCancelled' (see also <https://grpc.io/docs/guides/cancellation/>). If
+-- there are still /inbound/ messages upon leaving the scope of 'withRPC' no
+-- exception is raised (but the call is nonetheless still closed, and the server
+-- handler will be informed that the client has disappeared).
 withRPC :: forall m rpc a.
      (MonadMask m, MonadIO m, IsRPC rpc, HasCallStack)
   => Connection -> CallParams -> Proxy rpc -> (Call rpc -> m a) -> m a
