@@ -8,6 +8,7 @@ module Network.GRPC.Server.Session (
   ) where
 
 import Control.Exception
+import Data.ByteString qualified as Strict (ByteString)
 import Data.Proxy
 import Network.HTTP.Types qualified as HTTP
 
@@ -58,8 +59,8 @@ instance IsRPC rpc => IsSession (ServerSession rpc) where
   type Inbound  (ServerSession rpc) = ServerInbound rpc
   type Outbound (ServerSession rpc) = ServerOutbound rpc
 
-  parseInboundTrailers _ = \_ -> return NoMetadata
-  buildOutboundTrailers _ = buildProperTrailers
+  parseInboundTrailers  _ = \_ -> return NoMetadata
+  buildOutboundTrailers _ = buildProperTrailers (Proxy @rpc)
 
   parseMsg _ = parseInput  (Proxy @rpc) . inbCompression
   buildMsg _ = buildOutput (Proxy @rpc) . outCompression
@@ -68,8 +69,10 @@ instance IsRPC rpc => AcceptSession (ServerSession rpc) where
   parseRequestRegular server headers = do
       requestHeaders :: RequestHeaders <-
         case parseRequestHeaders (Proxy @rpc) headers of
-          Left  err  -> throwIO $ CallSetupInvalidRequestHeaders err
-          Right hdrs -> return hdrs
+          Left (httpStatus, err) ->
+            throwIO $ CallSetupInvalidRequestHeaders httpStatus err
+          Right hdrs ->
+            return hdrs
 
       let cInId :: Maybe CompressionId
           cInId = requestCompression requestHeaders
@@ -88,8 +91,10 @@ instance IsRPC rpc => AcceptSession (ServerSession rpc) where
 
   parseRequestNoMessages _ headers =
       case parseRequestHeaders (Proxy @rpc) headers of
-        Left  err  -> throwIO $ CallSetupInvalidRequestHeaders err
-        Right hdrs -> return hdrs
+        Left (httpStatus, err) ->
+           throwIO $ CallSetupInvalidRequestHeaders httpStatus err
+        Right hdrs ->
+          return hdrs
 
   buildResponseInfo _ start = ResponseInfo {
         responseStatus  = HTTP.ok200
@@ -98,7 +103,7 @@ instance IsRPC rpc => AcceptSession (ServerSession rpc) where
             FlowStartRegular headers ->
               buildResponseHeaders (Proxy @rpc) (outHeaders headers)
             FlowStartNoMessages trailers ->
-              buildTrailersOnly trailers
+              buildTrailersOnly (Proxy @rpc) trailers
       , responseBody = Nothing
       }
 
@@ -116,7 +121,7 @@ data CallSetupFailure =
     -- 'CallSetupInvalidResourceHeaders' refers to an invalid method (anything
     -- other than POST) or an invalid path; 'CallSetupInvalidRequestHeaders'
     -- means we could not parse the HTTP headers according to the gRPC spec.
-  | CallSetupInvalidRequestHeaders String
+  | CallSetupInvalidRequestHeaders HTTP.Status Strict.ByteString
 
     -- | Client chose unsupported compression algorithm
     --
@@ -134,7 +139,8 @@ data CallSetupFailure =
     -- has the concept of a "method" (a method, or gRPC call, supported by a
     -- particular service); it's these methods that
     -- 'CallSetupUnimplementedMethod' is referring to.
-  | CallSetupUnimplementedMethod Path
-  deriving stock (Show)
-  deriving anyclass (Exception)
+  | forall rpc. IsRPC rpc => CallSetupUnimplementedMethod (Proxy rpc) Path
+
+deriving stock    instance Show      CallSetupFailure
+deriving anyclass instance Exception CallSetupFailure
 

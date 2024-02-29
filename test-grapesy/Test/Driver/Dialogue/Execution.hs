@@ -12,9 +12,9 @@ import Control.Monad.Catch
 import Control.Monad.State
 import Data.Bifunctor
 import Data.List (sortBy)
+import Data.Map.Strict qualified as Map
 import Data.Ord (comparing)
 import Data.Proxy
-import Data.Set qualified as Set
 import Data.Text qualified as Text
 import GHC.Generics qualified as GHC
 import GHC.Stack
@@ -271,7 +271,7 @@ clientLocal testClock mode call = \(LocalSteps steps) ->
     reactToServer = \case
         Initiate expectedMetadata -> liftIO $ do
           receivedMetadata <- Client.recvResponseMetadata call
-          expect (== expectedMetadata) $ Set.fromList receivedMetadata
+          expect (== expectedMetadata) $ Map.fromList receivedMetadata
         Send (FinalElem a b) -> do
           -- Known bug (limitation in http2). See recvMessageLoop.
           reactToServer $ Send (StreamElem a)
@@ -279,7 +279,7 @@ clientLocal testClock mode call = \(LocalSteps steps) ->
         Send expectedElem -> do
           expected <- adjustExpectation expectedElem
           received <- liftIO . try $
-                        fmap (first Set.fromList) $
+                        fmap (first Map.fromList) $
                           Client.Binary.recvOutput call
           expect expected received
         Terminate mErr -> do
@@ -373,7 +373,7 @@ clientGlobal testClock mode global connParams testServer delimitTestScope =
             -- arising from a timeout we test elsewhere.
             let params :: Client.CallParams
                 params = def {
-                    Client.callRequestMetadata = Set.toList metadata
+                    Client.callRequestMetadata = Map.toList metadata
                   }
 
             withProxy rpc $ \proxy ->
@@ -443,13 +443,13 @@ serverLocal testClock mode call = \(LocalSteps steps) -> do
       -> StateT PeerHealth IO Bool
     serverAct = \case
         Initiate metadata -> liftIO $ do
-          Server.setResponseMetadata call (Set.toList metadata)
+          Server.setResponseMetadata call (Map.toList metadata)
           void $ Server.initiateResponse call
           return True
         Send x -> do
           isExpected <- adjustExpectation ()
           received   <- try . liftIO $
-                          Server.Binary.sendOutput call (first Set.toList x)
+                          Server.Binary.sendOutput call (first Map.toList x)
           expect isExpected received
           return True
         Terminate (Just exceptionId) -> do
@@ -547,7 +547,7 @@ serverGlobal testClock mode globalStepsVar call = do
         -- takes too long, the /client/ will check that it gets the expected
         -- exception.
         receivedMetadata <- Server.getRequestMetadata call
-        expect (== metadata) $ Set.fromList receivedMetadata
+        expect (== metadata) $ Map.fromList receivedMetadata
         serverLocal testClock mode call $ LocalSteps steps'
       _otherwise ->
          error "serverGlobal: expected ClientInitiateRequest"

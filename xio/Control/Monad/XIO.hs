@@ -17,6 +17,8 @@ module Control.Monad.XIO (
   , catchError
   , handleError
   , tryError
+    -- * Timeout
+  , timeoutWith
     -- * Ruling out exceptions
   , NeverThrows
   , neverThrows
@@ -25,6 +27,8 @@ module Control.Monad.XIO (
   , unsafeTrustMe
   ) where
 
+import Control.Concurrent (myThreadId, forkIO, throwTo)
+import Control.Concurrent.Thread.Delay qualified as UnboundedDelays
 import Control.Exception (Exception, SomeException)
 import Control.Exception qualified as Exception
 import Control.Monad.Catch (MonadThrow, MonadCatch, MonadMask)
@@ -138,6 +142,28 @@ handleError = flip catchError
 -- See also 'catchError'.
 tryError :: Exception e => XIO' e a -> XIO' e' (Either e a)
 tryError = handleError (return . Left) . fmap Right
+
+{-------------------------------------------------------------------------------
+  Timeout
+-------------------------------------------------------------------------------}
+
+-- | Timeout with a specific exception
+--
+-- 'XIO' actions cannot be interrupted at arbitrary points: they do not allow
+-- asynchronous exceptions. Instead, they can only be interrupted when executing
+-- IO actions. Timeouts should therefore be considered carefully.
+--
+-- Since timeouts are implemented through asynchronous exceptions, the 'XIO'
+-- action /must/ execute some @IO@ actions (which 'liftIO' makes interruptible).
+-- This opens it up for /any/ kind of exception delivered asynchronously: we
+-- therefore insist on 'XIO' here, rather than generalizing to 'XIO'' @e@.
+timeoutWith :: Exception e => e -> Integer -> XIO a -> XIO a
+timeoutWith e t xio = do
+    myThread    <- unsafeTrustMe $ myThreadId
+    _killThread <- unsafeTrustMe $ forkIO $ do
+      UnboundedDelays.delay t
+      throwTo myThread e
+    xio
 
 {-------------------------------------------------------------------------------
   Ruling out exceptions

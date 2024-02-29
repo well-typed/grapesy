@@ -8,9 +8,11 @@
 module Network.GRPC.Spec (
     -- * RPC
     IsRPC(..)
+  , defaultRpcContentType
     -- ** Instances
   , Protobuf
   , BinaryRpc
+  , UnknownRpc
     -- ** Messages
     -- *** Parsing
   , InboundEnvelope(..)
@@ -77,6 +79,10 @@ module Network.GRPC.Spec (
   , TimeoutValue(..)
   , TimeoutUnit(..)
   , timeoutToMicro
+  , isValidTimeoutValue
+    -- ** Serialization
+  , buildTimeout
+  , parseTimeout
     -- * Responses
     -- ** Headers
   , ResponseHeaders(..)
@@ -85,26 +91,29 @@ module Network.GRPC.Spec (
     -- ** Trailers
   , ProperTrailers(..)
   , TrailersOnly(..)
+    -- ** Serialization
   , parseProperTrailers
   , parseTrailersOnly
   , buildProperTrailers
   , buildTrailersOnly
+  , properTrailersToTrailersOnly
+  , trailersOnlyToProperTrailers
     -- *** Status
   , GrpcStatus(..)
   , GrpcError(..)
   , fromGrpcStatus
   , toGrpcStatus
-    -- *** Classificaiton
+    -- *** gRPC exceptions
   , GrpcException(..)
   , grpcExceptionToTrailers
   , grpcExceptionFromTrailers
     -- * Metadata
-  , CustomMetadata(..)
+  , CustomMetadata
+  , HeaderValue(..)
   , HeaderName(..)
   , BinaryValue(..)
   , AsciiValue(..)
   , NoMetadata(..)
-  , customHeaderName
     -- ** Serialization
   , buildBinaryValue
   , parseBinaryValue
@@ -113,8 +122,8 @@ module Network.GRPC.Spec (
     -- ** Validation
   , safeHeaderName
   , safeAsciiValue
-    -- ** Convenience
-  , lookupCustomMetadata
+    -- * Content type
+  , ContentType(..)
     -- * OpenTelemetry
   , TraceContext(..)
   , TraceId(..)
@@ -125,6 +134,7 @@ module Network.GRPC.Spec (
   ) where
 
 import Network.GRPC.Spec.Call
+import Network.GRPC.Spec.Common
 import Network.GRPC.Spec.Compression
 import Network.GRPC.Spec.CustomMetadata
 import Network.GRPC.Spec.LengthPrefixed
@@ -135,6 +145,7 @@ import Network.GRPC.Spec.RPC
 import Network.GRPC.Spec.RPC.Binary
 import Network.GRPC.Spec.RPC.Protobuf
 import Network.GRPC.Spec.RPC.StreamType
+import Network.GRPC.Spec.RPC.Unknown
 import Network.GRPC.Spec.Status
 import Network.GRPC.Spec.Timeout
 import Network.GRPC.Spec.TraceContext

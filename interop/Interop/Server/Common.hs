@@ -29,20 +29,20 @@ constructResponseMetadata :: Call rpc -> IO [CustomMetadata]
 constructResponseMetadata call = do
     requestMetadata <- getRequestMetadata call
     initialResponseMetadata <-
-      case lookupCustomMetadata nameMetadataInitial requestMetadata of
+      case lookup nameMetadataInitial requestMetadata of
         Nothing ->
           return []
-        Just (Left binaryValue) ->
+        Just (BinaryHeader binaryValue) ->
           assertUnrecognized (nameMetadataInitial, binaryValue)
-        Just (Right asciiValue) ->
-          return [AsciiHeader nameMetadataInitial asciiValue]
+        Just (AsciiHeader asciiValue) ->
+          return [(nameMetadataInitial, AsciiHeader asciiValue)]
     trailingResponseMetadata <-
-      case lookupCustomMetadata nameMetadataTrailing requestMetadata of
+      case lookup nameMetadataTrailing requestMetadata of
         Nothing ->
           return []
-        Just (Left binaryValue) ->
-          return [BinaryHeader nameMetadataTrailing binaryValue]
-        Just (Right asciiValue) ->
+        Just (BinaryHeader binaryValue) ->
+          return [(nameMetadataTrailing, BinaryHeader binaryValue)]
+        Just (AsciiHeader asciiValue) ->
           assertUnrecognized (nameMetadataTrailing, asciiValue)
 
     -- Send initial metadata

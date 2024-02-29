@@ -131,10 +131,8 @@ verifyStreamingOutputs call verifyTrailers = go
 -- the inputs we sent it).
 --
 -- Also throws 'TestSkipped' is the server returns with 'GrpcUnimplemented'.
-expectInvalidArgument :: Either GrpcException (resp, [CustomMetadata]) -> IO ()
-expectInvalidArgument (Right _) =
-    throwIO $ TestSkipped "Server sent unexpected OK"
-expectInvalidArgument (Left exception) =
+expectInvalidArgument :: IO a -> IO ()
+expectInvalidArgument = assertThrows $ \exception ->
     case grpcError exception of
       GrpcInvalidArgument ->
         return ()

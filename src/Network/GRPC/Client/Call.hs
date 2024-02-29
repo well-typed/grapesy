@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 -- | Open (ongoing) RPC call
 --
 -- Intended for unqualified import.
@@ -34,7 +36,9 @@ import Control.Monad.Catch
 import Control.Monad.IO.Class
 import Data.Bifunctor
 import Data.Default
+import Data.Map.Strict qualified as Map
 import Data.Proxy
+import Data.Text qualified as Text
 import GHC.Stack
 
 import Network.GRPC.Client.Connection (Connection, Call(..))
@@ -55,8 +59,9 @@ import Network.GRPC.Util.Session qualified as Session
 -- when the body is run. If you want to be sure that the call has been setup,
 -- you can call 'recvResponseMetadata'.
 --
--- Will throw 'ChannelDiscarded' if the RPC call was not terminated cleanly
--- at the time of exiting the scope of 'withRPC'.
+-- Leaving the scope of 'withRPC' before the call is terminated is considered a
+-- cancellation, and accordingly throws a 'GrpcException' with 'GrpcCancelled';
+-- see also <https://grpc.io/docs/guides/cancellation/>.
 withRPC :: forall m rpc a.
      (MonadMask m, MonadIO m, IsRPC rpc, HasCallStack)
   => Connection -> CallParams -> Proxy rpc -> (Call rpc -> m a) -> m a
@@ -64,22 +69,33 @@ withRPC conn callParams proxy k =
     (throwUnclean =<<) $
       generalBracket
         (liftIO $ Connection.startRPC conn proxy callParams)
-        (\call -> liftIO . closeRPC call)
+        (\call exitCase -> liftIO $ Session.close (callChannel call) exitCase)
         k
   where
     throwUnclean :: (a, Maybe SomeException) -> m a
-    throwUnclean (_, Just err) = throwM err
     throwUnclean (x, Nothing)  = return x
-
--- | Close an open RPC call
---
--- This is a low-level API; most users should use 'withRPC' instead.
---
--- See 'Session.close' for detailed discussion.
-closeRPC ::
-     HasCallStack
-  => Call rpc -> ExitCase a -> IO (Maybe SomeException)
-closeRPC = Session.close . callChannel
+    throwUnclean (_, Just err) =
+        case fromException err of
+          Just (ChannelDiscarded cs) ->
+            -- Spec mandates that when a client cancels a request (which in
+            -- grapesy means exiting the scope of withRPC), the client receives
+            -- a CANCELLED exception.
+            --
+            -- See:
+            --
+            -- o <https://grpc.io/docs/guides/cancellation/>
+            -- o <https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptions.md#cancel_after_begin>
+            -- o <https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptions.md#cancel_after_first_response>
+            throwM $ GrpcException {
+                grpcError        = GrpcCancelled
+              , grpcErrorMessage = Just $ mconcat [
+                     "Channel discarded by client at "
+                   , Text.pack $ prettyCallStack cs
+                   ]
+              , grpcErrorMetadata = []
+              }
+          _otherwise ->
+            throwM err
 
 {-------------------------------------------------------------------------------
   Open (ongoing) call
@@ -163,7 +179,7 @@ recvResponseMetadata Call{callChannel} =
          Either [CustomMetadata] (Headers (ClientInbound rpc))
       -> [CustomMetadata]
     aux (Left trailersOnly) = trailersOnly
-    aux (Right headers)     = responseMetadata $ inbHeaders headers
+    aux (Right headers)     = Map.toList $ responseMetadata $ inbHeaders headers
 
 {-------------------------------------------------------------------------------
   Low-level API

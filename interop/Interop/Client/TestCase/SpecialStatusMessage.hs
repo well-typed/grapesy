@@ -2,7 +2,6 @@
 
 module Interop.Client.TestCase.SpecialStatusMessage (runTest) where
 
-import Control.Exception
 import Data.Text (Text)
 
 import Network.GRPC.Client
@@ -20,8 +19,7 @@ runTest cmdline = do
     withConnection def (testServer cmdline) $ \conn -> do
       withRPC conn def (Proxy @UnaryCall) $ \call -> do
         sendFinalInput call simpleRequest
-        resp <- try $ recvFinalOutput call
-        verifyResponse resp
+        assertThrows verifyError $ recvFinalOutput call
   where
     simpleRequest :: SimpleRequest
     simpleRequest = defMessage & #responseStatus .~ echoStatus
@@ -37,9 +35,7 @@ runTest cmdline = do
     statusMessage =
         "\t\ntest with whitespace\r\nand Unicode BMP ☺ and non-BMP 😈\t\n"
 
-    verifyResponse :: Either GrpcException a -> IO ()
-    verifyResponse (Right _) =
-        assertFailure "Expected UNKNOWN"
-    verifyResponse (Left err) = do
+    verifyError :: GrpcException -> IO ()
+    verifyError err = do
         assertEqual GrpcUnknown          $ grpcError        err
         assertEqual (Just statusMessage) $ grpcErrorMessage err

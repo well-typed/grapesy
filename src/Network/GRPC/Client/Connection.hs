@@ -26,9 +26,9 @@ import Control.Concurrent.STM
 import Control.Monad
 import Control.Monad.Catch
 import Control.Tracer
-import Data.ByteString qualified as Strict (ByteString)
 import Data.Default
 import Data.Foldable (asum)
+import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
 import Data.Proxy
 import GHC.Stack
@@ -125,8 +125,9 @@ data ConnParams = ConnParams {
 
       -- | Optionally override the content type
       --
-      -- If not defined, the default @application/grpc+format@ is used.
-    , connContentType :: Maybe Strict.ByteString
+      -- If 'Nothing', the @Content-Type@ header will be omitted entirely
+      -- (this is not conform gRPC spec).
+    , connContentType :: Maybe ContentType
 
       -- | Optionally set the initial compression algorithm
       --
@@ -162,7 +163,7 @@ instance Default ConnParams where
       , connCompression           = def
       , connDefaultTimeout        = Nothing
       , connReconnectPolicy       = def
-      , connContentType           = Nothing
+      , connContentType           = Just ContentTypeDefault
       , connInitCompression       = Nothing
       , connOverridePingRateLimit = Nothing
       }
@@ -382,12 +383,12 @@ startRPC Connection{connMetaVar, connParams, connStateVar} _ callParams = do
               , connDefaultTimeout connParams
               ]
         , requestMetadata =
-            callRequestMetadata callParams
+            Map.fromList $ callRequestMetadata callParams
         , requestCompression =
             compressionId <$> cOut
         , requestAcceptCompression = Just $
             Compression.offer $ connCompression connParams
-        , requestOverrideContentType =
+        , requestContentType =
             connContentType connParams
         , requestTraceContext =
             Nothing

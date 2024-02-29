@@ -39,19 +39,20 @@ instance ( Typeable           serv
   type Input  (Protobuf serv meth) = MethodInput  serv meth
   type Output (Protobuf serv meth) = MethodOutput serv meth
 
-  serializationFormat _ = "proto"
-  serviceName         _ = Text.pack $ concat [
-                              symbolVal $ Proxy @(ServicePackage serv)
-                            , "."
-                            , symbolVal $ Proxy @(ServiceName serv)
-                            ]
-  methodName          _ = Text.pack $
-                              symbolVal $ Proxy @(MethodName serv meth)
-  messageType         _ = Protobuf.messageName $ Proxy @(MethodInput serv meth)
-  serializeInput      _ = Builder.toLazyByteString . Protobuf.buildMessage
-  serializeOutput     _ = Builder.toLazyByteString . Protobuf.buildMessage
-  deserializeInput    _ = Protobuf.runParser parseMessage . BS.Lazy.toStrict
-  deserializeOutput   _ = Protobuf.runParser parseMessage . BS.Lazy.toStrict
+  rpcContentType         _ = defaultRpcContentType "proto"
+  rpcServiceName         _ = Text.pack $ concat [
+                                 symbolVal $ Proxy @(ServicePackage serv)
+                               , "."
+                               , symbolVal $ Proxy @(ServiceName serv)
+                               ]
+  rpcMethodName          _ = Text.pack . symbolVal $
+                               Proxy @(MethodName serv meth)
+  rpcMessageType         _ = Protobuf.messageName $
+                               Proxy @(MethodInput serv meth)
+  rpcSerializeInput      _ = Builder.toLazyByteString . Protobuf.buildMessage
+  rpcSerializeOutput     _ = Builder.toLazyByteString . Protobuf.buildMessage
+  rpcDeserializeInput    _ = Protobuf.runParser parseMessage . BS.Lazy.toStrict
+  rpcDeserializeOutput   _ = Protobuf.runParser parseMessage . BS.Lazy.toStrict
 
 instance styp ~ MethodStreamingType serv meth
       => SupportsStreamingType (Protobuf serv meth) styp

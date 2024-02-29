@@ -16,6 +16,7 @@ import Network.GRPC.Server.Binary qualified as Binary
 import Network.GRPC.Server.StreamType
 
 import Test.Driver.ClientServer
+import Network.GRPC.Spec (ContentType(ContentTypeOverride))
 
 tests :: TestTree
 tests = testGroup "Test.Sanity.StreamingType.NonStreaming" [
@@ -27,30 +28,30 @@ tests = testGroup "Test.Sanity.StreamingType.NonStreaming" [
                   -- Without the +format part
                   testCase "application/grpc" $
                     test_increment def {
-                        clientContentType =
-                          ValidOverride "application/grpc"
+                        clientContentType = ValidOverride $
+                          ContentTypeOverride "application/grpc"
                       }
 
                   -- Random other format
                   -- See discussion in 'parseContentType'
                 , testCase "application/grpc+gibberish" $
                     test_increment def {
-                        clientContentType =
-                          ValidOverride "application/grpc+gibberish"
+                        clientContentType = ValidOverride $
+                          ContentTypeOverride "application/grpc+gibberish"
                       }
                 ]
             , testGroup "fail" [
                   testCase "application/invalid-subtype" $
                     test_increment def {
-                        clientContentType =
-                          InvalidOverride "application/invalid-subtype"
+                        clientContentType = InvalidOverride $
+                           ContentTypeOverride "application/invalid-subtype"
                       }
 
                   -- gRPC spec does not allow parameters
                 , testCase "charset" $
                     test_increment def {
-                        clientContentType =
-                          InvalidOverride "application/grpc; charset=us-ascii"
+                        clientContentType = InvalidOverride $
+                           ContentTypeOverride "application/grpc; charset=us-ascii"
                       }
                 ]
             ]

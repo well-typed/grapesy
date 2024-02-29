@@ -22,6 +22,7 @@ import Data.Bifunctor
 import Data.ByteString.Builder qualified as Builder
 import Data.ByteString.UTF8 qualified as BS.UTF8
 import Data.Maybe (fromMaybe)
+import Data.Proxy
 import Network.HTTP.Types qualified as HTTP
 import Network.HTTP2.Server qualified as HTTP2
 
@@ -52,14 +53,25 @@ requestHandler handlers ctxt request respond = do
       setupCall connectionToClient ctxt `XIO.catchError`
         setupFailure tracer respond
 
-    -- TODO: Timeouts
-    runHandler call handler
+    imposeTimeout (getRequestTimeout call) $
+      runHandler call handler
   where
     connectionToClient :: ConnectionToClient
     connectionToClient = ConnectionToClient{request, respond}
 
     tracer :: Tracer IO Context.ServerDebugMsg
     tracer = Context.serverDebugTracer $ Context.params ctxt
+
+    timeoutException :: GrpcException
+    timeoutException = GrpcException {
+          grpcError         = GrpcDeadlineExceeded
+        , grpcErrorMessage  = Nothing
+        , grpcErrorMetadata = []
+        }
+
+    imposeTimeout :: Maybe Timeout -> XIO () -> XIO ()
+    imposeTimeout Nothing  = id
+    imposeTimeout (Just t) = XIO.timeoutWith timeoutException (timeoutToMicro t)
 
 findHandler ::
      Tracer IO Context.ServerDebugMsg
@@ -75,8 +87,11 @@ findHandler tracer handlers req = do
     let path = resourcePath resourceHeaders
     handler <- do
       case Handler.lookup path handlers of
-        Just h  -> return h
-        Nothing -> throwError $ CallSetupUnimplementedMethod path
+        Just h  ->
+          return h
+        Nothing -> do
+          let unknown = Proxy @(UnknownRpc Nothing Nothing)
+          throwError $ CallSetupUnimplementedMethod unknown path
 
     return handler
   where
@@ -136,16 +151,17 @@ failureResponse (CallSetupInvalidResourceHeaders (InvalidMethod method)) =
 failureResponse (CallSetupInvalidResourceHeaders (InvalidPath path)) =
     HTTP2.responseBuilder HTTP.badRequest400 [] . Builder.byteString $
       "Invalid path " <> path
-failureResponse (CallSetupInvalidRequestHeaders err) =
-    HTTP2.responseBuilder HTTP.badRequest400 [] . Builder.byteString $
-      "Invalid request headers: " <> BS.UTF8.fromString err
+failureResponse (CallSetupInvalidRequestHeaders status err) =
+    HTTP2.responseBuilder status [] $ Builder.byteString err
 failureResponse (CallSetupUnsupportedCompression cid) =
     HTTP2.responseBuilder HTTP.badRequest400 [] . Builder.byteString $
       "Unsupported compression: " <> BS.UTF8.fromString (show cid)
-failureResponse (CallSetupUnimplementedMethod path) =
-    HTTP2.responseNoBody HTTP.ok200 $
-      buildTrailersOnly . TrailersOnly . grpcExceptionToTrailers $
-        grpcUnimplemented path
+failureResponse (CallSetupUnimplementedMethod proxy path) =
+    HTTP2.responseNoBody HTTP.ok200 . buildTrailersOnly proxy $
+      properTrailersToTrailersOnly (
+          grpcExceptionToTrailers $ grpcUnimplemented path
+        , Just ContentTypeDefault
+        )
 
 grpcUnimplemented :: Path -> GrpcException
 grpcUnimplemented path = GrpcException {

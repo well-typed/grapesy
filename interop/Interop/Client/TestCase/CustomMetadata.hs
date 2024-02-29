@@ -45,12 +45,14 @@ runTest cmdline = do
         }
 
     metadataInit, metadataFinal :: CustomMetadata
-    metadataInit  = AsciiHeader
-                      "x-grpc-test-echo-initial"
-                      "test_initial_metadata_value"
-    metadataFinal = BinaryHeader
-                      "x-grpc-test-echo-trailing"
-                      (BinaryValue $ BS.Strict.pack [0xab, 0xab, 0xab])
+    metadataInit  = ( "x-grpc-test-echo-initial"
+                    , AsciiHeader $
+                        "test_initial_metadata_value"
+                    )
+    metadataFinal = ( "x-grpc-test-echo-trailing"
+                    , BinaryHeader . BinaryValue $
+                        BS.Strict.pack [0xab, 0xab, 0xab]
+                    )
 
     simpleRequest :: SimpleRequest
     simpleRequest =

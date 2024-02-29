@@ -42,7 +42,9 @@ sayHelloStreamReply =
   where
     go :: Call (Protobuf Greeter "sayHelloStreamReply") -> IO ()
     go call = do
-        setResponseMetadata call [AsciiHeader "initial-md" "initial-md-value"]
+        setResponseMetadata call [
+            ("initial-md", AsciiHeader "initial-md-value")
+          ]
 
         -- The client expects the metadata well before the first output
         _ <- initiateResponse call

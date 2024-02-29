@@ -1,6 +1,8 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module Network.GRPC.Spec.RPC (
     IsRPC(..)
-  , SomeRPC(..)
+  , defaultRpcContentType
   ) where
 
 import Data.ByteString qualified as Strict (ByteString)
@@ -8,6 +10,7 @@ import Data.ByteString.Lazy qualified as Lazy
 import Data.Kind
 import Data.Text (Text)
 import Data.Typeable
+import GHC.Stack
 
 {-------------------------------------------------------------------------------
   RPC call
@@ -39,7 +42,7 @@ class ( Typeable rpc -- for use in exceptions
   -- | Messages from the server to the client
   type Output rpc :: Type
 
-  -- | Message format
+  -- | Content-type
   --
   -- gRPC is agnostic to the message format; the spec defines the @Content-Type@
   -- header as
@@ -49,31 +52,32 @@ class ( Typeable rpc -- for use in exceptions
   -- >   "application/grpc"
   -- >   [("+proto" / "+json" / {custom})]
   --
-  -- 'serializationFormat' should return the last part (e.g., @"proto"@).
+  -- 'defaultRpcContentType' can be used in the case that the format (such as
+  -- @proto@) is known.
   --
   -- See <https://grpc.io/blog/grpc-with-json/> for a discussion of gRPC with
-  -- JSON (we don't currently support this, but it should just be an alternative
-  -- 'RPC' instance).
+  -- JSON. TODO: We don't currently support this, but it should just be an
+  -- alternative 'RPC' instance.
   --
   -- Note on terminology: throughout this codebase we avoid the terms "encoding"
   -- and "decoding", which can be ambiguous. Instead we use
   -- \"serialize\"\/\"deserialize\" and \"compress\"\/\"decompress\".
-  serializationFormat :: Proxy rpc -> Strict.ByteString
+  rpcContentType :: Proxy rpc -> Strict.ByteString
 
   -- | Service name
   --
   -- For Protobuf, this is the fully qualified service name.
-  serviceName :: Proxy rpc -> Text
+  rpcServiceName :: HasCallStack => Proxy rpc -> Text
 
   -- | Method name
   --
   -- For Protobuf, this is /just/ the method name (no qualifier required).
-  methodName :: Proxy rpc -> Text
+  rpcMethodName :: HasCallStack => Proxy rpc -> Text
 
   -- | Message type
   --
   -- For Protobuf, this is the fully qualified message type.
-  messageType :: Proxy rpc -> Text
+  rpcMessageType :: HasCallStack => Proxy rpc -> Text
 
   -- | Serialize RPC input
   --
@@ -85,25 +89,28 @@ class ( Typeable rpc -- for use in exceptions
   -- We use the terms \"serialize\" and \"deserialize\" here, and
   -- \"compress\"/\"decompress\" for compression here, rather than
   -- \"encode\"/\"decode\", which could refer to either process.
-  serializeInput :: Proxy rpc -> Input rpc -> Lazy.ByteString
+  rpcSerializeInput :: Proxy rpc -> Input rpc -> Lazy.ByteString
 
   -- | Serialize RPC output
-  serializeOutput :: Proxy rpc -> Output rpc -> Lazy.ByteString
+  rpcSerializeOutput :: Proxy rpc -> Output rpc -> Lazy.ByteString
 
   -- | Deserialize RPC input
   --
   -- This function does not have to deal with compression or length prefixes,
   -- and can assume fully consume the given bytestring (if there are unconsumed
   -- bytes, this should be considered a parse failure).
-  deserializeInput :: Proxy rpc -> Lazy.ByteString -> Either String (Input rpc)
+  rpcDeserializeInput ::
+       Proxy rpc
+    -> Lazy.ByteString
+    -> Either String (Input rpc)
 
   -- | Deserialize RPC output
   --
   -- Discussion of 'deserializeInput' applies here, also.
-  deserializeOutput :: Proxy rpc -> Lazy.ByteString -> Either String (Output rpc)
+  rpcDeserializeOutput ::
+       Proxy rpc
+    -> Lazy.ByteString
+    -> Either String (Output rpc)
 
--- | Existential RPC
-data SomeRPC f where
-  SomeRPC :: forall f rpc. IsRPC rpc => f rpc -> SomeRPC f
-
-deriving instance (forall rpc. IsRPC rpc => Show (f rpc)) => Show (SomeRPC f)
+defaultRpcContentType :: Strict.ByteString -> Strict.ByteString
+defaultRpcContentType format = "application/grpc+" <> format

@@ -9,7 +9,9 @@ import Network.GRPC.Spec.CustomMetadata
 import Network.GRPC.Spec.Timeout
 
 {-------------------------------------------------------------------------------
-  Parameteres
+  Parameters
+
+  NOTE: 'CallParams' is re-exported as is in the Client API.
 -------------------------------------------------------------------------------}
 
 -- | RPC parameters that can be chosen on a per-call basis

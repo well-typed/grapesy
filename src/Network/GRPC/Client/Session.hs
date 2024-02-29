@@ -69,8 +69,13 @@ instance IsRPC rpc => IsSession (ClientSession rpc) where
   type Outbound (ClientSession rpc) = ClientOutbound rpc
 
   buildOutboundTrailers _client = \NoMetadata -> []
-  parseInboundTrailers _client =
-      processResponseTrailers $ parseProperTrailers (Proxy @rpc)
+  parseInboundTrailers  _client = \raw ->
+      case parseProperTrailers (Proxy @rpc) raw of
+        Left err -> throwIO $ InvalidTrailers err
+        Right trailers ->
+          case grpcExceptionFromTrailers trailers of
+            Right err -> throwIO err
+            Left (_msg, metadata) -> return metadata
 
   parseMsg _ = parseOutput (Proxy @rpc) . inbCompression
   buildMsg _ = buildInput  (Proxy @rpc) . outCompression
@@ -109,9 +114,15 @@ instance IsRPC rpc => InitiateSession (ClientSession rpc) where
         throwIO $ CallSetupUnexpectedStatus
                     (responseStatus info)
                     (fromMaybe BS.Lazy.empty $ responseBody info)
-      processResponseTrailers
-        (fmap getTrailersOnly . parseTrailersOnly (Proxy @rpc))
-        (responseHeaders info)
+
+      case parseTrailersOnly (Proxy @rpc) (responseHeaders info) of
+        Left err -> throwIO $ InvalidTrailers err
+        Right trailersOnly -> do
+          let (properTrailers, _contentType) =
+                 trailersOnlyToProperTrailers trailersOnly
+          case grpcExceptionFromTrailers properTrailers of
+            Right err -> throwIO err
+            Left (_msg, metadata) -> return metadata
 
   buildRequestInfo _ start = RequestInfo {
         requestMethod  = rawMethod resourceHeaders
@@ -127,29 +138,6 @@ instance IsRPC rpc => InitiateSession (ClientSession rpc) where
             resourceMethod = Post
           , resourcePath   = rpcPath (Proxy @rpc)
           }
-
--- | Process response trailers
---
--- The gRPC spec states that
---
--- > Trailers-Only is permitted for calls that produce an immediate error
---
--- However, in practice gRPC servers can also respond with @Trailers-Only@ in
--- non-error cases, simply indicating that the server considers the
--- conversation over. To distinguish, we look at 'trailerGrpcStatus'.
---
--- TODO: We are throwing away 'trailerGrpcMessage' in case of 'GrpcOk'; not
--- sure if that is problematic.
-processResponseTrailers ::
-     ([HTTP.Header] -> Either String ProperTrailers)
-  -> [HTTP.Header]
-  -> IO [CustomMetadata]
-processResponseTrailers parse raw =
-    case parse raw of
-      Left  err      -> throwIO $ InvalidTrailers err
-      Right trailers -> case grpcExceptionFromTrailers trailers of
-                          Left (_msg, metadata) -> return metadata
-                          Right err -> throwIO err
 
 {-------------------------------------------------------------------------------
   Exceptions

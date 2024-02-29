@@ -19,9 +19,9 @@ import Network.GRPC.Client.StreamType.IO (rpc)
 import Network.GRPC.Client.StreamType.IO qualified as Client
 import Network.GRPC.Common
 import Network.GRPC.Common.StreamElem qualified as StreamElem
-import Network.GRPC.Common.StreamType (SupportsStreamingType, StreamingType(..))
 import Network.GRPC.Server qualified as Server
 import Network.GRPC.Server.StreamType qualified as Server
+import Network.GRPC.Spec
 
 import Test.Driver.ClientServer
 
@@ -96,14 +96,14 @@ instance CalculatorFunction fun => IsRPC (Calc fun) where
   type Input  (Calc fun) = CalcInput  fun
   type Output (Calc fun) = CalcOutput fun
 
-  serializationFormat _ = "cbor"
-  messageType         _ = "cbor"
-  serviceName         _ = "calculator"
-  methodName          _ = calculatorMethod (Proxy @fun)
-  serializeInput      _ = Cbor.serialise @(CalcInput  fun)
-  serializeOutput     _ = Cbor.serialise @(CalcOutput fun)
-  deserializeInput    _ = first show . Cbor.deserialiseOrFail @(CalcInput  fun)
-  deserializeOutput   _ = first show . Cbor.deserialiseOrFail @(CalcOutput fun)
+  rpcContentType         _ = defaultRpcContentType "cbor"
+  rpcMessageType         _ = "cbor"
+  rpcServiceName         _ = "calculator"
+  rpcMethodName          _ = calculatorMethod (Proxy @fun)
+  rpcSerializeInput      _ = Cbor.serialise @(CalcInput  fun)
+  rpcSerializeOutput     _ = Cbor.serialise @(CalcOutput fun)
+  rpcDeserializeInput    _ = first show . Cbor.deserialiseOrFail @(CalcInput  fun)
+  rpcDeserializeOutput   _ = first show . Cbor.deserialiseOrFail @(CalcOutput fun)
 
 {-------------------------------------------------------------------------------
   Tests proper
