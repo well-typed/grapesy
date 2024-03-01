@@ -28,7 +28,7 @@ module Control.Monad.XIO (
   , unsafeTrustMe
   ) where
 
-import Control.Concurrent (myThreadId, forkIO, throwTo)
+import Control.Concurrent qualified as Concurrent
 import Control.Concurrent.Thread.Delay qualified as UnboundedDelays
 import Control.Exception (Exception, SomeException)
 import Control.Exception qualified as Exception
@@ -159,12 +159,16 @@ tryError = handleError (return . Left) . fmap Right
 -- This opens it up for /any/ kind of exception delivered asynchronously: we
 -- therefore insist on 'XIO' here, rather than generalizing to 'XIO'' @e@.
 timeoutWith :: Exception e => e -> Integer -> XIO a -> XIO a
-timeoutWith e t xio = do
-    myThread    <- unsafeTrustMe $ myThreadId
-    _killThread <- unsafeTrustMe $ forkIO $ do
-      UnboundedDelays.delay t
-      throwTo myThread e
-    xio
+timeoutWith e t (Wrap io) = Wrap $ do
+    me <- Concurrent.myThreadId
+
+    let timer :: IO ()
+        timer = do
+            Exception.interruptible $ -- Ensure that the timer can be killed
+              UnboundedDelays.delay t
+            Concurrent.throwTo me e
+
+    Exception.bracket (Concurrent.forkIO timer) Concurrent.killThread $ \_ -> io
 
 {-------------------------------------------------------------------------------
   Ruling out exceptions
