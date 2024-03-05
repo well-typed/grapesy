@@ -30,6 +30,7 @@ import Network.GRPC.Server.Binary qualified as Server.Binary
 import Test.Driver.ClientServer
 import Test.Driver.Dialogue.Definition
 import Test.Driver.Dialogue.TestClock
+import Test.Util.Within
 
 {-------------------------------------------------------------------------------
   Endpoints
@@ -85,6 +86,18 @@ expect isExpected received
   | otherwise
   = throwM $ TestFailure callStack $
       Unexpected $ ReceivedUnexpected{received}
+
+{-------------------------------------------------------------------------------
+  Timeouts
+-------------------------------------------------------------------------------}
+
+-- | Timeout for waiting for the test clock
+timeoutClock :: Int
+timeoutClock = 5
+
+-- | Timeout for executing all the actions in a client or handler
+timeoutLocal :: Int
+timeoutLocal = 20
 
 {-------------------------------------------------------------------------------
   Health
@@ -232,7 +245,8 @@ clientLocal testClock mode call = \(LocalSteps steps) ->
     go ((tick, step) : steps) = do
         case step of
           ClientAction action -> do
-            _reachedTick <- liftIO $ waitForTestClockTick testClock tick
+            _reachedTick <- liftIO $ within timeoutClock (tick, step) $
+              waitForTestClockTick testClock tick
             -- TODO: We could assert that _reachedTick is True
             continue <-
               clientAct action `finally`
@@ -357,8 +371,8 @@ clientGlobal testClock mode global connParams testServer delimitTestScope =
         -- locally; this is done by the call to @delimitTestScope@.)
         mapM_ wait threads
     go mConn threads (c:cs) =
-        withAsync (runLocalSteps mConn c) $ \newThread ->
-          go mConn (newThread:threads) cs
+        withAsync (within timeoutLocal c $ runLocalSteps mConn c) $ \thread ->
+          go mConn (thread:threads) cs
 
     runLocalSteps :: Maybe Client.Connection -> LocalSteps -> IO ()
     runLocalSteps mConn (LocalSteps steps) = delimitTestScope $ do
@@ -415,15 +429,16 @@ serverLocal testClock mode call = \(LocalSteps steps) -> do
     ourStep :: ExecutionMode -> LocalStep -> Bool
     ourStep Aggressive   (ServerAction _) = True
     ourStep Aggressive   (ClientAction _) = False
-    ourStep Conservative (ClientAction _) = False
-    ourStep Conservative (ServerAction _) = True
+    ourStep Conservative (ServerAction _) = False
+    ourStep Conservative (ClientAction _) = True
 
     go :: [(TestClockTick, LocalStep)] -> StateT PeerHealth IO ()
     go []                     = return ()
     go ((tick, step) : steps) = do
         case step of
           ServerAction action -> do
-            _reachedTick <- liftIO $ waitForTestClockTick testClock tick
+            _reachedTick <- liftIO $ within timeoutClock (tick, step) $
+              waitForTestClockTick testClock tick
             -- TODO: We could assert that _reachedTick is True
             continue <-
               serverAct action `finally`
@@ -548,7 +563,8 @@ serverGlobal testClock mode globalStepsVar call = do
         -- exception.
         receivedMetadata <- Server.getRequestMetadata call
         expect (== metadata) $ Map.fromList receivedMetadata
-        serverLocal testClock mode call $ LocalSteps steps'
+        within timeoutLocal steps' $
+          serverLocal testClock mode call (LocalSteps steps')
       _otherwise ->
          error "serverGlobal: expected ClientInitiateRequest"
   where

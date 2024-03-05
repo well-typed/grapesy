@@ -2,6 +2,7 @@
 
 module Test.Prop.Dialogue (tests) where
 
+import Control.Exception
 import Data.Map.Strict qualified as Map
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -34,13 +35,15 @@ tests = testGroup "Test.Prop.Dialogue" [
         , testCase "earlyTermination08" $ regression earlyTermination08
         , testCase "earlyTermination09" $ regression earlyTermination09
         , testCase "earlyTermination10" $ regression earlyTermination10
+        , testCase "earlyTermination11" $ regression earlyTermination11
+        , testCase "earlyTermination12" $ regression earlyTermination12
         ]
     , testGroup "Setup" [
           testProperty "shrinkingWellFounded" prop_shrinkingWellFounded
         ]
     , testGroup "Arbitrary" [
           testProperty "withoutExceptions" arbitraryWithoutExceptions
---        , testProperty "withExceptions"    arbitraryWithExceptions
+        , testProperty "withExceptions"    arbitraryWithExceptions
         ]
     ]
 
@@ -63,8 +66,8 @@ arbitraryWithoutExceptions :: DialogueWithoutExceptions -> Property
 arbitraryWithoutExceptions (DialogueWithoutExceptions dialogue) =
     propDialogue dialogue
 
-_arbitraryWithExceptions :: DialogueWithExceptions -> Property
-_arbitraryWithExceptions (DialogueWithExceptions dialogue) =
+arbitraryWithExceptions :: DialogueWithExceptions -> Property
+arbitraryWithExceptions (DialogueWithExceptions dialogue) =
     propDialogue dialogue
 
 propDialogue :: Dialogue -> Property
@@ -76,11 +79,19 @@ propDialogue dialogue =
     globalSteps = dialogueGlobalSteps dialogue
 
 regression :: Dialogue -> IO ()
-regression dialogue = do
-    testClientServer =<< execGlobalSteps globalSteps
+regression dialogue =
+    handle (throwIO . RegressionTestFailed globalSteps) $
+      testClientServer =<< execGlobalSteps globalSteps
   where
     globalSteps :: GlobalSteps
     globalSteps = dialogueGlobalSteps dialogue
+
+data RegressionTestFailed = RegressionTestFailed {
+      regressionGlobalSteps :: GlobalSteps
+    , regressionException   :: SomeException
+    }
+  deriving stock (Show)
+  deriving anyclass (Exception)
 
 {-------------------------------------------------------------------------------
   Regression tests
@@ -93,7 +104,7 @@ regression dialogue = do
 trivial1 :: Dialogue
 trivial1 = Dialogue [
       (0, ClientAction $ Initiate (Map.empty, RPC1))
-    , (0, ServerAction $ Send (NoMoreElems (Map.empty)))
+    , (0, ServerAction $ Send (NoMoreElems Map.empty))
     , (0, ClientAction $ Send (NoMoreElems NoMetadata))
       -- Prevent client from closing the connection immediately:
     , (0, ClientAction $ SleepMilli 1)
@@ -104,7 +115,7 @@ trivial1 = Dialogue [
 trivial2 :: Dialogue
 trivial2 = Dialogue [
       (0, ClientAction $ Initiate (Map.empty, RPC1))
-    , (0, ServerAction $ Send (NoMoreElems (Map.empty)))
+    , (0, ServerAction $ Send (NoMoreElems Map.empty))
     , (0, ClientAction $ Send (NoMoreElems NoMetadata))
     ]
 
@@ -113,7 +124,7 @@ trivial2 = Dialogue [
 trivial3 :: Dialogue
 trivial3 = Dialogue [
       (0, ClientAction $ Initiate (Map.empty, RPC1))
-    , (0, ServerAction $ Send (NoMoreElems (Map.empty)))
+    , (0, ServerAction $ Send (NoMoreElems Map.empty))
     , (0, ClientAction $ Send (StreamElem 1234))
     , (0, ClientAction $ Send (NoMoreElems NoMetadata))
       -- Prevent client from closing the connection immediately:
@@ -129,13 +140,13 @@ trivial3 = Dialogue [
 concurrent1 :: Dialogue
 concurrent1 = Dialogue [
       (0, ClientAction $ Send (NoMoreElems NoMetadata))
-    , (1, ServerAction $ Send (NoMoreElems (Map.empty)))
+    , (1, ServerAction $ Send (NoMoreElems Map.empty))
     ]
 
 concurrent2 :: Dialogue
 concurrent2 = Dialogue [
       (1, ClientAction $ Send (NoMoreElems NoMetadata))
-    , (0, ServerAction $ Send (NoMoreElems (Map.empty)))
+    , (0, ServerAction $ Send (NoMoreElems Map.empty))
     ]
 
 concurrent3 :: Dialogue
@@ -150,8 +161,8 @@ concurrent3 = Dialogue [
 concurrent4 :: Dialogue
 concurrent4 = Dialogue [
       (1 , ClientAction $ Send (FinalElem 1 NoMetadata))
-    , (0 , ServerAction $ Send (FinalElem 2 (Map.empty)))
-    , (1 , ServerAction $ Send (FinalElem 3 (Map.empty)))
+    , (0 , ServerAction $ Send (FinalElem 2 Map.empty))
+    , (1 , ServerAction $ Send (FinalElem 3 Map.empty))
     , (0 , ClientAction $ Send (FinalElem 4 NoMetadata))
     ]
 
@@ -183,7 +194,7 @@ exception2 :: Dialogue
 exception2 = Dialogue [
       (0, ClientAction $ Initiate (Map.empty, RPC1))
     , (0, ClientAction $ Terminate (Just (ExceptionId 0)))
-    , (0, ServerAction $ Send (NoMoreElems (Map.empty)))
+    , (0, ServerAction $ Send (NoMoreElems Map.empty))
     ]
 
 -- | Server handler terminates before the client expects it
@@ -199,7 +210,7 @@ earlyTermination02 :: Dialogue
 earlyTermination02 = Dialogue [
       (0, ClientAction $ Initiate (Map.empty, RPC1))
     , (0, ClientAction $ Terminate Nothing)
-    , (0, ServerAction $ Send (NoMoreElems (Map.empty)))
+    , (0, ServerAction $ Send (NoMoreElems Map.empty))
     ]
 
 -- | Variation on early client-side termination that tends to trigger a
@@ -212,8 +223,8 @@ earlyTermination03 = Dialogue [
     , (0, ClientAction $ Initiate (Map.empty, RPC1))
     , (1, ClientAction $ Terminate (Just (ExceptionId 0)))
     , (0, ClientAction $ Send (NoMoreElems NoMetadata))
-    , (1, ServerAction $ Send (NoMoreElems (Map.empty)))
-    , (0, ServerAction $ Send (NoMoreElems (Map.empty)))
+    , (1, ServerAction $ Send (NoMoreElems Map.empty))
+    , (0, ServerAction $ Send (NoMoreElems Map.empty))
     ]
 
 -- | Another minor variation on 'earlyTermination03', which tends to trigger yet
@@ -221,12 +232,12 @@ earlyTermination03 = Dialogue [
 earlyTermination04 :: Dialogue
 earlyTermination04 = Dialogue [
       (0, ClientAction $ Initiate (Map.empty, RPC1))
-    , (0, ServerAction $ Initiate (Map.empty))
+    , (0, ServerAction $ Initiate Map.empty)
     , (1, ClientAction $ Initiate (Map.empty, RPC1 ))
     , (1, ClientAction $ Terminate (Just (ExceptionId 0)))
-    , (1, ServerAction $ Send (NoMoreElems (Map.empty)))
+    , (1, ServerAction $ Send (NoMoreElems Map.empty))
     , (0, ClientAction $ Send (NoMoreElems NoMetadata))
-    , (0, ServerAction $ Send (NoMoreElems (Map.empty)))
+    , (0, ServerAction $ Send (NoMoreElems Map.empty))
     ]
 
 -- Test that early termination in one call does not affect the other. This is
@@ -238,7 +249,7 @@ earlyTermination05 = Dialogue [
     , (1, ServerAction $ Terminate Nothing)
     , (0, ClientAction $ Initiate (Map.empty,RPC1))
     , (0, ClientAction $ Send (NoMoreElems NoMetadata))
-    , (0, ServerAction $ Send (NoMoreElems (Map.empty)))
+    , (0, ServerAction $ Send (NoMoreElems Map.empty))
     , (1, ClientAction $ Send (NoMoreElems NoMetadata))
     ]
 
@@ -255,13 +266,13 @@ earlyTermination06 = Dialogue [
       (0, ClientAction $ Initiate (Map.empty, RPC1))
     , (0, ClientAction $ Send (StreamElem 0))
     , (0, ClientAction $ Terminate (Just (ExceptionId 0)))
-    , (0, ServerAction $ Send (NoMoreElems (Map.empty)))
+    , (0, ServerAction $ Send (NoMoreElems Map.empty))
     ]
 
 -- | Server-side early termination
 earlyTermination07 :: Dialogue
 earlyTermination07 = Dialogue [
-      (0, ServerAction $ Initiate (Map.empty))
+      (0, ServerAction $ Initiate Map.empty)
     , (0, ServerAction $ Terminate (Just (ExceptionId 0)))
     ]
 
@@ -278,7 +289,7 @@ earlyTermination08 = Dialogue [
 -- | Like 'earlyTermination07', but now without an exception
 earlyTermination09 :: Dialogue
 earlyTermination09 = Dialogue [
-      (0, ServerAction $ Initiate (Map.empty))
+      (0, ServerAction $ Initiate Map.empty)
     , (0, ServerAction $ Terminate Nothing)
     ]
 
@@ -286,7 +297,35 @@ earlyTermination09 = Dialogue [
 earlyTermination10 :: Dialogue
 earlyTermination10 = Dialogue [
       (0, ClientAction $ Initiate (Map.empty, RPC1))
-    , (0, ServerAction $ Initiate (Map.empty))
-    , (0, ClientAction $ Terminate (Just (ExceptionId 1)))
-    , (0, ServerAction $ Send (NoMoreElems (Map.empty)))
+    , (0, ServerAction $ Initiate Map.empty)
+    , (0, ClientAction $ Terminate (Just (ExceptionId 0)))
+    , (0, ServerAction $ Send (NoMoreElems Map.empty))
+    ]
+
+-- | Like 'earlyTermination10', but server sends a message before closing
+earlyTermination11 :: Dialogue
+earlyTermination11 = Dialogue [
+      (0, ClientAction $ Initiate (Map.empty, RPC1))
+    , (0, ServerAction $ Initiate Map.empty)
+    , (0, ClientAction $ Terminate (Just (ExceptionId 0)))
+    , (0, ServerAction $ Send (StreamElem 0))
+    , (0, ServerAction $ Send (NoMoreElems Map.empty))
+    ]
+
+-- | Client tries to send message but server has already terminated
+--
+-- This gets sandwiched between another interaction with no unexpected early
+-- termination.
+--
+-- This is a test of the test suite itself: it verifies that we step the test
+-- clock correctly in the presence of failures.
+earlyTermination12 :: Dialogue
+earlyTermination12 = Dialogue [
+      (0, ClientAction $ Initiate (Map.empty, RPC2))    -- 0
+    , (1, ClientAction $ Initiate (Map.empty, RPC1))    -- 1
+    , (1, ServerAction $ Terminate Nothing)             -- 2
+    , (1, ClientAction $ Send (StreamElem 0))           -- 3
+    , (1, ClientAction $ Send (NoMoreElems NoMetadata)) -- 4
+    , (0, ClientAction $ Send (NoMoreElems NoMetadata)) -- 5
+    , (0, ServerAction $ Send (NoMoreElems Map.empty))  -- 6
     ]
