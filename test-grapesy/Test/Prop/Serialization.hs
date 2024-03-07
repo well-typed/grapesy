@@ -38,14 +38,19 @@ tests = testGroup "Test.Prop.Serialization" [
         , testProperty "RequestHeaders" $
             roundtrip (buildRequestHeaders unknown)
                       (parseRequestHeaders unknown)
+        , testProperty "ResponseHeaders" $
+            roundtrip (buildResponseHeaders unknown)
+                      (parseResponseHeaders unknown)
+        , testProperty "ProperTrailers" $
+            roundtrip buildProperTrailers
+                      (parseProperTrailers unknown)
+        , testProperty "TrailersOnly" $
+            roundtrip (buildTrailersOnly unknown)
+                      (parseTrailersOnly unknown)
         ]
     ]
   where
     unknown = Proxy @(UnknownRpc (Just "serv") (Just "meth"))
-
--- TODO: Roundtrips for ResponseHeaders
--- TODO: Roundtrips for ProperTrailers
--- TODO: Roundtrips for TrailersOnly
 
 {-------------------------------------------------------------------------------
   Auxiliary: binary headers
@@ -127,6 +132,39 @@ instance Arbitrary (Awkward RequestHeaders) where
       , shrinkRegular (\x -> h'{requestIncludeTE           = x}) requestIncludeTE           h
       , shrinkAwkward (\x -> h'{requestTraceContext        = x}) requestTraceContext        h
       ]
+
+instance Arbitrary (Awkward ResponseHeaders) where
+  arbitrary = Awkward <$> do
+      responseCompression       <- awkward
+      responseAcceptCompression <- awkward
+      responseMetadata          <- awkward
+      responseContentType       <- awkward
+      return ResponseHeaders {
+          responseCompression
+        , responseAcceptCompression
+        , responseMetadata
+        , responseContentType
+        }
+
+instance Arbitrary (Awkward ProperTrailers) where
+  arbitrary = Awkward <$> do
+      properTrailersGrpcStatus  <- awkward
+      properTrailersGrpcMessage <- awkward
+      properTrailersMetadata    <- awkward
+      return $ ProperTrailers{
+          properTrailersGrpcStatus
+        , properTrailersGrpcMessage
+        , properTrailersMetadata
+        }
+
+instance Arbitrary (Awkward TrailersOnly) where
+  arbitrary = Awkward <$> do
+      trailersOnlyContentType <- awkward
+      trailersOnlyProper      <- awkward
+      return $ TrailersOnly {
+           trailersOnlyContentType
+         , trailersOnlyProper
+        }
 
 instance Arbitrary (Awkward Timeout) where
   arbitrary = fmap Awkward $
@@ -217,6 +255,28 @@ instance Arbitrary (Awkward TraceOptions) where
       return TraceOptions {
           traceOptionsSampled
         }
+
+instance Arbitrary (Awkward GrpcStatus) where
+  arbitrary = Awkward <$>
+      elements [
+          GrpcOk
+        , GrpcError GrpcCancelled
+        , GrpcError GrpcUnknown
+        , GrpcError GrpcInvalidArgument
+        , GrpcError GrpcDeadlineExceeded
+        , GrpcError GrpcNotFound
+        , GrpcError GrpcAlreadyExists
+        , GrpcError GrpcPermissionDenied
+        , GrpcError GrpcResourceExhausted
+        , GrpcError GrpcFailedPrecondition
+        , GrpcError GrpcAborted
+        , GrpcError GrpcOutOfRange
+        , GrpcError GrpcUnimplemented
+        , GrpcError GrpcInternal
+        , GrpcError GrpcUnavailable
+        , GrpcError GrpcDataLoss
+        , GrpcError GrpcUnauthenticated
+        ]
 
 {-------------------------------------------------------------------------------
   Auxiliary

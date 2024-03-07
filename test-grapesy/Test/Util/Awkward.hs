@@ -14,6 +14,8 @@ import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Test.QuickCheck
 import Test.QuickCheck.Instances ()
+import Data.Text (Text)
+import Data.Text qualified as Text
 
 {-------------------------------------------------------------------------------
   \"Awkward\" instances
@@ -98,3 +100,7 @@ instance Arbitrary (Awkward Strict.ByteString) where
 instance {-# OVERLAPPING #-} Arbitrary (Awkward String) where
   arbitrary = Awkward <$> arbitrary
   shrink    = map Awkward . shrink . getAwkward
+
+instance Arbitrary (Awkward Text) where
+  arbitrary = Awkward . Text.pack . getAwkward <$> arbitrary
+  shrink    = map (Awkward . Text.pack) . shrink . (Text.unpack . getAwkward)
