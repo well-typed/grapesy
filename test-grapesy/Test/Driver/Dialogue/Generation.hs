@@ -14,12 +14,13 @@ import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import GHC.Generics qualified as GHC
+import GHC.Stack
 import Test.QuickCheck
 
 import Network.GRPC.Common
 
 import Test.Driver.Dialogue.Definition
-import Test.Driver.Dialogue.TestClock
+import Test.Driver.Dialogue.TestClock qualified as TestClock
 
 {-------------------------------------------------------------------------------
   Metadata
@@ -183,12 +184,6 @@ ensureCorrectUsage = go Map.empty []
               Send{} ->
                 go (upd st{clientTerminated = True}) ((i, s) : acc) ss
 
-              -- Unless we terminated or have not yet started the request the
-              -- client, we can always sleep.
-
-              SleepMilli _ ->
-                go sts ((i, s): acc) ss
-
           ServerAction action ->
             case action of
               -- Server actions cannot happen until the client has initiated the
@@ -226,12 +221,6 @@ ensureCorrectUsage = go Map.empty []
 
               Send{} ->
                 go (upd st{serverTerminated = True}) ((i, s) : acc) ss
-
-              -- Unless we terminated or have not yet started the request the
-              -- client, we can always sleep.
-
-              SleepMilli _ ->
-                go sts ((i, s): acc) ss
       where
         st :: LocalGenState
         st = Map.findWithDefault initLocalGenState i sts
@@ -269,28 +258,45 @@ ensureCorrectUsage = go Map.empty []
   'ensureCorrectUsage', and shrinking will loop).
 -------------------------------------------------------------------------------}
 
-newtype Dialogue = Dialogue {
-      getDialogue :: [(Int, LocalStep)]
-    }
+data Dialogue =
+    -- | Dialogue that is already in "correct" form
+    --
+    -- Calling 'ensureCorrectUsage' on such a dialogue should be a no-op.
+    NormalizedDialogue [(Int, LocalStep)]
+
+    -- | Dialogue that may still need to be corrected
+  | UnnormalizedDialogue [(Int, LocalStep)]
   deriving stock (Show, Eq, GHC.Generic)
+
+getNormalizedDialogue :: HasCallStack => Dialogue -> [(Int, LocalStep)]
+getNormalizedDialogue (UnnormalizedDialogue steps) = ensureCorrectUsage steps
+getNormalizedDialogue (NormalizedDialogue   steps)
+  | steps == normalized
+  = steps
+
+  | otherwise
+  = error $ "getNormalizedDialogue: normal form is " ++ show normalized
+  where
+    normalized :: [(Int, LocalStep)]
+    normalized = ensureCorrectUsage steps
+
+getRawDialogue :: Dialogue -> [(Int, LocalStep)]
+getRawDialogue (NormalizedDialogue   steps) = steps
+getRawDialogue (UnnormalizedDialogue steps) = steps
 
 dialogueGlobalSteps :: Dialogue -> GlobalSteps
 dialogueGlobalSteps =
       GlobalSteps
     . map LocalSteps
-    . assignTimings
-    . ensureCorrectUsage
-    . getDialogue
+    . TestClock.assignTimings
+    . getNormalizedDialogue
 
 -- | Shrink dialogue
---
--- We ignore 'dialogueCleanup', and simply reconstruct it. See 'Dialogue' for
--- further discussion.
 shrinkDialogue :: Dialogue -> [Dialogue]
 shrinkDialogue =
-      map Dialogue
+      map UnnormalizedDialogue
     . shrinkList (shrinkInterleaved shrinkLocalStep)
-    . getDialogue
+    . getRawDialogue
 
 {-------------------------------------------------------------------------------
   Shrinking
@@ -319,10 +325,6 @@ shrinkLocalStep = \case
     ClientAction (Terminate Nothing) ->
       []
     ServerAction (Terminate Nothing) ->
-      []
-    ClientAction (SleepMilli _) ->
-      []
-    ServerAction (SleepMilli _) ->
       []
 
 shrinkRPC :: RPC -> [RPC]
@@ -404,7 +406,8 @@ instance Arbitrary DialogueWithoutExceptions where
   arbitrary = do
       concurrency <- choose (1, 3)
       threads     <- replicateM concurrency $ genLocalSteps False
-      DialogueWithoutExceptions . Dialogue <$> interleave threads
+      DialogueWithoutExceptions . UnnormalizedDialogue <$>
+        TestClock.interleave threads
 
   shrink (DialogueWithoutExceptions dialogue) =
       DialogueWithoutExceptions <$> shrinkDialogue dialogue
@@ -413,7 +416,8 @@ instance Arbitrary DialogueWithExceptions where
   arbitrary = do
       concurrency <- choose (1, 3)
       threads     <- replicateM concurrency $ genLocalSteps True
-      DialogueWithExceptions . Dialogue <$> interleave threads
+      DialogueWithExceptions . UnnormalizedDialogue <$>
+        TestClock.interleave threads
 
   shrink (DialogueWithExceptions dialogue) =
       DialogueWithExceptions <$> shrinkDialogue dialogue

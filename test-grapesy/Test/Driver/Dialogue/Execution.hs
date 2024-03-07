@@ -29,7 +29,8 @@ import Network.GRPC.Server.Binary qualified as Server.Binary
 
 import Test.Driver.ClientServer
 import Test.Driver.Dialogue.Definition
-import Test.Driver.Dialogue.TestClock
+import Test.Driver.Dialogue.TestClock (TestClock)
+import Test.Driver.Dialogue.TestClock qualified as TestClock
 import Test.Util.Within
 
 {-------------------------------------------------------------------------------
@@ -68,24 +69,29 @@ data Failure =
   deriving stock (Show, GHC.Generic)
   deriving anyclass (Exception)
 
-data ReceivedUnexpected = forall a. Show a => ReceivedUnexpected {
-      received :: a
+data ReceivedUnexpected = forall a b. (Show a, Show b) => ReceivedUnexpected {
+      received   :: a -- The value we received
+    , expectInfo :: b -- Some additional info that can help debug the issue
     }
 
 deriving stock instance Show ReceivedUnexpected
 
 expect ::
-     (MonadThrow m, Show a, HasCallStack)
-  => (a -> Bool)  -- ^ Expected
+     (MonadThrow m, Show a, Show info, HasCallStack)
+  => info
+  -> (a -> Bool)  -- ^ Expected
   -> a            -- ^ Actually received
   -> m ()
-expect isExpected received
+expect expectInfo isExpected received
   | isExpected received
   = return ()
 
   | otherwise
   = throwM $ TestFailure callStack $
-      Unexpected $ ReceivedUnexpected{received}
+      Unexpected $ ReceivedUnexpected{
+          received
+        , expectInfo
+        }
 
 {-------------------------------------------------------------------------------
   Timeouts
@@ -121,140 +127,29 @@ ifPeerAlive PeerAlive  = id
 ifPeerAlive peerFailed = const peerFailed
 
 {-------------------------------------------------------------------------------
-  Execution mode
--------------------------------------------------------------------------------}
-
--- | Execution mode
---
--- Each test involves one or more pairs of a client and a server engaged in an
--- RPC call. Each call consists of a series of actions ("client sends initial
--- metadata", "client sends a message", "server sends a message", etc.). We
--- categorize such actions as either " passive " (such as receiving a message)
--- or " active " (such as sending a message).
---
--- As part of the test generation, each action is assigned a (test) clock tick.
--- This imposes a specific (but randomly generated) ordering; this matches the
--- formal definition of the behaviour of concurrent systems: "for every
--- interleaving, ...". Active actions wait until the test clock (essentially
--- such an @MVar Int@) reaches their assigned tick before proceeding. The
--- /advancement/ of the test clock depends on the mode (see below).
-data ExecutionMode =
-    -- | Conservative mode (used when tests involve early termination)
-    --
-    -- == Ordering
-    --
-    -- Consider a test that looks something like:
-    --
-    -- > clock tick 1: client sends message
-    -- > clock tick 2: client throws exception
-    --
-    -- We have to be careful to preserve ordering here: the exception thrown by
-    -- the client may or may not " overtake " the earlier send: the message may
-    -- or may not be send to the server, thereby making the tests flaky. In
-    -- conversative mode, therefore, the /passive/ participant is the one that
-    -- advances the test clock; in the example above, the /server/ advances the
-    -- test clock when it receives the message. The downside of this approach
-    -- is that we are excluding some valid behaviour from the tests: we're
-    -- effectively making every operation synchronous.
-    --
-    -- == Connection isolation
-    --
-    -- The tests assume that different calls are independent from each other.
-    -- This is mostly true, but not completely: when a client or a server
-    -- terminates early, the entire connection (supporting potentially many
-    -- calls) is reset. It's not entirely clear why; it feels like an
-    -- unnecessary limitation in @http2@. (TODO: Actually, this might be related
-    -- to an exception being thrown in 'outboundTrailersMaker'?)
-    --
-    -- Ideally, we would either (1) randomly assign connections to calls and
-    -- then test that an early termination only affects calls using the same
-    -- connection, or better yet, (2), remove this limitation from @http2@.
-    --
-    -- For now, we do neither: /if/ a test includes early termination, we give
-    -- each call its own connection, thereby regaining independence.
-    Conservative
-
-    -- | Aggressive mode (used when tests do not involve early termination)
-    --
-    -- == Ordering
-    --
-    -- Consider a test containing:
-    --
-    -- > clock tick 1: client sends message A
-    -- > clock tick 2: client sends message B
-    --
-    -- In aggressive mode it's the /active/ participant that advances the clock.
-    -- This means that we may well reach clock tick 2 before the server has
-    -- received message A, thus testing the asynchronous nature of the
-    -- operations that @grapesy@ offers
-    --
-    -- ## Connection isolation
-    --
-    -- In aggressive mode all calls from the client to the server share the
-    -- same connection.
-  | Aggressive
-  deriving stock (Show, Eq)
-
-ifConservative :: Applicative m => ExecutionMode -> m () -> m ()
-ifConservative Conservative k = k
-ifConservative Aggressive   _ = pure ()
-
-ifAggressive :: Applicative m => ExecutionMode -> m () -> m ()
-ifAggressive Aggressive   k = k
-ifAggressive Conservative _ = pure ()
-
--- | Advance the clock for all non-executed steps
---
--- When a client or a handler exits (due to an exception, perhaps), then it is
--- important we still step the test clock at the appropriate times, to avoid the
--- rest of the tests stalling.
-skipMissedSteps ::
-     TestClock
-  -> ExecutionMode
-  -> (ExecutionMode -> LocalStep -> Bool)
-  -> [(TestClockTick, LocalStep)]
-  -> IO ()
-skipMissedSteps testClock mode ourStep steps =
-    void $ forkIO $
-      advanceTestClockAtTimes testClock $
-        map fst $ filter (ourStep mode . snd) steps
-
-{-------------------------------------------------------------------------------
   Client-side interpretation
 -------------------------------------------------------------------------------}
 
 clientLocal ::
      HasCallStack
   => TestClock
-  -> ExecutionMode
   -> Client.Call (BinaryRpc meth srv)
   -> LocalSteps
   -> IO ()
-clientLocal testClock mode call = \(LocalSteps steps) ->
-    evalStateT (go steps) PeerAlive `finally`
-      skipMissedSteps testClock mode ourStep steps
+clientLocal clock call = \(LocalSteps steps) ->
+    evalStateT (go steps) PeerAlive
   where
-    ourStep :: ExecutionMode -> LocalStep -> Bool
-    ourStep Aggressive   (ClientAction _) = True
-    ourStep Aggressive   (ServerAction _) = False
-    ourStep Conservative (ClientAction _) = False
-    ourStep Conservative (ServerAction _) = True
-
-    go :: [(TestClockTick, LocalStep)] -> StateT PeerHealth IO ()
+    go :: [(TestClock.Tick, LocalStep)] -> StateT PeerHealth IO ()
     go []                     = return ()
     go ((tick, step) : steps) = do
         case step of
           ClientAction action -> do
-            _reachedTick <- liftIO $ within timeoutClock (tick, step) $
-              waitForTestClockTick testClock tick
-            -- TODO: We could assert that _reachedTick is True
-            continue <-
-              clientAct action `finally`
-                liftIO (ifAggressive mode $ advanceTestClock testClock)
+            within timeoutClock step $ TestClock.waitForTick clock tick
+            continue <- clientAct tick action `finally` TestClock.advance clock
             when continue $ go steps
           ServerAction action -> do
-            reactToServer action `finally`
-              liftIO (ifConservative mode $ advanceTestClock testClock)
+            TestClock.giveGreenLight clock tick
+            reactToServer action
             go steps
 
     -- Client action
@@ -262,44 +157,47 @@ clientLocal testClock mode call = \(LocalSteps steps) ->
     -- Returns 'True' if we should continue executing more actions, or
     -- exit (thereby closing the RPC call)
     clientAct ::
-         Action (Metadata, RPC) NoMetadata
+         TestClock.Tick
+      -> Action (Metadata, RPC) NoMetadata
       -> StateT PeerHealth IO Bool
-    clientAct = \case
-        Initiate _ ->
-          error "clientLocal: unexpected Initiate"
-        Send x -> do
-          isExpected <- adjustExpectation ()
-          expect isExpected =<< liftIO (try $ Client.Binary.sendInput call x)
-          return True
-        Terminate (Just exceptionId) -> do
-          throwM $ DeliberateException $ SomeClientException exceptionId
-        Terminate Nothing ->
-          return False
-        SleepMilli n -> do
-          liftIO $ threadDelay (n * 1_000)
-          return True
+    clientAct tick action =
+        case action of
+          Initiate _ ->
+            error "clientLocal: unexpected Initiate"
+          Send x -> do
+            isExpected <- adjustExpectation ()
+            expect action isExpected =<<
+              liftIO (try $ Client.Binary.sendInput call x)
+            return True
+          Terminate mException -> do
+            -- See discussion in 'TestClock' for why we need to wait here
+            TestClock.waitForGreenLight clock tick
+            case mException of
+              Just exceptionId ->
+                throwM $ DeliberateException $ SomeClientException exceptionId
+              Nothing ->
+                return False
 
     reactToServer ::
            Action Metadata Metadata
         -> StateT PeerHealth IO ()
-    reactToServer = \case
-        Initiate expectedMetadata -> liftIO $ do
-          receivedMetadata <- Client.recvResponseMetadata call
-          expect (== expectedMetadata) $ Map.fromList receivedMetadata
-        Send (FinalElem a b) -> do
-          -- Known bug (limitation in http2). See recvMessageLoop.
-          reactToServer $ Send (StreamElem a)
-          reactToServer $ Send (NoMoreElems b)
-        Send expectedElem -> do
-          expected <- adjustExpectation expectedElem
-          received <- liftIO . try $
-                        fmap (first Map.fromList) $
-                          Client.Binary.recvOutput call
-          expect expected received
-        Terminate mErr -> do
-          reactToServerTermination mErr
-        SleepMilli _ ->
-          return ()
+    reactToServer action =
+        case action of
+          Initiate expectedMetadata -> liftIO $ do
+            receivedMetadata <- Client.recvResponseMetadata call
+            expect action (== expectedMetadata) $ Map.fromList receivedMetadata
+          Send (FinalElem a b) -> do
+            -- Known bug (limitation in http2). See recvMessageLoop.
+            reactToServer $ Send (StreamElem a)
+            reactToServer $ Send (NoMoreElems b)
+          Send expectedElem -> do
+            expected <- adjustExpectation expectedElem
+            received <- liftIO . try $
+                          fmap (first Map.fromList) $
+                            Client.Binary.recvOutput call
+            expect action expected received
+          Terminate mErr -> do
+            reactToServerTermination mErr
 
     -- See 'reactToClientTermination' for discussion.
     reactToServerTermination ::
@@ -347,13 +245,21 @@ clientLocal testClock mode call = \(LocalSteps steps) ->
 
 clientGlobal ::
      TestClock
-  -> ExecutionMode
+  -> Bool
+     -- ^ Use new connection for each RPC call?
+     --
+     -- Multiple RPC calls on a single connection /ought/ to be independent of
+     -- each other, with something going wrong on one should not affect another.
+     -- This is currently however not the case, I /think/ due to limitations of
+     -- @http2@.
+     --
+     -- See <https://github.com/well-typed/grapesy/issues/102>.
   -> GlobalSteps
   -> TestClient
-clientGlobal testClock mode global connParams testServer delimitTestScope =
-    case mode of
-      Aggressive   -> withConn $ \c -> go (Just c) [] (getGlobalSteps global)
-      Conservative ->                  go Nothing  [] (getGlobalSteps global)
+clientGlobal clock connPerRPC global connParams testServer delimitTestScope =
+    if connPerRPC
+      then                  go Nothing  [] (getGlobalSteps global)
+      else withConn $ \c -> go (Just c) [] (getGlobalSteps global)
   where
     withConn :: (Client.Connection -> IO ()) -> IO ()
     withConn = Client.withConnection connParams testServer
@@ -378,8 +284,7 @@ clientGlobal testClock mode global connParams testServer delimitTestScope =
     runLocalSteps mConn (LocalSteps steps) = delimitTestScope $ do
         case steps of
           (tick, ClientAction (Initiate (metadata, rpc))) : steps' -> do
-            _reachedTick <- waitForTestClockTick testClock tick
-            -- TODO: We could assert that _reachedTick is True
+            TestClock.waitForTick clock tick
 
             -- Timeouts are outside the scope of these tests: it's too finicky
             -- to relate timeouts (in seconds) to specific test execution.
@@ -405,7 +310,7 @@ clientGlobal testClock mode global connParams testServer delimitTestScope =
                   -- precludes a class of correct behaviour: the server might
                   -- not respond with that initial metadata until the client has
                   -- sent some messages.
-                  clientLocal testClock mode call (LocalSteps steps')
+                  clientLocal clock call (LocalSteps steps')
 
           _otherwise ->
             error $ "clientGlobal: expected Initiate, got " ++ show steps
@@ -419,34 +324,22 @@ clientGlobal testClock mode global connParams testServer delimitTestScope =
 
 serverLocal ::
      TestClock
-  -> ExecutionMode
   -> Server.Call (BinaryRpc serv meth)
   -> LocalSteps -> IO ()
-serverLocal testClock mode call = \(LocalSteps steps) -> do
-    evalStateT (go steps) PeerAlive `finally`
-      skipMissedSteps testClock mode ourStep steps
+serverLocal clock call = \(LocalSteps steps) -> do
+    evalStateT (go steps) PeerAlive
   where
-    ourStep :: ExecutionMode -> LocalStep -> Bool
-    ourStep Aggressive   (ServerAction _) = True
-    ourStep Aggressive   (ClientAction _) = False
-    ourStep Conservative (ServerAction _) = False
-    ourStep Conservative (ClientAction _) = True
-
-    go :: [(TestClockTick, LocalStep)] -> StateT PeerHealth IO ()
+    go :: [(TestClock.Tick, LocalStep)] -> StateT PeerHealth IO ()
     go []                     = return ()
-    go ((tick, step) : steps) = do
+    go ((tick, step) : steps) =
         case step of
           ServerAction action -> do
-            _reachedTick <- liftIO $ within timeoutClock (tick, step) $
-              waitForTestClockTick testClock tick
-            -- TODO: We could assert that _reachedTick is True
-            continue <-
-              serverAct action `finally`
-                liftIO (ifAggressive mode $ advanceTestClock testClock)
+            within timeoutClock step $ TestClock.waitForTick clock tick
+            continue <- serverAct tick action `finally` TestClock.advance clock
             when continue $ go steps
           ClientAction action -> do
-            reactToClient action `finally`
-              liftIO (ifConservative mode $ advanceTestClock testClock)
+            TestClock.giveGreenLight clock tick
+            reactToClient action
             go steps
 
     -- Server action
@@ -454,44 +347,46 @@ serverLocal testClock mode call = \(LocalSteps steps) -> do
     -- Returns 'True' if we should continue executing the other actions, or
     -- terminate (thereby terminating the handler)
     serverAct ::
-         Action Metadata Metadata
+         TestClock.Tick
+      -> Action Metadata Metadata
       -> StateT PeerHealth IO Bool
-    serverAct = \case
-        Initiate metadata -> liftIO $ do
-          Server.setResponseMetadata call (Map.toList metadata)
-          void $ Server.initiateResponse call
-          return True
-        Send x -> do
-          isExpected <- adjustExpectation ()
-          received   <- try . liftIO $
-                          Server.Binary.sendOutput call (first Map.toList x)
-          expect isExpected received
-          return True
-        Terminate (Just exceptionId) -> do
-          throwM $ DeliberateException $ SomeServerException exceptionId
-        Terminate Nothing ->
-          return False
-        SleepMilli n -> do
-          liftIO $ threadDelay (n * 1_000)
-          return True
+    serverAct tick action =
+        case action of
+          Initiate metadata -> liftIO $ do
+            Server.setResponseMetadata call (Map.toList metadata)
+            void $ Server.initiateResponse call
+            return True
+          Send x -> do
+            isExpected <- adjustExpectation ()
+            received   <- try . liftIO $
+                            Server.Binary.sendOutput call (first Map.toList x)
+            expect action isExpected received
+            return True
+          Terminate mException -> do
+            TestClock.waitForGreenLight clock tick
+            case mException of
+              Just exceptionId ->
+                throwM $ DeliberateException $ SomeServerException exceptionId
+              Nothing ->
+                return False
 
     reactToClient ::
            Action (Metadata, RPC) NoMetadata
         -> StateT PeerHealth IO ()
-    reactToClient = \case
-        Initiate _ ->
-          error "serverLocal: unexpected ClientInitiateRequest"
-        Send (FinalElem a b) -> do
-          -- Known bug (limitation in http2). See recvMessageLoop.
-          reactToClient $ Send (StreamElem a)
-          reactToClient $ Send (NoMoreElems b)
-        Send expectedElem -> do
-          isExpected <- adjustExpectation expectedElem
-          expect isExpected =<< liftIO (try $ Server.Binary.recvInput call)
-        Terminate mErr -> do
-          reactToClientTermination mErr
-        SleepMilli _ ->
-          return ()
+    reactToClient action =
+        case action of
+          Initiate _ ->
+            error "serverLocal: unexpected ClientInitiateRequest"
+          Send (FinalElem a b) -> do
+            -- Known bug (limitation in http2). See recvMessageLoop.
+            reactToClient $ Send (StreamElem a)
+            reactToClient $ Send (NoMoreElems b)
+          Send expectedElem -> do
+            isExpected <- adjustExpectation expectedElem
+            expect action isExpected =<<
+              liftIO (try $ Server.Binary.recvInput call)
+          Terminate mErr -> do
+            reactToClientTermination mErr
 
     reactToClientTermination ::
          Maybe ExceptionId
@@ -539,7 +434,6 @@ serverLocal testClock mode call = \(LocalSteps steps) -> do
 serverGlobal ::
      HasCallStack
   => TestClock
-  -> ExecutionMode
   -> MVar GlobalSteps
     -- ^ Unlike in the client case, the grapesy infrastructure spawns a new
     -- thread for each incoming connection. To know which part of the test this
@@ -548,23 +442,20 @@ serverGlobal ::
     -- thread, the order of these incoming requests is deterministic.
   -> Server.Call (BinaryRpc serv meth)
   -> IO ()
-serverGlobal testClock mode globalStepsVar call = do
+serverGlobal clock globalStepsVar call = do
     steps <- modifyMVar globalStepsVar (getNextSteps . getGlobalSteps)
+
     -- See discussion in clientGlobal (runLocalSteps)
-    advanceTestClock testClock
+    TestClock.advance clock
 
     case getLocalSteps steps of
-      -- It is important that we do this 'expect' outside the scope of the
-      -- @modifyMVar@: if we do not, then if the expect fails, we'd leave the
-      -- @MVar@ unchanged, and the next request would use the wrong steps.
-      (_tick, ClientAction (Initiate (metadata, _rpc))) : steps' -> do
-        -- We don't care about the timeout the client sets; if the server
-        -- takes too long, the /client/ will check that it gets the expected
-        -- exception.
+      (tick, step@(ClientAction (Initiate (metadata, _rpc)))) : steps' -> do
         receivedMetadata <- Server.getRequestMetadata call
-        expect (== metadata) $ Map.fromList receivedMetadata
-        within timeoutLocal steps' $
-          serverLocal testClock mode call (LocalSteps steps')
+        -- It is important that we do this 'expect' outside the scope of the
+        -- @modifyMVar@: if we do not, then if the expect fails, we'd leave the
+        -- @MVar@ unchanged, and the next request would use the wrong steps.
+        expect (tick, step) (== metadata) $ Map.fromList receivedMetadata
+        within timeoutLocal steps' $ serverLocal clock call (LocalSteps steps')
       _otherwise ->
          error "serverGlobal: expected ClientInitiateRequest"
   where
@@ -581,20 +472,20 @@ serverGlobal testClock mode globalStepsVar call = do
 execGlobalSteps :: GlobalSteps -> IO ClientServerTest
 execGlobalSteps steps = do
     globalStepsVar <- newMVar (order steps)
-    testClock      <- newTestClock
+    clock          <- TestClock.new
 
     let handler ::
              IsRPC (BinaryRpc serv meth)
           => Proxy (BinaryRpc serv meth) -> Server.RpcHandler IO
         handler rpc = Server.mkRpcHandler rpc $ \call ->
-                        serverGlobal testClock mode globalStepsVar call
+                        serverGlobal clock globalStepsVar call
 
     return ClientServerTest {
         config = def {
             expectEarlyClientTermination = clientTerminatesEarly
           , expectEarlyServerTermination = serverTerminatesEarly
           }
-      , client = clientGlobal testClock mode steps
+      , client = clientGlobal clock connPerRPC steps
       , server = [
             handler (Proxy @TestRpc1)
           , handler (Proxy @TestRpc2)
@@ -605,11 +496,8 @@ execGlobalSteps steps = do
     clientTerminatesEarly, serverTerminatesEarly :: Bool
     (clientTerminatesEarly, serverTerminatesEarly) = hasEarlyTermination steps
 
-    mode :: ExecutionMode
-    mode =
-        if serverTerminatesEarly || clientTerminatesEarly
-          then Conservative
-          else Aggressive
+    connPerRPC :: Bool
+    connPerRPC = serverTerminatesEarly || clientTerminatesEarly
 
     -- For 'clientGlobal' the order doesn't matter, because it spawns a thread
     -- for each 'LocalSteps'. The server however doesn't get this option; the
@@ -620,7 +508,7 @@ execGlobalSteps steps = do
     order (GlobalSteps threads) = GlobalSteps $
         sortBy (comparing firstTick) threads
      where
-       firstTick :: LocalSteps -> TestClockTick
+       firstTick :: LocalSteps -> TestClock.Tick
        firstTick (LocalSteps []) =
            error "execGlobalSteps: unexpected empty LocalSteps"
        firstTick (LocalSteps ((tick, _):_)) =

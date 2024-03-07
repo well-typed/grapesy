@@ -48,6 +48,7 @@ import Network.GRPC.Spec
 
 import Paths_grapesy
 import Network.GRPC.Client (ConnParams(connOverridePingRateLimit))
+import Control.Applicative
 
 {-------------------------------------------------------------------------------
   Top-level
@@ -666,16 +667,20 @@ runTestClientServer (ClientServerTest cfg clientRun serverHandlers) = do
             clientRun
 
     -- Run the test
+    --
+    -- Leaving the scope of both @withAsync@ calls will kill both the client and
+    -- server (if they are still running)
     testResult :: Maybe SomeException <-
       -- Start the server
       withAsync server $ \_serverThread ->
         -- Start the client
         withAsync client $ \clientThread -> do
           -- Wait for clients to terminate (or test failure)
-          atomically $
-              (void $ waitCatchSTM clientThread)
+          -- (the 'orElse' is only relevant if a /handler/ throws an exception)
+          clientResult <- atomically $
+              (either Just (const Nothing) <$> waitCatchSTM clientThread)
             `orElse`
-              (void $ readTMVar firstTestFailure)
+              (const Nothing <$> readTMVar firstTestFailure)
 
           -- Wait for handlers to terminate (or test failure)
           -- (Note that the server /itself/ normally never terminates)
@@ -684,9 +689,13 @@ runTestClientServer (ClientServerTest cfg clientRun serverHandlers) = do
             `orElse`
               (void $ readTMVar firstTestFailure)
 
-          -- Get the test result, and leave the scope of both @withAsync@ calls
-          -- (thereby killing the client and server if they are still running)
-          atomically $ tryReadTMVar firstTestFailure
+          -- /If/ a 'firstFailure' is reported, we want to report it (it can
+          -- happen that the client threw an exception, but the /first/ failure
+          -- occurred in a server handler, say). However, if no first failure
+          -- was reported, but the client nonetheless threw an exception,
+          -- something has gone very wrong and we throw the client exception.
+          firstFailure <- atomically $ tryReadTMVar firstTestFailure
+          return $ firstFailure <|> clientResult
 
     -- Provide additional information in case of a test failure
     case testResult of

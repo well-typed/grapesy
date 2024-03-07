@@ -4,9 +4,11 @@ module Test.Util.Within (
   , within
   ) where
 
-import Control.Exception
-import GHC.Stack
 import Control.Concurrent
+import Control.Exception
+import Control.Monad.Catch
+import Control.Monad.IO.Class
+import GHC.Stack
 
 data Timeout = forall a. Show a => Timeout a CallStack
   deriving anyclass (Exception)
@@ -14,13 +16,13 @@ data Timeout = forall a. Show a => Timeout a CallStack
 deriving stock instance Show Timeout
 
 -- | Limit execution time of an action
-within ::
-     (HasCallStack, Show info)
+within :: forall m a info.
+     (HasCallStack, Show info, MonadIO m, MonadMask m)
   => Int   -- ^ Maximum duration in seconds
   -> info  -- ^ Additional information to include in the exception if thrown
-  -> IO a -> IO a
+  -> m a -> m a
 within t info io = do
-    me <- myThreadId
+    me <- liftIO $ myThreadId
 
     let timer :: IO ()
         timer = do
@@ -28,5 +30,13 @@ within t info io = do
               threadDelay (t * 1_000_000)
             throwTo me $ Timeout info callStack
 
-    bracket (forkIO timer) killThread $ \_ -> io
+        startTimer :: m ThreadId
+        startTimer = liftIO $ forkIO timer
+
+        stopTimer :: ThreadId -> ExitCase a -> m ()
+        stopTimer tid _ = liftIO $ killThread tid
+
+    fmap fst $
+      generalBracket startTimer stopTimer $ \_ -> io
+
 

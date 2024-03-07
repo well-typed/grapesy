@@ -23,7 +23,7 @@ import GHC.Generics qualified as GHC
 
 import Network.GRPC.Common
 
-import Test.Driver.Dialogue.TestClock
+import Test.Driver.Dialogue.TestClock qualified as TestClock
 
 {-------------------------------------------------------------------------------
   Single channel
@@ -57,13 +57,6 @@ data Action a b =
 
     -- | Early termination (cleanly or with an exception)
   | Terminate (Maybe ExceptionId)
-
-    -- | Sleep specified number of milliseconds
-    --
-    -- This is occassionally useful, for example to have the client keep the
-    -- connection open to the server for a bit longer, without actually doing
-    -- anything with that connection.
-  | SleepMilli Int
   deriving stock (Show, Eq, GHC.Generic)
 
 data RPC = RPC1 | RPC2 | RPC3
@@ -77,7 +70,7 @@ type Metadata = Map HeaderName HeaderValue
 -------------------------------------------------------------------------------}
 
 newtype LocalSteps = LocalSteps {
-      getLocalSteps :: [(TestClockTick, LocalStep)]
+      getLocalSteps :: [(TestClock.Tick, LocalStep)]
     }
   deriving stock (Show, GHC.Generic)
 
