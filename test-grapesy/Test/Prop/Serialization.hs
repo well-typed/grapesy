@@ -104,6 +104,8 @@ instance Arbitrary (Awkward RequestHeaders) where
       requestCompression         <- awkward
       requestAcceptCompression   <- awkward
       requestContentType         <- awkward
+      requestMessageType         <- arbitrary
+      requestIncludeTE           <- arbitrary
       requestTraceContext        <- awkward
       return $ RequestHeaders{
           requestTimeout
@@ -111,6 +113,8 @@ instance Arbitrary (Awkward RequestHeaders) where
         , requestCompression
         , requestAcceptCompression
         , requestContentType
+        , requestMessageType
+        , requestIncludeTE
         , requestTraceContext
         }
   shrink h@(Awkward h') = concat [
@@ -119,6 +123,8 @@ instance Arbitrary (Awkward RequestHeaders) where
       , shrinkAwkward (\x -> h'{requestCompression         = x}) requestCompression         h
       , shrinkAwkward (\x -> h'{requestAcceptCompression   = x}) requestAcceptCompression   h
       , shrinkAwkward (\x -> h'{requestContentType         = x}) requestContentType         h
+      , shrinkRegular (\x -> h'{requestMessageType         = x}) requestMessageType         h
+      , shrinkRegular (\x -> h'{requestIncludeTE           = x}) requestIncludeTE           h
       , shrinkAwkward (\x -> h'{requestTraceContext        = x}) requestTraceContext        h
       ]
 

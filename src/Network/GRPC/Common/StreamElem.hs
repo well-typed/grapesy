@@ -21,7 +21,6 @@ import Control.Monad.Trans.Class
 import Data.Bifoldable
 import Data.Bifunctor
 import Data.Bitraversable
-import GHC.Generics qualified as GHC
 
 -- | An element positioned in a stream
 data StreamElem b a =
@@ -60,7 +59,7 @@ data StreamElem b a =
     -- * The final element was not marked as final.
     --   See 'StreamElem' for detailed additional discussion.
   | NoMoreElems b
-  deriving stock (Show, Eq, Functor, Foldable, Traversable, GHC.Generic)
+  deriving stock (Show, Eq, Functor, Foldable, Traversable)
 
 instance Bifunctor StreamElem where
   bimap g f (FinalElem   a b) = FinalElem   (f a) (g b)

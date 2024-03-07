@@ -132,9 +132,9 @@ automatically be retried. This is disabled by default (as per the spec), but the
 demo client enables it, trying at most 10x to connect to a server, using
 exponential backoff as the reconnection policy.
 
-Closely related, the same reconnection policy then also enables transparent
-retries, which means the client will re-establish a connection to a server after
-it has lost it.
+Closely related, the same reconnection policy then also enables automatic
+reconnects, which means the client will re-establish a connection to a server
+after it has lost it.
 
 We can observe both using the demo client and server. Start the client without
 the server:

@@ -32,7 +32,6 @@ import Data.ByteString qualified as Strict (ByteString)
 import Data.CaseInsensitive qualified as CI
 import Data.String
 import Data.Word
-import GHC.Generics qualified as GHC
 import GHC.Show
 import Network.HTTP.Types qualified as HTTP
 
@@ -79,7 +78,7 @@ data HeaderValue =
     -- as "space and horizontal tab"
     -- <https://www.rfc-editor.org/rfc/rfc5234#section-3.1>.
   | AsciiHeader AsciiValue
-  deriving stock (Show, Eq, Ord, GHC.Generic)
+  deriving stock (Show, Eq, Ord)
 
 {-------------------------------------------------------------------------------
   Header-Name

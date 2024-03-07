@@ -533,10 +533,12 @@ sendTrailersOnly Call{callContext, callResponseKickoff} metadata = do
 
     trailers :: TrailersOnly
     trailers = TrailersOnly {
-          trailersOnlyGrpcStatus  = GrpcOk
-        , trailersOnlyGrpcMessage = Nothing
-        , trailersOnlyMetadata    = Map.fromList metadata
-        , trailersOnlyContentType = Context.serverContentType params
+          trailersOnlyContentType = Context.serverContentType params
+        , trailersOnlyProper      = ProperTrailers {
+              properTrailersGrpcStatus  = GrpcOk
+            , properTrailersGrpcMessage = Nothing
+            , properTrailersMetadata    = Map.fromList metadata
+            }
         }
 
 data ResponseAlreadyInitiated = ResponseAlreadyInitiated

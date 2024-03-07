@@ -54,7 +54,8 @@ module Network.GRPC.Spec (
 #endif
   , allSupportedCompression
     -- * Requests
-  , RequestHeaders(..)
+  , RequestHeaders_(..)
+  , RequestHeaders
     -- ** Parameters
   , CallParams(..)
     -- ** Pseudo-headers
@@ -85,12 +86,15 @@ module Network.GRPC.Spec (
   , parseTimeout
     -- * Responses
     -- ** Headers
-  , ResponseHeaders(..)
+  , ResponseHeaders_(..)
+  , ResponseHeaders
   , buildResponseHeaders
   , parseResponseHeaders
     -- ** Trailers
-  , ProperTrailers(..)
-  , TrailersOnly(..)
+  , ProperTrailers_(..)
+  , ProperTrailers
+  , TrailersOnly_(..)
+  , TrailersOnly
     -- ** Serialization
   , parseProperTrailers
   , parseTrailersOnly

@@ -16,7 +16,6 @@ import Control.Exception
 import Data.ByteString.Builder (Builder)
 import Data.ByteString.Lazy qualified as Lazy (ByteString)
 import Data.Kind
-import GHC.Generics qualified as GHC
 import Network.HTTP.Types qualified as HTTP
 
 -- We import from @.Internal@ to avoid biasing towards @.Server@ or @.Client@
@@ -188,5 +187,5 @@ data PeerException =
     -- This is not part of 'CallSetupFailure' because the call may have been
     -- well under way before the server initiates a response.
   | PeerMissingPseudoHeaderStatus
-  deriving stock (Show, GHC.Generic)
+  deriving stock (Show)
   deriving anyclass (Exception)

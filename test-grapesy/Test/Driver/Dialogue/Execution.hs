@@ -16,7 +16,6 @@ import Data.Map.Strict qualified as Map
 import Data.Ord (comparing)
 import Data.Proxy
 import Data.Text qualified as Text
-import GHC.Generics qualified as GHC
 import GHC.Stack
 import System.Timeout (timeout)
 
@@ -57,7 +56,7 @@ withProxy RPC3 k = k (Proxy @TestRpc3)
 -------------------------------------------------------------------------------}
 
 data TestFailure = TestFailure CallStack Failure
-  deriving stock (Show, GHC.Generic)
+  deriving stock (Show)
   deriving anyclass (Exception)
 
 data Failure =
@@ -66,7 +65,7 @@ data Failure =
 
     -- | Received an unexpected value
   | Unexpected ReceivedUnexpected
-  deriving stock (Show, GHC.Generic)
+  deriving stock (Show)
   deriving anyclass (Exception)
 
 data ReceivedUnexpected = forall a b. (Show a, Show b) => ReceivedUnexpected {

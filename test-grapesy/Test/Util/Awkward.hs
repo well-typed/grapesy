@@ -4,6 +4,7 @@ module Test.Util.Awkward (
   , awkward
   , arbitraryAwkward
   , shrinkAwkward
+  , shrinkRegular
   ) where
 
 import Data.ByteString qualified as BS.Strict
@@ -41,6 +42,14 @@ shrinkAwkward f g =
       map (Awkward . f . getAwkward)
     . shrink
     . Awkward . g . getAwkward
+
+-- | Non-awkward fields of awkward types
+shrinkRegular ::
+     Arbitrary a
+  => (a -> b)
+  -> (b -> a)
+  -> Awkward b -> [Awkward b]
+shrinkRegular f g = map (Awkward . f) . shrink . g . getAwkward
 
 {-------------------------------------------------------------------------------
   Standard instances

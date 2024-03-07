@@ -117,7 +117,7 @@ data ConnParams = ConnParams {
       -- NOTE: The default 'ReconnectPolicy' is 'DontReconnect', as per the
       -- spec (see 'ReconnectPolicy'). You may wish to override this in order
       -- to enable Wait for Ready semantics (retry connecting to a server
-      -- when it is not yet ready) as well as transparent retries (reconnecting
+      -- when it is not yet ready) as well as automatic reconnects (reconnecting
       -- after a server disappears). The latter can be especially important
       -- when there are proxies, which tend to drop connections after a certain
       -- amount of time.
@@ -282,16 +282,16 @@ data Server =
 --
 -- If the server cannot be reached, the behaviour depends on
 -- 'connReconnectPolicy': if the policy allows reconnection attempts, we will
--- wait the time specified by the policy and try again. This implements the
--- gRPC "Wait for ready" semantics.
+-- wait the time specified by the policy and try again. This implements the gRPC
+-- "Wait for ready" semantics.
 --
 -- If the connection to the server is lost /after/ it has een established, any
 -- currently ongoing RPC calls will be closed; attempts at further communication
 -- on any of these calls will result in an exception being thrown. However, if
 -- the 'ReconnectPolicy' allows, we will automatically try to re-establish a
--- connection to the server (this is sometimes known as transparent retries).
--- This can be especially important when there is a proxy between the client and
--- the server, which may drop an existing connection after a certain period.
+-- connection to the server. This can be especially important when there is a
+-- proxy between the client and the server, which may drop an existing
+-- connection after a certain period.
 --
 -- NOTE: The /default/ 'ReconnectPolicy' is 'DontReconnect', as per the gRPC
 -- specification of "Wait for ready" semantics. You may wish to override this
@@ -390,6 +390,10 @@ startRPC Connection{connMetaVar, connParams, connStateVar} _ callParams = do
             Compression.offer $ connCompression connParams
         , requestContentType =
             connContentType connParams
+        , requestMessageType =
+            True
+        , requestIncludeTE =
+            True
         , requestTraceContext =
             Nothing
         }

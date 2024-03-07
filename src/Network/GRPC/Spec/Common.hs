@@ -32,13 +32,13 @@ import Data.Foldable (toList)
 import Data.List (intersperse)
 import Data.List.NonEmpty (NonEmpty(..))
 import Data.Proxy
+import Data.Typeable
 import Network.HTTP.Types qualified as HTTP
 
 import Network.GRPC.Spec.Compression
 import Network.GRPC.Spec.RPC
 import Network.GRPC.Spec.RPC.Unknown
 import Network.GRPC.Util.ByteString
-import Network.GRPC.Util.Partial
 
 {-------------------------------------------------------------------------------
   > Content-Type →
@@ -177,3 +177,16 @@ parseMessageAcceptEncoding (_name, value) =
     . map (deserializeCompressionId . strip)
     . BS.Strict.splitWith (== ascii ',')
     $ value
+
+{-------------------------------------------------------------------------------
+  Internal auxiliary
+-------------------------------------------------------------------------------}
+
+expectAtLeastOne :: forall m a.
+     (MonadError String m, Typeable a)
+  => [a] -> m (NonEmpty a)
+expectAtLeastOne (x : xs) = return (x :| xs)
+expectAtLeastOne []       = throwError $ concat [
+                                "Expected at least one "
+                              , show (typeRep (Proxy @a))
+                              ]

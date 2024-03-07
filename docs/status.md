@@ -3,23 +3,6 @@
 Currently this document is mostly intended for internal use, recording an
 ever growing (and hopefully eventually shrinking) list of things to do.
 
-## Unimplemented
-
-- [ ] Compression schemes
-
-      Status: GZip is now supported, but no other compression algorithms yet.
-
-- [X] (As part of compression schemes:) When we send the first message to the
-      server, it will respond with the list of compression schemes it supports.
-      We should store this as part of the connection state. (For the C++ example
-      servers from the official repo this is `deflate` and `gzip`.)
-
-- [ ] We should think about transparent retries (maybe test with nginx).
-      See https://nuvalence.io/insights/lessons-learned-investigating-goaways-in-grpc-apis/
-      and https://github.com/grpc/proposal/blob/master/A6-client-retries.md .
-
-- [ ] Authentication (ALTS)
-
 ## Bugs
 
 - [ ] An exception in the parts of `grapesy` client implementation will
