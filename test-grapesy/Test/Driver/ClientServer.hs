@@ -30,7 +30,6 @@ import Data.Map qualified as Map
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text qualified as Text
-import GHC.Generics qualified as GHC
 import Network.HTTP.Types qualified as HTTP
 import Network.HTTP2.Server qualified as HTTP2.Server
 import Network.TLS
@@ -132,7 +131,7 @@ instance Default ClientServerConfig where
 data LogMsg =
     ServerLogMsg Server.ServerDebugMsg
   | ClientLogMsg Client.ClientDebugMsg
-  deriving stock (Show, GHC.Generic)
+  deriving stock (Show)
 
 collectLogMsgs :: (MonadIO m) => MVar [a] -> Tracer m a
 collectLogMsgs v = arrow $ emit $ \x -> liftIO $

@@ -60,7 +60,7 @@ instance IsRPC rpc => IsSession (ServerSession rpc) where
   type Outbound (ServerSession rpc) = ServerOutbound rpc
 
   parseInboundTrailers  _ = \_ -> return NoMetadata
-  buildOutboundTrailers _ = buildProperTrailers (Proxy @rpc)
+  buildOutboundTrailers _ = buildProperTrailers
 
   parseMsg _ = parseInput  (Proxy @rpc) . inbCompression
   buildMsg _ = buildOutput (Proxy @rpc) . outCompression

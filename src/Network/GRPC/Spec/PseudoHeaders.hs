@@ -26,10 +26,9 @@ module Network.GRPC.Spec.PseudoHeaders (
 import Control.Monad.Except
 import Data.ByteString qualified as BS.Strict
 import Data.ByteString qualified as Strict (ByteString)
-import Data.Hashable (Hashable)
+import Data.Hashable
 import Data.Proxy
 import Data.Text (Text)
-import GHC.Generics qualified as GHC
 import Network.Socket (HostName, PortNumber)
 
 import Network.GRPC.Spec.PercentEncoding qualified as PercentEncoding
@@ -135,8 +134,10 @@ data Path = Path {
     , pathMethod  :: Text
     }
   deriving stock (Show, Eq)
-  deriving stock (GHC.Generic)
-  deriving anyclass (Hashable)
+
+instance Hashable Path where
+  hashWithSalt salt Path{pathService, pathMethod} =
+      hashWithSalt salt (pathService, pathMethod)
 
 {-------------------------------------------------------------------------------
   Building and parsing resource headers

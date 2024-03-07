@@ -7,9 +7,12 @@
 -- > import Network.GRPC.Spec.Response qualified as Resp
 module Network.GRPC.Spec.Response (
     -- * Headers
-    ResponseHeaders(..)
-  , ProperTrailers(..)
-  , TrailersOnly(..)
+    ResponseHeaders_(..)
+  , ResponseHeaders
+  , ProperTrailers_(..)
+  , ProperTrailers
+  , TrailersOnly_(..)
+  , TrailersOnly
   , trailersOnlyToProperTrailers
   , properTrailersToTrailersOnly
     -- * gRPC exceptions
@@ -29,14 +32,13 @@ module Network.GRPC.Spec.Response (
 
 import Control.Exception
 import Control.Monad.Except
+import Control.Monad.State
 import Data.ByteString.Char8 qualified as BS.Strict.C8
 import Data.List.NonEmpty (NonEmpty)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.SOP
+import Data.Proxy
 import Data.Text (Text)
-import Generics.SOP qualified as SOP
-import GHC.Generics qualified as GHC
 import GHC.Stack
 import Network.HTTP.Types qualified as HTTP
 import Text.Read (readMaybe)
@@ -47,34 +49,45 @@ import Network.GRPC.Spec.CustomMetadata
 import Network.GRPC.Spec.PercentEncoding qualified as PercentEncoding
 import Network.GRPC.Spec.RPC
 import Network.GRPC.Spec.Status
-import Network.GRPC.Util.Partial
+import Network.GRPC.Util.HKD (HKD, Undecorated, DecoratedWith)
+import Network.GRPC.Util.HKD qualified as HKD
 
 {-------------------------------------------------------------------------------
   Outputs (messages received from the peer)
 -------------------------------------------------------------------------------}
 
 -- | Response headers
-data ResponseHeaders = ResponseHeaders {
+data ResponseHeaders_ f = ResponseHeaders {
       -- | Compression used for outbound messages
-      responseCompression :: Maybe CompressionId
+      responseCompression :: HKD f (Maybe CompressionId)
 
       -- | Compression accepted for inbound messages
-    , responseAcceptCompression :: Maybe (NonEmpty CompressionId)
+    , responseAcceptCompression :: HKD f (Maybe (NonEmpty CompressionId))
 
       -- | Initial response metadata
       --
       -- The response can include additional metadata in the trailers; see
       -- 'properTrailersMetadata'.
-    , responseMetadata :: Map HeaderName HeaderValue
+    , responseMetadata :: HKD f (Map HeaderName HeaderValue)
 
       -- | Content-type
       --
       -- Set to 'Nothing' to omit the content-type header altogether.
-    , responseContentType :: Maybe ContentType
+    , responseContentType :: HKD f (Maybe ContentType)
     }
-  deriving stock (Show, Eq)
-  deriving stock (GHC.Generic)
-  deriving anyclass (SOP.Generic, SOP.HasDatatypeInfo)
+
+type ResponseHeaders = ResponseHeaders_ Undecorated
+
+deriving stock instance Show ResponseHeaders
+deriving stock instance Eq   ResponseHeaders
+
+instance HKD.Traversable ResponseHeaders_ where
+  sequence x =
+      ResponseHeaders
+        <$> responseCompression       x
+        <*> responseAcceptCompression x
+        <*> responseMetadata          x
+        <*> responseContentType       x
 
 -- | Information sent by the peer after the final output
 --
@@ -83,54 +96,63 @@ data ResponseHeaders = ResponseHeaders {
 -- they are HTTP headers that are sent /after/ the content body. For example,
 -- imagine the server is streaming a file that it's reading from disk; it could
 -- use trailers to give the client an MD5 checksum when streaming is complete.
-data ProperTrailers = ProperTrailers {
+data ProperTrailers_ f = ProperTrailers {
       -- | gPRC status
-      properTrailersGrpcStatus :: GrpcStatus
+      properTrailersGrpcStatus :: HKD f GrpcStatus
 
       -- | Additional status message
       --
       -- NOTE: in @grapesy@ this message is only used in error cases.
-    , properTrailersGrpcMessage :: Maybe Text
+    , properTrailersGrpcMessage :: HKD f (Maybe Text)
 
       -- | Trailing metadata
       --
       -- See also 'responseMetadata' for the initial metadata.
-    , properTrailersMetadata :: Map HeaderName HeaderValue
+    , properTrailersMetadata :: HKD f (Map HeaderName HeaderValue)
     }
-  deriving stock (Show, Eq)
-  deriving stock (GHC.Generic)
-  deriving anyclass (SOP.Generic, SOP.HasDatatypeInfo)
+
+type ProperTrailers = ProperTrailers_ Undecorated
+
+deriving stock instance Show ProperTrailers
+deriving stock instance Eq   ProperTrailers
+
+instance HKD.Traversable ProperTrailers_ where
+  sequence x =
+      ProperTrailers
+        <$> properTrailersGrpcStatus  x
+        <*> properTrailersGrpcMessage x
+        <*> properTrailersMetadata    x
 
 -- | Trailers sent in the gRPC Trailers-Only case
 --
 -- We deal with the HTTP status elsewhere.
-data TrailersOnly = TrailersOnly {
-      -- | Analogue of 'properTrailersGrpcStatus'
-      trailersOnlyGrpcStatus :: GrpcStatus
-
-      -- | Analogue of 'properTrailersGrpcMessage'
-    , trailersOnlyGrpcMessage :: Maybe Text
-
-      -- | Analogue of 'properTrailersMetadata'
-    , trailersOnlyMetadata :: Map HeaderName HeaderValue
-
+data TrailersOnly_ f = TrailersOnly {
       -- | Content type
       --
       -- Set to 'Nothing' to omit the content-type altogether.
-    , trailersOnlyContentType :: Maybe ContentType
+      trailersOnlyContentType :: HKD f (Maybe ContentType)
+
+      -- | All regular trailers can also appear in the Trailers-Only case
+    , trailersOnlyProper :: ProperTrailers_ f
     }
-  deriving stock (Show, Eq)
-  deriving stock (GHC.Generic)
-  deriving anyclass (SOP.Generic, SOP.HasDatatypeInfo)
+
+type TrailersOnly = TrailersOnly_ Undecorated
+
+deriving stock instance Show TrailersOnly
+deriving stock instance Eq   TrailersOnly
+
+instance HKD.Traversable TrailersOnly_ where
+  sequence x =
+      TrailersOnly
+        <$> trailersOnlyContentType x
+        <*> HKD.sequence (trailersOnlyProper x)
 
 -- | 'ProperTrailers' is a subset of 'TrailersOnly'
 properTrailersToTrailersOnly ::
      (ProperTrailers, Maybe ContentType)
   -> TrailersOnly
-properTrailersToTrailersOnly (x, ct) = TrailersOnly {
-      trailersOnlyGrpcStatus  = properTrailersGrpcStatus  x
-    , trailersOnlyGrpcMessage = properTrailersGrpcMessage x
-    , trailersOnlyMetadata    = properTrailersMetadata    x
+properTrailersToTrailersOnly (proper, ct) = TrailersOnly {
+      trailersOnlyProper      = proper
     , trailersOnlyContentType = ct
     }
 
@@ -138,13 +160,12 @@ properTrailersToTrailersOnly (x, ct) = TrailersOnly {
 trailersOnlyToProperTrailers ::
       TrailersOnly
    -> (ProperTrailers, Maybe ContentType)
-trailersOnlyToProperTrailers x = (
-      ProperTrailers{
-         properTrailersGrpcStatus  = trailersOnlyGrpcStatus  x
-       , properTrailersGrpcMessage = trailersOnlyGrpcMessage x
-       , properTrailersMetadata    = trailersOnlyMetadata    x
-       }
-    , trailersOnlyContentType x
+trailersOnlyToProperTrailers TrailersOnly{
+                                 trailersOnlyProper
+                               , trailersOnlyContentType
+                               } = (
+      trailersOnlyProper
+    , trailersOnlyContentType
     )
 
 {-------------------------------------------------------------------------------
@@ -157,7 +178,7 @@ data GrpcException = GrpcException {
     , grpcErrorMessage  :: Maybe Text
     , grpcErrorMetadata :: [CustomMetadata]
     }
-  deriving stock (Show, Eq, GHC.Generic)
+  deriving stock (Show, Eq)
   deriving anyclass (Exception)
 
 -- | Check if trailers correspond to an exceptional response
@@ -172,13 +193,20 @@ data GrpcException = GrpcException {
 grpcExceptionFromTrailers ::
      ProperTrailers
   -> Either (Maybe Text, [CustomMetadata]) GrpcException
-grpcExceptionFromTrailers (ProperTrailers status msg metadata) =
-    case status of
-      GrpcOk        -> Left (msg, Map.toList $ metadata)
+grpcExceptionFromTrailers ProperTrailers {
+                              properTrailersGrpcStatus
+                            , properTrailersGrpcMessage
+                            , properTrailersMetadata
+                            } =
+    case properTrailersGrpcStatus of
+      GrpcOk -> Left (
+          properTrailersGrpcMessage
+        , Map.toList properTrailersMetadata
+        )
       GrpcError err -> Right GrpcException{
           grpcError         = err
-        , grpcErrorMessage  = msg
-        , grpcErrorMetadata = Map.toList $ metadata
+        , grpcErrorMessage  = properTrailersGrpcMessage
+        , grpcErrorMetadata = Map.toList properTrailersMetadata
         }
 
 -- | Translate gRPC exception to response trailers
@@ -238,76 +266,77 @@ parseResponseHeaders :: forall rpc m.
      (IsRPC rpc, MonadError String m)
   => Proxy rpc -> [HTTP.Header] -> m ResponseHeaders
 parseResponseHeaders proxy =
-      runPartialParser uninitResponseHeaders
+      HKD.sequence
+    . flip execState uninitResponseHeaders
     . mapM_ parseHeader
   where
     -- HTTP2 header names are always lowercase, and must be ASCII.
     -- <https://datatracker.ietf.org/doc/html/rfc7540#section-8.1.2>
-    parseHeader :: HTTP.Header -> PartialParser ResponseHeaders m ()
+    parseHeader :: HTTP.Header -> State (ResponseHeaders_ (DecoratedWith m)) ()
     parseHeader hdr@(name, _value)
       | name == "content-type"
-      = update updContentType $ \_ ->
-          Just <$> parseContentType proxy hdr
+      = modify $ \x -> x {
+            responseContentType = Just <$> parseContentType proxy hdr
+          }
 
       | name == "grpc-encoding"
-      = update updCompression $ \_ ->
-          Just <$> parseMessageEncoding hdr
+      = modify $ \x -> x {
+            responseCompression = Just <$> parseMessageEncoding hdr
+          }
 
       | name == "grpc-accept-encoding"
-      = update updAcceptCompression $ \_ ->
-          Just <$> parseMessageAcceptEncoding hdr
+      = modify $ \x -> x {
+            responseAcceptCompression = Just <$> parseMessageAcceptEncoding hdr
+          }
 
       | otherwise
-      = parseCustomMetadata hdr >>=
-        update updCustom . fmap . uncurry Map.insert
+      = modify $ \x -> x {
+            responseMetadata = do
+              (parsedName, parsedValue) <- parseCustomMetadata hdr
+              Map.insert parsedName parsedValue <$> responseMetadata x
+          }
 
-    uninitResponseHeaders :: Partial m ResponseHeaders
-    uninitResponseHeaders =
-           return (Nothing   :: Maybe CompressionId)
-        :* return (Nothing   :: Maybe (NonEmpty CompressionId))
-        :* return (Map.empty :: Map HeaderName HeaderValue)
-        :* return (Nothing   :: Maybe ContentType)
-        :* Nil
-
-    (    updCompression
-      :* updAcceptCompression
-      :* updCustom
-      :* updContentType
-      :* Nil ) = partialUpdates (Proxy @ResponseHeaders)
+    uninitResponseHeaders :: ResponseHeaders_ (DecoratedWith m)
+    uninitResponseHeaders = ResponseHeaders {
+          responseCompression       = return Nothing
+        , responseAcceptCompression = return Nothing
+        , responseMetadata          = return Map.empty
+        , responseContentType       = return Nothing
+        }
 
 {-------------------------------------------------------------------------------
   > Trailers → Status [Status-Message] *Custom-Metadata
 -------------------------------------------------------------------------------}
 
 -- | Build trailers (see 'buildTrailersOnly' for the Trailers-Only case)
-buildProperTrailers :: IsRPC rpc => Proxy rpc -> ProperTrailers -> [HTTP.Header]
-buildProperTrailers proxy properTrailers =
-    buildTrailersOnly proxy $
-      properTrailersToTrailersOnly (properTrailers, Nothing)
+buildProperTrailers :: ProperTrailers -> [HTTP.Header]
+buildProperTrailers ProperTrailers{
+                        properTrailersGrpcStatus
+                      , properTrailersGrpcMessage
+                      , properTrailersMetadata
+                      } = concat [
+      [ ( "grpc-status"
+        , BS.Strict.C8.pack $ show $ fromGrpcStatus properTrailersGrpcStatus
+        )
+      ]
+    , [ ("grpc-message", PercentEncoding.encode x)
+      | Just x <- [properTrailersGrpcMessage]
+      ]
+    , [ buildCustomMetadata x
+      | x <- Map.toList properTrailersMetadata
+      ]
+    ]
 
 -- | Build trailers for the Trailers-Only case
 buildTrailersOnly :: IsRPC rpc => Proxy rpc -> TrailersOnly -> [HTTP.Header]
 buildTrailersOnly proxy TrailersOnly{
-                            trailersOnlyGrpcStatus
-                          , trailersOnlyGrpcMessage
-                          , trailersOnlyMetadata
-                          , trailersOnlyContentType
+                            trailersOnlyContentType
+                          , trailersOnlyProper
                           } = concat [
       [ buildContentType proxy x
       | Just x <- [trailersOnlyContentType]
       ]
-    , [ ( "grpc-status"
-        , BS.Strict.C8.pack $ show $ fromGrpcStatus trailersOnlyGrpcStatus
-        )
-      ]
-    , [ ( "grpc-message"
-        , PercentEncoding.encode x
-        )
-      | Just x <- [trailersOnlyGrpcMessage]
-      ]
-    , [ buildCustomMetadata x
-      | x <- Map.toList trailersOnlyMetadata
-      ]
+    , buildProperTrailers trailersOnlyProper
     ]
 
 -- | Parse response trailers
@@ -340,38 +369,53 @@ parseTrailersOnly :: forall m rpc.
      (IsRPC rpc, MonadError String m)
   => Proxy rpc -> [HTTP.Header] -> m TrailersOnly
 parseTrailersOnly proxy =
-    runPartialParser uninitTrailersOnly . mapM_ parseHeader
+      HKD.sequence
+    . flip execState uninitTrailersOnly
+    . mapM_ parseHeader
   where
-    parseHeader :: HTTP.Header -> PartialParser TrailersOnly m ()
+    parseHeader :: HTTP.Header -> State (TrailersOnly_ (DecoratedWith m)) ()
     parseHeader hdr@(name, value)
+      | name == "content-type"
+      = modify $ \x -> x {
+            trailersOnlyContentType = Just <$> parseContentType proxy hdr
+          }
+
       | name == "grpc-status"
-      = case toGrpcStatus =<< readMaybe (BS.Strict.C8.unpack value) of
-          Nothing -> throwError $ "Invalid status: " ++ show value
-          Just v  -> update updGrpcStatus $ \_ -> return v
+      = modify $ liftProperTrailers $ \x -> x{
+            properTrailersGrpcStatus =
+              case toGrpcStatus =<< readMaybe (BS.Strict.C8.unpack value) of
+                Nothing -> throwError $ "Invalid status: " ++ show value
+                Just v  -> return v
+          }
 
       | name == "grpc-message"
-      = case PercentEncoding.decode value of
-          Left  err -> throwError $ show err
-          Right msg -> update updGrpcMessage $ \_ -> return (Just msg)
-
-      | name == "content-type"
-      = update updContentType $ \_ ->
-          Just <$> parseContentType proxy hdr
+      = modify $ liftProperTrailers $ \x -> x{
+            properTrailersGrpcMessage =
+              case PercentEncoding.decode value of
+                Left  err -> throwError $ show err
+                Right msg -> return (Just msg)
+          }
 
       | otherwise
-      = parseCustomMetadata hdr >>=
-        update updMetadata . fmap . uncurry Map.insert
+      = modify $ liftProperTrailers $ \x -> x{
+            properTrailersMetadata = do
+              (parsedName, parsedValue) <- parseCustomMetadata hdr
+              Map.insert parsedName parsedValue <$> properTrailersMetadata x
+          }
 
-    uninitTrailersOnly :: Partial m TrailersOnly
-    uninitTrailersOnly =
-           throwError "missing: grpc-status" -- trailersOnlyGrpcStatus
-        :* return Nothing                    -- trailersOnlyGrpcMessage
-        :* return Map.empty                  -- trailersOnlyMetadata
-        :* return Nothing                    -- trailersOnlyContentType
-        :* Nil
+    uninitTrailersOnly :: TrailersOnly_ (DecoratedWith m)
+    uninitTrailersOnly = TrailersOnly {
+          trailersOnlyContentType = return Nothing
+        , trailersOnlyProper      = ProperTrailers {
+              properTrailersGrpcStatus  = throwError "missing: grpc-status"
+            , properTrailersGrpcMessage = return Nothing
+            , properTrailersMetadata    = return Map.empty
+            }
+        }
 
-    (   updGrpcStatus
-     :* updGrpcMessage
-     :* updMetadata
-     :* updContentType
-     :* Nil ) = partialUpdates (Proxy @TrailersOnly)
+    liftProperTrailers ::
+         (ProperTrailers_ f -> ProperTrailers_ f)
+      -> TrailersOnly_ f -> TrailersOnly_ f
+    liftProperTrailers f trailersOnly = trailersOnly{
+          trailersOnlyProper = f (trailersOnlyProper trailersOnly)
+        }

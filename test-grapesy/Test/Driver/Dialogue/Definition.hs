@@ -19,7 +19,6 @@ module Test.Driver.Dialogue.Definition (
 import Control.Exception
 import Data.Bifunctor
 import Data.Map.Strict (Map)
-import GHC.Generics qualified as GHC
 
 import Network.GRPC.Common
 
@@ -38,7 +37,7 @@ import Test.Driver.Dialogue.TestClock qualified as TestClock
 data LocalStep =
     ClientAction (Action (Metadata, RPC) NoMetadata)
   | ServerAction (Action Metadata        Metadata)
-  deriving stock (Show, Eq, GHC.Generic)
+  deriving stock (Show, Eq)
 
 data Action a b =
     -- | Initiate request and response
@@ -57,10 +56,10 @@ data Action a b =
 
     -- | Early termination (cleanly or with an exception)
   | Terminate (Maybe ExceptionId)
-  deriving stock (Show, Eq, GHC.Generic)
+  deriving stock (Show, Eq)
 
 data RPC = RPC1 | RPC2 | RPC3
-  deriving stock (Show, Eq, GHC.Generic)
+  deriving stock (Show, Eq)
 
 -- | Metadata
 type Metadata = Map HeaderName HeaderValue
@@ -72,12 +71,12 @@ type Metadata = Map HeaderName HeaderValue
 newtype LocalSteps = LocalSteps {
       getLocalSteps :: [(TestClock.Tick, LocalStep)]
     }
-  deriving stock (Show, GHC.Generic)
+  deriving stock (Show)
 
 newtype GlobalSteps = GlobalSteps {
       getGlobalSteps :: [LocalSteps]
     }
-  deriving stock (Show, GHC.Generic)
+  deriving stock (Show)
 
 {-------------------------------------------------------------------------------
   User exceptions
@@ -88,16 +87,16 @@ newtype GlobalSteps = GlobalSteps {
 -------------------------------------------------------------------------------}
 
 data SomeServerException = SomeServerException ExceptionId
-  deriving stock (Show, GHC.Generic)
+  deriving stock (Show)
   deriving anyclass (Exception)
 
 data SomeClientException = SomeClientException ExceptionId
-  deriving stock (Show, GHC.Generic)
+  deriving stock (Show)
   deriving anyclass (Exception)
 
 -- | We distinguish exceptions from each other simply by a number
 newtype ExceptionId = ExceptionId Int
-  deriving stock (Show, Eq, GHC.Generic)
+  deriving stock (Show, Eq)
 
 {-------------------------------------------------------------------------------
   Utility

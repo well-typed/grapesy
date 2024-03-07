@@ -13,7 +13,6 @@ import Data.ByteString qualified as BS.Strict
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
-import GHC.Generics qualified as GHC
 import GHC.Stack
 import Test.QuickCheck
 
@@ -266,7 +265,7 @@ data Dialogue =
 
     -- | Dialogue that may still need to be corrected
   | UnnormalizedDialogue [(Int, LocalStep)]
-  deriving stock (Show, Eq, GHC.Generic)
+  deriving stock (Show, Eq)
 
 getNormalizedDialogue :: HasCallStack => Dialogue -> [(Int, LocalStep)]
 getNormalizedDialogue (UnnormalizedDialogue steps) = ensureCorrectUsage steps
@@ -397,10 +396,10 @@ shrinkInterleaved f (i, a) = (i, ) <$> f a
 -------------------------------------------------------------------------------}
 
 newtype DialogueWithoutExceptions = DialogueWithoutExceptions Dialogue
-  deriving stock (Show, Eq, GHC.Generic)
+  deriving stock (Show, Eq)
 
 newtype DialogueWithExceptions = DialogueWithExceptions Dialogue
-  deriving stock (Show, Eq, GHC.Generic)
+  deriving stock (Show, Eq)
 
 instance Arbitrary DialogueWithoutExceptions where
   arbitrary = do

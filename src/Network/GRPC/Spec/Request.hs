@@ -7,7 +7,8 @@
 -- > import Network.GRPC.Spec.Request qualified as Req
 module Network.GRPC.Spec.Request (
     -- * Inputs (message sent to the peer)
-    RequestHeaders(..)
+    RequestHeaders_(..)
+  , RequestHeaders
   , IsFinal(..)
   , NoMetadata(..)
     -- * Serialization
@@ -15,19 +16,19 @@ module Network.GRPC.Spec.Request (
   , parseRequestHeaders
   ) where
 
-import Control.Monad.Except
+import Control.Monad
+import Control.Monad.Except (MonadError(throwError))
+import Control.Monad.State (State, execState, modify)
 import Data.ByteString qualified as Strict (ByteString)
 import Data.ByteString.Char8 qualified as BS.Strict.C8
 import Data.ByteString.UTF8 qualified as BS.Strict.UTF8
-import Data.List (intersperse)
+import Data.List (intersperse, intercalate)
 import Data.List.NonEmpty (NonEmpty)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (catMaybes)
-import Data.SOP
+import Data.Proxy
 import Data.Version
-import Generics.SOP qualified as SOP
-import GHC.Generics qualified as GHC
 import GHC.Stack
 import Network.HTTP.Types qualified as HTTP
 
@@ -38,9 +39,11 @@ import Network.GRPC.Spec.PercentEncoding qualified as PercentEncoding
 import Network.GRPC.Spec.RPC
 import Network.GRPC.Spec.Timeout
 import Network.GRPC.Spec.TraceContext
-import Network.GRPC.Util.Partial
+import Network.GRPC.Util.HKD (HKD, Undecorated, DecoratedWith)
+import Network.GRPC.Util.HKD qualified as HKD
 
 import Paths_grapesy qualified as Grapesy
+import Data.Functor (($>))
 
 {-------------------------------------------------------------------------------
   Inputs (message sent to the peer)
@@ -49,34 +52,68 @@ import Paths_grapesy qualified as Grapesy
 -- | Full set of call parameters required to construct the RPC call
 --
 -- This is constructed internally; it is not part of the public API.
-data RequestHeaders = RequestHeaders {
+data RequestHeaders_ f = RequestHeaders {
       -- | Timeout
-      requestTimeout :: Maybe Timeout
+      requestTimeout :: HKD f (Maybe Timeout)
 
       -- | Custom metadata
-    , requestMetadata :: Map HeaderName HeaderValue
+    , requestMetadata :: HKD f (Map HeaderName HeaderValue)
 
       -- | Compression used for outgoing messages
-    , requestCompression :: Maybe CompressionId
+    , requestCompression :: HKD f (Maybe CompressionId)
 
       -- | Accepted compression algorithms for incoming messages
       --
       -- @Maybe (NonEmpty ..)@ is perhaps a bit strange (why not just @[]@), but
       -- it emphasizes the specification: /if/ the header is present, it must be
       -- a non-empty list.
-    , requestAcceptCompression :: Maybe (NonEmpty CompressionId)
+    , requestAcceptCompression :: HKD f (Maybe (NonEmpty CompressionId))
 
       -- | Optionally, override the content-type
       --
       -- Set to 'Nothing' to omit the content-type header altogether.
-    , requestContentType :: Maybe ContentType
+      --
+      -- See also discussion of 'requestMessageType'.
+    , requestContentType :: HKD f (Maybe ContentType)
+
+      -- | Should we include the @Message-Type@ header?
+      --
+      -- To be conform to the gRPC spec, the @Message-Type@ /should/ be
+      -- included, but @grapesy@ will not insist that the header is present for
+      -- incoming requests. We do not need the header in order to know the
+      -- message type, because the /path/ determines the service and method, and
+      -- that in turn determines the message type. If it /is/ present, however,
+      -- we verify that it has the valeu we expect.
+    , requestMessageType :: HKD f Bool
+
+      -- | Should we include the @te: trailers@ header?
+      --
+      -- To be conform to the gRPC spec, the @te@ header should be included, but
+      -- @grapesy@ does not insist that the header is present for incoming
+      -- requests. However, /if/ it is present, we /do/ verify that it has the
+      -- right value; this prevents values getting lost without notice.
+    , requestIncludeTE :: HKD f Bool
 
       -- | Trace context (for OpenTelemetry)
-    , requestTraceContext :: Maybe TraceContext
+    , requestTraceContext :: HKD f (Maybe TraceContext)
     }
-  deriving stock (Show, Eq)
-  deriving stock (GHC.Generic)
-  deriving anyclass (SOP.Generic, SOP.HasDatatypeInfo)
+
+type RequestHeaders = RequestHeaders_ Undecorated
+
+deriving stock instance Show RequestHeaders
+deriving stock instance Eq   RequestHeaders
+
+instance HKD.Traversable RequestHeaders_ where
+  sequence x =
+      RequestHeaders
+        <$> requestTimeout           x
+        <*> requestMetadata          x
+        <*> requestCompression       x
+        <*> requestAcceptCompression x
+        <*> requestContentType       x
+        <*> requestMessageType       x
+        <*> requestIncludeTE         x
+        <*> requestTraceContext      x
 
 -- | Mark a input sent as final
 data IsFinal = Final | NotFinal
@@ -84,7 +121,7 @@ data IsFinal = Final | NotFinal
 
 -- | gRPC does not support request trailers (only response trailers)
 data NoMetadata = NoMetadata
-  deriving stock (Show, Eq, GHC.Generic)
+  deriving stock (Show, Eq)
 
 {-------------------------------------------------------------------------------
   Construction
@@ -135,9 +172,9 @@ callDefinition ::
   => Proxy rpc -> RequestHeaders -> [HTTP.Header]
 callDefinition proxy = \hdrs -> catMaybes [
       hdrTimeout <$> requestTimeout hdrs
-    , Just $ buildTe
+    , guard (requestIncludeTE hdrs) $> buildTe
     , buildContentType proxy <$> requestContentType hdrs
-    , Just $ buildMessageType
+    , guard (requestMessageType hdrs) $> buildMessageType
     , buildMessageEncoding <$> requestCompression hdrs
     , buildMessageAcceptEncoding <$> requestAcceptCompression hdrs
     , Just $ buildUserAgent
@@ -199,87 +236,111 @@ callDefinition proxy = \hdrs -> catMaybes [
 -- | Parse request headers
 parseRequestHeaders :: forall rpc m.
      (IsRPC rpc, MonadError (HTTP.Status, Strict.ByteString) m)
-  => Proxy rpc
-  -> [HTTP.Header] -> m RequestHeaders
+  => Proxy rpc -> [HTTP.Header] -> m RequestHeaders
 parseRequestHeaders proxy =
-      runPartialParser uninitRequestHeaders
+      HKD.sequence
+    . flip execState uninitRequestHeaders
     . mapM_ parseHeader
   where
-    parseHeader :: HTTP.Header -> PartialParser RequestHeaders m ()
+    parseHeader :: HTTP.Header -> State (RequestHeaders_ (DecoratedWith m)) ()
     parseHeader hdr@(name, value)
       | name == "user-agent"
       = return () -- TODO
 
       | name == "grpc-timeout"
-      = update updTimeout $ \_ ->
-          fmap Just . httpError HTTP.badRequest400 $
-            parseTimeout value
+      = modify $ \x -> x {
+            requestTimeout = fmap Just $
+              httpError HTTP.badRequest400 $
+                parseTimeout value
+          }
 
       | name == "grpc-encoding"
-      = update updCompression $ \_ ->
-          fmap Just . httpError HTTP.badRequest400 $
-            parseMessageEncoding hdr
+      = modify $ \x -> x {
+            requestCompression = fmap Just $
+               httpError HTTP.badRequest400 $
+                 parseMessageEncoding hdr
+          }
 
       | name == "grpc-accept-encoding"
-      = update updAcceptCompression $ \_ ->
-          fmap Just . httpError HTTP.badRequest400 $
-            parseMessageAcceptEncoding hdr
+      = modify $ \x -> x {
+            requestAcceptCompression = fmap Just $
+               httpError HTTP.badRequest400 $
+                 parseMessageAcceptEncoding hdr
+          }
 
       | name == "grpc-trace-bin"
-      = update updTraceContext $ \_ ->
-          fmap Just . httpError HTTP.badRequest400 $
-            parseBinaryValue value >>= parseTraceContext
+      = modify $ \x -> x {
+            requestTraceContext = fmap Just $
+              httpError HTTP.badRequest400 $
+                parseBinaryValue value >>= parseTraceContext
+          }
 
-      -- /If/ the @te@ header is present we check its value, but we do not
-      -- insist that it is present (technically this is not conform spec).
-      | name == "te"
-      = httpError HTTP.badRequest400 $
-          expectHeaderValue hdr ["trailers"]
-
-      -- Dealing with 'content-type' and 'grpc-message-type' is a bit subtle.
-      -- In /principle/ the headers should /tell/ us what kind of RPC we are
-      -- dealing with (Protobuf or otherwise) and what its message type is.
-      -- However, we assume that, for a given server, the path (parsed
-      -- previously) determines these values, and so we merely need to check
-      -- that they match the values we expect.
-      --
-      -- If these headers are absent, we simply assume that they implicitly
-      -- have the values we expect.
       | name == "content-type"
-      = update updContentType $ \_ ->
-          fmap Just . httpError HTTP.unsupportedMediaType415 $
-            parseContentType proxy hdr
+      = modify $ \x -> x {
+            requestContentType = fmap Just $
+              httpError HTTP.unsupportedMediaType415 $
+                parseContentType proxy hdr
+          }
 
       | name == "grpc-message-type"
-      = httpError HTTP.badRequest400 $
-          expectHeaderValue hdr [PercentEncoding.encode (rpcMessageType proxy)]
+      = modify $ \x -> x {
+            requestMessageType = do
+              let expected = PercentEncoding.encode (rpcMessageType proxy)
+              httpError HTTP.badRequest400 $
+                expectHeaderValue hdr [expected]
+              return True
+          }
 
-      -- Everything else we parse as custom metadata
+      | name == "te"
+      = modify $ \x -> x {
+            requestIncludeTE = do
+              httpError HTTP.badRequest400 $
+                expectHeaderValue hdr ["trailers"]
+              return True
+          }
+
       | otherwise
-      = httpError HTTP.badRequest400 (parseCustomMetadata hdr) >>=
-        update updCustom . fmap . uncurry Map.insert
+      = modify $ \x -> x {
+            requestMetadata = do
+              (parsedName, parsedValue) <- httpError HTTP.badRequest400 $
+                parseCustomMetadata hdr
+              Map.insert parsedName parsedValue <$> requestMetadata x
+          }
 
-    -- All of these headers are optional
-    uninitRequestHeaders :: Partial m RequestHeaders
-    uninitRequestHeaders =
-           return (Nothing   :: Maybe Timeout)
-        :* return (Map.empty :: Map HeaderName HeaderValue)
-        :* return (Nothing   :: Maybe CompressionId)
-        :* return (Nothing   :: Maybe (NonEmpty CompressionId))
-        :* return (Nothing   :: Maybe ContentType)
-        :* return (Nothing   :: Maybe TraceContext)
-        :* Nil
-
-    (    updTimeout
-      :* updCustom
-      :* updCompression
-      :* updAcceptCompression
-      :* updContentType
-      :* updTraceContext
-      :* Nil ) = partialUpdates (Proxy @RequestHeaders)
+    uninitRequestHeaders :: RequestHeaders_ (DecoratedWith m)
+    uninitRequestHeaders = RequestHeaders {
+          requestTimeout           = return Nothing
+        , requestMetadata          = return Map.empty
+        , requestCompression       = return Nothing
+        , requestAcceptCompression = return Nothing
+        , requestContentType       = return Nothing
+        , requestMessageType       = return False
+        , requestIncludeTE         = return False
+        , requestTraceContext      = return Nothing
+        }
 
     httpError ::
          MonadError (HTTP.Status, Strict.ByteString) m'
       => HTTP.Status -> Either String a -> m' a
     httpError code (Left err) = throwError (code, BS.Strict.UTF8.fromString err)
     httpError _    (Right a)  = return a
+
+{-------------------------------------------------------------------------------
+  Internal auxiliary
+-------------------------------------------------------------------------------}
+
+expectHeaderValue ::
+     MonadError String m
+  => HTTP.Header -> [Strict.ByteString] -> m ()
+expectHeaderValue (name, actual) expected =
+    unless (actual `elem` expected) $ throwError $ concat [
+        "Unexpected value \""
+      , BS.Strict.C8.unpack actual
+      , "\" for header"
+      , show name -- Show instance adds quotes
+      , ". Expected "
+      , intercalate " or " $
+          map (\e -> "\"" ++ BS.Strict.C8.unpack e ++ "\"") expected
+      , "."
+      ]
+
