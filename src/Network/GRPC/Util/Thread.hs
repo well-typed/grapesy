@@ -9,6 +9,7 @@ module Network.GRPC.Util.Thread (
   , forkThread
   , threadBody
     -- * Access thread state
+  , CancelResult(..)
   , cancelThread
   , waitForThread
   , withThreadInterface
@@ -114,45 +115,59 @@ threadBody state body = do
   Stopping
 -------------------------------------------------------------------------------}
 
+-- | Result of cancelling a thread
+data CancelResult a =
+    -- | The thread terminated normally before we could cancel it
+    AlreadyTerminated a
+
+    -- | The thread terminated with an exception before we could cancel it
+  | AlreadyAborted SomeException
+
+    -- | We killed the thread with the specified exception
+  | Cancelled
+
 -- | Kill thread if it is running
 --
--- If the thread is in 'ThreadNotStarted' state, we merely change the thread
--- state to 'ThreadException'. We do /NOT/ block, since we cannot be sure if the
--- thread will be started at all (and so we might block indefinitely). This case
--- is taken into account in 'threadBody': if the thread is killed before it is
--- started, 'threadBody' will exit immediately.
+-- * If the thread is in `ThreadNotStarted` state, we merely change the state to
+--   'ThreadException'. We do /NOT/ block, since we cannot be sure if the thread
+--   will be started at all (and so we might block indefinitely). This case is
+--   taken into account in 'threadBody': if the thread is killed before it is
+--   started, 'threadBody' will exit immediately.
 --
--- We do not update the thread state here (except in the case of
--- 'ThreadNotStarted'); instead, we rely on the exception handler inside
--- 'threadBody' to do so (we are guaranteed that this thread handler is
--- installed if the thread state is anything other than 'ThreadNotStarted').
+-- * If the thread is initializing or running, we update the state to
+--   'ThreadException' and then throw the specified exception to the thread.
 --
--- Returns the reason the thread was killed (either the exception passed as an
--- argument to 'cancelThread', or an earlier exception if the thread was already
--- killed), or the thread interface if the thread had already terminated.
-cancelThread ::
+-- * If the thread is /already/ in 'ThreadException' state, or if the thread
+--   is in 'ThreadDone' state, we do nothing.
+--
+-- In all cases, the caller is guaranteed that the thread state has been updated
+-- even if perhaps the thread is still shutting down.
+cancelThread :: forall a.
      TVar (ThreadState a)
   -> SomeException
-  -> IO (Either SomeException ())
-cancelThread state e = join . atomically $ do
-    st <- readTVar state
-    case st of
-      ThreadNotStarted -> do
-        writeTVar state $ ThreadException e
-        return $ return (Left e)
-      ThreadInitializing tid ->
-        return $ kill tid
-      ThreadRunning tid _ ->
-        return $ kill tid
-      ThreadException e' ->
-        return $ return (Left e')
-      ThreadDone _ ->
-        return $ return (Right ())
+  -> IO (CancelResult a)
+cancelThread state e = do
+    (result, mTid) <- atomically aux
+    forM_ mTid $ flip throwTo e
+    return result
   where
-    kill :: ThreadId -> IO (Either SomeException a)
-    kill tid = do
-        throwTo tid $ e
-        return $ Left e
+    aux :: STM (CancelResult a, Maybe ThreadId)
+    aux = do
+        st <- readTVar state
+        case st of
+          ThreadNotStarted -> do
+            writeTVar state $ ThreadException e
+            return (Cancelled, Nothing)
+          ThreadInitializing tid -> do
+            writeTVar state $ ThreadException e
+            return (Cancelled, Just tid)
+          ThreadRunning tid _ -> do
+            writeTVar state $ ThreadException e
+            return (Cancelled, Just tid)
+          ThreadException e' ->
+            return (AlreadyAborted e', Nothing)
+          ThreadDone a ->
+            return (AlreadyTerminated a, Nothing)
 
 {-------------------------------------------------------------------------------
   Interacting with the thread

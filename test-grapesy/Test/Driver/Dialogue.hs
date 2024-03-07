@@ -7,4 +7,3 @@ module Test.Driver.Dialogue (
 import Test.Driver.Dialogue.Definition as X
 import Test.Driver.Dialogue.Execution  as X
 import Test.Driver.Dialogue.Generation as X
-import Test.Driver.Dialogue.TestClock  as X

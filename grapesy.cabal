@@ -248,6 +248,7 @@ test-suite test-grapesy
       Test.Sanity.StreamingType.CustomFormat
       Test.Sanity.StreamingType.NonStreaming
       Test.Util.Awkward
+      Test.Util.Within
 
       Paths_grapesy
 

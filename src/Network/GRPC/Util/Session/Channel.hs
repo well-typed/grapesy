@@ -435,8 +435,14 @@ close Channel{channelOutbound} reason = do
     -- thread will terminate once it reaches the end of the queue
      outbound <- cancelThread channelOutbound channelClosed
      case outbound of
-       Right ()  -> return $ Nothing
-       Left  err -> return $ Just err
+       AlreadyTerminated _ ->
+         return $ Nothing
+       AlreadyAborted err ->
+         -- Connection to the peer was lost prior to closing
+         return $ Just err
+       Cancelled ->
+         -- Proper procedure for outbound messages was not followed
+         return $ Just channelClosed
   where
     channelClosed :: SomeException
     channelClosed =
