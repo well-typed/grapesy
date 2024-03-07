@@ -95,11 +95,14 @@ module Network.GRPC.Spec (
   , ProperTrailers
   , TrailersOnly_(..)
   , TrailersOnly
+  , Pushback(..)
     -- ** Serialization
   , parseProperTrailers
   , parseTrailersOnly
+  , parsePushback
   , buildProperTrailers
   , buildTrailersOnly
+  , buildPushback
   , properTrailersToTrailersOnly
   , trailersOnlyToProperTrailers
     -- *** Status

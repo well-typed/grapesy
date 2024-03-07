@@ -360,6 +360,7 @@ serverExceptionToClientError err
           properTrailersGrpcStatus  = GrpcError GrpcUnknown
         , properTrailersGrpcMessage = Just $ Text.pack (show err)
         , properTrailersMetadata    = Map.empty
+        , properTrailersPushback    = Nothing
         }
 
 -- | Handler terminated early
@@ -434,6 +435,7 @@ sendOutputWithEnvelope call@Call{callChannel} msg = do
           properTrailersGrpcStatus  = GrpcOk
         , properTrailersGrpcMessage = Nothing
         , properTrailersMetadata    = Map.fromList metadata
+        , properTrailersPushback    = Nothing
         }
 
 -- | Send 'GrpcException' to the client
@@ -538,6 +540,7 @@ sendTrailersOnly Call{callContext, callResponseKickoff} metadata = do
               properTrailersGrpcStatus  = GrpcOk
             , properTrailersGrpcMessage = Nothing
             , properTrailersMetadata    = Map.fromList metadata
+            , properTrailersPushback    = Nothing
             }
         }
 
