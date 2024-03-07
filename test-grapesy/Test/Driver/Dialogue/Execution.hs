@@ -101,6 +101,10 @@ expect expectInfo isExpected received
 timeoutClock :: Int
 timeoutClock = 5
 
+-- | Timeout for waiting for the green liht
+timeoutGreenLight :: Int
+timeoutGreenLight = 5
+
 -- | Timeout for executing all the actions in a client or handler
 timeoutLocal :: Int
 timeoutLocal = 20
@@ -171,7 +175,13 @@ clientLocal clock call = \(LocalSteps steps) ->
             return True
           Terminate mException -> do
             -- See discussion in 'TestClock' for why we need to wait here
-            TestClock.waitForGreenLight clock tick
+            peerHealth <- get
+            case peerHealth of
+              PeerAlive ->
+                within timeoutGreenLight action $
+                  TestClock.waitForGreenLight clock tick
+              _otherwise ->
+                return ()
             case mException of
               Just exceptionId ->
                 throwM $ DeliberateException $ SomeClientException exceptionId
@@ -363,7 +373,13 @@ serverLocal clock call = \(LocalSteps steps) -> do
             expect action isExpected received
             return True
           Terminate mException -> do
-            TestClock.waitForGreenLight clock tick
+            peerHealth <- get
+            case peerHealth of
+              PeerAlive ->
+                within timeoutGreenLight action $
+                  TestClock.waitForGreenLight clock tick
+              _otherwise ->
+                return ()
             case mException of
               Just exceptionId ->
                 throwM $ DeliberateException $ SomeServerException exceptionId

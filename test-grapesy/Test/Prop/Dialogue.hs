@@ -37,13 +37,14 @@ tests = testGroup "Test.Prop.Dialogue" [
         , testCase "earlyTermination11" $ regression earlyTermination11
         , testCase "earlyTermination12" $ regression earlyTermination12
         , testCase "earlyTermination13" $ regression earlyTermination13
+        , testCase "earlyTermination14" $ regression earlyTermination14
         ]
     , testGroup "Setup" [
           testProperty "shrinkingWellFounded" prop_shrinkingWellFounded
         ]
     , testGroup "Arbitrary" [
           testProperty "withoutExceptions" arbitraryWithoutExceptions
---        , testProperty "withExceptions"    arbitraryWithExceptions
+        , testProperty "withExceptions"    arbitraryWithExceptions
         ]
     ]
 
@@ -66,8 +67,8 @@ arbitraryWithoutExceptions :: DialogueWithoutExceptions -> Property
 arbitraryWithoutExceptions (DialogueWithoutExceptions dialogue) =
     propDialogue dialogue
 
-_arbitraryWithExceptions :: DialogueWithExceptions -> Property
-_arbitraryWithExceptions (DialogueWithExceptions dialogue) =
+arbitraryWithExceptions :: DialogueWithExceptions -> Property
+arbitraryWithExceptions (DialogueWithExceptions dialogue) =
     propDialogue dialogue
 
 propDialogue :: Dialogue -> Property
@@ -327,4 +328,15 @@ earlyTermination13 = NormalizedDialogue [
     , (0, ServerAction $ Send (StreamElem 3))              -- 6
     , (0, ServerAction $ Terminate (Just (ExceptionId 0))) -- 7
     , (0, ClientAction $ Send (NoMoreElems NoMetadata))    -- 8
+    ]
+
+-- | Both the server /and/ the client terminate early
+--
+-- This is primarily a test of the test infrastructure itself: after the client
+-- has terminated, it can no longer green-light the server.
+earlyTermination14 :: Dialogue
+earlyTermination14 = NormalizedDialogue [
+      (0, ClientAction $ Initiate (Map.empty, RPC1))
+    , (0, ClientAction $ Terminate Nothing)
+    , (0, ServerAction $ Terminate (Just (ExceptionId 0)))
     ]
