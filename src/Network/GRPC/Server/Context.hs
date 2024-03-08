@@ -10,22 +10,17 @@ module Network.GRPC.Server.Context (
   , new
     -- * Configuration
   , ServerParams(..)
-    -- * Logging
-  , ServerDebugMsg(..)
   ) where
 
 import Control.Exception
 import Control.Monad.XIO (NeverThrows)
 import Control.Monad.XIO qualified as XIO
-import Control.Tracer
 import Data.Default
 import System.IO
 
 import Network.GRPC.Common.Compression qualified as Compr
 import Network.GRPC.Server.RequestHandler.API
-import Network.GRPC.Server.Session (ServerSession, CallSetupFailure)
 import Network.GRPC.Spec
-import Network.GRPC.Util.Session qualified as Session
 
 {-------------------------------------------------------------------------------
   Context
@@ -49,12 +44,6 @@ data ServerParams = ServerParams {
       -- | Server compression preferences
       serverCompression :: Compr.Negotation
 
-      -- | Tracer for debug messages
-      --
-      -- This is prmarily for debugging @grapesy@ itself; most client code will
-      -- probably want to use 'nullTracer' here.
-    , serverDebugTracer :: Tracer IO ServerDebugMsg
-
       -- | Top-level hook for request handlers
       --
       -- The most important responsibility of this function is to deal with
@@ -76,7 +65,6 @@ data ServerParams = ServerParams {
 instance Default ServerParams where
   def = ServerParams {
         serverCompression = def
-      , serverDebugTracer = nullTracer
       , serverTopLevel    = defaultServerTopLevel
       , serverContentType = Just ContentTypeDefault
       }
@@ -86,22 +74,3 @@ defaultServerTopLevel ::
   -> RequestHandler NeverThrows   ()
 defaultServerTopLevel h req resp =
     h req resp `XIO.catchError` (XIO.swallowIO . hPrint stderr)
-
-{-------------------------------------------------------------------------------
-  Logging and failure
--------------------------------------------------------------------------------}
-
-data ServerDebugMsg =
-    -- | New request
-    ServerDebugRequest RawResourceHeaders
-
-    -- | Message on existing connection
-  | forall rpc.
-          IsRPC rpc
-       => ServerDebugMsg (Session.DebugMsg (ServerSession rpc))
-
-     -- | Could not setup the call to the client
-  | ServerDebugCallSetupFailed CallSetupFailure
-
-deriving instance Show ServerDebugMsg
-

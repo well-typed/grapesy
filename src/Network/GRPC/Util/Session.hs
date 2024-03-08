@@ -50,8 +50,6 @@ module Network.GRPC.Util.Session (
   , FlowStatus(..)
   , checkChannelStatus
   , isChannelHealthy
-    -- ** Logging
-  , DebugMsg(..)
   ) where
 
 import Network.GRPC.Util.Session.API

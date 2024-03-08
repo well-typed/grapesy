@@ -40,9 +40,6 @@ module Network.GRPC.Server (
   , CallSetupFailure(..)
   , ClientDisconnected(..)
   , HandlerTerminated(..)
-
-    -- * Debugging
-  , Context.ServerDebugMsg(..)
   ) where
 
 import Network.HTTP2.Server qualified as HTTP2

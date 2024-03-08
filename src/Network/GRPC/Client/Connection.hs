@@ -17,7 +17,6 @@ module Network.GRPC.Client.Connection (
   , SslKeyLog(..)
   , ConnParams(..)
   , ReconnectPolicy(..)
-  , ClientDebugMsg(..)
   , exponentialBackoff
   ) where
 
@@ -25,7 +24,6 @@ import Control.Concurrent
 import Control.Concurrent.STM
 import Control.Monad
 import Control.Monad.Catch
-import Control.Tracer
 import Data.Default
 import Data.Foldable (asum)
 import Data.Map.Strict qualified as Map
@@ -98,14 +96,8 @@ data Call rpc = IsRPC rpc => Call {
 --
 -- You may wish to override 'connReconnectPolicy'.
 data ConnParams = ConnParams {
-      -- | Logging
-      --
-      -- Most applications will probably just set this to 'nullTracer' to
-      -- disable logging.
-      connDebugTracer :: Tracer IO ClientDebugMsg
-
       -- | Compression negotation
-    , connCompression :: Compr.Negotation
+      connCompression :: Compr.Negotation
 
       -- | Default timeout
       --
@@ -159,8 +151,7 @@ data ConnParams = ConnParams {
 
 instance Default ConnParams where
   def = ConnParams {
-        connDebugTracer           = nullTracer
-      , connCompression           = def
+        connCompression           = def
       , connDefaultTimeout        = Nothing
       , connReconnectPolicy       = def
       , connContentType           = Just ContentTypeDefault
@@ -209,55 +200,16 @@ exponentialBackoff e = go
     go (lo, hi) n = ReconnectAfter (lo, hi) $ go (lo * e, hi * e) (pred n)
 
 {-------------------------------------------------------------------------------
-  Logging
--------------------------------------------------------------------------------}
-
-data ClientDebugMsg =
-    -- | Connecting to the server
-    ClientDebugConnecting
-
-    -- | Connected to the server (without TLS)
-  | ClientDebugConnectedInsecure
-
-    -- | Connected to the server (with TLS)
-  | ClientDebugConnectedSecure
-
-    -- | Message on an established connection
-  | forall rpc.
-         IsRPC rpc
-      => ClientDebugMsg (Session.DebugMsg (ClientSession rpc))
-
-    -- | Connection was closed normally
-  | ClientDebugConnectionClosed
-
-    -- | We got disconnected and are waiting to reconnect after specified delay
-  | ClientDebugReconnectingAfter SomeException Double
-
-    -- | We got disconnected and will not reconnect again
-  | ClientDebugDisconnected SomeException
-
-    -- | Connection failed with a fatal exception
-    --
-    -- Exceptions are considered fatal if there is no point retrying.
-  | ClientDebugFatal FatalException
-
-deriving instance Show ClientDebugMsg
-
-{-------------------------------------------------------------------------------
   Fatal exceptions (no point reconnecting)
 -------------------------------------------------------------------------------}
 
-data FatalException =
-    FatalTLS TLSException
-  deriving (Show)
-
-isFinalException :: SomeException -> Maybe FatalException
-isFinalException err
-  | Just tlsException <- fromException err
-  = Just $ FatalTLS tlsException
+isFatalException :: SomeException -> Bool
+isFatalException err
+  | Just (_tlsException :: TLSException) <- fromException err
+  = True
 
   | otherwise
-  = Nothing
+  = False
 
 {-------------------------------------------------------------------------------
   Server address
@@ -347,12 +299,7 @@ startRPC Connection{connMetaVar, connParams, connStateVar} _ callParams = do
           , outCompression = fromMaybe noCompression cOut
           }
 
-    channel <-
-      Session.setupRequestChannel
-        callSession
-        tracer
-        conn
-        flowStart
+    channel <- Session.setupRequestChannel callSession conn flowStart
 
     _ <- forkIO $ do
       mErr <- atomically $ readTMVar connClosed
@@ -403,10 +350,6 @@ startRPC Connection{connMetaVar, connParams, connStateVar} _ callParams = do
           clientCompression = connCompression connParams
         , clientUpdateMeta  = updateMeta
         }
-
-    tracer :: Tracer IO (Session.DebugMsg (ClientSession rpc))
-    tracer = contramap (ClientDebugMsg @rpc) $
-               connDebugTracer connParams
 
 {-------------------------------------------------------------------------------
   Internal auxiliary
@@ -463,7 +406,6 @@ stayConnected connParams server connStateVar connOutOfScope =
   where
     loop :: ReconnectPolicy -> IO ()
     loop remainingReconnectPolicy = do
-        traceWith tracer $ ClientDebugConnecting
         attempt <- newConnectionAttempt connParams connStateVar connOutOfScope
 
         -- Just like in 'runHandler' on the server side, it is important that we
@@ -498,25 +440,18 @@ stayConnected connParams server connStateVar connOutOfScope =
 
         case mRes of
           Right () -> do
-            traceWith tracer $ ClientDebugConnectionClosed
             atomically $ writeTVar connStateVar $ ConnectionOutOfScope
           Left err -> do
-            case (isFinalException err, thisReconnectPolicy) of
-              (Just fatal, _) -> do
-                traceWith tracer $ ClientDebugFatal fatal
+            case (isFatalException err, thisReconnectPolicy) of
+              (True, _) -> do
                 atomically $ writeTVar connStateVar $ ConnectionAbandoned err
-              (Nothing, DontReconnect) -> do
-                traceWith tracer $ ClientDebugDisconnected err
+              (False, DontReconnect) -> do
                 atomically $ writeTVar connStateVar $ ConnectionAbandoned err
-              (Nothing, ReconnectAfter (lo, hi) reconnectPolicy') -> do
+              (False, ReconnectAfter (lo, hi) reconnectPolicy') -> do
                 delay <- randomRIO (lo, hi)
-                traceWith tracer $ ClientDebugReconnectingAfter err delay
                 atomically $ writeTVar connStateVar $ ConnectionNotReady
                 threadDelay $ round $ delay * 1_000_000
                 loop reconnectPolicy'
-
-    tracer :: Tracer IO ClientDebugMsg
-    tracer = connDebugTracer connParams
 
 -- | Insecure connection (no TLS)
 connectInsecure :: ConnParams -> Attempt -> Address -> IO ()
@@ -525,7 +460,6 @@ connectInsecure connParams attempt addr =
       bracket (HTTP2.Client.allocSimpleConfig sock writeBufferSize)
               HTTP2.Client.freeSimpleConfig $ \conf ->
         HTTP2.Client.run clientConfig conf $ \sendRequest _aux -> do
-          traceWith tracer $ ClientDebugConnectedInsecure
           let conn = Session.ConnectionToServer sendRequest
           atomically $
             writeTVar (attemptState attempt) $
@@ -537,9 +471,6 @@ connectInsecure connParams attempt addr =
         HTTP2.Client.defaultClientConfig {
             HTTP2.Client.authority = authority addr
           }
-
-    tracer :: Tracer IO ClientDebugMsg
-    tracer = connDebugTracer $ attemptParams attempt
 
 -- | Secure connection (using TLS)
 connectSecure ::
@@ -576,15 +507,11 @@ connectSecure connParams attempt validation sslKeyLog addr = do
           (addressHost addr)
           (addressPort addr)
         $ \sendRequest _aux -> do
-      traceWith tracer $ ClientDebugConnectedSecure
       let conn = Session.ConnectionToServer sendRequest
       atomically $
         writeTVar (attemptState attempt) $
           ConnectionReady (attemptClosed attempt) conn
       takeMVar $ attemptOutOfScope attempt
- where
-    tracer :: Tracer IO ClientDebugMsg
-    tracer = connDebugTracer $ attemptParams attempt
 
 -- | Authority
 --

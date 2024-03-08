@@ -2,7 +2,6 @@
 
 module Main (main) where
 
-import Control.Tracer
 import Data.Aeson
 
 import Network.GRPC.Common
@@ -11,8 +10,6 @@ import Network.GRPC.Server
 import Network.GRPC.Server.Protobuf
 import Network.GRPC.Server.Run
 import Network.GRPC.Server.StreamType
-
-import Demo.Common.Logging
 
 import Demo.Server.Cmdline
 import Demo.Server.Service.Greeter    qualified as Greeter
@@ -70,9 +67,5 @@ serverParams cmd = def {
         if cmdDisableCompression cmd
           then Compression.none
           else serverCompression def
-    , serverDebugTracer =
-        if cmdDebug cmd
-          then contramap show threadSafeTracer
-          else serverDebugTracer def
     }
 

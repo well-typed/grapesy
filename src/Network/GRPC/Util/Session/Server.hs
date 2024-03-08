@@ -7,7 +7,6 @@ module Network.GRPC.Util.Session.Server (
 
 import Control.Monad.XIO (XIO', NeverThrows)
 import Control.Monad.XIO qualified as XIO
-import Control.Tracer
 import Network.HTTP.Types qualified as HTTP
 import Network.HTTP2.Server qualified as Server
 
@@ -53,7 +52,6 @@ determineFlowStart sess req
 setupResponseChannel :: forall sess.
      AcceptSession sess
   => sess
-  -> Tracer IO (DebugMsg sess)
   -> ConnectionToClient
   -> FlowStart (Inbound sess)
   -> IO (FlowStart (Outbound sess))
@@ -66,7 +64,7 @@ setupResponseChannel :: forall sess.
   -- this is treated the same was as when we fail to set up the outbound
   -- connection due to a network failure.
   -> XIO' NeverThrows (Channel sess)
-setupResponseChannel sess tracer conn inboundStart startOutbound =
+setupResponseChannel sess conn inboundStart startOutbound =
     XIO.unsafeTrustMe $ do
       channel <- initChannel
 
@@ -77,7 +75,7 @@ setupResponseChannel sess tracer conn inboundStart startOutbound =
               regular <- initFlowStateRegular headers
               stream  <- serverInputStream (request conn)
               markReady $ FlowStateRegular regular
-              recvMessageLoop sess tracer regular stream
+              recvMessageLoop sess regular stream
             FlowStartNoMessages trailers -> do
               markReady $ FlowStateNoMessages trailers
               -- Thread terminates immediately
@@ -96,7 +94,7 @@ setupResponseChannel sess tracer conn inboundStart startOutbound =
                              (responseHeaders responseInfo)
                      $ \write' flush' -> do
                           stream <- serverOutputStream write' flush'
-                          sendMessageLoop sess tracer regular stream
+                          sendMessageLoop sess regular stream
             respond conn resp
           FlowStartNoMessages trailers -> do
             markReady $ FlowStateNoMessages trailers

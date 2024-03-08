@@ -50,7 +50,6 @@ import Control.Monad.Catch
 import Control.Monad.IO.Class
 import Control.Monad.XIO (XIO, XIO', NeverThrows)
 import Control.Monad.XIO qualified as XIO
-import Control.Tracer
 import Data.Bifunctor
 import Data.Default
 import Data.Map.Strict qualified as Map
@@ -160,7 +159,6 @@ setupCall conn callContext@ServerContext{params} = do
     callChannel :: Session.Channel (ServerSession rpc) <-
       XIO.neverThrows $ Session.setupResponseChannel
         callSession
-        (contramap (Context.ServerDebugMsg @rpc) tracer)
         conn
         flowStart
         (mkOutboundHeaders callResponseMetadata callResponseKickoff cOut)
@@ -184,9 +182,6 @@ setupCall conn callContext@ServerContext{params} = do
 
     req :: HTTP2.Request
     req = Server.request conn
-
-    tracer :: Tracer IO Context.ServerDebugMsg
-    tracer = Context.serverDebugTracer params
 
     mkOutboundHeaders ::
          TVar [CustomMetadata]

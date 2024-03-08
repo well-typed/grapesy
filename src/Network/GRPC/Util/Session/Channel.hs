@@ -32,15 +32,12 @@ module Network.GRPC.Util.Session.Channel (
   , FlowStatus(..)
   , checkChannelStatus
   , isChannelHealthy
-    -- ** Logging
-  , DebugMsg(..)
   ) where
 
 import Control.Concurrent.STM
 import Control.Exception
 import Control.Monad
 import Control.Monad.Catch (ExitCase(..))
-import Control.Tracer
 import Data.Bifunctor
 import Data.ByteString qualified as BS.Strict
 import Data.ByteString.Builder (Builder)
@@ -502,11 +499,10 @@ linkOutboundToInbound channel inbound =
 sendMessageLoop :: forall sess.
      IsSession sess
   => sess
-  -> Tracer IO (DebugMsg sess)
   -> RegularFlowState (Outbound sess)
   -> OutputStream
   -> IO ()
-sendMessageLoop sess tracer st stream = do
+sendMessageLoop sess st stream = do
     trailers <- loop
     atomically $ putTMVar (flowTerminated st) trailers
   where
@@ -515,9 +511,7 @@ sendMessageLoop sess tracer st stream = do
 
     loop :: IO (Trailers (Outbound sess))
     loop = do
-        traceWith tracer $ NodeSendAwaitMsg
         msg <- atomically $ takeTMVar (flowMsg st)
-        traceWith tracer $ NodeSendMsg msg
 
         case msg of
           StreamElem x -> do
@@ -541,17 +535,15 @@ sendMessageLoop sess tracer st stream = do
 recvMessageLoop :: forall sess.
      IsSession sess
   => sess
-  -> Tracer IO (DebugMsg sess)
   -> RegularFlowState (Inbound sess)
   -> InputStream
   -> IO ()
-recvMessageLoop sess tracer st stream =
+recvMessageLoop sess  st stream =
     go $ parseMsg sess (flowHeaders st)
   where
     go :: Parser (Message (Inbound sess)) -> IO ()
     go = \parser -> do
         trailers <- loop parser >>= parseInboundTrailers sess
-        traceWith tracer $ NodeRecvFinal trailers
         atomically $ putTMVar (flowTerminated st) $ trailers
         atomically $ putTMVar (flowMsg        st) $ NoMoreElems trailers
       where
@@ -559,11 +551,9 @@ recvMessageLoop sess tracer st stream =
         loop (ParserError err) =
             throwIO $ PeerSentMalformedMessage err
         loop (ParserDone x p') = do
-            traceWith tracer $ NodeRecvMsg (StreamElem x)
             atomically $ putTMVar (flowMsg st) $ StreamElem x
             loop p'
         loop (ParserNeedsData acc p') = do
-            traceWith tracer $ NodeNeedsData acc
             bs <- getChunk stream
 
             if | not (BS.Strict.null bs) ->
@@ -597,30 +587,3 @@ outboundTrailersMaker sess channel = go
                          error "unexpected FlowStateNoMessages"
         return $ HTTP2.Trailers $ buildOutboundTrailers sess trailers
 
-data DebugMsg sess =
-    -- | Thread sending messages is awaiting a message
-    NodeSendAwaitMsg
-
-    -- | Thread sending message will send a message
-  | NodeSendMsg (
-        StreamElem
-          (Trailers (Outbound sess))
-          (Message  (Outbound sess))
-      )
-
-    -- | Receive thread requires data
-    --
-    -- We also record the data already received
-  | NodeNeedsData BS.Lazy.ByteString
-
-    -- | Receive thread received a message
-  | NodeRecvMsg (
-        StreamElem
-          (Either (NoMessages (Inbound sess)) (Trailers (Inbound sess)))
-          (Message (Inbound sess))
-      )
-
-    -- | Receive thread received the trailers
-  | NodeRecvFinal (Trailers (Inbound sess))
-
-deriving instance IsSession sess => Show (DebugMsg sess)

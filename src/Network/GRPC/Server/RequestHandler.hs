@@ -17,7 +17,6 @@ import Control.Monad.Catch
 import Control.Monad.Except
 import Control.Monad.XIO (XIO', XIO)
 import Control.Monad.XIO qualified as XIO
-import Control.Tracer
 import Data.Bifunctor
 import Data.ByteString.Builder qualified as Builder
 import Data.ByteString.UTF8 qualified as BS.UTF8
@@ -28,7 +27,6 @@ import Network.HTTP2.Server qualified as HTTP2
 
 import Network.GRPC.Server.Call
 import Network.GRPC.Server.Context (ServerContext)
-import Network.GRPC.Server.Context qualified as Context
 import Network.GRPC.Server.Handler (RpcHandler(..))
 import Network.GRPC.Server.Handler qualified as Handler
 import Network.GRPC.Server.RequestHandler.API
@@ -47,20 +45,15 @@ requestHandler ::
   -> RequestHandler SomeException ()
 requestHandler handlers ctxt request respond = do
     RpcHandler (handler :: Call rpc -> IO ()) <-
-      findHandler tracer handlers request `XIO.catchError`
-        setupFailure tracer respond
+      findHandler handlers request      `XIO.catchError` setupFailure respond
     call :: Call rpc <- do
-      setupCall connectionToClient ctxt `XIO.catchError`
-        setupFailure tracer respond
+      setupCall connectionToClient ctxt `XIO.catchError` setupFailure respond
 
     imposeTimeout (getRequestTimeout call) $
       runHandler call handler
   where
     connectionToClient :: ConnectionToClient
     connectionToClient = ConnectionToClient{request, respond}
-
-    tracer :: Tracer IO Context.ServerDebugMsg
-    tracer = Context.serverDebugTracer $ Context.params ctxt
 
     timeoutException :: GrpcException
     timeoutException = GrpcException {
@@ -74,13 +67,11 @@ requestHandler handlers ctxt request respond = do
     imposeTimeout (Just t) = XIO.timeoutWith timeoutException (timeoutToMicro t)
 
 findHandler ::
-     Tracer IO Context.ServerDebugMsg
-  -> Handler.Map IO
+     Handler.Map IO
   -> HTTP2.Request
   -> XIO' CallSetupFailure (RpcHandler IO)
-findHandler tracer handlers req = do
+findHandler handlers req = do
     -- TODO: Proper "Apache style" logging (in addition to the debug logging)
-    XIO.swallowIO $ traceWith tracer $ Context.ServerDebugRequest rawHeaders
 
     resourceHeaders <- liftEither . first CallSetupInvalidResourceHeaders $
       parseResourceHeaders rawHeaders
@@ -107,14 +98,11 @@ findHandler tracer handlers req = do
 -- client at all yet. We try to tell the client what happened, but ignore any
 -- exceptions that might arise from doing so.
 setupFailure ::
-     Tracer IO Context.ServerDebugMsg
-  -> (HTTP2.Response -> IO ())
+     (HTTP2.Response -> IO ())
   -> CallSetupFailure
   -> XIO a
-setupFailure tracer respond failure = do
-    XIO.swallowIO $ do
-      traceWith tracer $ Context.ServerDebugCallSetupFailed failure
-      respond $ failureResponse failure
+setupFailure respond failure = do
+    XIO.swallowIO $ respond $ failureResponse failure
     throwM failure
 
 {-------------------------------------------------------------------------------

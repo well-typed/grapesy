@@ -16,10 +16,6 @@ cabal run demo-server -- \
 The secure server uses a bundled self-signed certificate by default. See the
 command line flags for details.
 
-## Debugging
-
-You can pass `--debug` to the server to get additional debugging output.
-
 ## Testing the server
 
 See https://grpc.io/docs/guides/auth/#python for the changes required to the

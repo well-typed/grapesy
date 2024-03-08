@@ -67,9 +67,6 @@ module Network.GRPC.Client (
   , ServerDisconnected(..)
   , CallSetupFailure(..)
   , InvalidTrailers(..)
-
-    -- * Debugging
-  , ClientDebugMsg(..)
   ) where
 
 import Network.GRPC.Client.Call

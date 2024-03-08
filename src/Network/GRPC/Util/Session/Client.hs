@@ -6,7 +6,6 @@ module Network.GRPC.Util.Session.Client (
 
 import Control.Concurrent.STM
 import Control.Monad.Catch
-import Control.Tracer
 import Data.ByteString qualified as BS.Strict
 import Data.ByteString qualified as Strict (ByteString)
 import Data.ByteString.Builder (Builder)
@@ -77,11 +76,10 @@ data ConnectionToServer = ConnectionToServer {
 setupRequestChannel :: forall sess.
      InitiateSession sess
   => sess
-  -> Tracer IO (DebugMsg sess)
   -> ConnectionToServer
   -> FlowStart (Outbound sess)
   -> IO (Channel sess)
-setupRequestChannel sess tracer ConnectionToServer{sendRequest} outboundStart = do
+setupRequestChannel sess ConnectionToServer{sendRequest} outboundStart = do
     channel <- initChannel
     let requestInfo = buildRequestInfo sess outboundStart
 
@@ -137,7 +135,7 @@ setupRequestChannel sess tracer ConnectionToServer{sendRequest} outboundStart = 
               regular <- initFlowStateRegular headers
               stream  <- clientInputStream resp
               markReady $ FlowStateRegular regular
-              recvMessageLoop sess tracer regular stream
+              recvMessageLoop sess regular stream
             else do
               trailers <- parseResponseNoMessages sess responseInfo
               markReady $ FlowStateNoMessages trailers
@@ -155,7 +153,7 @@ setupRequestChannel sess tracer ConnectionToServer{sendRequest} outboundStart = 
          -- Initialize the output stream to initiate the request.
          -- See 'clientOutputStream' for details.
          stream <- clientOutputStream write' flush'
-         sendMessageLoop sess tracer regular stream
+         sendMessageLoop sess regular stream
 
 {-------------------------------------------------------------------------------
    Auxiliary http2
