@@ -96,6 +96,10 @@ data RegressionTestFailed = RegressionTestFailed {
 
 {-------------------------------------------------------------------------------
   Regression tests
+
+  We use only 'NormalizedDialogue' here, so that /if/ we change normalization
+  (because some additional invariant needs to be preserved, for example), we
+  will get a useful test failure indicating which tests need to be adjusted.
 -------------------------------------------------------------------------------}
 
 -- | Sanity check: server tells client immediately that there is nothing to say
@@ -126,32 +130,46 @@ trivial2 = NormalizedDialogue [
 -- 'concurrent2' and 'concurrent3', and sanity checks to make sure that this
 -- goes well.
 concurrent1 :: Dialogue
-concurrent1 = UnnormalizedDialogue [
-      (0, ClientAction $ Send (NoMoreElems NoMetadata))
+concurrent1 = NormalizedDialogue [
+      (0, ClientAction $ Initiate (Map.empty, RPC1))
+    , (0, ClientAction $ Send (NoMoreElems NoMetadata))
+    , (1, ClientAction $ Initiate (Map.empty, RPC1))
     , (1, ServerAction $ Send (NoMoreElems Map.empty))
+    , (0, ServerAction $ Send (NoMoreElems Map.empty))
+    , (1, ClientAction $ Send (NoMoreElems NoMetadata))
     ]
 
 concurrent2 :: Dialogue
-concurrent2 = UnnormalizedDialogue [
-      (1, ClientAction $ Send (NoMoreElems NoMetadata))
+concurrent2 = NormalizedDialogue [
+      (1, ClientAction $ Initiate (Map.empty, RPC1))
+    , (1, ClientAction $ Send (NoMoreElems NoMetadata))
+    , (0, ClientAction $ Initiate (Map.empty, RPC1))
     , (0, ServerAction $ Send (NoMoreElems Map.empty))
+    , (0, ClientAction $ Send (NoMoreElems NoMetadata))
+    , (1, ServerAction $ Send (NoMoreElems Map.empty))
     ]
 
 concurrent3 :: Dialogue
-concurrent3 = UnnormalizedDialogue [
-      (1, ClientAction $ Initiate (Map.fromList [("md2", AsciiHeader "b")], RPC1))
-    , (0, ClientAction $ Initiate (Map.fromList [("md1", AsciiHeader "a")], RPC1))
+concurrent3 = NormalizedDialogue [
+      (1, ClientAction $ Initiate (Map.singleton "md2" (AsciiHeader "b"), RPC1))
+    , (0, ClientAction $ Initiate (Map.singleton "md1" (AsciiHeader "a"), RPC1))
+    , (0, ClientAction $ Send (NoMoreElems NoMetadata))
+    , (0, ServerAction $ Send (NoMoreElems Map.empty))
+    , (1, ClientAction $ Send (NoMoreElems NoMetadata))
+    , (1, ServerAction $ Send (NoMoreElems Map.empty))
     ]
 
--- | Test that the final is received
+-- | Test that the final message is received
 --
 -- See also <https://github.com/kazu-yamamoto/http2/issues/86>.
 concurrent4 :: Dialogue
-concurrent4 = UnnormalizedDialogue [
-      (1 , ClientAction $ Send (FinalElem 1 NoMetadata))
-    , (0 , ServerAction $ Send (FinalElem 2 Map.empty))
-    , (1 , ServerAction $ Send (FinalElem 3 Map.empty))
-    , (0 , ClientAction $ Send (FinalElem 4 NoMetadata))
+concurrent4 = NormalizedDialogue [
+      (1, ClientAction $ Initiate (Map.empty, RPC1))
+    , (1, ClientAction $ Send (FinalElem 1 NoMetadata))
+    , (0, ClientAction $ Initiate (Map.empty, RPC1))
+    , (0, ServerAction $ Send (FinalElem 2 Map.empty))
+    , (1, ServerAction $ Send (FinalElem 3 Map.empty))
+    , (0, ClientAction $ Send (FinalElem 4 NoMetadata))
     ]
 
 -- | Server-side exception
@@ -250,9 +268,11 @@ earlyTermination06 = NormalizedDialogue [
 
 -- | Server-side early termination
 earlyTermination07 :: Dialogue
-earlyTermination07 = UnnormalizedDialogue [
-      (0, ServerAction $ Initiate Map.empty)
+earlyTermination07 = NormalizedDialogue [
+      (0, ClientAction $ Initiate (Map.empty, RPC1))
+    , (0, ServerAction $ Initiate Map.empty)
     , (0, ServerAction $ Terminate (Just (ExceptionId 0)))
+    , (0, ClientAction $ Send (NoMoreElems NoMetadata))
     ]
 
 -- | Server-side early termination, Trailers-Only case
@@ -261,15 +281,19 @@ earlyTermination07 = UnnormalizedDialogue [
 -- the initial metadata, which causes the server handler to use the gRPC
 -- Trailers-Only case to send the error to the client.
 earlyTermination08 :: Dialogue
-earlyTermination08 = UnnormalizedDialogue [
-      (0, ServerAction $ Terminate (Just (ExceptionId 0)))
+earlyTermination08 = NormalizedDialogue [
+      (0, ClientAction $ Initiate (Map.empty, RPC1))
+    , (0, ServerAction $ Terminate (Just (ExceptionId 0)))
+    , (0, ClientAction $ Send (NoMoreElems NoMetadata))
     ]
 
 -- | Like 'earlyTermination07', but now without an exception
 earlyTermination09 :: Dialogue
-earlyTermination09 = UnnormalizedDialogue [
-      (0, ServerAction $ Initiate Map.empty)
+earlyTermination09 = NormalizedDialogue [
+      (0, ClientAction $ Initiate (Map.empty, RPC1))
+    , (0, ServerAction $ Initiate Map.empty)
     , (0, ServerAction $ Terminate Nothing)
+    , (0, ClientAction $ Send (NoMoreElems NoMetadata))
     ]
 
 -- | Client throws after the server sends their initial metadata
