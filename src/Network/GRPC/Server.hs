@@ -31,7 +31,6 @@ module Network.GRPC.Server (
     -- ** Low-level\/specialized API
   , initiateResponse
   , sendTrailersOnly
-  , isCallHealthy
   , recvInputWithEnvelope
   , sendOutputWithEnvelope
   , getRequestTraceContext
@@ -40,6 +39,7 @@ module Network.GRPC.Server (
   , CallSetupFailure(..)
   , ClientDisconnected(..)
   , HandlerTerminated(..)
+  , ResponseAlreadyInitiated(..)
   ) where
 
 import Network.HTTP2.Server qualified as HTTP2

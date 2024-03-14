@@ -49,7 +49,7 @@ import Network.GRPC.Util.Session qualified as Session
 import Network.GRPC.Util.TLS (ServerValidation(..), SslKeyLog(..))
 import Network.GRPC.Util.TLS qualified as Util.TLS
 
-{-------------------------------------------------------------------------------
+{---------------------------------------------------2----------------------------
   Connection API
 
   'Connection' is kept abstract (opaque) in the user facing API.
@@ -299,7 +299,20 @@ startRPC Connection{connMetaVar, connParams, connStateVar} _ callParams = do
           , outCompression = fromMaybe noCompression cOut
           }
 
-    channel <- Session.setupRequestChannel callSession conn flowStart
+    let serverClosedConnection ::
+             Either TrailersOnly ProperTrailers
+          -> SomeException
+        serverClosedConnection =
+              either toException toException
+            . grpcClassifyTermination
+            . either (fst . trailersOnlyToProperTrailers) id
+
+    channel <-
+      Session.setupRequestChannel
+        callSession
+        conn
+        serverClosedConnection
+        flowStart
 
     _ <- forkIO $ do
       mErr <- atomically $ readTMVar connClosed

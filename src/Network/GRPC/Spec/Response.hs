@@ -16,9 +16,10 @@ module Network.GRPC.Spec.Response (
   , Pushback(..)
   , trailersOnlyToProperTrailers
   , properTrailersToTrailersOnly
-    -- * gRPC exceptions
+    -- * gRPC termination
   , GrpcException(..)
-  , grpcExceptionFromTrailers
+  , GrpcNormalTermination(..)
+  , grpcClassifyTermination
   , grpcExceptionToTrailers
     -- * Serialization
     -- ** Construction
@@ -223,11 +224,20 @@ parsePushback bs =
 
 -- | Server indicated a gRPC error
 data GrpcException = GrpcException {
-      grpcError         :: GrpcError
-    , grpcErrorMessage  :: Maybe Text
-    , grpcErrorMetadata :: [CustomMetadata]
+      grpcError          :: GrpcError
+    , grpcErrorMessage   :: Maybe Text
+    , grpcErrorMetadata  :: [CustomMetadata]
     }
-  deriving stock (Show, Eq)
+  deriving stock (Show)
+  deriving anyclass (Exception)
+
+-- | Server indicated normal termination
+--
+-- This is only an exception if the client tries to send any further messages.
+data GrpcNormalTermination = GrpcNormalTermination {
+      grpcTerminatedMetadata :: [CustomMetadata]
+    }
+  deriving stock (Show)
   deriving anyclass (Exception)
 
 -- | Check if trailers correspond to an exceptional response
@@ -239,20 +249,19 @@ data GrpcException = GrpcException {
 -- However, in practice gRPC servers can also respond with @Trailers-Only@ in
 -- non-error cases, simply indicating that the server considers the
 -- conversation over. To distinguish, we look at 'trailerGrpcStatus'.
-grpcExceptionFromTrailers ::
+grpcClassifyTermination ::
      ProperTrailers
-  -> Either (Maybe Text, [CustomMetadata]) GrpcException
-grpcExceptionFromTrailers ProperTrailers {
+  -> Either GrpcException GrpcNormalTermination
+grpcClassifyTermination ProperTrailers {
                               properTrailersGrpcStatus
                             , properTrailersGrpcMessage
                             , properTrailersMetadata
                             } =
     case properTrailersGrpcStatus of
-      GrpcOk -> Left (
-          properTrailersGrpcMessage
-        , Map.toList properTrailersMetadata
-        )
-      GrpcError err -> Right GrpcException{
+      GrpcOk -> Right GrpcNormalTermination {
+          grpcTerminatedMetadata  = Map.toList properTrailersMetadata
+        }
+      GrpcError err -> Left GrpcException{
           grpcError         = err
         , grpcErrorMessage  = properTrailersGrpcMessage
         , grpcErrorMetadata = Map.toList properTrailersMetadata

@@ -45,8 +45,8 @@ instance IsRPC rpc => DataFlow (ClientInbound rpc) where
     deriving (Show)
 
   type Message    (ClientInbound rpc) = (InboundEnvelope, Output rpc)
-  type Trailers   (ClientInbound rpc) = [CustomMetadata]
-  type NoMessages (ClientInbound rpc) = [CustomMetadata]
+  type Trailers   (ClientInbound rpc) = ProperTrailers
+  type NoMessages (ClientInbound rpc) = TrailersOnly
 
 instance IsRPC rpc => DataFlow (ClientOutbound rpc) where
   data Headers (ClientOutbound rpc) = OutboundHeaders {
@@ -71,11 +71,8 @@ instance IsRPC rpc => IsSession (ClientSession rpc) where
   buildOutboundTrailers _client = \NoMetadata -> []
   parseInboundTrailers  _client = \raw ->
       case parseProperTrailers (Proxy @rpc) raw of
-        Left err -> throwIO $ InvalidTrailers err
-        Right trailers ->
-          case grpcExceptionFromTrailers trailers of
-            Right err -> throwIO err
-            Left (_msg, metadata) -> return metadata
+        Left  err -> throwIO $ InvalidTrailers err
+        Right res -> return res
 
   parseMsg _ = parseOutput (Proxy @rpc) . inbCompression
   buildMsg _ = buildInput  (Proxy @rpc) . outCompression
@@ -116,13 +113,8 @@ instance IsRPC rpc => InitiateSession (ClientSession rpc) where
                     (fromMaybe BS.Lazy.empty $ responseBody info)
 
       case parseTrailersOnly (Proxy @rpc) (responseHeaders info) of
-        Left err -> throwIO $ InvalidTrailers err
-        Right trailersOnly -> do
-          let (properTrailers, _contentType) =
-                 trailersOnlyToProperTrailers trailersOnly
-          case grpcExceptionFromTrailers properTrailers of
-            Right err -> throwIO err
-            Left (_msg, metadata) -> return metadata
+        Left  err -> throwIO $ InvalidTrailers err
+        Right res -> return res
 
   buildRequestInfo _ start = RequestInfo {
         requestMethod  = rawMethod resourceHeaders
@@ -138,6 +130,9 @@ instance IsRPC rpc => InitiateSession (ClientSession rpc) where
             resourceMethod = Post
           , resourcePath   = rpcPath (Proxy @rpc)
           }
+
+instance NoTrailers (ClientSession rpc) where
+  noTrailers _ = NoMetadata
 
 {-------------------------------------------------------------------------------
   Exceptions

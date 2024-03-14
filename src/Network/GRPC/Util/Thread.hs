@@ -11,8 +11,9 @@ module Network.GRPC.Util.Thread (
     -- * Access thread state
   , CancelResult(..)
   , cancelThread
-  , waitForThread
   , withThreadInterface
+  , waitForThread
+  , hasThreadTerminated
   ) where
 
 import Control.Concurrent
@@ -215,9 +216,6 @@ withThreadInterface state k =
           ThreadException e    -> throwSTM e
 
 -- | Wait for the thread to terminate
---
--- This is similar to 'getThreadInterface', but retries when the thread is still
--- running.
 waitForThread :: TVar (ThreadState a) -> STM a
 waitForThread state = do
     st <- readTVar state
@@ -227,6 +225,19 @@ waitForThread state = do
       ThreadRunning _ _    -> retry
       ThreadDone      a    -> return a
       ThreadException e    -> throwSTM e
+
+-- | Has the thread terminated?
+hasThreadTerminated ::
+     TVar (ThreadState a)
+  -> STM (Maybe (Either SomeException a))
+hasThreadTerminated state = do
+    st <- readTVar state
+    case st of
+      ThreadNotStarted     -> retry
+      ThreadInitializing _ -> retry
+      ThreadRunning _ _    -> return $ Nothing
+      ThreadDone      a    -> return $ Just (Right a)
+      ThreadException e    -> return $ Just (Left e)
 
 {-------------------------------------------------------------------------------
   Internal auxiliary

@@ -110,10 +110,11 @@ module Network.GRPC.Spec (
   , GrpcError(..)
   , fromGrpcStatus
   , toGrpcStatus
-    -- *** gRPC exceptions
+    -- *** gRPC termination
   , GrpcException(..)
+  , GrpcNormalTermination(..)
   , grpcExceptionToTrailers
-  , grpcExceptionFromTrailers
+  , grpcClassifyTermination
     -- * Metadata
   , CustomMetadata
   , HeaderValue(..)

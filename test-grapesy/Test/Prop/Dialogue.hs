@@ -18,6 +18,7 @@ tests = testGroup "Test.Prop.Dialogue" [
       testGroup "Regression" [
           testCase "trivial1"           $ regression trivial1
         , testCase "trivial2"           $ regression trivial2
+        , testCase "trivial3"           $ regression trivial3
         , testCase "concurrent1"        $ regression concurrent1
         , testCase "concurrent2"        $ regression concurrent2
         , testCase "concurrent3"        $ regression concurrent3
@@ -38,6 +39,9 @@ tests = testGroup "Test.Prop.Dialogue" [
         , testCase "earlyTermination12" $ regression earlyTermination12
         , testCase "earlyTermination13" $ regression earlyTermination13
         , testCase "earlyTermination14" $ regression earlyTermination14
+        , testCase "allowHalfClosed1"   $ regression allowHalfClosed1
+        , testCase "allowHalfClosed2"   $ regression allowHalfClosed2
+        , testCase "allowHalfClosed3"   $ regression allowHalfClosed3
         ]
     , testGroup "Setup" [
           testProperty "shrinkingWellFounded" prop_shrinkingWellFounded
@@ -109,18 +113,25 @@ data RegressionTestFailed = RegressionTestFailed {
 trivial1 :: Dialogue
 trivial1 = NormalizedDialogue [
       (0, ClientAction $ Initiate (Map.empty, RPC1))
-    , (0, ServerAction $ Send (NoMoreElems Map.empty))
     , (0, ClientAction $ Send (NoMoreElems NoMetadata))
+    , (0, ServerAction $ Send (NoMoreElems Map.empty))
     ]
 
--- | Variation on 'trivial1' where the client sends a message after the
--- server closed their end
+-- | Variation on 'trivial1' where the client sends a message before the
+-- server closed the call
 trivial2 :: Dialogue
 trivial2 = NormalizedDialogue [
-      (0, ClientAction $ Initiate (Map.empty, RPC1))    -- 0
-    , (0, ServerAction $ Send (NoMoreElems Map.empty))  -- 1
-    , (0, ClientAction $ Send (StreamElem 1234))        -- 2
-    , (0, ClientAction $ Send (NoMoreElems NoMetadata)) -- 3
+      (0, ClientAction $ Initiate (Map.empty, RPC1))
+    , (0, ClientAction $ Send (StreamElem 1234))
+    , (0, ClientAction $ Send (NoMoreElems NoMetadata))
+    , (0, ServerAction $ Send (NoMoreElems Map.empty))
+    ]
+
+-- | Variation on 'trivial1' where the server closes the call unilaterally
+trivial3 :: Dialogue
+trivial3 = NormalizedDialogue [
+      (0, ClientAction $ Initiate (Map.empty, RPC1))
+    , (0, ServerAction $ Send (NoMoreElems Map.empty))
     ]
 
 -- | Verify that the test infrastructure does not confuse client/server threads
@@ -134,9 +145,9 @@ concurrent1 = NormalizedDialogue [
       (0, ClientAction $ Initiate (Map.empty, RPC1))
     , (0, ClientAction $ Send (NoMoreElems NoMetadata))
     , (1, ClientAction $ Initiate (Map.empty, RPC1))
-    , (1, ServerAction $ Send (NoMoreElems Map.empty))
-    , (0, ServerAction $ Send (NoMoreElems Map.empty))
     , (1, ClientAction $ Send (NoMoreElems NoMetadata))
+    , (0, ServerAction $ Send (NoMoreElems Map.empty))
+    , (1, ServerAction $ Send (NoMoreElems Map.empty))
     ]
 
 concurrent2 :: Dialogue
@@ -144,8 +155,8 @@ concurrent2 = NormalizedDialogue [
       (1, ClientAction $ Initiate (Map.empty, RPC1))
     , (1, ClientAction $ Send (NoMoreElems NoMetadata))
     , (0, ClientAction $ Initiate (Map.empty, RPC1))
-    , (0, ServerAction $ Send (NoMoreElems Map.empty))
     , (0, ClientAction $ Send (NoMoreElems NoMetadata))
+    , (0, ServerAction $ Send (NoMoreElems Map.empty))
     , (1, ServerAction $ Send (NoMoreElems Map.empty))
     ]
 
@@ -167,30 +178,27 @@ concurrent4 = NormalizedDialogue [
       (1, ClientAction $ Initiate (Map.empty, RPC1))
     , (1, ClientAction $ Send (FinalElem 1 NoMetadata))
     , (0, ClientAction $ Initiate (Map.empty, RPC1))
-    , (0, ServerAction $ Send (FinalElem 2 Map.empty))
+    , (0, ClientAction $ Send (FinalElem 2 NoMetadata))
     , (1, ServerAction $ Send (FinalElem 3 Map.empty))
-    , (0, ClientAction $ Send (FinalElem 4 NoMetadata))
+    , (0, ServerAction $ Send (FinalElem 4 Map.empty))
     ]
 
 -- | Server-side exception
 --
--- NOTE: Since the handler throws an exception without sending /anything/, the
+-- Since the handler throws an exception without sending /anything/, the
 -- exception will be reported to the client using the gRPC trailers-only case.
--- This test also verifies that the client can /receive/ this message (and not
--- the exception thrown by the client API of the http2 library when the handler
--- disappears).
+-- This test also verifies that the client can /receive/ this message
 exception1 :: Dialogue
 exception1 = NormalizedDialogue [
       (0, ClientAction $ Initiate (Map.empty, RPC1))
-    , (0, ServerAction $ Terminate (Just (ExceptionId 0)))
-    , (0, ClientAction $ Send (NoMoreElems NoMetadata))
+    , (0, ServerAction $ Terminate (Just $ SomeServerException 0))
     ]
 
 -- | Client-side exception
 exception2 :: Dialogue
 exception2 = NormalizedDialogue [
       (0, ClientAction $ Initiate (Map.empty, RPC1))
-    , (0, ClientAction $ Terminate (Just (ExceptionId 0)))
+    , (0, ClientAction $ Terminate (Just (SomeClientException 0)))
     , (0, ServerAction $ Send (NoMoreElems Map.empty))
     ]
 
@@ -199,7 +207,6 @@ earlyTermination01 :: Dialogue
 earlyTermination01 = NormalizedDialogue [
       (0, ClientAction (Initiate (Map.empty, RPC1)))
     , (0, ServerAction (Terminate Nothing))
-    , (0, ClientAction (Send (NoMoreElems NoMetadata)))
     ]
 
 -- | Client terminates before the server handler expects it
@@ -218,7 +225,7 @@ earlyTermination03 :: Dialogue
 earlyTermination03 = NormalizedDialogue [
       (1, ClientAction $ Initiate (Map.empty, RPC1 ))
     , (0, ClientAction $ Initiate (Map.empty, RPC1))
-    , (1, ClientAction $ Terminate (Just (ExceptionId 0)))
+    , (1, ClientAction $ Terminate (Just (SomeClientException 0)))
     , (0, ClientAction $ Send (NoMoreElems NoMetadata))
     , (1, ServerAction $ Send (NoMoreElems Map.empty))
     , (0, ServerAction $ Send (NoMoreElems Map.empty))
@@ -231,7 +238,7 @@ earlyTermination04 = NormalizedDialogue [
       (0, ClientAction $ Initiate (Map.empty, RPC1))
     , (0, ServerAction $ Initiate Map.empty)
     , (1, ClientAction $ Initiate (Map.empty, RPC1 ))
-    , (1, ClientAction $ Terminate (Just (ExceptionId 0)))
+    , (1, ClientAction $ Terminate (Just (SomeClientException 0)))
     , (1, ServerAction $ Send (NoMoreElems Map.empty))
     , (0, ClientAction $ Send (NoMoreElems NoMetadata))
     , (0, ServerAction $ Send (NoMoreElems Map.empty))
@@ -247,7 +254,6 @@ earlyTermination05 = NormalizedDialogue [
     , (0, ClientAction $ Initiate (Map.empty,RPC1))
     , (0, ClientAction $ Send (NoMoreElems NoMetadata))
     , (0, ServerAction $ Send (NoMoreElems Map.empty))
-    , (1, ClientAction $ Send (NoMoreElems NoMetadata))
     ]
 
 -- | Variation where the client does send some messages before throwing an
@@ -262,7 +268,7 @@ earlyTermination06 :: Dialogue
 earlyTermination06 = NormalizedDialogue [
       (0, ClientAction $ Initiate (Map.empty, RPC1))
     , (0, ClientAction $ Send (StreamElem 0))
-    , (0, ClientAction $ Terminate (Just (ExceptionId 0)))
+    , (0, ClientAction $ Terminate (Just (SomeClientException 0)))
     , (0, ServerAction $ Send (NoMoreElems Map.empty))
     ]
 
@@ -271,8 +277,7 @@ earlyTermination07 :: Dialogue
 earlyTermination07 = NormalizedDialogue [
       (0, ClientAction $ Initiate (Map.empty, RPC1))
     , (0, ServerAction $ Initiate Map.empty)
-    , (0, ServerAction $ Terminate (Just (ExceptionId 0)))
-    , (0, ClientAction $ Send (NoMoreElems NoMetadata))
+    , (0, ServerAction $ Terminate (Just (SomeServerException 0)))
     ]
 
 -- | Server-side early termination, Trailers-Only case
@@ -283,8 +288,7 @@ earlyTermination07 = NormalizedDialogue [
 earlyTermination08 :: Dialogue
 earlyTermination08 = NormalizedDialogue [
       (0, ClientAction $ Initiate (Map.empty, RPC1))
-    , (0, ServerAction $ Terminate (Just (ExceptionId 0)))
-    , (0, ClientAction $ Send (NoMoreElems NoMetadata))
+    , (0, ServerAction $ Terminate (Just (SomeServerException 0)))
     ]
 
 -- | Like 'earlyTermination07', but now without an exception
@@ -293,7 +297,6 @@ earlyTermination09 = NormalizedDialogue [
       (0, ClientAction $ Initiate (Map.empty, RPC1))
     , (0, ServerAction $ Initiate Map.empty)
     , (0, ServerAction $ Terminate Nothing)
-    , (0, ClientAction $ Send (NoMoreElems NoMetadata))
     ]
 
 -- | Client throws after the server sends their initial metadata
@@ -301,7 +304,7 @@ earlyTermination10 :: Dialogue
 earlyTermination10 = NormalizedDialogue [
       (0, ClientAction $ Initiate (Map.empty, RPC1))
     , (0, ServerAction $ Initiate Map.empty)
-    , (0, ClientAction $ Terminate (Just (ExceptionId 0)))
+    , (0, ClientAction $ Terminate (Just (SomeClientException 0)))
     , (0, ServerAction $ Send (NoMoreElems Map.empty))
     ]
 
@@ -310,7 +313,7 @@ earlyTermination11 :: Dialogue
 earlyTermination11 = NormalizedDialogue [
       (0, ClientAction $ Initiate (Map.empty, RPC1))
     , (0, ServerAction $ Initiate Map.empty)
-    , (0, ClientAction $ Terminate (Just (ExceptionId 0)))
+    , (0, ClientAction $ Terminate (Just (SomeClientException 0)))
     , (0, ServerAction $ Send (StreamElem 0))
     , (0, ServerAction $ Send (NoMoreElems Map.empty))
     ]
@@ -324,15 +327,11 @@ earlyTermination11 = NormalizedDialogue [
 -- clock correctly in the presence of failures.
 earlyTermination12 :: Dialogue
 earlyTermination12 = NormalizedDialogue [
-      (0, ClientAction $ Initiate (Map.empty, RPC2))    -- 0
-
-    , (1, ClientAction $ Initiate (Map.empty, RPC1))    -- 1
-    , (1, ServerAction $ Terminate Nothing)             -- 2
-    , (1, ClientAction $ Send (StreamElem 0))           -- 3
-    , (1, ClientAction $ Send (NoMoreElems NoMetadata)) -- 4
-
-    , (0, ClientAction $ Send (NoMoreElems NoMetadata)) -- 5
-    , (0, ServerAction $ Send (NoMoreElems Map.empty))  -- 6
+      (0, ClientAction $ Initiate (Map.empty, RPC2))
+    , (1, ClientAction $ Initiate (Map.empty, RPC1))
+    , (1, ServerAction $ Terminate Nothing)
+    , (0, ClientAction $ Send (NoMoreElems NoMetadata))
+    , (0, ServerAction $ Send (NoMoreElems Map.empty))
     ]
 
 -- | Like earlyTermination12, but the sandwich the other way around
@@ -341,17 +340,13 @@ earlyTermination12 = NormalizedDialogue [
 -- itself (specifically, that the test clock is used correctly).
 earlyTermination13 :: Dialogue
 earlyTermination13 = NormalizedDialogue [
-      (0, ClientAction $ Initiate (Map.empty, RPC1))       -- 0
-    , (0, ServerAction $ Send (StreamElem 1))              -- 1
-    , (0, ServerAction $ Send (StreamElem 2))              -- 2
-
-    , (1, ClientAction $ Initiate (Map.empty, RPC1))       -- 3
-    , (1, ServerAction $ Send (NoMoreElems Map.empty))     -- 4
-    , (1, ClientAction $ Terminate Nothing)                -- 5
-
-    , (0, ServerAction $ Send (StreamElem 3))              -- 6
-    , (0, ServerAction $ Terminate (Just (ExceptionId 0))) -- 7
-    , (0, ClientAction $ Send (NoMoreElems NoMetadata))    -- 8
+      (0, ClientAction $ Initiate (Map.empty, RPC1))
+    , (0, ServerAction $ Send (StreamElem 1))
+    , (0, ServerAction $ Send (StreamElem 2))
+    , (1, ClientAction $ Initiate (Map.empty, RPC1))
+    , (1, ServerAction $ Send (NoMoreElems Map.empty))
+    , (0, ServerAction $ Send (StreamElem 3))
+    , (0, ServerAction $ Terminate (Just (SomeServerException 0)))
     ]
 
 -- | Both the server /and/ the client terminate early
@@ -362,5 +357,48 @@ earlyTermination14 :: Dialogue
 earlyTermination14 = NormalizedDialogue [
       (0, ClientAction $ Initiate (Map.empty, RPC1))
     , (0, ClientAction $ Terminate Nothing)
-    , (0, ServerAction $ Terminate (Just (ExceptionId 0)))
+    , (0, ServerAction $ Terminate (Just (SomeServerException 0)))
+    ]
+
+{-------------------------------------------------------------------------------
+  Dealing correctly with 'AllowHalfClosed'
+
+  NOTE: Once the client puts the connection in half-closed state, if it then
+  subsequently crashes, the server may not notice as it is not listening for
+  messages from the client anymore (it may notice it when it sends, though).
+  For this reason we rule out test cases in which the client terminates "early"
+  after having already put the connection in half-closed mode.
+-------------------------------------------------------------------------------}
+
+-- | We close the outbound stream in the client
+--
+-- This was previously causing the connection to break; see 'NoTrailers' for
+-- detailed discussion.
+allowHalfClosed1 :: Dialogue
+allowHalfClosed1 = NormalizedDialogue [
+      (1, ClientAction $ Initiate (Map.empty, RPC1))
+    , (1, ServerAction $ Send (NoMoreElems Map.empty))
+    , (0, ClientAction $ Initiate (Map.empty, RPC1))
+    , (0, ServerAction $ Initiate Map.empty)
+    , (0, ClientAction $ Send (NoMoreElems NoMetadata))
+    , (0, ServerAction $ Send (NoMoreElems Map.empty))
+    ]
+
+-- | Variation on 'allowHalfClosed1' without an explicit server initiation.
+allowHalfClosed2 :: Dialogue
+allowHalfClosed2 = NormalizedDialogue [
+      (1, ClientAction $ Initiate (Map.empty, RPC1))
+    , (1, ServerAction $ Send (NoMoreElems Map.empty))
+    , (0, ClientAction $ Initiate (Map.empty, RPC1))
+    , (0, ClientAction $ Send (NoMoreElems NoMetadata))
+    , (0, ServerAction $ Send (NoMoreElems Map.empty))
+    ]
+
+-- | Server initiates response after client half-closes
+allowHalfClosed3 :: Dialogue
+allowHalfClosed3 = NormalizedDialogue [
+      (0, ClientAction $ Initiate (Map.empty,RPC1))
+    , (0, ClientAction $ Terminate (Just (SomeClientException 0)))
+    , (0, ServerAction $ Initiate Map.empty)
+    , (0, ServerAction $ Send (NoMoreElems Map.empty))
     ]

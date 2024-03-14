@@ -15,7 +15,6 @@ module Network.GRPC.Client.StreamType.IO.Binary (
   ) where
 
 import Control.Monad
-import Control.Monad.Catch
 import Control.Monad.Reader
 import Data.Binary
 
@@ -32,7 +31,7 @@ import Network.GRPC.Common.StreamType
 
 -- | Wrapper for 'IO.nonStreaming' that handles binary serialization
 nonStreaming :: forall inp out serv meth m.
-     (Binary inp, Binary out, MonadThrow m)
+     (Binary inp, Binary out, MonadIO m)
   => Connection
   -> NonStreamingHandler (ReaderT Connection m) (BinaryRpc serv meth)
   -> inp -> m out
@@ -41,7 +40,7 @@ nonStreaming conn h inp =
 
 -- | Wrapper for 'IO.clientStreaming' that handles binary serialization
 clientStreaming :: forall inp out serv meth m.
-     (Binary inp, Binary out, MonadThrow m)
+     (Binary inp, Binary out, MonadIO m)
   => Connection
   -> ClientStreamingHandler (ReaderT Connection m) (BinaryRpc serv meth)
   -> m (StreamElem NoMetadata inp)
@@ -51,7 +50,7 @@ clientStreaming conn h f =
 
 -- | Wrapper for 'IO.serverStreaming' that binary serialization
 serverStreaming :: forall inp out serv meth m.
-     (Binary inp, Binary out, MonadThrow m)
+     (Binary inp, Binary out, MonadIO m)
   => Connection
   -> ServerStreamingHandler (ReaderT Connection m) (BinaryRpc serv meth)
   -> inp
@@ -62,7 +61,7 @@ serverStreaming conn h inp f =
 
 -- | Wrapper for 'IO.biDiStreaming' that handles binary serialization
 biDiStreaming :: forall inp out serv meth m.
-     (Binary inp, Binary out, MonadThrow m)
+     (Binary inp, Binary out, MonadIO m)
   => Connection
   -> BiDiStreamingHandler (ReaderT Connection m) (BinaryRpc serv meth)
   -> m (StreamElem NoMetadata inp)

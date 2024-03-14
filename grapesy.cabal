@@ -239,7 +239,6 @@ test-suite test-grapesy
       Test.Driver.Dialogue.TestClock
       Test.Prop.Dialogue
       Test.Prop.Serialization
-      Test.Sanity.HalfClosedLocal
       Test.Sanity.Interop
       Test.Sanity.StreamingType.CustomFormat
       Test.Sanity.StreamingType.NonStreaming

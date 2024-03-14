@@ -55,9 +55,9 @@ module Network.GRPC.Client (
   , recvAllOutputs
 
     -- ** Low-level\/specialized API
-  , isCallHealthy
   , sendInputWithEnvelope
   , recvOutputWithEnvelope
+  , recvInitialResponse
 
     -- * Communication patterns
   , rpc

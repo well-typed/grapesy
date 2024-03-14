@@ -21,17 +21,14 @@ module Network.GRPC.Util.Session.Channel (
   , close
   , ChannelDiscarded(..)
   , ChannelAborted(..)
-    -- ** Exceptions
-    -- * Constructing channels
+    -- * Support for half-closing
+  , InboundResult
+  , AllowHalfClosed(..)
   , linkOutboundToInbound
+    -- * Constructing channels
   , sendMessageLoop
   , recvMessageLoop
   , outboundTrailersMaker
-    -- * Status
-  , ChannelStatus(..)
-  , FlowStatus(..)
-  , checkChannelStatus
-  , isChannelHealthy
   ) where
 
 import Control.Concurrent.STM
@@ -50,6 +47,7 @@ import Network.GRPC.Common.StreamElem (StreamElem(..))
 import Network.GRPC.Common.StreamElem qualified as StreamElem
 import Network.GRPC.Util.HTTP2.Stream
 import Network.GRPC.Util.Parser
+import Network.GRPC.Util.RedundantConstraint
 import Network.GRPC.Util.Session.API
 import Network.GRPC.Util.Thread
 
@@ -95,7 +93,9 @@ data Channel sess = Channel {
 
       -- | 'CallStack' of the final call to 'recv'
       --
-      -- This is just to improve the user experience; see 'channelSentFinal'.
+      -- This is used to improve the user experience; see 'channelSentFinal'.
+      -- It is also used when checking if a call should be considered
+      -- \"cancelled\"; see 'withRPC'.
     , channelRecvFinal :: TVar (Maybe CallStack)
     }
 
@@ -186,80 +186,6 @@ initFlowStateRegular headers = do
     RegularFlowState headers
       <$> newEmptyTMVarIO
       <*> newEmptyTMVarIO
-
-{-------------------------------------------------------------------------------
-  Status check
--------------------------------------------------------------------------------}
-
-data ChannelStatus sess = ChannelStatus {
-      channelStatusInbound   :: FlowStatus (Inbound sess)
-    , channelStatusOutbound  :: FlowStatus (Outbound sess)
-    , channelStatusSentFinal :: Bool
-    , channelStatusRecvFinal :: Bool
-    }
-
-data FlowStatus flow =
-    FlowNotYetEstablished
-  | FlowEstablished (FlowState flow)
-  | FlowTerminated
-  | FlowFailed SomeException
-
--- | Get channel status
---
--- This is inherently non-deterministic: it is entirely possible that the
--- connection to the peer has already been broken but we haven't noticed yet,
--- or that the connection will be broken immediately after this call and before
--- whatever the next call is.
-checkChannelStatus :: Channel sess -> STM (ChannelStatus sess)
-checkChannelStatus Channel{ channelInbound
-                   , channelOutbound
-                   , channelSentFinal
-                   , channelRecvFinal
-                   } = do
-    stInbound  <- readTVar channelInbound
-    stOutbound <- readTVar channelOutbound
-    let channelStatusInbound  = toStatus stInbound
-    let channelStatusOutbound = toStatus stOutbound
-    channelStatusSentFinal <- isFinal <$> readTVar channelSentFinal
-    channelStatusRecvFinal <- isFinal <$> readTVar channelRecvFinal
-    return ChannelStatus{
-        channelStatusInbound
-      , channelStatusOutbound
-      , channelStatusSentFinal
-      , channelStatusRecvFinal
-      }
-  where
-    toStatus :: ThreadState (FlowState flow) -> FlowStatus flow
-    toStatus ThreadNotStarted       = FlowNotYetEstablished
-    toStatus (ThreadInitializing _) = FlowNotYetEstablished
-    toStatus (ThreadRunning _ a)    = FlowEstablished a
-    toStatus (ThreadDone _)         = FlowTerminated
-    toStatus (ThreadException e)    = FlowFailed e
-
-    isFinal :: Maybe CallStack -> Bool
-    isFinal = maybe False (const True)
-
--- | Check if the channel is healthy
---
--- This is a simplified API on top of 'getChannelStatus, which
---
--- * retries if the flow in either direction has not yet been established
--- * returns 'False' if the flow in either direction has been terminated,
---   or has failed
--- * returns 'True' otherwise.
-isChannelHealthy :: Channel sess -> STM Bool
-isChannelHealthy channel = do
-    status <- checkChannelStatus channel
-    case (channelStatusInbound status, channelStatusOutbound status) of
-      (FlowNotYetEstablished , _                    ) -> retry
-      (_                     , FlowNotYetEstablished) -> retry
-
-      (FlowTerminated        , _                    ) -> return False
-      (_                     , FlowTerminated       ) -> return False
-      (FlowFailed _          , _                    ) -> return False
-      (_                     , FlowFailed _         ) -> return False
-
-      (FlowEstablished _     , FlowEstablished _    ) -> return True
 
 {-------------------------------------------------------------------------------
   Working with an open channel
@@ -413,14 +339,14 @@ waitForOutbound Channel{channelOutbound} = atomically $
 -- still running. If the thread was terminated with an exception, this could
 -- mean one of two things:
 --
--- * The connection to the peer was lost
--- * Proper procedure for outbound messages was not followed (see above)
+-- 1. The connection to the peer was lost
+-- 2. Proper procedure for outbound messages was not followed (see above)
 --
--- In this case, 'close' will return an exception.
---
--- TODO: @http2@ does not offer an API for indicating that we want to ignore
--- further output. We should check that this does not result in memory leak (if
--- the server keeps sending data and we're not listening.)
+-- In the case of (2) this is bug in the caller, and so 'close' will return an
+-- exception. In the case of (1), howvever, very likely an exception will
+-- /already/ have been thrown when a communication attempt was made, and 'close'
+-- will return 'Nothing'. This matches the design philosophy in @grapesy@ that
+-- exceptions are thrown \"lazily\" rather than \"strictly\".
 close ::
      HasCallStack
   => Channel sess
@@ -434,9 +360,9 @@ close Channel{channelOutbound} reason = do
      case outbound of
        AlreadyTerminated _ ->
          return $ Nothing
-       AlreadyAborted err ->
-         -- Connection to the peer was lost prior to closing
-         return $ Just err
+       AlreadyAborted _err ->
+         -- Connection_ to the peer was lost prior to closing
+         return $ Nothing
        Cancelled ->
          -- Proper procedure for outbound messages was not followed
          return $ Just channelClosed
@@ -465,6 +391,58 @@ data ChannelAborted = ChannelAborted CallStack
   deriving anyclass (Exception)
 
 {-------------------------------------------------------------------------------
+  Support for half-closing
+-------------------------------------------------------------------------------}
+
+type InboundResult sess =
+       Either (NoMessages (Inbound sess))
+              (Trailers   (Inbound sess))
+
+-- | Should we allow for a half-clsoed connection state?
+--
+-- In HTTP2, streams are bidirectional and can be half-closed in either
+-- direction. This is however not true for all applications /of/ HTTP2. For
+-- example, in gRPC the stream can be half-closed from the client to the server
+-- (indicating that the client will not send any more messages), but not from
+-- the server to the client: when the server half-closes their connection, it
+-- sends the gRPC trailers and this terminates the call.
+data AllowHalfClosed sess =
+    ContinueWhenInboundClosed
+  | TerminateWhenInboundClosed (InboundResult sess -> SomeException)
+
+-- | Link outbound thread to the inbound thread
+--
+-- This should be wrapped around the body of the inbound thread. It ensures that
+-- when the inbound thread throws an exception, the outbound thread dies also.
+-- This improves predictability of exceptions: the inbound thread spends most of
+-- its time blocked on messages from the peer, and will therefore notice when
+-- the connection is lost. This is not true for the outbound thread, which
+-- spends most of its time blocked waiting for messages to send to the peer.
+linkOutboundToInbound :: forall sess.
+     IsSession sess
+  => AllowHalfClosed sess
+  -> Channel sess
+  -> IO (InboundResult sess)
+  -> IO ()
+linkOutboundToInbound allowHalfClosed channel inbound = do
+    mResult <- try inbound
+
+    -- Implementation note: After cancelThread returns, 'channelOutbound' has
+    -- been updated, and considered dead, even if perhaps the thread is still
+    -- cleaning up.
+
+    case (mResult, allowHalfClosed) of
+      (Right _result, ContinueWhenInboundClosed) ->
+        return ()
+      (Right result, TerminateWhenInboundClosed f) ->
+        void $ cancelThread (channelOutbound channel) (f result)
+      (Left (exception :: SomeException), _) -> do
+        void $ cancelThread (channelOutbound channel) exception
+        throwIO exception
+  where
+    _ = addConstraint @(IsSession sess)
+
+{-------------------------------------------------------------------------------
   Constructing channels
 
   Both 'sendMessageLoop' and 'recvMessageLoop' will be run in newly forked
@@ -475,25 +453,6 @@ data ChannelAborted = ChannelAborted CallStack
   attempt to interact with them after they have been killed will be handled by
   'getThreadInterface' throwing 'ThreadInterfaceUnavailable'.
 -------------------------------------------------------------------------------}
-
--- | Link outbound thread to the inbound thread
---
--- This should be wrapped around the body of the inbound thread. It ensures that
--- when the inbound thread throws an exception, the outbound thread dies also.
--- This improves predictability of exceptions: the inbound thread spends most of
--- its time blocked on messages from the peer, and will therefore notice when
--- the connection is lost. This is not true for the outbound thread, which
--- spends most of its time blocked waiting for messages to send to the peer.
-linkOutboundToInbound :: Channel sess -> IO a -> IO a
-linkOutboundToInbound channel inbound =
-    handle killOutbound inbound
-  where
-    killOutbound :: SomeException -> IO a
-    killOutbound err = do
-        -- After cancelThread returns, 'channelOutbound' has been updated, and
-        -- considered dead, even if perhaps the thread is still cleaning up.
-        void $ cancelThread (channelOutbound channel) err
-        throwIO err
 
 -- | Send all messages to the node's peer
 sendMessageLoop :: forall sess.
@@ -537,15 +496,16 @@ recvMessageLoop :: forall sess.
   => sess
   -> RegularFlowState (Inbound sess)
   -> InputStream
-  -> IO ()
-recvMessageLoop sess  st stream =
+  -> IO (Trailers (Inbound sess))
+recvMessageLoop sess st stream =
     go $ parseMsg sess (flowHeaders st)
   where
-    go :: Parser (Message (Inbound sess)) -> IO ()
+    go :: Parser (Message (Inbound sess)) -> IO (Trailers (Inbound sess))
     go = \parser -> do
         trailers <- loop parser >>= parseInboundTrailers sess
         atomically $ putTMVar (flowTerminated st) $ trailers
         atomically $ putTMVar (flowMsg        st) $ NoMoreElems trailers
+        return trailers
       where
         loop :: Parser (Message (Inbound sess)) -> IO [HTTP.Header]
         loop (ParserError err) =
@@ -586,4 +546,3 @@ outboundTrailersMaker sess channel = go
                        FlowStateNoMessages _ ->
                          error "unexpected FlowStateNoMessages"
         return $ HTTP2.Trailers $ buildOutboundTrailers sess trailers
-
