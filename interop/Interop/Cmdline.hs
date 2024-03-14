@@ -1,5 +1,6 @@
 module Interop.Cmdline (
     getCmdline
+  , defaultCmdline
     -- * Definition
   , Cmdline(..)
   , Mode(..)
@@ -42,6 +43,9 @@ data Cmdline = Cmdline {
     , cmdRootCA  :: FilePath
     , cmdPubCert :: FilePath
     , cmdPrivKey :: FilePath
+
+    , cmdTestTimeout    :: Int
+    , cmdConnectTimeout :: Int
 
     , cmdSkipTest              :: [TestCase]
     , cmdSkipCompression       :: Bool
@@ -126,14 +130,36 @@ instance Show TestCase where
   Get command line args
 -------------------------------------------------------------------------------}
 
-getCmdline :: IO Cmdline
-getCmdline = do
+defaultCmdline :: IO Cmdline
+defaultCmdline = do
     rootCA  <- getDataFileName "interop-ca.pem"
     pubCert <- getDataFileName "interop.pem"
     privKey <- getDataFileName "interop.key"
 
+    return Cmdline {
+        cmdMode                  = error "cmdMode: no default"
+      , cmdPort                  = 50052
+      , cmdUseTLS                = True
+      , cmdTestCase              = Nothing
+      , cmdHost                  = "127.0.0.1"
+      , cmdServerHostOverride    = Just "foo.test.google.fr"
+      , cmdUseTestCA             = True
+      , cmdRootCA                = rootCA
+      , cmdPubCert               = pubCert
+      , cmdPrivKey               = privKey
+      , cmdTestTimeout           = 5
+      , cmdConnectTimeout        = 5
+      , cmdSkipTest              = []
+      , cmdSkipCompression       = False
+      , cmdSkipClientCompression = False
+      }
+
+getCmdline :: IO Cmdline
+getCmdline = do
+    defaults <- defaultCmdline
+
     let parser :: Opt.Parser Cmdline
-        parser = parseCmdline rootCA pubCert privKey
+        parser = parseCmdline defaults
 
     let opts :: Opt.ParserInfo Cmdline
         opts =
@@ -148,8 +174,8 @@ getCmdline = do
   Parsers
 -------------------------------------------------------------------------------}
 
-parseCmdline :: FilePath -> FilePath -> FilePath -> Opt.Parser Cmdline
-parseCmdline rootCA pubCert privKey =
+parseCmdline :: Cmdline -> Opt.Parser Cmdline
+parseCmdline defaults =
     Cmdline
       <$> parseMode
 
@@ -165,14 +191,14 @@ parseCmdline rootCA pubCert privKey =
             , Opt.option Opt.auto $ mconcat [
                   Opt.long "port"
                 , Opt.help "Port number"
-                , Opt.value 50052
+                , Opt.value (cmdPort defaults)
                 , Opt.showDefault
                 ]
             ]
       <*> (Opt.option readBool $ mconcat [
               Opt.long "use_tls"
             , Opt.help "Enable TLS"
-            , Opt.value True
+            , Opt.value (cmdUseTLS defaults)
             , Opt.showDefault
             ])
       <*> (Opt.optional $ Opt.option readTestCase $ mconcat [
@@ -182,19 +208,19 @@ parseCmdline rootCA pubCert privKey =
       <*> (Opt.option Opt.str $ mconcat [
               Opt.long "server_host"
             , Opt.help "Address to bind to (when running as server) or to connect to (as client)"
-            , Opt.value "127.0.0.1"
+            , Opt.value (cmdHost defaults)
             , Opt.showDefault
             ])
       <*> (Opt.option readOptionalString $ mconcat [
               Opt.long "server_host_override"
             , Opt.help ":authority/SNI override (set to empty to disable)"
-            , Opt.value (Just "foo.test.google.fr")
+            , Opt.value (cmdServerHostOverride defaults)
             , Opt.showDefault
             ])
       <*> (Opt.option readBool $ mconcat [
               Opt.long "use_test_ca"
             , Opt.help "Use test certificate as root CA"
-            , Opt.value True
+            , Opt.value (cmdUseTestCA defaults)
             , Opt.showDefault
             ])
 
@@ -204,22 +230,33 @@ parseCmdline rootCA pubCert privKey =
 
       <*> (Opt.strOption $ mconcat [
               Opt.long "root_ca"
-            , Opt.value rootCA
+            , Opt.value (cmdRootCA defaults)
             , Opt.showDefault
             , Opt.help "Root certificate authority"
             ])
       <*> (Opt.strOption $ mconcat [
               Opt.long "pub_cert"
-            , Opt.value pubCert
+            , Opt.value (cmdPubCert defaults)
             , Opt.showDefault
             , Opt.help "Server certificate"
             ])
       <*> (Opt.strOption $ mconcat [
               Opt.long "priv_key"
-             ,Opt.value privKey
+             ,Opt.value (cmdPrivKey defaults)
             , Opt.showDefault
             , Opt.help "Server private key"
             ])
+
+      <*> (Opt.option Opt.auto $ mconcat [
+               Opt.long "test_timeout"
+             , Opt.metavar "SEC"
+             , Opt.help "Test timeout"
+             ])
+      <*> (Opt.option Opt.auto $ mconcat [
+               Opt.long "connect_timeout"
+             , Opt.metavar "SEC"
+             , Opt.help "Timeout for trying to connect to the server"
+             ])
 
       <*> (Opt.many $ Opt.option readTestCase $ mconcat [
               Opt.long "skip_test"

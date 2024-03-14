@@ -6,6 +6,7 @@ import Control.Exception
 import Control.Monad
 import Data.IORef
 import System.Exit
+import System.Timeout
 
 import Interop.Cmdline
 import Interop.Util.ANSI
@@ -87,14 +88,17 @@ skips cmdline test = or [
 
 testCase :: Cmdline -> IORef TestStats -> TestCase -> IO ()
 testCase cmdline stats test = unless (skips cmdline test) $ do
-    result <- try $ runTest test cmdline
+    result <- try $ timeout (cmdTestTimeout cmdline * 1_000_000) $
+                runTest test cmdline
     case result of
-      Right () ->
+      Right (Just ()) ->
         testOK stats test
+      Right Nothing ->
+        testFailed stats test "timeout"
       Left err | Just (TestSkipped reason) <- fromException err ->
         testSkipped stats test reason
       Left err ->
-        testFailed stats test err
+        testFailed stats test (displayException err)
 
 {-------------------------------------------------------------------------------
   Test stats
@@ -123,13 +127,13 @@ testOK statsRef test = do
     modifyIORef statsRef $ \stats ->
       stats { numSucceeded = numSucceeded stats + 1 }
 
-testFailed :: IORef TestStats -> TestCase -> SomeException -> IO ()
+testFailed :: IORef TestStats -> TestCase -> String -> IO ()
 testFailed statsRef test err = do
     putDocLn $ mconcat [
         Show test
       , ": "
       , Color Red "Failed: "
-      , fromString (displayException err)
+      , fromString err
       ]
     modifyIORef statsRef $ \stats ->
       stats { numFailed = numFailed stats + 1 }
