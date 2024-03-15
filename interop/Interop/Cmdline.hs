@@ -44,8 +44,8 @@ data Cmdline = Cmdline {
     , cmdPubCert :: FilePath
     , cmdPrivKey :: FilePath
 
-    , cmdTestTimeout    :: Int
-    , cmdConnectTimeout :: Int
+    , cmdTimeoutTest    :: Int
+    , cmdTimeoutConnect :: Int
 
     , cmdSkipTest              :: [TestCase]
     , cmdSkipCompression       :: Bool
@@ -147,8 +147,8 @@ defaultCmdline = do
       , cmdRootCA                = rootCA
       , cmdPubCert               = pubCert
       , cmdPrivKey               = privKey
-      , cmdTestTimeout           = 5
-      , cmdConnectTimeout        = 5
+      , cmdTimeoutTest           = 5
+      , cmdTimeoutConnect        = 5
       , cmdSkipTest              = []
       , cmdSkipCompression       = False
       , cmdSkipClientCompression = False
@@ -250,11 +250,15 @@ parseCmdline defaults =
       <*> (Opt.option Opt.auto $ mconcat [
                Opt.long "test_timeout"
              , Opt.metavar "SEC"
+             , Opt.showDefault
+             , Opt.value (cmdTimeoutTest defaults)
              , Opt.help "Test timeout"
              ])
       <*> (Opt.option Opt.auto $ mconcat [
                Opt.long "connect_timeout"
              , Opt.metavar "SEC"
+             , Opt.showDefault
+             , Opt.value (cmdTimeoutConnect defaults)
              , Opt.help "Timeout for trying to connect to the server"
              ])
 

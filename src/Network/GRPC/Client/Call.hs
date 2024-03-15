@@ -122,12 +122,11 @@ withRPC conn callParams proxy k = fmap fst $
     -- o <https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptions.md#cancel_after_first_response>
     throwCancelled :: Call rpc -> ChannelDiscarded -> IO ()
     throwCancelled Call{callChannel} (ChannelDiscarded cs) = do
-        serverClosed <- atomically $ do
-          mRecvFinal  <- readTVar $
-                           Session.channelRecvFinal callChannel
-          mTerminated <- Thread.hasThreadTerminated $
-                           Session.channelInbound   callChannel
-          return $ isJust mRecvFinal || isJust mTerminated
+        mRecvFinal  <- atomically $
+          readTVar $ Session.channelRecvFinal callChannel
+        mTerminated <- atomically $
+          Thread.hasThreadTerminated $ Session.channelInbound callChannel
+        let serverClosed = isJust mRecvFinal || isJust mTerminated
 
         unless serverClosed $
           throwM $ GrpcException {

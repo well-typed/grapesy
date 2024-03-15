@@ -73,7 +73,7 @@ setupResponseChannel sess
                    = XIO.unsafeTrustMe $ do
     channel <- initChannel
 
-    forkThread (channelInbound channel) $ \unmask markReady -> unmask $
+    forkThread (channelInbound channel) $ \unmask markReady _debugId -> unmask $
       linkOutboundToInbound ContinueWhenInboundClosed channel $ do
         case inboundStart of
           FlowStartRegular headers -> do
@@ -87,7 +87,7 @@ setupResponseChannel sess
             return $ Left trailers
             -- Thread terminates immediately
 
-    forkThread (channelOutbound channel) $ \unmask markReady -> unmask $ do
+    forkThread (channelOutbound channel) $ \unmask markReady _debugId -> unmask $ do
       outboundStart <- startOutbound
       let responseInfo = buildResponseInfo sess outboundStart
       case outboundStart of

@@ -124,7 +124,13 @@ setupRequestChannel sess
                     (requestMethod  requestInfo)
                     (requestPath    requestInfo)
                     (requestHeaders requestInfo)
-        atomically $ writeTVar (channelOutbound channel) $ ThreadDone state
+        atomically $
+          modifyTVar (channelOutbound channel) $ \oldState ->
+            case oldState of
+              ThreadNotStarted debugId ->
+                ThreadDone debugId state
+              _otherwise ->
+                error "setupRequestChannel: expected thread state"
         forkRequest channel req
 
     return channel
@@ -133,7 +139,7 @@ setupRequestChannel sess
 
     forkRequest :: Channel sess -> Client.Request -> IO ()
     forkRequest channel req =
-        forkThread (channelInbound channel) $ \unmask markReady -> unmask $
+        forkThread (channelInbound channel) $ \unmask markReady _debugId -> unmask $
           linkOutboundToInbound (TerminateWhenInboundClosed terminateCall) channel $
             sendRequest req $ \resp -> do
               responseStatus <-
@@ -176,12 +182,13 @@ setupRequestChannel sess
       -> IO ()
       -> IO ()
     outboundThread channel regular unmask write' flush' =
-       threadBody (channelOutbound channel) $ \markReady -> unmask $ do
+       threadBody (channelOutbound channel) $ \markReady _debugId -> do
          markReady $ FlowStateRegular regular
          -- Initialize the output stream to initiate the request.
+         -- It is important that we don't unmask exceptions prior to this point!
          -- See 'clientOutputStream' for details.
          stream <- clientOutputStream write' flush'
-         sendMessageLoop sess regular stream
+         unmask $ sendMessageLoop sess regular stream
 
 {-------------------------------------------------------------------------------
    Auxiliary http2

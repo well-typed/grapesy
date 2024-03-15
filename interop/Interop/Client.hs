@@ -88,7 +88,7 @@ skips cmdline test = or [
 
 testCase :: Cmdline -> IORef TestStats -> TestCase -> IO ()
 testCase cmdline stats test = unless (skips cmdline test) $ do
-    result <- try $ timeout (cmdTestTimeout cmdline * 1_000_000) $
+    result <- try $ timeout (cmdTimeoutTest cmdline * 1_000_000) $
                 runTest test cmdline
     case result of
       Right (Just ()) ->

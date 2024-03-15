@@ -173,19 +173,28 @@ deriving instance (
   Initialization
 -------------------------------------------------------------------------------}
 
-initChannel :: IO (Channel sess)
-initChannel =
-    Channel
-      <$> newThreadState
-      <*> newThreadState
-      <*> newTVarIO Nothing
-      <*> newTVarIO Nothing
+initChannel :: HasCallStack => IO (Channel sess)
+initChannel = do
+    channelInbound   <- newThreadState
+    channelOutbound  <- newThreadState
+    channelSentFinal <- newTVarIO Nothing
+    channelRecvFinal <- newTVarIO Nothing
+    return Channel{
+        channelInbound
+      , channelOutbound
+      , channelSentFinal
+      , channelRecvFinal
+      }
 
 initFlowStateRegular :: Headers flow -> IO (RegularFlowState flow)
-initFlowStateRegular headers = do
-    RegularFlowState headers
-      <$> newEmptyTMVarIO
-      <*> newEmptyTMVarIO
+initFlowStateRegular flowHeaders = do
+   flowMsg        <- newEmptyTMVarIO
+   flowTerminated <- newEmptyTMVarIO
+   return RegularFlowState {
+       flowHeaders
+     , flowMsg
+     , flowTerminated
+     }
 
 {-------------------------------------------------------------------------------
   Working with an open channel

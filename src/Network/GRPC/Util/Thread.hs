@@ -8,6 +8,9 @@ module Network.GRPC.Util.Thread (
   , newThreadState
   , forkThread
   , threadBody
+    -- * Thread debug ID
+  , DebugThreadId -- opaque
+  , threadDebugId
     -- * Access thread state
   , CancelResult(..)
   , cancelThread
@@ -22,6 +25,40 @@ import Control.Exception
 import Control.Monad
 import Foreign (newStablePtr, freeStablePtr)
 import GHC.Stack
+import System.IO.Unsafe (unsafePerformIO)
+
+{-------------------------------------------------------------------------------
+  Debug thread IDs
+-------------------------------------------------------------------------------}
+
+-- | Debug thread IDs
+--
+-- Unlike 'ThreadId', these do not correspond to a /running/ thread necessarily,
+-- but just enable us to distinguish one thread from another.
+data DebugThreadId = DebugThreadId {
+      debugThreadId        :: Word
+    , debugThreadCreatedAt :: CallStack
+    }
+  deriving stock (Show)
+
+nextDebugThreadId :: MVar Word
+{-# NOINLINE nextDebugThreadId #-}
+nextDebugThreadId = unsafePerformIO $ newMVar 0
+
+newDebugThreadId :: HasCallStack => IO DebugThreadId
+newDebugThreadId =
+    modifyMVar nextDebugThreadId $ \x ->
+      return (
+          succ x
+        , DebugThreadId x (popIrrelevant callStack)
+        )
+  where
+    -- Pop off the call to 'newDebugThreadId'
+    --
+    -- We leave the call to 'newThreadState' on the stack because it is useful
+    -- to know where that was called /from/.
+    popIrrelevant :: CallStack -> CallStack
+    popIrrelevant = popCallStack
 
 {-------------------------------------------------------------------------------
   State
@@ -31,25 +68,41 @@ import GHC.Stack
 data ThreadState a =
     -- | The thread has not yet started
     --
-    -- Critically for the design of this module, there is no guarantee that
-    -- the thread /will/ be started.
-    ThreadNotStarted
+    -- If the thread is cancelled before it is started, then the exception will
+    -- be delivered once started. This is important, because it gives the thread
+    -- control over /when/ the exception is delivered (that is, when it chooses
+    -- to unmask async exceptions).
+    --
+    -- The alternative would be not to start the thread at all in this case, but
+    -- this takes away the control mentioned above; if the thread /needs/ to do
+    -- something before it can be killed, it must be given that chance. It may
+    -- /seem/ that this alternative would give the caller (which /created/ the
+    -- thread) more control, but actually that control is illusory, since the
+    -- timing of async exceptions is anyway unpredictable.
+    ThreadNotStarted DebugThreadId
 
     -- | The externally visible thread interface is still being initialized
-  | ThreadInitializing ThreadId
+  | ThreadInitializing DebugThreadId ThreadId
 
     -- | Thread is ready
-  | ThreadRunning ThreadId a
+  | ThreadRunning DebugThreadId ThreadId a
 
     -- | Thread terminated normally
     --
     -- This still carries the thread interface: we may need it to query the
     -- thread's final status, for example.
-  | ThreadDone a
+  | ThreadDone DebugThreadId a
 
     -- | Thread terminated with an exception
-  | ThreadException SomeException
+  | ThreadException DebugThreadId SomeException
   deriving stock (Show, Functor)
+
+threadDebugId :: ThreadState a -> DebugThreadId
+threadDebugId (ThreadNotStarted   debugId    ) = debugId
+threadDebugId (ThreadInitializing debugId _  ) = debugId
+threadDebugId (ThreadRunning      debugId _ _) = debugId
+threadDebugId (ThreadDone         debugId   _) = debugId
+threadDebugId (ThreadException    debugId   _) = debugId
 
 {-------------------------------------------------------------------------------
   Creating threads
@@ -58,10 +111,13 @@ data ThreadState a =
 type ThreadBody a =
           (forall x. IO x -> IO x) -- ^ Unmask exceptions
        -> (a -> IO ())             -- ^ Mark thread ready
+       -> DebugThreadId            -- ^ Unique identifier for this thread
        -> IO ()
 
-newThreadState :: IO (TVar (ThreadState a))
-newThreadState = newTVarIO ThreadNotStarted
+newThreadState :: HasCallStack => IO (TVar (ThreadState a))
+newThreadState = do
+    debugId <- newDebugThreadId
+    newTVarIO $ ThreadNotStarted debugId
 
 forkThread :: HasCallStack => TVar (ThreadState a) -> ThreadBody a -> IO ()
 forkThread state body =
@@ -81,36 +137,60 @@ forkThread state body =
 threadBody :: forall a.
      HasCallStack
   => TVar (ThreadState a)
-  -> ((a -> IO ()) -> IO ())
+  -> ((a -> IO ()) -> DebugThreadId -> IO ())
   -> IO ()
 threadBody state body = do
-    tid <- myThreadId
-    shouldStart <- atomically $ do
-      st <- readTVar state
-      case st of
-        ThreadNotStarted -> do
-          writeTVar state $ ThreadInitializing tid
-          return True
-        _otherwise -> do
-          return False
-    when shouldStart $ do
-      let markReady :: a -> STM ()
-          markReady = writeTVar state . ThreadRunning tid
+    threadId  <- myThreadId
+    initState <- atomically $ readTVar state
 
-          markDone :: Either SomeException () -> STM ()
-          markDone mDone = do
-              modifyTVar state $ \oldState ->
-                case (oldState, mDone) of
-                  (ThreadRunning _ iface, Right ()) ->
-                    ThreadDone iface
-                  (_, Left e) ->
-                    ThreadException e
-                  _otherwise ->
-                    error $ "threadBody: unexpected "
-                         ++ show (const () <$> oldState)
+    -- See discussion of 'ThreadNotStarted'
+    -- It's critical that async exceptions are masked at this point.
+    case initState of
+      ThreadNotStarted debugId -> do
+        atomically $ writeTVar state $ ThreadInitializing debugId threadId
+      ThreadException _ exception ->
+        -- We don't change the thread status here: 'cancelThread' offers the
+        -- guarantee that the thread status /will/ be in aborted or done state
+        -- on return. This means that /externally/ the thread will be
+        -- considered done, even if perhaps the thread must still execute some
+        -- actions before it can actually terminate.
+        void . forkIO $ throwTo threadId exception
+      _otherwise -> do
+        unexpected "initState" initState
 
-      res <- try $ body (atomically . markReady)
-      atomically $ markDone res
+    let markReady :: a -> STM ()
+        markReady a = do
+            modifyTVar state $ \oldState ->
+              case oldState of
+                ThreadInitializing debugId _ ->
+                  ThreadRunning debugId threadId a
+                ThreadException _ _ ->
+                  oldState -- leave alone (see discussion above)
+                _otherwise ->
+                  unexpected "markReady" oldState
+
+        markDone :: Either SomeException () -> STM ()
+        markDone mDone = do
+            modifyTVar state $ \oldState ->
+              case (oldState, mDone) of
+                (ThreadRunning debugId _ iface, Right ()) ->
+                  ThreadDone debugId iface
+                (ThreadException{}, _) ->
+                  oldState -- record /first/ exception
+                (_, Left e) ->
+                  ThreadException (threadDebugId oldState) e
+                _otherwise ->
+                  unexpected "markDone" oldState
+
+    res <- try $ body (atomically . markReady) (threadDebugId initState)
+    atomically $ markDone res
+  where
+    unexpected :: String -> ThreadState a -> x
+    unexpected label st = error $ concat [
+          label
+        , ": unexpected "
+        , show (const () <$> st)
+        ]
 
 {-------------------------------------------------------------------------------
   Stopping
@@ -130,16 +210,15 @@ data CancelResult a =
 -- | Kill thread if it is running
 --
 -- * If the thread is in `ThreadNotStarted` state, we merely change the state to
---   'ThreadException'. We do /NOT/ block, since we cannot be sure if the thread
---   will be started at all (and so we might block indefinitely). This case is
---   taken into account in 'threadBody': if the thread is killed before it is
---   started, 'threadBody' will exit immediately.
+--   'ThreadException'. The thread may still be started (see discussion of
+--   'ThreadNotStarted'), but /externally/ the thread will be considered to have
+--   terminated.
 --
 -- * If the thread is initializing or running, we update the state to
 --   'ThreadException' and then throw the specified exception to the thread.
 --
--- * If the thread is /already/ in 'ThreadException' state, or if the thread
---   is in 'ThreadDone' state, we do nothing.
+-- * If the thread is /already/ in 'ThreadException' state, or if the thread is
+--   in 'ThreadDone' state, we do nothing.
 --
 -- In all cases, the caller is guaranteed that the thread state has been updated
 -- even if perhaps the thread is still shutting down.
@@ -156,18 +235,18 @@ cancelThread state e = do
     aux = do
         st <- readTVar state
         case st of
-          ThreadNotStarted -> do
-            writeTVar state $ ThreadException e
+          ThreadNotStarted debugId -> do
+            writeTVar state $ ThreadException debugId e
             return (Cancelled, Nothing)
-          ThreadInitializing tid -> do
-            writeTVar state $ ThreadException e
-            return (Cancelled, Just tid)
-          ThreadRunning tid _ -> do
-            writeTVar state $ ThreadException e
-            return (Cancelled, Just tid)
-          ThreadException e' ->
+          ThreadInitializing debugId threadId -> do
+            writeTVar state $ ThreadException debugId e
+            return (Cancelled, Just threadId)
+          ThreadRunning debugId threadId _ -> do
+            writeTVar state $ ThreadException debugId e
+            return (Cancelled, Just threadId)
+          ThreadException _debugId e' ->
             return (AlreadyAborted e', Nothing)
-          ThreadDone a ->
+          ThreadDone _debugId a ->
             return (AlreadyTerminated a, Nothing)
 
 {-------------------------------------------------------------------------------
@@ -209,22 +288,22 @@ withThreadInterface state k =
     getThreadInterface = do
         st <- readTVar state
         case st of
-          ThreadNotStarted     -> retry
-          ThreadInitializing _ -> retry
-          ThreadRunning _ a    -> return a
-          ThreadDone      a    -> return a
-          ThreadException e    -> throwSTM e
+          ThreadNotStarted   _     -> retry
+          ThreadInitializing _ _   -> retry
+          ThreadRunning      _ _ a -> return a
+          ThreadDone         _   a -> return a
+          ThreadException    _   e -> throwSTM e
 
 -- | Wait for the thread to terminate
 waitForThread :: TVar (ThreadState a) -> STM a
 waitForThread state = do
     st <- readTVar state
     case st of
-      ThreadNotStarted     -> retry
-      ThreadInitializing _ -> retry
-      ThreadRunning _ _    -> retry
-      ThreadDone      a    -> return a
-      ThreadException e    -> throwSTM e
+      ThreadNotStarted   _     -> retry
+      ThreadInitializing _ _   -> retry
+      ThreadRunning      _ _ _ -> retry
+      ThreadDone         _   a -> return a
+      ThreadException    _   e -> throwSTM e
 
 -- | Has the thread terminated?
 hasThreadTerminated ::
@@ -233,11 +312,11 @@ hasThreadTerminated ::
 hasThreadTerminated state = do
     st <- readTVar state
     case st of
-      ThreadNotStarted     -> retry
-      ThreadInitializing _ -> retry
-      ThreadRunning _ _    -> return $ Nothing
-      ThreadDone      a    -> return $ Just (Right a)
-      ThreadException e    -> return $ Just (Left e)
+      ThreadNotStarted   _     -> retry
+      ThreadInitializing _ _   -> retry
+      ThreadRunning      _ _ _ -> return $ Nothing
+      ThreadDone         _   a -> return $ Just (Right a)
+      ThreadException    _   e -> return $ Just (Left e)
 
 {-------------------------------------------------------------------------------
   Internal auxiliary
@@ -248,6 +327,6 @@ hasThreadTerminated state = do
 -- See also <https://well-typed.com/blog/2024/01/when-blocked-indefinitely-is-not-indefinite/>.
 withoutDeadlockDetection :: IO a -> IO a
 withoutDeadlockDetection k = do
-    tid <- myThreadId
-    bracket (newStablePtr tid) freeStablePtr $ \_ -> k
+    threadId <- myThreadId
+    bracket (newStablePtr threadId) freeStablePtr $ \_ -> k
 

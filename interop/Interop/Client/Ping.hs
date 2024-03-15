@@ -27,7 +27,7 @@ ping cmdline =
 
 waitReachable :: Cmdline -> IO ()
 waitReachable cmdline = do
-    result <- System.timeout (cmdConnectTimeout cmdline * 1_000_000) loop
+    result <- System.timeout (cmdTimeoutConnect cmdline * 1_000_000) loop
     case result of
       Nothing -> fail "Failed to connect to the server"
       Just () -> return ()
