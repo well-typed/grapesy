@@ -12,6 +12,8 @@ import Network.Socket (PortNumber, HostName)
 import Options.Applicative ((<**>))
 import Options.Applicative qualified as Opt
 
+import Network.GRPC.Common
+
 import Paths_grapesy
 
 {-------------------------------------------------------------------------------
@@ -40,9 +42,10 @@ data Cmdline = Cmdline {
       -- Additional command line arguments
       --
 
-    , cmdRootCA  :: FilePath
-    , cmdPubCert :: FilePath
-    , cmdPrivKey :: FilePath
+    , cmdRootCA    :: FilePath
+    , cmdPubCert   :: FilePath
+    , cmdPrivKey   :: FilePath
+    , cmdSslKeyLog :: SslKeyLog
 
     , cmdTimeoutTest    :: Int
     , cmdTimeoutConnect :: Int
@@ -147,6 +150,7 @@ defaultCmdline = do
       , cmdRootCA                = rootCA
       , cmdPubCert               = pubCert
       , cmdPrivKey               = privKey
+      , cmdSslKeyLog             = SslKeyLogNone
       , cmdTimeoutTest           = 5
       , cmdTimeoutConnect        = 5
       , cmdSkipTest              = []
@@ -246,6 +250,7 @@ parseCmdline defaults =
             , Opt.showDefault
             , Opt.help "Server private key"
             ])
+      <*> parseSslkeyLog
 
       <*> (Opt.option Opt.auto $ mconcat [
                Opt.long "test_timeout"
@@ -274,6 +279,19 @@ parseCmdline defaults =
               Opt.long "skip_client_compression"
             , Opt.help "Skip client compression tests"
             ])
+
+parseSslkeyLog :: Opt.Parser SslKeyLog
+parseSslkeyLog = asum [
+      Opt.flag' SslKeyLogFromEnv $ mconcat [
+          Opt.long "key_log_from_env"
+        , Opt.help "Set SSL key logging based on SSLKEYLOGFILE (default is no logging)"
+        ]
+    , fmap SslKeyLogPath $ Opt.strOption $ mconcat [
+          Opt.long "key_log_path"
+        , Opt.help "Set the SSL key logging filepath"
+        ]
+    , pure SslKeyLogNone
+    ]
 
 parseMode :: Opt.Parser Mode
 parseMode = asum [

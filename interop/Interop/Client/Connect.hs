@@ -1,7 +1,6 @@
 module Interop.Client.Connect (testServer) where
 
 import Network.GRPC.Client
-import Network.GRPC.Common
 
 import Interop.Cmdline
 
@@ -17,7 +16,7 @@ testServer cmdline
   | cmdUseTLS cmdline
   = ServerSecure
           (ValidateServer certStore)
-          SslKeyLogFromEnv
+          (cmdSslKeyLog cmdline)
           serverAddress
 
   | otherwise

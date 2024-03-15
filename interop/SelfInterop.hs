@@ -12,17 +12,13 @@ import Interop.Server (server)
 
 main :: IO ()
 main = do
+    cmdline <- defaultCmdline
+
     -- Check that no command line flags were passed (to avoid confusion)
     args <- getArgs
     case args of
       []         -> return ()
       _otherwise -> fail "This test suite does not take any arguments"
-
-    -- Construct defaults
-    --
-    -- TODO: Justify disabling TLS.
-    defaults <- defaultCmdline
-    let cmdline = defaults{cmdUseTLS = False}
 
     -- Start the server and give it a chance to get ready
     --

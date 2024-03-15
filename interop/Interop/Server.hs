@@ -80,7 +80,7 @@ server cmdline = showStartStop $
               , securePubCert    = cmdPubCert cmdline
               , secureChainCerts = []
               , securePrivKey    = cmdPrivKey cmdline
-              , secureSslKeyLog  = SslKeyLogFromEnv
+              , secureSslKeyLog  = cmdSslKeyLog cmdline
               }
           }
 
