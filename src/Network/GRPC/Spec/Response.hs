@@ -13,26 +13,31 @@ module Network.GRPC.Spec.Response (
   , ProperTrailers
   , TrailersOnly_(..)
   , TrailersOnly
+  , Pushback(..)
   , trailersOnlyToProperTrailers
   , properTrailersToTrailersOnly
-    -- * gRPC exceptions
+    -- * gRPC termination
   , GrpcException(..)
-  , grpcExceptionFromTrailers
+  , GrpcNormalTermination(..)
+  , grpcClassifyTermination
   , grpcExceptionToTrailers
     -- * Serialization
     -- ** Construction
   , buildResponseHeaders
   , buildProperTrailers
   , buildTrailersOnly
+  , buildPushback
     -- ** Parsing
   , parseResponseHeaders
   , parseProperTrailers
   , parseTrailersOnly
+  , parsePushback
   ) where
 
 import Control.Exception
 import Control.Monad.Except
 import Control.Monad.State
+import Data.ByteString qualified as Strict
 import Data.ByteString.Char8 qualified as BS.Strict.C8
 import Data.List.NonEmpty (NonEmpty)
 import Data.Map.Strict (Map)
@@ -109,6 +114,9 @@ data ProperTrailers_ f = ProperTrailers {
       --
       -- See also 'responseMetadata' for the initial metadata.
     , properTrailersMetadata :: HKD f (Map HeaderName HeaderValue)
+
+      -- | Server pushback
+    , properTrailersPushback :: HKD f (Maybe Pushback)
     }
 
 type ProperTrailers = ProperTrailers_ Undecorated
@@ -122,6 +130,7 @@ instance HKD.Traversable ProperTrailers_ where
         <$> properTrailersGrpcStatus  x
         <*> properTrailersGrpcMessage x
         <*> properTrailersMetadata    x
+        <*> properTrailersPushback    x
 
 -- | Trailers sent in the gRPC Trailers-Only case
 --
@@ -169,16 +178,66 @@ trailersOnlyToProperTrailers TrailersOnly{
     )
 
 {-------------------------------------------------------------------------------
+  Pushback
+-------------------------------------------------------------------------------}
+
+-- | Pushback
+--
+-- The server adds this header to push back against client retries. We do not
+-- yet support automatic retries
+-- (<https://github.com/well-typed/grapesy/issues/104>), but do /we/ parse this
+-- header so that /if/ the server includes it, we do not throw a parser error.
+--
+-- See also <https://github.com/grpc/proposal/blob/master/A6-client-retries.md>
+data Pushback =
+    RetryAfter Word
+  | DoNotRetry
+  deriving (Show, Eq)
+
+buildPushback :: Pushback -> Strict.ByteString
+buildPushback (RetryAfter n) = BS.Strict.C8.pack $ show n
+buildPushback DoNotRetry     = "-1"
+
+-- | Parse 'Pushback'
+--
+-- Parsing a pushback cannot fail; the spec mandates:
+--
+-- > If the value for pushback is negative or unparseble, then it will be seen
+-- > as the server asking the client not to retry at all.
+--
+-- We therefore only require @Monad m@, not @MonadError m@ (having the @Monad@
+-- constraint at all keeps the type signature consistent with other parsing
+-- functions).
+parsePushback :: Monad m => Strict.ByteString -> m Pushback
+parsePushback bs =
+    case readMaybe (BS.Strict.C8.unpack bs) of
+      Just (n :: Int) ->
+        -- The @Read@ instance for @Word@ /does/ allow for signs
+        -- <https://gitlab.haskell.org/ghc/ghc/-/issues/24216>
+        return $ if n < 0 then DoNotRetry else RetryAfter (fromIntegral n)
+      Nothing ->
+        return DoNotRetry
+
+{-------------------------------------------------------------------------------
   gRPC exceptions
 -------------------------------------------------------------------------------}
 
 -- | Server indicated a gRPC error
 data GrpcException = GrpcException {
-      grpcError         :: GrpcError
-    , grpcErrorMessage  :: Maybe Text
-    , grpcErrorMetadata :: [CustomMetadata]
+      grpcError          :: GrpcError
+    , grpcErrorMessage   :: Maybe Text
+    , grpcErrorMetadata  :: [CustomMetadata]
     }
-  deriving stock (Show, Eq)
+  deriving stock (Show)
+  deriving anyclass (Exception)
+
+-- | Server indicated normal termination
+--
+-- This is only an exception if the client tries to send any further messages.
+data GrpcNormalTermination = GrpcNormalTermination {
+      grpcTerminatedMetadata :: [CustomMetadata]
+    }
+  deriving stock (Show)
   deriving anyclass (Exception)
 
 -- | Check if trailers correspond to an exceptional response
@@ -190,20 +249,19 @@ data GrpcException = GrpcException {
 -- However, in practice gRPC servers can also respond with @Trailers-Only@ in
 -- non-error cases, simply indicating that the server considers the
 -- conversation over. To distinguish, we look at 'trailerGrpcStatus'.
-grpcExceptionFromTrailers ::
+grpcClassifyTermination ::
      ProperTrailers
-  -> Either (Maybe Text, [CustomMetadata]) GrpcException
-grpcExceptionFromTrailers ProperTrailers {
+  -> Either GrpcException GrpcNormalTermination
+grpcClassifyTermination ProperTrailers {
                               properTrailersGrpcStatus
                             , properTrailersGrpcMessage
                             , properTrailersMetadata
                             } =
     case properTrailersGrpcStatus of
-      GrpcOk -> Left (
-          properTrailersGrpcMessage
-        , Map.toList properTrailersMetadata
-        )
-      GrpcError err -> Right GrpcException{
+      GrpcOk -> Right GrpcNormalTermination {
+          grpcTerminatedMetadata  = Map.toList properTrailersMetadata
+        }
+      GrpcError err -> Left GrpcException{
           grpcError         = err
         , grpcErrorMessage  = properTrailersGrpcMessage
         , grpcErrorMetadata = Map.toList properTrailersMetadata
@@ -215,6 +273,7 @@ grpcExceptionToTrailers err = ProperTrailers{
       properTrailersGrpcStatus  = GrpcError (grpcError err)
     , properTrailersGrpcMessage = grpcErrorMessage err
     , properTrailersMetadata    = Map.fromList $ grpcErrorMetadata  err
+    , properTrailersPushback    = Nothing
     }
 
 {-------------------------------------------------------------------------------
@@ -314,6 +373,7 @@ buildProperTrailers ProperTrailers{
                         properTrailersGrpcStatus
                       , properTrailersGrpcMessage
                       , properTrailersMetadata
+                      , properTrailersPushback
                       } = concat [
       [ ( "grpc-status"
         , BS.Strict.C8.pack $ show $ fromGrpcStatus properTrailersGrpcStatus
@@ -324,6 +384,11 @@ buildProperTrailers ProperTrailers{
       ]
     , [ buildCustomMetadata x
       | x <- Map.toList properTrailersMetadata
+      ]
+    , [ ( "grpc-retry-pushback-ms"
+        , buildPushback x
+        )
+      | Just x <- [properTrailersPushback]
       ]
     ]
 
@@ -396,6 +461,12 @@ parseTrailersOnly proxy =
                 Right msg -> return (Just msg)
           }
 
+      | name == "grpc-retry-pushback-ms"
+      = modify $ liftProperTrailers $ \x -> x{
+            properTrailersPushback =
+              Just <$> parsePushback value
+          }
+
       | otherwise
       = modify $ liftProperTrailers $ \x -> x{
             properTrailersMetadata = do
@@ -410,6 +481,7 @@ parseTrailersOnly proxy =
               properTrailersGrpcStatus  = throwError "missing: grpc-status"
             , properTrailersGrpcMessage = return Nothing
             , properTrailersMetadata    = return Map.empty
+            , properTrailersPushback    = return Nothing
             }
         }
 

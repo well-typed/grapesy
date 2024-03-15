@@ -6,8 +6,10 @@
 module Network.GRPC.Client.Binary (
     -- * Convenience wrappers using @binary@ for serialization/deserialization
     sendInput
+  , sendNextInput
   , sendFinalInput
   , recvOutput
+  , recvNextOutput
   , recvFinalOutput
   ) where
 
@@ -30,6 +32,13 @@ sendInput :: forall inp serv meth m.
   -> m ()
 sendInput call inp = Client.sendInput call (encode <$> inp)
 
+sendNextInput ::
+     (Binary inp, MonadIO m)
+  => Call (BinaryRpc serv meth)
+  -> inp
+  -> m ()
+sendNextInput call inp = Client.sendNextInput call (encode inp)
+
 sendFinalInput :: forall inp serv meth m.
      (Binary inp, MonadIO m)
   => Call (BinaryRpc serv meth)
@@ -42,14 +51,20 @@ recvOutput :: forall out serv meth m.
      (Binary out, MonadIO m)
   => Call (BinaryRpc serv meth)
   -> m (StreamElem [CustomMetadata] out)
-recvOutput call = liftIO $
+recvOutput call =
      Client.recvOutput call >>= traverse decodeOrThrow
+
+recvNextOutput ::
+     (Binary out, MonadIO m)
+  => Call (BinaryRpc serv meth)
+  -> m out
+recvNextOutput call = Client.recvNextOutput call >>= decodeOrThrow
 
 recvFinalOutput :: forall out serv meth m.
      (Binary out, MonadIO m)
   => Call (BinaryRpc serv meth)
   -> m (out, [CustomMetadata])
-recvFinalOutput call = liftIO $ do
+recvFinalOutput call = do
     (out, md) <- Client.recvFinalOutput call
     (, md) <$> decodeOrThrow out
 

@@ -18,7 +18,7 @@ module Network.GRPC.Server.Binary (
   , mkBiDiStreaming
   ) where
 
-import Control.Monad.Catch
+import Control.Monad.IO.Class
 import Data.Binary
 import GHC.Stack
 
@@ -34,7 +34,7 @@ import Network.GRPC.Server.StreamType qualified as StreamType
 -------------------------------------------------------------------------------}
 
 sendOutput ::
-     Binary a
+     (Binary a, HasCallStack)
   => Call (BinaryRpc serv meth)
   -> StreamElem [CustomMetadata] a
   -> IO ()
@@ -42,7 +42,7 @@ sendOutput call out =
     Server.sendOutput call (encode <$> out)
 
 sendNextOutput ::
-     Binary a
+     (Binary a, HasCallStack)
   => Call (BinaryRpc serv meth)
   -> a
   -> IO ()
@@ -50,7 +50,7 @@ sendNextOutput call out =
     Server.sendNextOutput call (encode out)
 
 sendFinalOutput ::
-     Binary a
+     (Binary a, HasCallStack)
   => Call (BinaryRpc serv meth)
   -> (a, [CustomMetadata])
   -> IO ()
@@ -83,7 +83,7 @@ recvFinalInput call =
 -------------------------------------------------------------------------------}
 
 mkNonStreaming :: forall m inp out serv meth.
-     (MonadThrow m, Binary inp, Binary out)
+     (MonadIO m, Binary inp, Binary out)
   => (    inp
        -> m out
      )
@@ -93,7 +93,7 @@ mkNonStreaming f = StreamType.mkNonStreaming $ \inp -> do
     encode <$> f inp'
 
 mkClientStreaming :: forall m out serv meth.
-     (MonadThrow m, Binary out)
+     (MonadIO m, Binary out)
   => (    (forall inp. Binary inp => m (StreamElem NoMetadata inp))
        -> m out
      )
@@ -103,7 +103,7 @@ mkClientStreaming f = StreamType.mkClientStreaming $ \recv -> do
     return $ encode out
 
 mkServerStreaming :: forall m inp serv meth.
-     (MonadThrow m, Binary inp)
+     (MonadIO m, Binary inp)
   => (    inp
        -> (forall out. Binary out => out -> m ())
        -> m ()
@@ -114,7 +114,7 @@ mkServerStreaming f = StreamType.mkServerStreaming $ \inp send -> do
     f inp' (send . encode)
 
 mkBiDiStreaming :: forall m serv meth.
-     MonadThrow m
+     MonadIO m
   => (    (forall inp. Binary inp => m (StreamElem NoMetadata inp))
        -> (forall out. Binary out => out -> m ())
        -> m ()

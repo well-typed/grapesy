@@ -28,7 +28,6 @@ module Network.GRPC.Server.Call (
     -- ** Low-level\/specialized API
   , initiateResponse
   , sendTrailersOnly
-  , isCallHealthy
   , recvInputWithEnvelope
   , sendOutputWithEnvelope
   , getRequestTraceContext
@@ -40,6 +39,7 @@ module Network.GRPC.Server.Call (
 
     -- * Exceptions
   , HandlerTerminated(..)
+  , ResponseAlreadyInitiated(..)
   ) where
 
 import Control.Concurrent.Async
@@ -50,7 +50,6 @@ import Control.Monad.Catch
 import Control.Monad.IO.Class
 import Control.Monad.XIO (XIO, XIO', NeverThrows)
 import Control.Monad.XIO qualified as XIO
-import Control.Tracer
 import Data.Bifunctor
 import Data.Default
 import Data.Map.Strict qualified as Map
@@ -104,7 +103,7 @@ data Call rpc = IsRPC rpc => Call {
 
 -- | What kicked off the response?
 --
--- When the server handler starts, we do not immediately initate the response
+-- When the server handler starts, we do not immediately initiate the response
 -- to the client, because the server might not have decided the initial response
 -- metadata yet (indeed, it might need wait for some incoming messages from the
 -- client before it can compute that metadata). We therefore wait until we
@@ -116,10 +115,16 @@ data Call rpc = IsRPC rpc => Call {
 --
 -- We only need distinguish between (1 or 2) versus (3), corresponding precisely
 -- to the two constructors of 'FlowStart'.
+--
+-- We record the 'CallStack' of the call that initiated the response.
 data Kickoff =
-    KickoffRegular
-  | KickoffTrailersOnly TrailersOnly
+    KickoffRegular      CallStack
+  | KickoffTrailersOnly CallStack TrailersOnly
   deriving (Show)
+
+kickoffCallStack :: Kickoff -> CallStack
+kickoffCallStack (KickoffRegular      cs  ) = cs
+kickoffCallStack (KickoffTrailersOnly cs _) = cs
 
 {-------------------------------------------------------------------------------
   Open a call
@@ -160,7 +165,6 @@ setupCall conn callContext@ServerContext{params} = do
     callChannel :: Session.Channel (ServerSession rpc) <-
       XIO.neverThrows $ Session.setupResponseChannel
         callSession
-        (contramap (Context.ServerDebugMsg @rpc) tracer)
         conn
         flowStart
         (mkOutboundHeaders callResponseMetadata callResponseKickoff cOut)
@@ -185,9 +189,6 @@ setupCall conn callContext@ServerContext{params} = do
     req :: HTTP2.Request
     req = Server.request conn
 
-    tracer :: Tracer IO Context.ServerDebugMsg
-    tracer = Context.serverDebugTracer params
-
     mkOutboundHeaders ::
          TVar [CustomMetadata]
       -> TMVar Kickoff
@@ -203,7 +204,7 @@ setupCall conn callContext@ServerContext{params} = do
 
         -- Session start
         case kickoff of
-          KickoffRegular ->
+          KickoffRegular _cs ->
             return $ Session.FlowStartRegular $ OutboundHeaders {
                 outHeaders = ResponseHeaders {
                     responseCompression       = Just $ Compr.compressionId cOut
@@ -213,7 +214,7 @@ setupCall conn callContext@ServerContext{params} = do
                   }
               , outCompression = cOut
               }
-          KickoffTrailersOnly trailers ->
+          KickoffTrailersOnly _cs trailers ->
             return $ Session.FlowStartNoMessages trailers
 
 -- | Accept incoming call
@@ -360,6 +361,7 @@ serverExceptionToClientError err
           properTrailersGrpcStatus  = GrpcError GrpcUnknown
         , properTrailersGrpcMessage = Just $ Text.pack (show err)
         , properTrailersMetadata    = Map.empty
+        , properTrailersPushback    = Nothing
         }
 
 -- | Handler terminated early
@@ -405,7 +407,9 @@ recvInputWithEnvelope Call{callChannel} =
 --
 -- This is a blocking call if this is the final message (i.e., the call will not
 -- return until the message has been written to the HTTP2 stream).
-sendOutput :: Call rpc -> StreamElem [CustomMetadata] (Output rpc) -> IO ()
+sendOutput ::
+     HasCallStack
+  => Call rpc -> StreamElem [CustomMetadata] (Output rpc) -> IO ()
 sendOutput call = sendOutputWithEnvelope call . fmap (def,)
 
 -- | Generalization of 'sendOutput' with additional control
@@ -415,7 +419,8 @@ sendOutput call = sendOutputWithEnvelope call . fmap (def,)
 --
 -- Most applications will never need to use this function.
 sendOutputWithEnvelope ::
-     Call rpc
+     HasCallStack
+  => Call rpc
   -> StreamElem [CustomMetadata] (OutboundEnvelope, Output rpc)
   -> IO ()
 sendOutputWithEnvelope call@Call{callChannel} msg = do
@@ -434,6 +439,7 @@ sendOutputWithEnvelope call@Call{callChannel} msg = do
           properTrailersGrpcStatus  = GrpcOk
         , properTrailersGrpcMessage = Nothing
         , properTrailersMetadata    = Map.fromList metadata
+        , properTrailersPushback    = Nothing
         }
 
 -- | Send 'GrpcException' to the client
@@ -477,15 +483,15 @@ getRequestMetadata Call{callRequestHeaders} =
 --
 -- Note that this is about the /initial/ metadata; additional metadata can be
 -- sent after the final message; see 'sendOutput'.
-setResponseMetadata :: Call rpc -> [CustomMetadata] -> IO ()
+setResponseMetadata :: HasCallStack => Call rpc -> [CustomMetadata] -> IO ()
 setResponseMetadata Call{ callResponseMetadata
                         , callResponseKickoff
                         }
                     md = atomically $ do
-    mKickoff <- tryReadTMVar callResponseKickoff
+    mKickoff <- fmap kickoffCallStack <$> tryReadTMVar callResponseKickoff
     case mKickoff of
       Nothing -> writeTVar callResponseMetadata md
-      Just _  -> throwSTM ResponseAlreadyInitiated
+      Just cs -> throwSTM $ ResponseAlreadyInitiated cs callStack
 
 {-------------------------------------------------------------------------------
   Low-level API
@@ -497,14 +503,14 @@ setResponseMetadata Call{ callResponseMetadata
 -- (see also 'setResponseMetadata').
 --
 -- Returns 'False' if the response was already initiated.
-initiateResponse :: Call rpc -> IO Bool
+initiateResponse :: HasCallStack => Call rpc -> IO Bool
 initiateResponse Call{callResponseKickoff} =
-    atomically $ tryPutTMVar callResponseKickoff KickoffRegular
+    atomically $ tryPutTMVar callResponseKickoff $ KickoffRegular callStack
 
 -- | Use the gRPC @Trailers-Only@ case for non-error responses
 --
 -- Under normal circumstances a gRPC server will respond to the client with
--- an initial set of headers, than zero or more messages, and finally a set of
+-- an initial set of headers, then zero or more messages, and finally a set of
 -- trailers. When there /are/ no messages, this /can/ be collapsed into a single
 -- set of trailers (or headers, depending on your point of view); the gRPC
 -- specification refers to this as the @Trailers-Only@ case. It mandates:
@@ -523,11 +529,17 @@ initiateResponse Call{callResponseKickoff} =
 -- 'sendTrailersOnly'.
 --
 -- Throws 'ResponseAlreadyInitiated' if the response has already been initiated.
-sendTrailersOnly :: Call rpc -> [CustomMetadata] -> IO ()
-sendTrailersOnly Call{callContext, callResponseKickoff} metadata = do
-    updated <- atomically $ tryPutTMVar callResponseKickoff $
-                 KickoffTrailersOnly trailers
-    unless updated $ throwIO ResponseAlreadyInitiated
+sendTrailersOnly :: HasCallStack => Call rpc -> [CustomMetadata] -> IO ()
+sendTrailersOnly Call{ callContext
+                     , callResponseKickoff
+                     }
+                 metadata
+               = atomically $ do
+    previously <- fmap kickoffCallStack <$> tryReadTMVar callResponseKickoff
+    case previously of
+      Nothing -> putTMVar callResponseKickoff $
+                   KickoffTrailersOnly callStack trailers
+      Just cs -> throwSTM $ ResponseAlreadyInitiated cs callStack
   where
     ServerContext{params} = callContext
 
@@ -538,19 +550,19 @@ sendTrailersOnly Call{callContext, callResponseKickoff} metadata = do
               properTrailersGrpcStatus  = GrpcOk
             , properTrailersGrpcMessage = Nothing
             , properTrailersMetadata    = Map.fromList metadata
+            , properTrailersPushback    = Nothing
             }
         }
 
-data ResponseAlreadyInitiated = ResponseAlreadyInitiated
+data ResponseAlreadyInitiated = ResponseAlreadyInitiated {
+      -- | When was the response first initiated?
+      responseInitiatedFirst :: CallStack
+
+      -- | Where did we attempt to initiate the response a second time?
+    , responseInitiatedAgain :: CallStack
+    }
   deriving stock (Show)
   deriving anyclass (Exception)
-
--- | Check if the connection to the client is healthy
---
--- See 'Network.GRPC.Client.isCallHealthy' for considerations regarding the
--- non-deterministic result of this function.
-isCallHealthy :: Call rpc -> STM Bool
-isCallHealthy = Session.isChannelHealthy . callChannel
 
 -- | Get trace context for the request (if any)
 --
@@ -567,13 +579,17 @@ getRequestTraceContext Call{callRequestHeaders} =
 --
 -- If this is the last output, you should call 'sendTrailers' after
 -- (or use 'sendFinalOutput').
-sendNextOutput :: Call rpc -> Output rpc -> IO ()
+sendNextOutput ::
+     HasCallStack
+  => Call rpc -> Output rpc -> IO ()
 sendNextOutput call = sendOutput call . StreamElem
 
 -- | Send final output
 --
 -- See also 'sendTrailers'.
-sendFinalOutput :: Call rpc -> (Output rpc, [CustomMetadata]) -> IO ()
+sendFinalOutput ::
+     HasCallStack
+  => Call rpc -> (Output rpc, [CustomMetadata]) -> IO ()
 sendFinalOutput call = sendOutput call . uncurry FinalElem
 
 -- | Send trailers
@@ -581,7 +597,9 @@ sendFinalOutput call = sendOutput call . uncurry FinalElem
 -- This tells the client that there will be no more outputs. You should call
 -- this (or 'sendFinalOutput') even when there is no special information to be
 -- included in the trailers.
-sendTrailers :: Call rpc -> [CustomMetadata] -> IO ()
+sendTrailers ::
+     HasCallStack
+  => Call rpc -> [CustomMetadata] -> IO ()
 sendTrailers call = sendOutput call . NoMoreElems
 
 -- | Receive next input
@@ -649,11 +667,15 @@ sendProperTrailers :: Call rpc -> ProperTrailers -> IO ()
 sendProperTrailers Call{callContext, callResponseKickoff, callChannel}
                    trailers = do
     updated <-
-      atomically $ tryPutTMVar callResponseKickoff . KickoffTrailersOnly $
-        properTrailersToTrailersOnly (
-            trailers
-          , Context.serverContentType params
-          )
+      atomically $
+        tryPutTMVar callResponseKickoff $
+          KickoffTrailersOnly
+            callStack
+            ( properTrailersToTrailersOnly (
+                trailers
+              , Context.serverContentType params
+              )
+            )
     unless updated $
       -- If we didn't update, then the response has already been initiated and
       -- we cannot make use of the Trailers-Only case.

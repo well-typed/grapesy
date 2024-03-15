@@ -55,9 +55,9 @@ module Network.GRPC.Client (
   , recvAllOutputs
 
     -- ** Low-level\/specialized API
-  , isCallHealthy
   , sendInputWithEnvelope
   , recvOutputWithEnvelope
+  , recvInitialResponse
 
     -- * Communication patterns
   , rpc
@@ -67,9 +67,6 @@ module Network.GRPC.Client (
   , ServerDisconnected(..)
   , CallSetupFailure(..)
   , InvalidTrailers(..)
-
-    -- * Debugging
-  , ClientDebugMsg(..)
   ) where
 
 import Network.GRPC.Client.Call

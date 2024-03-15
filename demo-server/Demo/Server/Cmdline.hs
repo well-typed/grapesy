@@ -21,7 +21,6 @@ import Paths_grapesy
 data Cmdline = Cmdline {
       cmdInsecure             :: Maybe InsecureConfig
     , cmdSecure               :: Maybe SecureConfig
-    , cmdDebug                :: Bool
     , cmdTrailersOnlyShortcut :: Bool
     , cmdDisableCompression   :: Bool
     }
@@ -50,10 +49,6 @@ parseCmdline defaultPub defaultPriv =
     Cmdline
       <$> parseInsecure
       <*> parseSecure defaultPub defaultPriv
-      <*> (Opt.switch $ mconcat [
-               Opt.long "debug"
-             , Opt.help "Enable debug output"
-             ])
       <*> (Opt.switch $ mconcat [
                Opt.long "trailers-only-shortcut"
              , Opt.help "Use Trailers-Only even in non-error cases"

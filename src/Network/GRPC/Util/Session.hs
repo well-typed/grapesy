@@ -19,13 +19,14 @@ module Network.GRPC.Util.Session (
   , IsSession(..)
   , InitiateSession(..)
   , AcceptSession(..)
+  , NoTrailers(..)
     -- ** Raw request/response info
   , RequestInfo(..)
   , ResponseInfo(..)
     -- ** Exceptions
   , PeerException(..)
     -- * Channel
-  , Channel -- opaque
+  , Channel(..)
     -- ** Working with an open channel
   , getInboundHeaders
   , send
@@ -37,6 +38,8 @@ module Network.GRPC.Util.Session (
   , close
   , ChannelDiscarded(..)
   , ChannelAborted(..)
+    -- ** Half-closing
+  , AllowHalfClosed(..)
     -- ** Construction
     -- *** Client
   , ConnectionToServer(..)
@@ -45,13 +48,6 @@ module Network.GRPC.Util.Session (
   , ConnectionToClient(..)
   , determineFlowStart
   , setupResponseChannel
-    -- ** Status
-  , ChannelStatus(..)
-  , FlowStatus(..)
-  , checkChannelStatus
-  , isChannelHealthy
-    -- ** Logging
-  , DebugMsg(..)
   ) where
 
 import Network.GRPC.Util.Session.API

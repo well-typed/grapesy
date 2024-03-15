@@ -24,15 +24,6 @@ example, `helloworld.Greeter.SayHello` becomes
 Protobuf @Greeter @"sayHello"
 ```
 
-## Debugging
-
-The demo client supports a `--debug` command line argument. If enabled, you will
-get verbose debug logs of the communication between the client and the server.
-
-```
-cabal run demo-client -- --debug sayHello --name 'John'
-```
-
 ## TLS
 
 See https://grpc.io/docs/guides/auth/#python for the changes required to the
@@ -140,45 +131,26 @@ We can observe both using the demo client and server. Start the client without
 the server:
 
 ```
-cabal run demo-client -- --debug \
+cabal run demo-client -- \
   sayHello --name 'John' \
   --delay 5 \
   sayHello --name 'Alice'
 ```
 
-It will start trying to connect:
-
-```
-ClientDebugConnecting
-ReconnectAfter (1.0,2.0) ...
-...
-```
-
 Then start the server; you should see the first `sayHello` method call happen:
 
 ```
-...
-ClientDebugConnectedInsecure
-...
 {message: "Hello, John!"}
 ```
 
-Now stop the server again, and you will see the client trying to reconnect again:
+Now stop the server again, and the client will try to reconnect again. Finally,
+if you now start the server again, the client should be able to connect again:
 
 ```
-ReconnectAfter (1.0,2.0) ..`
-...
-```
-
-Finally, if you now start the server again, the client should be able to
-connect again:
-
-```
-...
-ClientDebugConnectedInsecure
-...
 {message: "Hello, Alice!"}
 ```
+
+TODO: Reconnects should be visible. https://github.com/well-typed/grapesy/issues/107
 
 ### Dealing with unterminated streams
 
@@ -289,7 +261,7 @@ An important edge case here is the case where there are zero features in
 the specified rectangle:
 
 ```
-cabal run demo-client -- --debug listFeatures \
+cabal run demo-client -- listFeatures \
   --lo-latitude  0 \
   --lo-longitude 0 \
   --hi-latitude  0 \
@@ -344,7 +316,7 @@ This should report something like
 One important edge case here is the empty route:
 
 ```
-cabal run demo-client -- --debug recordRoute
+cabal run demo-client -- recordRoute
 ```
 
 (This is effectively the equivalent of the  `Trailers-Only` case from the "no

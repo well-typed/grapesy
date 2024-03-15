@@ -9,7 +9,8 @@ module Network.GRPC.Common.Binary (
   , DecodeException(..)
   ) where
 
-import Control.Monad.Catch
+import Control.Exception
+import Control.Monad.IO.Class
 import Data.Binary
 import Data.Binary.Get qualified as Binary
 import Data.ByteString.Lazy qualified as BS.Lazy
@@ -21,17 +22,17 @@ import Network.GRPC.Spec
   Decoding
 -------------------------------------------------------------------------------}
 
-decodeOrThrow :: (MonadThrow m, Binary a) => Lazy.ByteString -> m a
-decodeOrThrow bs =
+decodeOrThrow :: (MonadIO m, Binary a) => Lazy.ByteString -> m a
+decodeOrThrow bs = liftIO $
     case decodeOrFail bs of
       Left (unconsumed, consumed, errorMessage) ->
-        throwM $ DecodeException{unconsumed, consumed, errorMessage}
+        throwIO $ DecodeException{unconsumed, consumed, errorMessage}
       Right (unconsumed, consumed, a) ->
         if BS.Lazy.null unconsumed then
           return a
         else do
           let errorMessage = "Not all bytes consumed"
-          throwM $ DecodeException{unconsumed, consumed, errorMessage}
+          throwIO $ DecodeException{unconsumed, consumed, errorMessage}
 
 data DecodeException =
     DecodeException {

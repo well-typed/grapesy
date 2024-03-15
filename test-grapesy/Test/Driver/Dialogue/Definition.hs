@@ -2,6 +2,8 @@ module Test.Driver.Dialogue.Definition (
     -- * Local
     LocalStep(..)
   , Action(..)
+  , ClientAction
+  , ServerAction
   , RPC(..)
   , Metadata
     -- * Bird's-eye view
@@ -11,7 +13,7 @@ module Test.Driver.Dialogue.Definition (
     -- ** User exceptions
   , SomeClientException(..)
   , SomeServerException(..)
-  , ExceptionId(..)
+  , ExceptionId
     -- * Utility
   , hasEarlyTermination
   ) where
@@ -25,21 +27,18 @@ import Network.GRPC.Common
 import Test.Driver.Dialogue.TestClock qualified as TestClock
 
 {-------------------------------------------------------------------------------
-  Single channel
-
-  TODO: We should test that the Trailers-Only case gets triggered if no messages
-  were exchanged before the exception (not sure this is observable without
-  Wireshark..?).
-
-  TODO: Test what happens when either peer simply disappears.
+  Single RPC
 -------------------------------------------------------------------------------}
 
 data LocalStep =
-    ClientAction (Action (Metadata, RPC) NoMetadata)
-  | ServerAction (Action Metadata        Metadata)
+    ClientAction ClientAction
+  | ServerAction ServerAction
   deriving stock (Show, Eq)
 
-data Action a b =
+type ClientAction = Action (Metadata, RPC) NoMetadata SomeClientException
+type ServerAction = Action Metadata        Metadata   SomeServerException
+
+data Action a b e =
     -- | Initiate request and response
     --
     -- When the client initiates a request, they can specify a timeout, initial
@@ -55,7 +54,7 @@ data Action a b =
   | Send (StreamElem b Int)
 
     -- | Early termination (cleanly or with an exception)
-  | Terminate (Maybe ExceptionId)
+  | Terminate (Maybe e)
   deriving stock (Show, Eq)
 
 data RPC = RPC1 | RPC2 | RPC3
@@ -65,7 +64,7 @@ data RPC = RPC1 | RPC2 | RPC3
 type Metadata = Map HeaderName HeaderValue
 
 {-------------------------------------------------------------------------------
-  Many channels (bird's-eye view)
+  Many RPCs (bird's-eye view)
 -------------------------------------------------------------------------------}
 
 newtype LocalSteps = LocalSteps {
@@ -87,16 +86,15 @@ newtype GlobalSteps = GlobalSteps {
 -------------------------------------------------------------------------------}
 
 data SomeServerException = SomeServerException ExceptionId
-  deriving stock (Show)
+  deriving stock (Show, Eq)
   deriving anyclass (Exception)
 
 data SomeClientException = SomeClientException ExceptionId
-  deriving stock (Show)
+  deriving stock (Show, Eq)
   deriving anyclass (Exception)
 
 -- | We distinguish exceptions from each other simply by a number
-newtype ExceptionId = ExceptionId Int
-  deriving stock (Show, Eq)
+type ExceptionId = Int
 
 {-------------------------------------------------------------------------------
   Utility

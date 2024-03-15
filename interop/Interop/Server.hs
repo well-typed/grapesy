@@ -1,8 +1,10 @@
 module Interop.Server (server) where
 
+import Control.Exception (SomeException)
 import Control.Monad.Catch (generalBracket, ExitCase(..))
 
 import Network.GRPC.Common
+import Network.GRPC.Internal.XIO qualified as XIO
 import Network.GRPC.Server
 import Network.GRPC.Server.Protobuf
 import Network.GRPC.Server.Run
@@ -64,7 +66,7 @@ server :: Cmdline -> IO ()
 server cmdline = showStartStop $
     runServerWithHandlers
       serverConfig
-      def
+      serverParams
       (fromServices services)
   where
     serverConfig :: ServerConfig
@@ -78,7 +80,7 @@ server cmdline = showStartStop $
               , securePubCert    = cmdPubCert cmdline
               , secureChainCerts = []
               , securePrivKey    = cmdPrivKey cmdline
-              , secureSslKeyLog  = SslKeyLogFromEnv
+              , secureSslKeyLog  = cmdSslKeyLog cmdline
               }
           }
 
@@ -90,6 +92,17 @@ server cmdline = showStartStop $
               , insecurePort = cmdPort cmdline
               }
           }
+
+    serverParams :: ServerParams
+    serverParams = def {
+          serverTopLevel = swallowExceptions
+        }
+
+    -- Don't show handler exceptions on stderr
+    swallowExceptions ::
+         RequestHandler SomeException ()
+      -> RequestHandler XIO.NeverThrows   ()
+    swallowExceptions h req resp = h req resp `XIO.catchError` \_ -> return ()
 
 {-------------------------------------------------------------------------------
   Internal auxiliary

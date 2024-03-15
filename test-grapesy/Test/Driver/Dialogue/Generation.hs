@@ -20,6 +20,7 @@ import Network.GRPC.Common
 
 import Test.Driver.Dialogue.Definition
 import Test.Driver.Dialogue.TestClock qualified as TestClock
+import Data.Maybe (fromMaybe)
 
 {-------------------------------------------------------------------------------
   Metadata
@@ -89,14 +90,11 @@ genLocalSteps genExceptions = sized $ \sz -> do
 
     genException :: Gen LocalStep
     genException = oneof [
-          ClientAction . Terminate . Just <$> genExceptionId
-        , ServerAction . Terminate . Just <$> genExceptionId
+          ClientAction . Terminate . Just . SomeClientException <$> choose (0, 5)
+        , ServerAction . Terminate . Just . SomeServerException <$> choose (0, 5)
         , pure $ ClientAction . Terminate $ Nothing
         , pure $ ServerAction . Terminate $ Nothing
         ]
-
-    genExceptionId :: Gen ExceptionId
-    genExceptionId = ExceptionId <$> choose (0, 5)
 
     genElem :: Gen b -> Gen (StreamElem b Int)
     genElem genTrailers = oneof [
@@ -113,23 +111,91 @@ genLocalSteps genExceptions = sized $ \sz -> do
 
   We have two essentially different kinds of tests: correctness of the library
   given correct library usage, and reasonable error reporting given incorrect
-  library usage. We focus on the former here.
+  library usage. We focus on the former here. For example:
+
+  * We /are/ interested in testing what happens when a client sends a message
+    to the server, but the server handler threw an exception.
+  * We are /not/ interested in testing what happens when a client tries to send
+    another message after having told the server that they sent their last
+    message, or after the server told the client that the call is over.
+
+  We also want to make sure the tests are not non-sensical (for example, it does
+  not make sense for the client to send a message after it has terminated).
 -------------------------------------------------------------------------------}
 
+-- | State of a single RPC call
+--
+-- We use this to determine when certain actions can happen.
+--
+-- Invariants:
+--
+-- * The server response cannot be initiated until the client request has been
+--   (until that time the server handler is not even running).
+-- * The client request must be closed when the server response closes.
+--
+-- That second point is a bit subtle. Normally it is the responsibility of both
+-- the client and the server to indicate when they won't send any more messages;
+-- if they do not, an exception is raised. There is however one exception to
+-- this rule: the server can unilaterally decide to close the entire RPC. When
+-- this happens, the client (of course) does not have to send any more messages.
+-- (Under normal circumstance this does not happen: the server would not close
+-- the RPC until the client has closed their end.) We treat the case where the
+-- server throws an exception the same: in both cases the RPC is closed and the
+-- client does not need to send its final message.
+--
+-- Of course, this /does/ mean that the client needs to /notice/ that the server
+-- has closed the call, even when it's an exception. We therefore implement a
+-- 'Terminate' on one side as a receive on the other (see 'clientLocal' and
+-- 'serverLocal').
+--
+-- TODO: We need to update the docs of withRPC.
 data LocalGenState = LocalGenState {
-      clientInitiatedRequest  :: Bool
-    , serverInitiatedResponse :: Bool
-    , clientTerminated        :: Bool
-    , serverTerminated        :: Bool
+      localGenClient :: LocalUniState
+    , localGenServer :: LocalUniState
     }
+  deriving (Show)
+
+-- | Unidirectional state
+--
+-- The tests describe a dialogue in a one-sided manner: we talk about /sending/,
+-- but not about receiving. In a way \"sending\" is something you /do/, whereas
+-- \"receiving\" is something that's done /to/ you. The state we record here is
+-- therefore the /outbound/ state only.
+data LocalUniState =
+    -- | The outbound stream has yet been initialized
+    --
+    -- Nothing can happen until the client initiates the request. The server can
+    -- choose to initiate the response at any point during the conversation.
+    UniUninit
+
+    -- | The outbound stream has been established
+  | UniOpen
+
+    -- | The outbound stream has been closed
+    --
+    -- In the case of the client, closing the stream (cleanly) is referred to
+    -- in gRPC documentation as \"putting the call in half-closed state\".
+    -- In the case of the server, closing the stream involves sending the
+    -- trailers and signals the end of the RPC.
+    --
+    -- The stream is closed \"uncleanly\" if the client or server handler
+    -- simply disappears, or when it throws an exception.
+  | UniClosed
+  deriving (Show)
 
 initLocalGenState :: LocalGenState
 initLocalGenState = LocalGenState {
-      clientInitiatedRequest  = False
-    , serverInitiatedResponse = False
-    , clientTerminated        = False
-    , serverTerminated        = False
+      localGenClient = UniUninit
+    , localGenServer = UniUninit
     }
+
+establishInvariant :: HasCallStack => LocalGenState -> LocalGenState
+establishInvariant st =
+    case (localGenClient st, localGenServer st) of
+      (UniUninit , UniUninit) -> st
+      (UniUninit , _)         -> error "Response initiated before request"
+      (_         , UniClosed) -> st { localGenClient = UniClosed }
+      _otherwise              -> st
 
 ensureCorrectUsage :: [(Int, LocalStep)] -> [(Int, LocalStep)]
 ensureCorrectUsage = go Map.empty []
@@ -143,103 +209,124 @@ ensureCorrectUsage = go Map.empty []
           reverse acc
         , concatMap (\(i, st) -> (i,) <$> ensureCleanClose st) $ Map.toList sts
         ]
+      where
+        -- Make sure all channels are closed cleanly
+        --
+        -- We could do this in two ways: we can either have the server close
+        -- the call unilaterally, or we could first have the client close their
+        -- end and then the server its own. We opt for the latter, as it is the
+        -- more "clean" one, but if a particular test case is generated in which
+        -- the client does not close its own end before the server does, that is
+        -- also ok (see further discussion in 'LocalGenState').
+        ensureCleanClose :: LocalGenState -> [LocalStep]
+        ensureCleanClose st = concat [
+              [ ClientAction $ Send $ NoMoreElems NoMetadata
+              | case localGenClient st of
+                  UniUninit -> False
+                  UniOpen   -> True
+                  UniClosed -> False
+              ]
+            , [ ServerAction $ Send $ NoMoreElems Map.empty
+              | case (localGenClient st, localGenServer st) of
+                  (UniUninit, _) -> False
+                  (_, UniUninit) -> True
+                  (_, UniOpen)   -> True
+                  (_, UniClosed) -> False
+              ]
+            ]
     go sts acc ((i, s):ss) =
         case s of
-          ClientAction action ->
-            case action of
-              -- Request must be initiated before any messages can be sent
-              --
-              -- During generation we will generate this 'ClientInitiate' step
-              -- as the first step for each channel, which is then interleaved
-              -- with all the other steps. If however during shrinking that
-              -- 'ClientInitiate' got removed, we have to insert it before the
-              -- first action.
-              --
-              -- We don't have to worry about /multiple/ ClientInitiate messages
-              -- (they are not generated).
-              Initiate{} ->
-                go (upd st{clientInitiatedRequest = True}) ((i, s) : acc) ss
+          ClientAction Initiate{} ->
+            case localGenClient st of
+              UniUninit  -> contWith $ updClient UniOpen
+              _otherwise -> skip
 
-              _ | not (clientInitiatedRequest st) ->
-                go sts acc $ (i, ClientAction $ Initiate (Map.empty, RPC1))
-                           : (i, s)
-                           : ss
+          ClientAction Terminate{} ->
+            case localGenClient st of
+              UniUninit  -> skip
+              UniOpen    -> contWith $ updClient UniClosed
+              UniClosed  -> skip
 
-              -- After the client has terminated, it cannot execute any other
-              -- actions (this is not really about correct usage per se but
-              -- simply about sensible tests)
+          ClientAction (Send (StreamElem _)) ->
+            case localGenClient st of
+              UniUninit  -> insert $ ClientAction (Initiate (Map.empty, RPC1))
+              UniOpen    -> contWith $ id
+              UniClosed  -> skip
 
-              _ | clientTerminated st
-                -> go sts acc ss
+          ClientAction (Send _) -> -- FinalElem or NoMoreElems
+            case localGenClient st of
+              UniUninit  -> insert (ClientAction (Initiate (Map.empty, RPC1)))
+              UniOpen    -> contWith $ updClient UniClosed
+              UniClosed  -> skip
 
-              Terminate _ ->
-                go (upd st{clientTerminated = True}) ((i, s) : acc) ss
+          -- The server cannot do anything until the request is initiated
+          -- (until that point the server handler is not even running)
+          ServerAction _ | UniUninit <- localGenClient st ->
+            skip
 
-              -- Make sure no messages are sent after the final one
+          ServerAction Initiate{} ->
+            case localGenServer st of
+             UniUninit   -> contWith $ updServer UniOpen
+             _otherwise  -> skip
 
-              Send StreamElem{} ->
-                go sts ((i, s) : acc) ss
+          ServerAction (Send (StreamElem _)) ->
+            case localGenServer st of
+              UniUninit  -> contWith $ updServer UniOpen -- implicitly opened
+              UniOpen    -> contWith $ id
+              UniClosed  -> skip
 
-              Send{} ->
-                go (upd st{clientTerminated = True}) ((i, s) : acc) ss
+          ServerAction (Send _) -> -- FinalElem or NoMoreElems
+            case localGenServer st of
+              UniClosed  -> skip
+              _otherwise -> contWith $ updServer UniClosed
 
-          ServerAction action ->
-            case action of
-              -- Server actions cannot happen until the client has initiated the
-              -- request (before that the handler is not running)
-
-              _ | not (clientInitiatedRequest st) ->
-                go sts acc $ (i, ClientAction $ Initiate (Map.empty, RPC1))
-                           : (i, s)
-                           : ss
-
-              -- After the server has terminates, it can't execute anything else
-
-              _ | serverTerminated st
-                -> go sts acc ss
-
-              Terminate _ ->
-                go (upd st{serverTerminated = True}) ((i, s) : acc) ss
-
-              -- Response can only be initiated once, and is initiated
-              -- implicitly on the first response if not initiated explicitly
-
-              Initiate{} | serverInitiatedResponse st ->
-                go sts acc ss
-
-              Initiate{} ->
-                go (upd st{serverInitiatedResponse = True}) ((i, s) : acc) ss
-
-              Send{} | not (serverInitiatedResponse st) ->
-                go (upd st{serverInitiatedResponse = True}) acc ((i, s) : ss)
-
-              -- Make sure no messages are sent after the final one
-
-              Send StreamElem{} ->
-                go sts ((i, s) : acc) ss
-
-              Send{} ->
-                go (upd st{serverTerminated = True}) ((i, s) : acc) ss
+          ServerAction Terminate{} ->
+            case localGenServer st of
+              UniClosed  -> skip
+              _otherwise -> contWith $ updServer UniClosed
       where
+        --
+        -- Three different ways to continue
+        --
+
+        -- 1. Normal case: update the state and move on the next action
+        contWith ::
+             (Map Int LocalGenState -> Map Int LocalGenState)
+          -> [(Int, LocalStep)]
+        contWith f = go (Map.map establishInvariant $ f sts) ((i, s) : acc) ss
+
+        -- 2. Skip this action
+        skip :: [(Int, LocalStep)]
+        skip = go sts acc ss
+
+        -- 3. First execute a different action
+        insert :: LocalStep -> [(Int, LocalStep)]
+        insert newStep = go sts acc ((i, newStep) : (i, s) : ss)
+
+        --
+        -- Updating the state
+        --
+
         st :: LocalGenState
         st = Map.findWithDefault initLocalGenState i sts
 
-        upd :: LocalGenState -> Map Int LocalGenState
-        upd st' = Map.insert i st' sts
+        updClient ::
+             LocalUniState
+          -> Map Int LocalGenState -> Map Int LocalGenState
+        updClient client' =
+            Map.alter (Just . aux . fromMaybe initLocalGenState) i
+          where
+            aux :: LocalGenState -> LocalGenState
+            aux st' = st' { localGenClient = client' }
 
-    -- Make sure all channels are closed cleanly
-    ensureCleanClose :: LocalGenState -> [LocalStep]
-    ensureCleanClose st = concat [
-          [ ClientAction $ Send $ NoMoreElems NoMetadata
-          | clientInitiatedRequest st
-          , not $ clientTerminated st
-          ]
-
-        , [ ServerAction $ Send $ NoMoreElems Map.empty
-          | clientInitiatedRequest st
-          , not $ serverTerminated st
-          ]
-        ]
+        updServer ::
+             LocalUniState
+          -> Map Int LocalGenState -> Map Int LocalGenState
+        updServer server' =
+            Map.alter (Just . aux . fromMaybe initLocalGenState) i
+          where
+            aux :: LocalGenState -> LocalGenState
+            aux st' = st' { localGenServer = server' }
 
 {-------------------------------------------------------------------------------
   Dialogue
@@ -317,10 +404,10 @@ shrinkLocalStep = \case
       map (ClientAction . Send) $ shrinkElem (const []) x
     ServerAction (Send x) ->
       map (ServerAction . Send) $ shrinkElem shrinkMetadataMap x
-    ClientAction (Terminate (Just (ExceptionId exceptionId))) ->
-      map (ClientAction . Terminate . Just . ExceptionId) (shrink exceptionId)
-    ServerAction (Terminate (Just (ExceptionId exceptionId))) ->
-      map (ServerAction . Terminate . Just . ExceptionId) (shrink exceptionId)
+    ClientAction (Terminate (Just (SomeClientException n))) ->
+      map (ClientAction . Terminate . Just . SomeClientException) (shrink n)
+    ServerAction (Terminate (Just (SomeServerException n))) ->
+      map (ServerAction . Terminate . Just . SomeServerException) (shrink n)
     ClientAction (Terminate Nothing) ->
       []
     ServerAction (Terminate Nothing) ->

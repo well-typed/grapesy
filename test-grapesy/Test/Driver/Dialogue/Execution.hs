@@ -6,7 +6,6 @@ module Test.Driver.Dialogue.Execution (
 
 import Control.Concurrent
 import Control.Concurrent.Async
-import Control.Concurrent.STM
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.State
@@ -17,7 +16,6 @@ import Data.Ord (comparing)
 import Data.Proxy
 import Data.Text qualified as Text
 import GHC.Stack
-import System.Timeout (timeout)
 
 import Network.GRPC.Client qualified as Client
 import Network.GRPC.Client.Binary qualified as Client.Binary
@@ -108,6 +106,14 @@ timeoutGreenLight = 5
 timeoutLocal :: Int
 timeoutLocal = 20
 
+-- | Timeout for waiting for a call to fail
+timeoutFailure :: Int
+timeoutFailure = 5
+
+-- | Timeout for receiving a stream element
+timeoutReceive :: Int
+timeoutReceive = 5
+
 {-------------------------------------------------------------------------------
   Health
 -------------------------------------------------------------------------------}
@@ -121,13 +127,17 @@ timeoutLocal = 20
 -- the health of the server, and vice versa.
 data PeerHealth =
     PeerAlive
-  | PeerFailed DeliberateException
-  | PeerDisappeared
+
+    -- | Peer terminated
+    --
+    -- The peer might have thrown a deliberate exception, or simply terminated
+    -- early without properly closing the connection.
+  | PeerTerminated (Maybe DeliberateException)
   deriving stock (Show)
 
 ifPeerAlive :: PeerHealth -> PeerHealth -> PeerHealth
-ifPeerAlive PeerAlive  = id
-ifPeerAlive peerFailed = const peerFailed
+ifPeerAlive PeerAlive             = id
+ifPeerAlive (PeerTerminated mErr) = const (PeerTerminated mErr)
 
 {-------------------------------------------------------------------------------
   Client-side interpretation
@@ -152,105 +162,107 @@ clientLocal clock call = \(LocalSteps steps) ->
             when continue $ go steps
           ServerAction action -> do
             TestClock.giveGreenLight clock tick
-            reactToServer action
+            reactToServer tick action
             go steps
 
     -- Client action
     --
     -- Returns 'True' if we should continue executing more actions, or
     -- exit (thereby closing the RPC call)
-    clientAct ::
-         TestClock.Tick
-      -> Action (Metadata, RPC) NoMetadata
-      -> StateT PeerHealth IO Bool
+    clientAct :: TestClock.Tick -> ClientAction -> StateT PeerHealth IO Bool
     clientAct tick action =
         case action of
           Initiate _ ->
             error "clientLocal: unexpected Initiate"
           Send x -> do
-            isExpected <- adjustExpectation ()
-            expect action isExpected =<<
-              liftIO (try $ Client.Binary.sendInput call x)
+            peerHealth <- get
+            case peerHealth of
+              PeerAlive        -> Client.Binary.sendInput call x
+              PeerTerminated _ -> liftIO $ waitForServerDisconnect
             return True
           Terminate mException -> do
             -- See discussion in 'TestClock' for why we need to wait here
             peerHealth <- get
             case peerHealth of
-              PeerAlive ->
-                within timeoutGreenLight action $
-                  TestClock.waitForGreenLight clock tick
-              _otherwise ->
-                return ()
+              PeerTerminated _ -> return ()
+              PeerAlive        -> within timeoutGreenLight action $
+                                    TestClock.waitForGreenLight clock tick
             case mException of
-              Just exceptionId ->
-                throwM $ DeliberateException $ SomeClientException exceptionId
-              Nothing ->
-                return False
+              Just ex -> throwM $ DeliberateException ex
+              Nothing -> return False
 
-    reactToServer ::
-           Action Metadata Metadata
-        -> StateT PeerHealth IO ()
-    reactToServer action =
+    reactToServer :: TestClock.Tick -> ServerAction -> StateT PeerHealth IO ()
+    reactToServer tick action =
         case action of
           Initiate expectedMetadata -> liftIO $ do
-            receivedMetadata <- Client.recvResponseMetadata call
-            expect action (== expectedMetadata) $ Map.fromList receivedMetadata
+            receivedMetadata <- within timeoutReceive action $
+                                  Client.recvResponseMetadata call
+            expect (tick, action) (== expectedMetadata) $
+              Map.fromList receivedMetadata
           Send (FinalElem a b) -> do
             -- Known bug (limitation in http2). See recvMessageLoop.
-            reactToServer $ Send (StreamElem a)
-            reactToServer $ Send (NoMoreElems b)
+            reactToServer tick $ Send (StreamElem a)
+            reactToServer tick $ Send (NoMoreElems b)
           Send expectedElem -> do
-            expected <- adjustExpectation expectedElem
-            received <- liftIO . try $
-                          fmap (first Map.fromList) $
-                            Client.Binary.recvOutput call
-            expect action expected received
+            peerHealth <- get
+            mOut <- try $ within timeoutReceive action $
+                      Client.Binary.recvOutput call
+            let mOut'       = fmap (first Map.fromList) mOut
+                expectation = case peerHealth of
+                                PeerAlive -> isExpectedElem expectedElem
+                                PeerTerminated mErr -> isGrpcException mErr
+            expect (tick, action) expectation mOut'
           Terminate mErr -> do
-            reactToServerTermination mErr
+            mOut <- try $ within timeoutReceive action $
+                      Client.Binary.recvOutput call
+            let mOut'       = fmap (first Map.fromList) mOut
+                mErr'       = DeliberateException <$> mErr
+                expectation = isGrpcException mErr'
+            expect (tick, action) expectation mOut'
+            modify $ ifPeerAlive $ PeerTerminated mErr'
 
-    -- See 'reactToClientTermination' for discussion.
-    reactToServerTermination ::
-         Maybe ExceptionId
-      -> StateT PeerHealth IO ()
-    reactToServerTermination mErr = do
-        liftIO $ void . timeout 5_000_000 $ atomically $ do
-          healthy <- Client.isCallHealthy call
-          when healthy $ retry
-        modify $ ifPeerAlive $
-          case mErr of
-            Just i  -> PeerFailed $ DeliberateException (SomeServerException i)
-            Nothing -> PeerDisappeared
-
-    -- Adjust expectation when communicating with the server
+    -- Wait for the server disconnect to become visible
     --
-    -- If the server handler died for some reason, we won't get the regular
-    -- result, but should instead see the exception reported to the client.
-    adjustExpectation :: forall a.
-         Eq a
-      => a
-      -> StateT PeerHealth IO (Either GrpcException a -> Bool)
-    adjustExpectation x =
-        return . aux =<< get
-     where
-       aux :: PeerHealth -> Either GrpcException a -> Bool
-       aux serverHealth result =
-           case serverHealth of
-             PeerFailed err ->
-               case result of
-                 Left (GrpcException GrpcUnknown msg [])
-                   | msg == Just (Text.pack $ show err)
-                   -> True
-                 _otherwise -> False
-             PeerDisappeared ->
-               case result of
-                 Left (GrpcException GrpcUnknown msg [])
-                   | msg == Just "HandlerTerminated"
-                   -> True
-                 _otherwise -> False
-             PeerAlive ->
-               case result of
-                 Right x'   -> x == x'
-                 _otherwise -> False
+    -- In principle we could check if we can still /receive/ messages from the
+    -- server to see if we can /send/ messages to the server: gRPC does not
+    -- allow the server to half-close the connection (only the client). For
+    -- consistency, however, we simply wait until sending fails.
+    --
+    -- See 'waitForClientDisconnect' for additional discussion.
+    waitForServerDisconnect :: IO ()
+    waitForServerDisconnect =
+        within timeoutFailure () $ loop
+      where
+        loop :: IO ()
+        -- We only do this when we know the client has terminated, so the
+        -- /type/ of the message we send here as a probe does not matter.
+        loop = do
+            mFailed <- try $ Client.Binary.sendNextInput call ()
+            case mFailed of
+              Left (_ :: GrpcException) ->
+                return ()
+              Right () -> do
+                threadDelay 10_000
+                loop
+
+    isExpectedElem ::
+         StreamElem Metadata Int
+      -> Either GrpcException (StreamElem Metadata Int)
+      -> Bool
+    isExpectedElem _ (Left _) = False
+    isExpectedElem expectedElem (Right streamElem) = expectedElem == streamElem
+
+    isGrpcException ::
+         Maybe DeliberateException
+      -> Either GrpcException (StreamElem Metadata Int)
+      -> Bool
+    isGrpcException mErr (Left err) = and [
+          grpcError        err == GrpcUnknown
+        , grpcErrorMessage err == Just (case mErr of
+                                    Nothing   -> "HandlerTerminated"
+                                    Just err' -> Text.pack $ show err')
+        ]
+    isGrpcException _ (Right _) = False
 
 clientGlobal ::
      TestClock
@@ -348,17 +360,14 @@ serverLocal clock call = \(LocalSteps steps) -> do
             when continue $ go steps
           ClientAction action -> do
             TestClock.giveGreenLight clock tick
-            reactToClient action
+            reactToClient tick action
             go steps
 
     -- Server action
     --
     -- Returns 'True' if we should continue executing the other actions, or
     -- terminate (thereby terminating the handler)
-    serverAct ::
-         TestClock.Tick
-      -> Action Metadata Metadata
-      -> StateT PeerHealth IO Bool
+    serverAct :: TestClock.Tick -> ServerAction -> StateT PeerHealth IO Bool
     serverAct tick action =
         case action of
           Initiate metadata -> liftIO $ do
@@ -366,85 +375,85 @@ serverLocal clock call = \(LocalSteps steps) -> do
             void $ Server.initiateResponse call
             return True
           Send x -> do
-            isExpected <- adjustExpectation ()
-            received   <- try . liftIO $
-                            Server.Binary.sendOutput call (first Map.toList x)
-            expect action isExpected received
+            let x' = first Map.toList x
+            peerHealth <- get
+            case peerHealth of
+              PeerAlive        -> liftIO $ Server.Binary.sendOutput call x'
+              PeerTerminated _ -> liftIO $ waitForClientDisconnect
             return True
           Terminate mException -> do
             peerHealth <- get
             case peerHealth of
-              PeerAlive ->
-                within timeoutGreenLight action $
-                  TestClock.waitForGreenLight clock tick
-              _otherwise ->
-                return ()
+              PeerTerminated _ -> return ()
+              PeerAlive        -> within timeoutGreenLight action $
+                                    TestClock.waitForGreenLight clock tick
             case mException of
-              Just exceptionId ->
-                throwM $ DeliberateException $ SomeServerException exceptionId
-              Nothing ->
-                return False
+              Just ex -> throwM $ DeliberateException ex
+              Nothing -> return False
 
-    reactToClient ::
-           Action (Metadata, RPC) NoMetadata
-        -> StateT PeerHealth IO ()
-    reactToClient action =
+    reactToClient :: TestClock.Tick -> ClientAction -> StateT PeerHealth IO ()
+    reactToClient tick action =
         case action of
           Initiate _ ->
             error "serverLocal: unexpected ClientInitiateRequest"
           Send (FinalElem a b) -> do
             -- Known bug (limitation in http2). See recvMessageLoop.
-            reactToClient $ Send (StreamElem a)
-            reactToClient $ Send (NoMoreElems b)
+            reactToClient tick $ Send (StreamElem a)
+            reactToClient tick $ Send (NoMoreElems b)
           Send expectedElem -> do
-            isExpected <- adjustExpectation expectedElem
-            expect action isExpected =<<
-              liftIO (try $ Server.Binary.recvInput call)
+            peerHealth <- get
+            mInp <- liftIO $ try $ within timeoutReceive action $
+                      Server.Binary.recvInput call
+            let expectation =
+                  case peerHealth of
+                    PeerAlive -> isExpectedElem expectedElem
+                    PeerTerminated _ -> isClientDisconnected
+            expect (tick, action) expectation mInp
           Terminate mErr -> do
-            reactToClientTermination mErr
+            mInp <- liftIO $ try $ within timeoutReceive action $
+                      Server.Binary.recvInput call
+            -- On the server side we cannot distinguish regular client
+            -- termination from an exception when receiving.
+            let expectation = isExpectedElem $ NoMoreElems NoMetadata
+            expect (tick, action) expectation mInp
+            modify $ ifPeerAlive $ PeerTerminated $ DeliberateException <$> mErr
 
-    reactToClientTermination ::
-         Maybe ExceptionId
-      -> StateT PeerHealth IO ()
-    reactToClientTermination mErr = do
-        -- Wait for the client-side exception to become noticable server-side.
-        -- Under normal circumstances the server will only notice this when
-        -- trying to communicate; by explicitly checking we avoid
-        -- non-determinism in the test (where the exception may or may not
-        -- already have been come visible server-side).
-        liftIO $ void . timeout 5_000_000 $ atomically $ do
-          healthy <- Server.isCallHealthy call
-          when healthy $ retry
+    -- Wait for the client disconnect to become visible
+    --
+    -- The only way to know that we cannot send messages anymore to a client
+    -- that has terminated is by trying. Although the /receiving/ thread may
+    -- terminate more-or-less immediately, this does not necessarily indicate
+    -- any kind of failure: the client may simply have put the call in
+    -- half-closed mode.
+    waitForClientDisconnect :: IO ()
+    waitForClientDisconnect =
+        within timeoutFailure () $ loop
+      where
+        loop :: IO ()
+        -- We only do this when we know the client has terminated, so the
+        -- /type/ of the message we send here as a probe does not matter.
+        loop = do
+            mFailed <- try $ Server.Binary.sendNextOutput call ()
+            case mFailed of
+              Left (_ :: Server.ClientDisconnected) ->
+                return ()
+              Right () -> do
+                threadDelay 10_000
+                loop
 
-        -- Update client health, /if/ the client was alive at this point
-        modify $ ifPeerAlive $
-          case mErr of
-            Just i  -> PeerFailed $ DeliberateException (SomeClientException i)
-            Nothing -> PeerDisappeared
+    isClientDisconnected ::
+         Either Server.ClientDisconnected (StreamElem NoMetadata Int)
+      -> Bool
+    isClientDisconnected (Left Server.ClientDisconnected{}) = True
+    isClientDisconnected (Right _) = False
 
-    -- Adjust expectation when communicating with the client
-    adjustExpectation :: forall a.
-         Eq a
-      => a
-      -> StateT PeerHealth IO (Either Server.ClientDisconnected a -> Bool)
-    adjustExpectation x =
-        return . aux =<< get
-     where
-       aux :: PeerHealth -> Either Server.ClientDisconnected a -> Bool
-       aux clientHealth result =
-           case clientHealth of
-             PeerFailed _err ->
-               case result of
-                 Left Server.ClientDisconnected{} -> True
-                 _otherwise                       -> False
-             PeerDisappeared ->
-               case result of
-                 Left Server.ClientDisconnected{} -> True
-                 _otherwise                       -> False
-             PeerAlive ->
-               case result of
-                 Right x'   -> x == x'
-                 _otherwise -> False
+    isExpectedElem ::
+         StreamElem NoMetadata Int
+      -> Either Server.ClientDisconnected (StreamElem NoMetadata Int)
+      -> Bool
+    isExpectedElem _ (Left _) = False
+    isExpectedElem expectedElem (Right streamElem) = expectedElem == streamElem
+
 
 serverGlobal ::
      HasCallStack

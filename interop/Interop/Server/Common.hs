@@ -68,7 +68,11 @@ echoStatus status trailers =
       Just GrpcOk ->
         return ()
       Just (GrpcError err) ->
-        throwIO $ GrpcException err (Just $ status ^. #message) trailers
+        throwIO $ GrpcException {
+            grpcError         = err
+          , grpcErrorMessage  = Just $ status ^. #message
+          , grpcErrorMetadata = trailers
+          }
       Nothing ->
         assertUnrecognized code
   where

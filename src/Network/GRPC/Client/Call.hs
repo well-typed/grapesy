@@ -25,9 +25,9 @@ module Network.GRPC.Client.Call (
   , recvAllOutputs
 
     -- ** Low-level\/specialized API
-  , isCallHealthy
   , sendInputWithEnvelope
   , recvOutputWithEnvelope
+  , recvInitialResponse
   ) where
 
 import Control.Concurrent.STM
@@ -35,8 +35,10 @@ import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
 import Data.Bifunctor
+import Data.Bitraversable
 import Data.Default
 import Data.Map.Strict qualified as Map
+import Data.Maybe (isJust)
 import Data.Proxy
 import Data.Text qualified as Text
 import GHC.Stack
@@ -48,6 +50,7 @@ import Network.GRPC.Common
 import Network.GRPC.Common.StreamElem qualified as StreamElem
 import Network.GRPC.Spec
 import Network.GRPC.Util.Session qualified as Session
+import Network.GRPC.Util.Thread qualified as Thread
 
 {-------------------------------------------------------------------------------
   Open a call
@@ -62,44 +65,78 @@ import Network.GRPC.Util.Session qualified as Session
 -- Leaving the scope of 'withRPC' before the client informs the server that they
 -- have sent their last message (using 'sendInput' or 'sendEndOfInput') is
 -- considered a cancellation, and accordingly throws a 'GrpcException' with
--- 'GrpcCancelled' (see also <https://grpc.io/docs/guides/cancellation/>). If
--- there are still /inbound/ messages upon leaving the scope of 'withRPC' no
+-- 'GrpcCancelled' (see also <https://grpc.io/docs/guides/cancellation/>).
+--
+-- There is one exception to this rule: if the server unilaterally closes the
+-- RPC (that is, the server already sent the trailers), then the call is
+-- considered closed and the cancellation exception is not raised. Under normal
+-- circumstances (with well-behaved server handlers) this should not arise.
+--
+-- If there are still /inbound/ messages upon leaving the scope of 'withRPC' no
 -- exception is raised (but the call is nonetheless still closed, and the server
 -- handler will be informed that the client has disappeared).
 withRPC :: forall m rpc a.
      (MonadMask m, MonadIO m, IsRPC rpc, HasCallStack)
   => Connection -> CallParams -> Proxy rpc -> (Call rpc -> m a) -> m a
-withRPC conn callParams proxy k =
-    (throwUnclean =<<) $
+withRPC conn callParams proxy k = fmap fst $
       generalBracket
         (liftIO $ Connection.startRPC conn proxy callParams)
-        (\call exitCase -> liftIO $ Session.close (callChannel call) exitCase)
+        closeRPC
         k
   where
-    throwUnclean :: (a, Maybe SomeException) -> m a
-    throwUnclean (x, Nothing)  = return x
-    throwUnclean (_, Just err) =
-        case fromException err of
-          Just (ChannelDiscarded cs) ->
-            -- Spec mandates that when a client cancels a request (which in
-            -- grapesy means exiting the scope of withRPC), the client receives
-            -- a CANCELLED exception.
-            --
-            -- See:
-            --
-            -- o <https://grpc.io/docs/guides/cancellation/>
-            -- o <https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptions.md#cancel_after_begin>
-            -- o <https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptions.md#cancel_after_first_response>
-            throwM $ GrpcException {
-                grpcError        = GrpcCancelled
-              , grpcErrorMessage = Just $ mconcat [
-                     "Channel discarded by client at "
-                   , Text.pack $ prettyCallStack cs
-                   ]
-              , grpcErrorMetadata = []
-              }
-          _otherwise ->
-            throwM err
+    closeRPC :: Call rpc -> ExitCase a -> m ()
+    closeRPC call exitCase = liftIO $ do
+        mException <- liftIO $ Session.close (callChannel call) exitCase
+        case mException of
+          Nothing -> return ()
+          Just ex ->
+            case fromException ex of
+              Nothing        -> throwM ex
+              Just discarded -> throwCancelled call discarded
+
+    -- The spec mandates that when a client cancels a request (which in grapesy
+    -- means exiting the scope of withRPC), the client receives a CANCELLED
+    -- exception. We need to deal with the edge case mentioned above, however:
+    -- the server might have already closed the connection. The client must have
+    -- evidence that this is the case, which could mean one of two things:
+    --
+    -- o The received the final message from the server
+    -- o The server threw an exception (and the client saw this)
+    --
+    -- We can check for the former using 'channelRecvFinal', and the latter
+    -- using 'hasThreadTerminated'. By checking both, we avoid race conditions:
+    --
+    -- o If the client received the final message, 'channelRecvFinal' /will/
+    --   have been updated (we update this in the same transaction that returns
+    --   the actual element; see 'Network.GRPC.Util.Session.Channel.recv').
+    -- o If the server threw an exception, and the client observed this, then
+    --   the inbound thread state /must/ have changed to 'ThreadException'.
+    --
+    -- Note that it /not/ sufficient to check if the inbound thread has
+    -- terminated: we might have received the final message, but the thread
+    -- might still be /about/ to terminate, but not /actually/ have terminated.
+    --
+    -- See also:
+    --
+    -- o <https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptions.md#cancel_after_begin>
+    -- o <https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptions.md#cancel_after_first_response>
+    throwCancelled :: Call rpc -> ChannelDiscarded -> IO ()
+    throwCancelled Call{callChannel} (ChannelDiscarded cs) = do
+        mRecvFinal  <- atomically $
+          readTVar $ Session.channelRecvFinal callChannel
+        mTerminated <- atomically $
+          Thread.hasThreadTerminated $ Session.channelInbound callChannel
+        let serverClosed = isJust mRecvFinal || isJust mTerminated
+
+        unless serverClosed $
+          throwM $ GrpcException {
+              grpcError         = GrpcCancelled
+            , grpcErrorMessage  = Just $ mconcat [
+                                      "Channel discarded by client at "
+                                    , Text.pack $ prettyCallStack cs
+                                    ]
+            , grpcErrorMetadata = []
+            }
 
 {-------------------------------------------------------------------------------
   Open (ongoing) call
@@ -139,29 +176,37 @@ sendInputWithEnvelope Call{callChannel} msg = liftIO $ do
 -- 'GrpcStatus' here: a status of 'GrpcOk' carries no information, and any other
 -- status will result in a 'GrpcException'. Calling 'recvOutput' again after
 -- receiving the trailers is a bug and results in a 'RecvAfterFinal' exception.
-recvOutput ::
+recvOutput :: forall m rpc.
      (MonadIO m, HasCallStack)
   => Call rpc
   -> m (StreamElem [CustomMetadata] (Output rpc))
-recvOutput = fmap (fmap snd) . recvOutputWithEnvelope
+recvOutput call = liftIO $
+    recvOutputWithEnvelope call >>= bitraverse aux (return . snd)
+  where
+    aux :: ProperTrailers -> IO [CustomMetadata]
+    aux trailers =
+        case grpcClassifyTermination trailers of
+          Right terminatedNormally ->
+            return $ grpcTerminatedMetadata terminatedNormally
+          Left exception ->
+            throwM exception
 
 -- | Generalization of 'recvOutput', providing additional meta-information
 --
--- See also 'Network.GRPC.Server.recvInputWithEnvelope'.
+-- This returns the full set of trailers, /even if those trailers indicate
+-- a gRPC failure/. Put another way, gRPC failures are returned as values here,
+-- rather than throwing an exception.
 --
 -- Most applications will never need to use this function.
+--
+-- See also 'Network.GRPC.Server.recvInputWithEnvelope'.
 recvOutputWithEnvelope ::
      (MonadIO m, HasCallStack)
   => Call rpc
-  -> m (StreamElem [CustomMetadata] (InboundEnvelope, Output rpc))
+  -> m (StreamElem ProperTrailers (InboundEnvelope, Output rpc))
 recvOutputWithEnvelope Call{callChannel} = liftIO $
-    first collapseTrailers <$> Session.recv callChannel
-  where
-    -- No difference between 'ProperTrailers' and 'TrailersOnly'
-    collapseTrailers ::
-         Either [CustomMetadata] [CustomMetadata]
-      -> [CustomMetadata]
-    collapseTrailers = either id id
+    first (either (fst . trailersOnlyToProperTrailers) id) <$>
+      Session.recv callChannel
 
 -- | The initial metadata that was included in the response headers
 --
@@ -176,26 +221,33 @@ recvOutputWithEnvelope Call{callChannel} = liftIO $
 -- * The response metadata /will/ be available before the first output from the
 --   server, and may indeed be available /well/ before.
 recvResponseMetadata :: Call rpc -> IO [CustomMetadata]
-recvResponseMetadata Call{callChannel} =
-    aux <$> Session.getInboundHeaders callChannel
+recvResponseMetadata call =
+    recvInitialResponse call >>= aux
   where
-    aux ::
-         Either [CustomMetadata] (Headers (ClientInbound rpc))
-      -> [CustomMetadata]
-    aux (Left trailersOnly) = trailersOnly
-    aux (Right headers)     = Map.toList $ responseMetadata $ inbHeaders headers
+    aux :: Either TrailersOnly ResponseHeaders -> IO [CustomMetadata]
+    aux (Left trailers) =
+        case grpcClassifyTermination properTrailers of
+          Left exception ->
+            throwM exception
+          Right terminatedNormally ->
+            return $ grpcTerminatedMetadata terminatedNormally
+      where
+        (properTrailers, _contentType) = trailersOnlyToProperTrailers trailers
+    aux (Right headers) =
+       return $ Map.toList $ responseMetadata headers
 
-{-------------------------------------------------------------------------------
-  Low-level API
--------------------------------------------------------------------------------}
-
--- | Check if the connection is still OK
+-- | Return the initial response from the server
 --
--- This is inherently non-deterministic: the connection to the server could have
--- been lost and we might not yet realize, or the connnection could be lost
--- straight after 'isCallHealthy' returns. Use with caution.
-isCallHealthy :: Call rpc -> STM Bool
-isCallHealthy = Session.isChannelHealthy . callChannel
+-- This is a low-level function, and generalizes 'recvResponseMetadata'.
+-- Unlike 'recvResponseMetadata', if the server returns a gRPC error, that
+-- will be returned as a value here rather than thrown as an exception.
+--
+-- Most applications will never need to use this function.
+recvInitialResponse ::
+     Call rpc
+  -> IO (Either TrailersOnly ResponseHeaders)
+recvInitialResponse Call{callChannel} =
+    fmap inbHeaders <$> Session.getInboundHeaders callChannel
 
 {-------------------------------------------------------------------------------
   Protocol specific wrappers
@@ -204,7 +256,7 @@ isCallHealthy = Session.isChannelHealthy . callChannel
 -- | Send the next input
 --
 -- If this is the last input, you should call 'sendFinalInput' instead.
-sendNextInput :: Call rpc -> Input rpc -> IO ()
+sendNextInput :: MonadIO m => Call rpc -> Input rpc -> m ()
 sendNextInput call = sendInput call . StreamElem
 
 -- | Send final input

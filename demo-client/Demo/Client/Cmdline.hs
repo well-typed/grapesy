@@ -46,7 +46,6 @@ import Demo.Client.Util.DelayOr
 
 data Cmdline = Cmdline {
       cmdServer      :: Client.Server
-    , cmdDebug       :: Bool
     , cmdTimeout     :: Maybe Word
     , cmdAPI         :: API
     , cmdCompression :: Maybe Compression
@@ -104,10 +103,6 @@ parseCmdline :: FilePath -> Opt.Parser Cmdline
 parseCmdline defaultPub =
     Cmdline
       <$> parseServer defaultPub
-      <*> (Opt.switch $ mconcat [
-               Opt.long "debug"
-             , Opt.help "Enable debug output"
-             ])
       <*> (Opt.optional $ Opt.option Opt.auto $ mconcat [
                Opt.long "timeout"
              , Opt.metavar "SECONDS"

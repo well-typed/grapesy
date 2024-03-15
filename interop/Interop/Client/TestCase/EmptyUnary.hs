@@ -18,7 +18,7 @@ runTest cmdline =
     withConnection def (testServer cmdline) $ \conn ->
       withRPC conn def (Proxy @EmptyCall) $ \call -> do
         sendFinalInput call empty
-        streamElem :: StreamElem [CustomMetadata] (InboundEnvelope, Empty)
+        streamElem :: StreamElem ProperTrailers (InboundEnvelope, Empty)
           <- recvOutputWithEnvelope call
 
         -- The test description asks us to also verify the size of the /outgoing/

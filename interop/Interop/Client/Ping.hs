@@ -1,7 +1,9 @@
-module Interop.Client.Ping (ping) where
+module Interop.Client.Ping (ping, waitReachable) where
 
 import Control.Concurrent
+import Control.Exception
 import Control.Monad
+import System.Timeout qualified as System
 
 import Network.GRPC.Client
 import Network.GRPC.Client.StreamType.IO
@@ -22,3 +24,29 @@ ping cmdline =
         msgPong <- nonStreaming conn (rpc @(Protobuf PingService "ping")) msgPing
         print msgPong
         threadDelay 1_000_000
+
+waitReachable :: Cmdline -> IO ()
+waitReachable cmdline = do
+    result <- System.timeout (cmdTimeoutConnect cmdline * 1_000_000) loop
+    case result of
+      Nothing -> fail "Failed to connect to the server"
+      Just () -> return ()
+  where
+    loop :: IO ()
+    loop = do
+        result :: Either SomeException () <- try reach
+        case result of
+          Left ex ->
+            case fromException ex of
+              Just (_ :: System.Timeout) ->
+                throwIO ex
+              _otherwise -> do
+                threadDelay 100_000
+                loop
+          Right _ ->
+            return ()
+
+    reach :: IO ()
+    reach = do
+        withConnection def (testServer cmdline) $ \conn -> void $
+          nonStreaming conn (rpc @(Protobuf PingService "ping")) defMessage

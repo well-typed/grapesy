@@ -18,14 +18,12 @@ module Test.Driver.ClientServer (
   , DeliberateException(..)
   ) where
 
-import Control.Concurrent
 import Control.Concurrent.Async
 import Control.Concurrent.STM
 import Control.Exception (throwIO)
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
-import Control.Tracer
 import Data.Map qualified as Map
 import Data.Set (Set)
 import Data.Set qualified as Set
@@ -123,19 +121,6 @@ instance Default ClientServerConfig where
     , expectEarlyClientTermination = False
     , expectEarlyServerTermination = False
     }
-
-{-------------------------------------------------------------------------------
-  We collect log messages from both the client and the server
--------------------------------------------------------------------------------}
-
-data LogMsg =
-    ServerLogMsg Server.ServerDebugMsg
-  | ClientLogMsg Client.ClientDebugMsg
-  deriving stock (Show)
-
-collectLogMsgs :: (MonadIO m) => MVar [a] -> Tracer m a
-collectLogMsgs v = arrow $ emit $ \x -> liftIO $
-    modifyMVar_ v $ \xs -> return (x:xs)
 
 {-------------------------------------------------------------------------------
   Configuration: TLS
@@ -460,12 +445,11 @@ topLevelWithHandlerLock cfg firstTestFailure (ServerHandlerLock lock) handler =
 
 runTestServer ::
      ClientServerConfig
-  -> Tracer IO Server.ServerDebugMsg
   -> FirstTestFailure
   -> ServerHandlerLock
   -> [Server.RpcHandler IO]
   -> IO ()
-runTestServer cfg serverTracer firstTestFailure handlerLock serverHandlers = do
+runTestServer cfg firstTestFailure handlerLock serverHandlers = do
     pubCert <- getDataFileName "grpc-demo.pem"
     privKey <- getDataFileName "grpc-demo.key"
 
@@ -502,8 +486,6 @@ runTestServer cfg serverTracer firstTestFailure handlerLock serverHandlers = do
         serverParams = Server.ServerParams {
               serverCompression =
                 serverCompr cfg
-            , serverDebugTracer =
-                serverTracer
             , serverTopLevel =
                 topLevelWithHandlerLock cfg firstTestFailure handlerLock
             , serverContentType =
@@ -538,17 +520,15 @@ simpleTestClient test params testServer delimitTestScope =
 
 runTestClient ::
      ClientServerConfig
-  -> Tracer IO Client.ClientDebugMsg
   -> FirstTestFailure
   -> TestClient
   -> IO ()
-runTestClient cfg clientTracer firstTestFailure clientRun = do
+runTestClient cfg firstTestFailure clientRun = do
     pubCert <- getDataFileName "grpc-demo.pem"
 
     let clientParams :: Client.ConnParams
         clientParams = Client.ConnParams {
-              connDebugTracer           = clientTracer
-            , connCompression           = clientCompr cfg
+              connCompression           = clientCompr cfg
             , connInitCompression       = clientInitCompr cfg
             , connDefaultTimeout        = Nothing
             , connOverridePingRateLimit = Nothing
@@ -644,7 +624,6 @@ data ClientServerTest = ClientServerTest {
 runTestClientServer :: ClientServerTest -> IO ()
 runTestClientServer (ClientServerTest cfg clientRun serverHandlers) = do
     -- Setup client and server
-    logMsgVar         <- newMVar []
     firstTestFailure  <- newEmptyTMVarIO
     serverHandlerLock <- newServerHandlerLock
 
@@ -652,7 +631,6 @@ runTestClientServer (ClientServerTest cfg clientRun serverHandlers) = do
         server =
           runTestServer
             cfg
-            (contramap ServerLogMsg $ collectLogMsgs logMsgVar)
             (FirstTestFailure firstTestFailure)
             serverHandlerLock
             serverHandlers
@@ -661,7 +639,6 @@ runTestClientServer (ClientServerTest cfg clientRun serverHandlers) = do
         client =
           runTestClient
             cfg
-            (contramap ClientLogMsg $ collectLogMsgs logMsgVar)
             (FirstTestFailure firstTestFailure)
             clientRun
 
@@ -696,17 +673,6 @@ runTestClientServer (ClientServerTest cfg clientRun serverHandlers) = do
           firstFailure <- atomically $ tryReadTMVar firstTestFailure
           return $ firstFailure <|> clientResult
 
-    -- Provide additional information in case of a test failure
     case testResult of
       Nothing      -> return () -- Test passed
-      Just failure -> do
-        logMsgs <- reverse <$> readMVar logMsgVar
-        throwIO $ ClientServerFailure logMsgs failure
-
-data ClientServerFailure = ClientServerFailure {
-      clientServerLogs    :: [LogMsg]
-    , clientServerFailure :: SomeException
-    }
-  deriving stock (Show)
-  deriving anyclass (Exception)
-
+      Just failure -> throwIO failure

@@ -11,6 +11,7 @@ import Data.ByteString.Base64 qualified as BS.Strict.Base64
 import Data.ByteString.Char8 qualified as BS.Strict.Char8
 import Data.Char (isSpace)
 import Data.Maybe (mapMaybe)
+import Data.Void (Void)
 import Test.Tasty hiding (Timeout)
 import Test.Tasty.QuickCheck
 
@@ -35,6 +36,8 @@ tests = testGroup "Test.Prop.Serialization" [
             roundtrip buildCustomMetadata parseCustomMetadata
         , testProperty "Timeout" $
             roundtrip buildTimeout parseTimeout
+        , testProperty "Pushback" $
+            roundtrip @Void buildPushback parsePushback
         , testProperty "RequestHeaders" $
             roundtrip (buildRequestHeaders unknown)
                       (parseRequestHeaders unknown)
@@ -151,10 +154,12 @@ instance Arbitrary (Awkward ProperTrailers) where
       properTrailersGrpcStatus  <- awkward
       properTrailersGrpcMessage <- awkward
       properTrailersMetadata    <- awkward
+      properTrailersPushback    <- awkward
       return $ ProperTrailers{
           properTrailersGrpcStatus
         , properTrailersGrpcMessage
         , properTrailersMetadata
+        , properTrailersPushback
         }
 
 instance Arbitrary (Awkward TrailersOnly) where
@@ -276,6 +281,13 @@ instance Arbitrary (Awkward GrpcStatus) where
         , GrpcError GrpcUnavailable
         , GrpcError GrpcDataLoss
         , GrpcError GrpcUnauthenticated
+        ]
+
+instance Arbitrary (Awkward Pushback) where
+  arbitrary = Awkward <$>
+      oneof [
+          RetryAfter <$> arbitrary
+        , pure DoNotRetry
         ]
 
 {-------------------------------------------------------------------------------

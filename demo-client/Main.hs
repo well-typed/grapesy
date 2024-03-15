@@ -5,7 +5,6 @@ module Main (main) where
 
 import Control.Concurrent
 import Control.Exception
-import Control.Tracer
 import System.IO
 import System.Mem (performMajorGC)
 
@@ -15,7 +14,6 @@ import Network.GRPC.Common.Compression qualified as Compr
 
 import Demo.Client.Cmdline
 import Demo.Client.Util.DelayOr
-import Demo.Common.Logging
 
 import Demo.Client.API.Core.Greeter                qualified as Core.Greeter
 import Demo.Client.API.Core.NoFinal.Greeter        qualified as NoFinal.Greeter
@@ -109,11 +107,7 @@ dispatch cmd conn (Exec method) =
 
 connParams :: Cmdline -> ConnParams
 connParams cmd = def {
-      connDebugTracer =
-        if cmdDebug cmd
-          then contramap show threadSafeTracer
-          else connDebugTracer def
-    , connCompression =
+      connCompression =
         case cmdCompression cmd of
           Just alg -> Compr.only alg
           Nothing  -> connCompression def

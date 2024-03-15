@@ -1,22 +1,24 @@
 -- | Node with client role (i.e., its peer is a server)
 module Network.GRPC.Util.Session.Client (
     ConnectionToServer(..)
+  , NoTrailers(..)
   , setupRequestChannel
   ) where
 
 import Control.Concurrent.STM
 import Control.Monad.Catch
-import Control.Tracer
 import Data.ByteString qualified as BS.Strict
 import Data.ByteString qualified as Strict (ByteString)
 import Data.ByteString.Builder (Builder)
 import Data.ByteString.Lazy qualified as BS.Lazy
 import Data.ByteString.Lazy qualified as Lazy (ByteString)
+import Data.Proxy
 import Network.HTTP.Types qualified as HTTP
 import Network.HTTP2.Client qualified as Client
 
 import Network.GRPC.Util.HTTP2 (fromHeaderTable)
 import Network.GRPC.Util.HTTP2.Stream
+import Network.GRPC.Util.RedundantConstraint (addConstraint)
 import Network.GRPC.Util.Session.API
 import Network.GRPC.Util.Session.Channel
 import Network.GRPC.Util.Thread
@@ -27,10 +29,10 @@ import Network.GRPC.Util.Thread
 
 -- | Connection to the server, as provided by @http2@
 data ConnectionToServer = ConnectionToServer {
-      sendRequest ::
+      sendRequest :: forall a.
            Client.Request
-        -> (Client.Response -> IO ())
-        -> IO ()
+        -> (Client.Response -> IO a)
+        -> IO a
     }
 
 {-------------------------------------------------------------------------------
@@ -71,17 +73,35 @@ data ConnectionToServer = ConnectionToServer {
     threads (which will kill them or ensure they never get started).
 -------------------------------------------------------------------------------}
 
+-- | No trailers
+--
+-- We do not support outbound trailers in the client. This simplifies control
+-- flow: when the inbound stream closes (because the server terminates the RPC),
+-- we kill the outbound thread; by not supporting outbound trailers, we avoid
+-- that exception propagating to the trailers maker, which causes http2 to
+-- panic and shut down the entire connection.
+class NoTrailers sess where
+  -- | There is no interesting information in the trailers
+  noTrailers :: Proxy sess -> Trailers (Outbound sess)
+
 -- | Setup request channel
 --
 -- This initiate a new request.
+--
 setupRequestChannel :: forall sess.
-     InitiateSession sess
+     (InitiateSession sess, NoTrailers sess)
   => sess
-  -> Tracer IO (DebugMsg sess)
   -> ConnectionToServer
+  -> (InboundResult sess -> SomeException)
+  -- ^ We assume that when the server closes their outbound connection to us,
+  -- the entire conversation is over (i.e., the server cannot "half-close").
   -> FlowStart (Outbound sess)
   -> IO (Channel sess)
-setupRequestChannel sess tracer ConnectionToServer{sendRequest} outboundStart = do
+setupRequestChannel sess
+                    ConnectionToServer{sendRequest}
+                    terminateCall
+                    outboundStart
+                  = do
     channel <- initChannel
     let requestInfo = buildRequestInfo sess outboundStart
 
@@ -89,8 +109,7 @@ setupRequestChannel sess tracer ConnectionToServer{sendRequest} outboundStart = 
       FlowStartRegular headers -> do
         regular <- initFlowStateRegular headers
         let req :: Client.Request
-            req = setRequestTrailers sess channel
-                $ Client.requestStreamingUnmask
+            req = Client.requestStreamingUnmask
                     (requestMethod  requestInfo)
                     (requestPath    requestInfo)
                     (requestHeaders requestInfo)
@@ -105,42 +124,55 @@ setupRequestChannel sess tracer ConnectionToServer{sendRequest} outboundStart = 
                     (requestMethod  requestInfo)
                     (requestPath    requestInfo)
                     (requestHeaders requestInfo)
-        atomically $ writeTVar (channelOutbound channel) $ ThreadDone state
+        atomically $
+          modifyTVar (channelOutbound channel) $ \oldState ->
+            case oldState of
+              ThreadNotStarted debugId ->
+                ThreadDone debugId state
+              _otherwise ->
+                error "setupRequestChannel: expected thread state"
         forkRequest channel req
 
     return channel
   where
+    _ = addConstraint @(NoTrailers sess)
+
     forkRequest :: Channel sess -> Client.Request -> IO ()
     forkRequest channel req =
-        forkThread (channelInbound channel) $ \unmask markReady -> unmask $
-          linkOutboundToInbound channel $ sendRequest req $ \resp -> do
-            responseStatus <- case Client.responseStatus resp of
-                                Just x  -> return x
-                                Nothing -> throwM PeerMissingPseudoHeaderStatus
+        forkThread (channelInbound channel) $ \unmask markReady _debugId -> unmask $
+          linkOutboundToInbound (TerminateWhenInboundClosed terminateCall) channel $
+            sendRequest req $ \resp -> do
+              responseStatus <-
+                case Client.responseStatus resp of
+                  Just x  -> return x
+                  Nothing -> throwM PeerMissingPseudoHeaderStatus
 
-            -- Read the entire response body in case of a non-OK response
-            responseBody :: Maybe Lazy.ByteString <-
-              if HTTP.statusIsSuccessful responseStatus then
-                return Nothing
-              else
-                Just <$> readResponseBody resp
+              -- Read the entire response body in case of a non-OK response
+              responseBody :: Maybe Lazy.ByteString <-
+                if HTTP.statusIsSuccessful responseStatus then
+                  return Nothing
+                else
+                  Just <$> readResponseBody resp
 
-            let responseHeaders = fromHeaderTable $ Client.responseHeaders resp
-                responseInfo    = ResponseInfo {
-                                      responseHeaders
-                                    , responseStatus
-                                    , responseBody
-                                    }
+              let responseHeaders =
+                    fromHeaderTable $ Client.responseHeaders resp
+                  responseInfo = ResponseInfo {
+                    responseHeaders
+                  , responseStatus
+                  , responseBody
+                  }
 
-            if Client.responseBodySize resp /= Just 0 then do
-              headers <- parseResponseRegular sess responseInfo
-              regular <- initFlowStateRegular headers
-              stream  <- clientInputStream resp
-              markReady $ FlowStateRegular regular
-              recvMessageLoop sess tracer regular stream
-            else do
-              trailers <- parseResponseNoMessages sess responseInfo
-              markReady $ FlowStateNoMessages trailers
+              if Client.responseBodySize resp /= Just 0 then do
+                headers <- parseResponseRegular sess responseInfo
+                regular <- initFlowStateRegular headers
+                stream  <- clientInputStream resp
+                markReady $ FlowStateRegular regular
+                Right <$> recvMessageLoop sess regular stream
+              else do
+                -- The gRPC Trailers-Only case
+                trailers <- parseResponseNoMessages sess responseInfo
+                markReady $ FlowStateNoMessages trailers
+                return $ Left trailers
 
     outboundThread ::
          Channel sess
@@ -150,25 +182,17 @@ setupRequestChannel sess tracer ConnectionToServer{sendRequest} outboundStart = 
       -> IO ()
       -> IO ()
     outboundThread channel regular unmask write' flush' =
-       threadBody (channelOutbound channel) $ \markReady -> unmask $ do
+       threadBody (channelOutbound channel) $ \markReady _debugId -> do
          markReady $ FlowStateRegular regular
          -- Initialize the output stream to initiate the request.
+         -- It is important that we don't unmask exceptions prior to this point!
          -- See 'clientOutputStream' for details.
          stream <- clientOutputStream write' flush'
-         sendMessageLoop sess tracer regular stream
+         unmask $ sendMessageLoop sess regular stream
 
 {-------------------------------------------------------------------------------
    Auxiliary http2
 -------------------------------------------------------------------------------}
-
-setRequestTrailers ::
-     IsSession sess
-  => sess
-  -> Channel sess
-  -> Client.Request -> Client.Request
-setRequestTrailers sess channel req =
-    Client.setRequestTrailersMaker req $
-      outboundTrailersMaker sess channel
 
 readResponseBody :: Client.Response -> IO Lazy.ByteString
 readResponseBody resp = go []
