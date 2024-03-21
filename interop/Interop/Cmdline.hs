@@ -57,9 +57,10 @@ data Cmdline = Cmdline {
   deriving (Show)
 
 data Mode =
-    Server  -- ^ Interop server (against reference client)
-  | Client  -- ^ Interop client (against reference server)
-  | Ping    -- ^ Ping the grapesy server (for debugging connectivity)
+    Server   -- ^ Interop server (against reference client)
+  | Client   -- ^ Interop client (against reference server)
+  | Ping     -- ^ Ping the grapesy server (for debugging connectivity)
+  | SelfTest -- ^ Run interop tests against itself
   deriving (Show)
 
 -- | Interop test cases
@@ -307,6 +308,11 @@ parseMode = asum [
           Opt.long "ping"
         , Opt.help "Ping the server (to verify that we can reach it)"
         ]
+    , Opt.flag' SelfTest $ mconcat [
+          Opt.long "self-test"
+        , Opt.help "Run grapesy interop tests against itself (this is the default)"
+        ]
+    , pure SelfTest
     ]
 
 readBool :: Opt.ReadM Bool

@@ -3,8 +3,9 @@ module Main where
 import System.IO
 
 import Interop.Client (client)
-import Interop.Client.Ping
+import Interop.Client.Ping (ping)
 import Interop.Cmdline
+import Interop.SelfTest (selfTest)
 import Interop.Server (server)
 
 {-------------------------------------------------------------------------------
@@ -19,6 +20,8 @@ main = do
 
     cmdline <- getCmdline
     case cmdMode cmdline of
-      Server -> server cmdline
-      Client -> client cmdline
-      Ping   -> ping cmdline
+      Server   -> server   cmdline
+      Client   -> client   cmdline
+      Ping     -> ping     cmdline
+      SelfTest -> selfTest cmdline
+

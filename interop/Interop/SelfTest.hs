@@ -1,25 +1,16 @@
 -- | Run the interop tests against itself
-module SelfInterop (main) where
+module Interop.SelfTest (selfTest) where
 
 import Control.Concurrent
 import Control.Monad
-import System.Environment
 
 import Interop.Client (client)
 import Interop.Client.Ping
 import Interop.Cmdline
 import Interop.Server (server)
 
-main :: IO ()
-main = do
-    cmdline <- defaultCmdline
-
-    -- Check that no command line flags were passed (to avoid confusion)
-    args <- getArgs
-    case args of
-      []         -> return ()
-      _otherwise -> fail "This test suite does not take any arguments"
-
+selfTest :: Cmdline -> IO ()
+selfTest cmdline = do
     -- Start the server and give it a chance to get ready
     --
     -- We could configure the client to automatically reconnect, but this
@@ -30,4 +21,3 @@ main = do
 
     -- Run the client; when the client terminates, we're done
     client cmdline{cmdMode = Client}
-
