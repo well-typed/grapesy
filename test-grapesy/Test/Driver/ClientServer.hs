@@ -628,12 +628,25 @@ runTestClientServer (ClientServerTest cfg clientRun serverHandlers) = do
     serverHandlerLock <- newServerHandlerLock
 
     let server :: IO ()
-        server =
-          runTestServer
-            cfg
-            (FirstTestFailure firstTestFailure)
-            serverHandlerLock
-            serverHandlers
+        server = do
+            result <- try $
+              runTestServer
+                cfg
+                (FirstTestFailure firstTestFailure)
+                serverHandlerLock
+                serverHandlers
+            case result of
+              Right () ->
+                error "impossible: server never terminates"
+              Left (err :: SomeException) ->
+                case fromException err of
+                  Just AsyncCancelled ->
+                    -- We're done with the server, all is okay
+                    return ()
+                  _otherwise ->
+                    -- We expect /handlers/ to throw exceptions, but not the
+                    -- entire server. If it does, something has gone very wrong.
+                    void $ atomically $ tryPutTMVar firstTestFailure err
 
     let client :: IO ()
         client =
@@ -651,7 +664,7 @@ runTestClientServer (ClientServerTest cfg clientRun serverHandlers) = do
       withAsync server $ \_serverThread ->
         -- Start the client
         withAsync client $ \clientThread -> do
-          -- Wait for clients to terminate (or test failure)
+          -- Wait for client to terminate (or test failure)
           -- (the 'orElse' is only relevant if a /handler/ throws an exception)
           clientResult <- atomically $
               (either Just (const Nothing) <$> waitCatchSTM clientThread)
