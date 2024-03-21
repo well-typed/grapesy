@@ -7,36 +7,37 @@
 -- Intended for unqualified import.
 module Network.GRPC.Spec.CustomMetadata (
     -- * Definition
-    CustomMetadata
-  , HeaderValue(..)
-    -- * Header-Name
-  , HeaderName(HeaderName)
-  , getHeaderName
+    CustomMetadata(CustomMetadata)
+  , customMetadataName
+  , customMetadataValue
+  , safeCustomMetadata
+  , HeaderName(BinaryHeader, AsciiHeader)
   , safeHeaderName
-    -- * ASCII value
-  , AsciiValue(AsciiValue)
-  , getAsciiValue
-  , safeAsciiValue
-    -- * Binary value
-  , BinaryValue(..)
+    -- * Serialization
   , buildBinaryValue
-  , parseBinaryValue
-    -- * To and from HTTP headers
   , buildCustomMetadata
+  , parseBinaryValue
   , parseCustomMetadata
   ) where
 
-import Control.Monad.Except
+import Control.Monad
+import Control.Monad.Except (MonadError(throwError))
 import Data.ByteString qualified as BS.Strict
 import Data.ByteString qualified as Strict (ByteString)
 import Data.CaseInsensitive qualified as CI
+import Data.List (intersperse)
+import Data.List qualified as List
+import Data.Maybe (fromMaybe)
+import Data.Set (Set)
+import Data.Set qualified as Set
 import Data.String
 import Data.Word
 import GHC.Show
+import GHC.Stack
 import Network.HTTP.Types qualified as HTTP
 
 import Network.GRPC.Spec.Base64
-import Network.GRPC.Util.ByteString (strip, ascii, dropEnd)
+import Network.GRPC.Util.ByteString (strip, ascii)
 
 {-------------------------------------------------------------------------------
   Definition
@@ -44,6 +45,14 @@ import Network.GRPC.Util.ByteString (strip, ascii, dropEnd)
   > Custom-Metadata → Binary-Header / ASCII-Header
   > Binary-Header   → {Header-Name "-bin" } {base64 encoded value}
   > ASCII-Header    → Header-Name ASCII-Value
+
+  Implementation note: ASCII headers and binary headers are distinguished based
+  on their name (see 'HeaderName'). We do /not/ introduce a different type for
+  the /values/ of such headers, because if we did, we would then need additional
+  machinery to make sure that binary header names are paired with binary header
+  values, and similarly for ASCII headers, with little benefit. Instead we check
+  in the smart constructor for 'CustomMetadata' that the header value satisfies
+  the rules for the particular type of header.
 -------------------------------------------------------------------------------}
 
 -- | Custom metadata
@@ -53,85 +62,146 @@ import Network.GRPC.Util.ByteString (strip, ascii, dropEnd)
 -- Custom metadata order is not guaranteed to be preserved except for values
 -- with duplicate header names. Duplicate header names may have their values
 -- joined with "," as the delimiter and be considered semantically equivalent.
-type CustomMetadata = (HeaderName, HeaderValue)
+data CustomMetadata = UnsafeCustomMetadata {
+      customMetadataName  :: HeaderName
+    , customMetadataValue :: Strict.ByteString
+    }
+  deriving stock (Eq)
 
-data HeaderValue =
-    -- | Binary header
-    --
-    -- Binary headers will be base-64 encoded.
-    --
-    -- The header name will be given a @-bin@ suffix (runtime libraries use this
-    -- suffix to detect binary headers and properly apply base64 encoding &
-    -- decoding as headers are sent and received).
-    --
-    -- Since this is binary data, padding considerations do not apply.
-    BinaryHeader BinaryValue
+-- | 'Show' instance relies on the 'CustomMetadata' pattern synonym
+instance Show CustomMetadata where
+  showsPrec p (UnsafeCustomMetadata name value) = showParen (p >= appPrec1) $
+         showString "CustomMetadata "
+       . showsPrec appPrec1 name
+       . showSpace
+       . showsPrec appPrec1 value
 
-    -- | ASCII header
-    --
-    -- HTTP2 does not allow arbitrary octet sequences for header values; use
-    -- 'BinaryHeader' for Base64 encoding. See 'isValidAsciiValue' for what
-    -- constitutes a valid value.
-    --
-    -- Any padding will be removed before sending. The gRPC spec is not precise
-    -- about what exactly constitutes \"padding\", but the ABNF spec defines it
-    -- as "space and horizontal tab"
-    -- <https://www.rfc-editor.org/rfc/rfc5234#section-3.1>.
-  | AsciiHeader AsciiValue
-  deriving stock (Show, Eq, Ord)
+-- | Check for valid ASCII header value
+--
+-- > ASCII-Value → 1*( %x20-%x7E ) ; space and printable ASCII
+--
+-- NOTE: By rights this should verify that the header is non-empty. However,
+-- empty header values do occasionally show up, and so we permit them. The main
+-- reason for checking for validity at all is to ensure that we don't confuse
+-- binary headers and ASCII headers.
+isValidAsciiValue :: Strict.ByteString -> Bool
+isValidAsciiValue bs = BS.Strict.all (\c -> 0x20 <= c && c <= 0x7E) bs
+
+safeCustomMetadata :: HeaderName -> Strict.ByteString -> Maybe CustomMetadata
+safeCustomMetadata name value =
+    case name of
+      UnsafeAsciiHeader _ -> do
+        guard $ isValidAsciiValue value
+        return $ UnsafeCustomMetadata name (strip value)
+      UnsafeBinaryHeader _ ->
+        -- Values of binary headers are not subject to any constraints
+        return $ UnsafeCustomMetadata name value
+
+pattern CustomMetadata ::
+     HasCallStack
+  => HeaderName -> Strict.ByteString -> CustomMetadata
+pattern CustomMetadata name value <- UnsafeCustomMetadata name value
+  where
+    CustomMetadata name value =
+        fromMaybe (invalid constructedForError) $
+          safeCustomMetadata name value
+      where
+        constructedForError :: CustomMetadata
+        constructedForError = UnsafeCustomMetadata name value
+
+{-# COMPLETE CustomMetadata #-}
 
 {-------------------------------------------------------------------------------
   Header-Name
 
   > Header-Name → 1*( %x30-39 / %x61-7A / "_" / "-" / ".") ; 0-9 a-z _ - .
--------------------------------------------------------------------------------}
+----------------------\--------------------------------------------------------}
 
 -- | Header name
 --
+-- To construct a 'HeaderName', you can either use the 'IsString' instance
+--
+-- > "foo"     :: HeaderName -- an ASCII header
+-- > "bar-bin" :: HeaderName -- a binary header
+--
+-- or alternatively use the 'AsciiHeader' and 'BinaryHeader' patterns
+--
+-- > AsciiHeader  "foo"
+-- > BinaryHeader "bar-bin"
+--
+-- The latter style is more explicit, and can catch more errors:
+--
+-- > AsciiHeader  "foo-bin" -- exception: unexpected -bin suffix
+-- > BinaryHeader "bar"     -- exception: expected   -bin suffix
+--
 -- Header names cannot be empty, and must consist of digits (@0-9@), lowercase
 -- letters (@a-z@), underscore (@_@), hyphen (@-@), or period (@.@).
+-- Reserved header names are disallowed.
 --
--- Header names should not start with @grpc-@ (these are reserved for future
--- GRPC use).
-newtype HeaderName = UnsafeHeaderName {
-      getHeaderName :: Strict.ByteString
-    }
+-- See also 'safeHeaderName'.
+data HeaderName =
+    -- | Binary header
+    --
+    -- Binary headers will be base-64 encoded.
+    --
+    -- The header name must have a @-bin@ suffix (runtime libraries use this
+    -- suffix to detect binary headers and properly apply base64 encoding &
+    -- decoding as headers are sent and received).
+    --
+    -- Since this is binary data, padding considerations do not apply.
+    UnsafeBinaryHeader Strict.ByteString
+
+    -- | ASCII header
+    --
+    -- ASCII headers cannot be empty, and can only use characters in the range
+    -- @0x20 .. 0x7E@. Note that although this range includes whitespace, any
+    -- padding will be removed when constructing the value.
+    --
+    -- The gRPC spec is not precise about what exactly constitutes \"padding\",
+    -- but the ABNF spec defines it as "space and horizontal tab"
+    -- <https://www.rfc-editor.org/rfc/rfc5234#section-3.1>.
+  | UnsafeAsciiHeader Strict.ByteString
   deriving stock (Eq, Ord)
-  deriving newtype (IsString)
 
--- | 'Show' instance relies on the 'HeaderName' pattern synonym
-instance Show HeaderName where
-  showsPrec p (UnsafeHeaderName name) = showParen (p >= appPrec1) $
-        showString "HeaderName "
-      . showsPrec appPrec1 name
-
-pattern HeaderName :: Strict.ByteString -> HeaderName
-pattern HeaderName n <- UnsafeHeaderName n
+pattern BinaryHeader :: HasCallStack => Strict.ByteString -> HeaderName
+pattern BinaryHeader name <- UnsafeBinaryHeader name
   where
-    HeaderName n
-      | isValidHeaderName n = UnsafeHeaderName n
-      | otherwise = error $ "invalid HeaderName: " ++ show n
+    BinaryHeader name =
+      case safeHeaderName name of
+        Just name'@UnsafeBinaryHeader{} ->
+          name'
+        Just UnsafeAsciiHeader{} ->
+          error "binary headers must have -bin suffix"
+        Nothing ->
+          error $ "Invalid header name " ++ show name
 
-{-# COMPLETE HeaderName #-}
+pattern AsciiHeader :: HasCallStack => Strict.ByteString -> HeaderName
+pattern AsciiHeader name <- UnsafeAsciiHeader name
+  where
+    AsciiHeader name =
+      case safeHeaderName name of
+        Just name'@UnsafeAsciiHeader{} ->
+          name'
+        Just UnsafeBinaryHeader{} ->
+          error "ASCII headers cannot have -bin suffix"
+        Nothing ->
+          error $ "Invalid header name " ++ show name
 
-safeHeaderName :: Strict.ByteString -> Maybe HeaderName
-safeHeaderName bs
-  | isValidHeaderName bs = Just $ UnsafeHeaderName bs
-  | otherwise            = Nothing
+{-# COMPLETE BinaryHeader, AsciiHeader #-}
 
 -- | Check for header name validity
-isValidHeaderName :: Strict.ByteString -> Bool
-isValidHeaderName bs = and [
-      BS.Strict.length bs >= 1
-    , BS.Strict.all isValidChar bs
-
-      -- Reserved header names
-    , not $ "grpc-" `BS.Strict.isPrefixOf` bs
-    , bs /= "te"
-
-      -- @grapesy@ adds and removes the @-bin@ suffix automatically
-    , not $ "-bin" `BS.Strict.isSuffixOf` bs
-    ]
+--
+-- We choose between 'BinaryHeader' and 'AsciiHeader' based on the presence or
+-- absence of a @-bin suffix.
+safeHeaderName :: Strict.ByteString -> Maybe HeaderName
+safeHeaderName bs = do
+    guard $ BS.Strict.length bs >= 1
+    guard $ BS.Strict.all isValidChar bs
+    guard $ not $ "grpc-" `BS.Strict.isPrefixOf` bs
+    guard $ not $ bs `Set.member` reservedNames
+    return $ if "-bin" `BS.Strict.isSuffixOf` bs
+               then UnsafeBinaryHeader bs
+               else UnsafeAsciiHeader  bs
   where
     isValidChar :: Word8 -> Bool
     isValidChar c = or [
@@ -142,109 +212,111 @@ isValidHeaderName bs = and [
         , c == ascii '.'
         ]
 
-{-------------------------------------------------------------------------------
-  ASCII-Value
+    -- Reserved header names that do not start with @grpc-@
+    reservedNames :: Set Strict.ByteString
+    reservedNames = Set.fromList [
+          "user-agent"
+        , "content-type"
+        , "te"
+        ]
 
-  > ASCII-Value → 1*( %x20-%x7E ) ; space and printable ASCII
+instance IsString HeaderName where
+  fromString str =
+       fromMaybe (invalid constructedForError) $
+         safeHeaderName (fromString str)
+    where
+      constructedForError :: HeaderName
+      constructedForError =
+          if "-bin" `List.isSuffixOf` str
+            then UnsafeBinaryHeader $ fromString str
+            else UnsafeAsciiHeader  $ fromString str
+
+-- | 'Show' instance relies on the 'IsString' instance
+instance Show HeaderName where
+  show (UnsafeBinaryHeader name) = show name
+  show (UnsafeAsciiHeader  name) = show name
+
+{-------------------------------------------------------------------------------
+  Serialization
 -------------------------------------------------------------------------------}
 
--- | Value of ASCII header
+buildBinaryValue :: Strict.ByteString -> Strict.ByteString
+buildBinaryValue = encodeBase64
+
+-- | Parse binary value
 --
--- ASCII headers cannot be empty, and can only use characters in the range
--- @0x20 .. 0x7E@. Note that although this range includes whitespace, any
--- padding will be removed when constructing the value.
-newtype AsciiValue = UnsafeAsciiValue {
-      getAsciiValue :: Strict.ByteString
-    }
-  deriving stock (Eq, Ord)
-
--- | 'Show' instance relies on the 'AsciiValue' pattern synonym
-instance Show AsciiValue where
-  showsPrec p (UnsafeAsciiValue value) = showParen (p >= appPrec1) $
-        showString "AsciiValue "
-      . showsPrec appPrec1 value
-
-instance IsString AsciiValue where
-  fromString = AsciiValue . fromString
-
-pattern AsciiValue :: Strict.ByteString -> AsciiValue
-pattern AsciiValue v <- UnsafeAsciiValue v
+-- The presence of duplicate headers makes this a bit subtle. Let's consider an
+-- example. Suppose we have two duplicate headers
+--
+-- > foo-bin: YWJj    -- encoding of "abc"
+-- > foo-bin: ZGVm    -- encoding of "def"
+--
+-- The spec says
+--
+-- > Custom-Metadata header order is not guaranteed to be preserved except for
+-- > values with duplicate header names. Duplicate header names may have their
+-- > values joined with "," as the delimiter and be considered semantically
+-- > equivalent.
+--
+-- In @grapesy@ we will do the decoding of both headers /prior/ to joining
+-- duplicate headers, and so the value we will reconstruct for @foo-bin@ is
+-- \"abc,def\".
+--
+-- However, suppose we deal with a (non-compliant) peer which is unaware of
+-- binary headers and has applied the joining rule /without/ decoding:
+--
+-- > foo-bin: YWJj,ZGVm
+--
+-- The spec is a bit vague about this case, saying only:
+--
+-- > Implementations must split Binary-Headers on "," before decoding the
+-- > Base64-encoded values.
+--
+-- Here we assume that this case must be treated the same way as if the headers
+-- /had/ been decoded prior to joining. Therefore, we split the input on commas,
+-- decode each result separately, and join the results with commas again.
+parseBinaryValue :: forall m.
+     MonadError String m
+  => Strict.ByteString -> m Strict.ByteString
+parseBinaryValue bs = do
+    let chunks = BS.Strict.split (ascii ',') bs
+    decoded <- mapM decode chunks
+    return $ mconcat $ intersperse "," decoded
   where
-    AsciiValue v
-      | isValidAsciiValue v = UnsafeAsciiValue (strip v)
-      | otherwise = error $ "invalid AsciiValue: " ++ show v
-
-{-# COMPLETE AsciiValue #-}
-
-safeAsciiValue :: Strict.ByteString -> Maybe AsciiValue
-safeAsciiValue bs
-  | isValidAsciiValue bs = Just $ UnsafeAsciiValue bs
-  | otherwise            = Nothing
-
--- | Check for valid ASCII header value
---
--- NOTE: By rights this should also verify that the header is non-empty.
--- However, empty header values do occasionally show up, and so we permit them.
--- The main reason for checking for validity at all is to ensure that we don't
--- confuse binary headers and ASCII headers.
-isValidAsciiValue :: Strict.ByteString -> Bool
-isValidAsciiValue bs = BS.Strict.all (\c -> 0x20 <= c && c <= 0x7E) bs
-
-{-------------------------------------------------------------------------------
-  Binary value
--------------------------------------------------------------------------------}
-
-newtype BinaryValue = BinaryValue {
-      getBinaryValue :: Strict.ByteString
-    }
-  deriving stock (Show, Eq, Ord)
-
-buildBinaryValue :: BinaryValue -> Strict.ByteString
-buildBinaryValue = encodeBase64 . getBinaryValue
-
-parseBinaryValue :: MonadError String m => Strict.ByteString -> m BinaryValue
-parseBinaryValue bs =
-    case BinaryValue <$> decodeBase64 bs of
-      Left  err -> throwError err
-      Right val -> return val
-
-{-------------------------------------------------------------------------------
-  To/from HTTP2
--------------------------------------------------------------------------------}
+    decode :: Strict.ByteString -> m Strict.ByteString
+    decode chunk =
+        case decodeBase64 chunk of
+          Left  err -> throwError err
+          Right val -> return val
 
 buildCustomMetadata :: CustomMetadata -> HTTP.Header
-buildCustomMetadata (name, BinaryHeader value) = (
-      CI.mk $ getHeaderName name <> "-bin"
-    , buildBinaryValue value
-    )
-buildCustomMetadata (name, AsciiHeader value) = (
-      CI.mk $ getHeaderName name
-    , getAsciiValue value
-    )
+buildCustomMetadata (CustomMetadata name value) =
+    case name of
+      UnsafeBinaryHeader name' -> (CI.mk name', buildBinaryValue value)
+      UnsafeAsciiHeader  name' -> (CI.mk name', value)
 
 parseCustomMetadata :: MonadError String m => HTTP.Header -> m CustomMetadata
-parseCustomMetadata (name, value)
-  | "grpc-" `BS.Strict.isPrefixOf` CI.foldedCase name
-  = throwError $ "Reserved header: " ++ show (name, value)
+parseCustomMetadata (name, value) =
+    case safeHeaderName (CI.foldedCase name) of
+      Nothing    -> throwError $ "Invalid header name: " ++ show (name, value)
+      Just name' -> do
+        mMetadata <-
+          case name' of
+            UnsafeAsciiHeader _ ->
+              return $ safeCustomMetadata name' value
+            UnsafeBinaryHeader _ -> do
+              case parseBinaryValue value of
+                Right value' ->
+                  return $ safeCustomMetadata name' value'
+                Left err ->
+                  throwError $ "Cannot decode binary header: " ++ err
+        case mMetadata of
+          Nothing -> throwError $ "Invalid header value: " ++ show (name, value)
+          Just md -> return md
 
-  | "-bin" `BS.Strict.isSuffixOf` CI.foldedCase name
-  = case ( safeHeaderName (dropEnd 4 $ CI.foldedCase name)
-         , parseBinaryValue value
-         ) of
-      (Nothing, _) ->
-        throwError $ "Invalid header name: " ++ show (name, value)
-      (_, Left err) ->
-        throwError $ "Cannot decode binary header: " ++ err
-      (Just name', Right value') ->
-        return (name', BinaryHeader value')
+{-------------------------------------------------------------------------------
+  Internal auxiliary
+-------------------------------------------------------------------------------}
 
-  | otherwise
-  = case ( safeHeaderName (CI.foldedCase name)
-         , safeAsciiValue value
-         ) of
-      (Nothing, _) ->
-        throwError $ "Invalid header name: " ++ show name
-      (_, Nothing) ->
-        throwError $ "Invalid ASCII header value: " ++ show value
-      (Just name', Just value') ->
-        return (name', AsciiHeader value')
+invalid :: (Show a, HasCallStack) => a -> b
+invalid x = error $ "Invalid: " ++ show x ++ " at "

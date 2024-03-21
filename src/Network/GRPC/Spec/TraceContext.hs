@@ -27,8 +27,6 @@ import Data.Maybe (maybeToList)
 import Data.String
 import Data.Word
 
-import Network.GRPC.Spec.CustomMetadata
-
 {-------------------------------------------------------------------------------
   Definition
 -------------------------------------------------------------------------------}
@@ -144,11 +142,11 @@ instance IsString SpanId where
   Parsing
 -------------------------------------------------------------------------------}
 
-buildTraceContext :: TraceContext -> BinaryValue
-buildTraceContext = BinaryValue . BS.Lazy.toStrict . Binary.encode
+buildTraceContext :: TraceContext -> Strict.ByteString
+buildTraceContext = BS.Lazy.toStrict . Binary.encode
 
-parseTraceContext :: MonadError String m => BinaryValue -> m TraceContext
-parseTraceContext (BinaryValue bs) =
+parseTraceContext :: MonadError String m => Strict.ByteString -> m TraceContext
+parseTraceContext bs =
     case Binary.decodeOrFail (BS.Lazy.fromStrict bs) of
       Right (_, _, ctxt) -> return ctxt
       Left  (_, _, err)  -> throwError err

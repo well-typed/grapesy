@@ -24,6 +24,12 @@ and run the tests
 grapesy$ cabal run grapesy-interop -- --client
 ```
 
+Alternatively, you can also run everything in one process.
+
+```bash
+grapesy$ cabal run grapesy-interop -- --self-test
+```
+
 All tests should pass.
 
 ## Running development `grapesy` against reference implementation

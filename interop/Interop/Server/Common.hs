@@ -8,6 +8,8 @@ module Interop.Server.Common (
   ) where
 
 import Control.Exception
+import Data.List (find)
+import Data.Maybe (maybeToList)
 
 import Network.GRPC.Common
 import Network.GRPC.Server
@@ -28,22 +30,11 @@ import Interop.Util.Exceptions
 constructResponseMetadata :: Call rpc -> IO [CustomMetadata]
 constructResponseMetadata call = do
     requestMetadata <- getRequestMetadata call
-    initialResponseMetadata <-
-      case lookup nameMetadataInitial requestMetadata of
-        Nothing ->
-          return []
-        Just (BinaryHeader binaryValue) ->
-          assertUnrecognized (nameMetadataInitial, binaryValue)
-        Just (AsciiHeader asciiValue) ->
-          return [(nameMetadataInitial, AsciiHeader asciiValue)]
-    trailingResponseMetadata <-
-      case lookup nameMetadataTrailing requestMetadata of
-        Nothing ->
-          return []
-        Just (BinaryHeader binaryValue) ->
-          return [(nameMetadataTrailing, BinaryHeader binaryValue)]
-        Just (AsciiHeader asciiValue) ->
-          assertUnrecognized (nameMetadataTrailing, asciiValue)
+
+    let initialResponseMetadata = maybeToList $
+          find ((== nameMetadataInitial) . customMetadataName) requestMetadata
+        trailingResponseMetadata = maybeToList $
+          find ((== nameMetadataTrailing) . customMetadataName) requestMetadata
 
     -- Send initial metadata
     setResponseMetadata call initialResponseMetadata
@@ -52,10 +43,9 @@ constructResponseMetadata call = do
     -- Return the final metadata to be sent at the end of the call
     return trailingResponseMetadata
   where
-    -- NOTE: grapesy strips/adds the @-bin@ suffix automatically
     nameMetadataInitial, nameMetadataTrailing :: HeaderName
-    nameMetadataInitial  = "x-grpc-test-echo-initial"
-    nameMetadataTrailing = "x-grpc-test-echo-trailing"
+    nameMetadataInitial  = AsciiHeader  "x-grpc-test-echo-initial"
+    nameMetadataTrailing = BinaryHeader "x-grpc-test-echo-trailing-bin"
 
 -- | Echo any non-OK status back to the client
 --

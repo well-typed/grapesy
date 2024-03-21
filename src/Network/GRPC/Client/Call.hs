@@ -37,7 +37,6 @@ import Control.Monad.IO.Class
 import Data.Bifunctor
 import Data.Bitraversable
 import Data.Default
-import Data.Map.Strict qualified as Map
 import Data.Maybe (isJust)
 import Data.Proxy
 import Data.Text qualified as Text
@@ -234,7 +233,7 @@ recvResponseMetadata call =
       where
         (properTrailers, _contentType) = trailersOnlyToProperTrailers trailers
     aux (Right headers) =
-       return $ Map.toList $ responseMetadata headers
+       return $ customMetadataMapToList $ responseMetadata headers
 
 -- | Return the initial response from the server
 --

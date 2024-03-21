@@ -52,37 +52,37 @@ runInteropClient cmdline = do
 -------------------------------------------------------------------------------}
 
 runTest :: TestCase -> Cmdline -> IO ()
-runTest EmptyUnary                = EmptyUnary.runTest
-runTest LargeUnary                = LargeUnary.runTest
-runTest ClientCompressedUnary     = ClientCompressedUnary.runTest
-runTest ServerCompressedUnary     = ServerCompressedUnary.runTest
-runTest ClientStreaming           = ClientStreaming.runTest
-runTest ClientCompressedStreaming = ClientCompressedStreaming.runTest
-runTest ServerStreaming           = ServerStreaming.runTest
-runTest ServerCompressedStreaming = ServerCompressedStreaming.runTest
-runTest PingPong                  = PingPong.runTest
-runTest EmptyStream               = EmptyStream.runTest
-runTest CustomMetadata            = CustomMetadata.runTest
-runTest StatusCodeAndMessage      = StatusCodeAndMessage.runTest
-runTest SpecialStatusMessage      = SpecialStatusMessage.runTest
-runTest UnimplementedMethod       = UnimplementedMethod.runTest
-runTest UnimplementedService      = UnimplementedService.runTest
-runTest CancelAfterBegin          = CancelAfterBegin.runTest
-runTest CancelAfterFirstResponse  = CancelAfterFirstResponse.runTest
-runTest TimeoutOnSleepingServer   = TimeoutOnSleepingServer.runTest
+runTest TestEmptyUnary                = EmptyUnary.runTest
+runTest TestLargeUnary                = LargeUnary.runTest
+runTest TestClientCompressedUnary     = ClientCompressedUnary.runTest
+runTest TestServerCompressedUnary     = ServerCompressedUnary.runTest
+runTest TestClientStreaming           = ClientStreaming.runTest
+runTest TestClientCompressedStreaming = ClientCompressedStreaming.runTest
+runTest TestServerStreaming           = ServerStreaming.runTest
+runTest TestServerCompressedStreaming = ServerCompressedStreaming.runTest
+runTest TestPingPong                  = PingPong.runTest
+runTest TestEmptyStream               = EmptyStream.runTest
+runTest TestCustomMetadata            = CustomMetadata.runTest
+runTest TestStatusCodeAndMessage      = StatusCodeAndMessage.runTest
+runTest TestSpecialStatusMessage      = SpecialStatusMessage.runTest
+runTest TestUnimplementedMethod       = UnimplementedMethod.runTest
+runTest TestUnimplementedService      = UnimplementedService.runTest
+runTest TestCancelAfterBegin          = CancelAfterBegin.runTest
+runTest TestCancelAfterFirstResponse  = CancelAfterFirstResponse.runTest
+runTest TestTimeoutOnSleepingServer   = TimeoutOnSleepingServer.runTest
 
 skips :: Cmdline -> TestCase -> Bool
 skips cmdline test = or [
       elem test (cmdSkipTest cmdline)
     , cmdSkipCompression cmdline && elem test [
-          ClientCompressedUnary
-        , ServerCompressedUnary
-        , ClientCompressedStreaming
-        , ServerCompressedStreaming
+          TestClientCompressedUnary
+        , TestServerCompressedUnary
+        , TestClientCompressedStreaming
+        , TestServerCompressedStreaming
         ]
     , cmdSkipClientCompression cmdline && elem test [
-          ClientCompressedUnary
-        , ClientCompressedStreaming
+          TestClientCompressedUnary
+        , TestClientCompressedStreaming
         ]
     ]
 

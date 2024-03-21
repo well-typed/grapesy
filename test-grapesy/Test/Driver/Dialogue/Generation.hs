@@ -10,9 +10,10 @@ module Test.Driver.Dialogue.Generation (
 
 import Control.Monad
 import Data.ByteString qualified as BS.Strict
+import Data.ByteString qualified as Strict (ByteString)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Set qualified as Set
+import Data.Maybe (fromMaybe)
 import GHC.Stack
 import Test.QuickCheck
 
@@ -20,7 +21,7 @@ import Network.GRPC.Common
 
 import Test.Driver.Dialogue.Definition
 import Test.Driver.Dialogue.TestClock qualified as TestClock
-import Data.Maybe (fromMaybe)
+import Test.Util (dropEnd)
 
 {-------------------------------------------------------------------------------
   Metadata
@@ -31,33 +32,31 @@ import Data.Maybe (fromMaybe)
   in separate serialization tests ("Test.Prop.Serialization").
 -------------------------------------------------------------------------------}
 
-simpleHeaderName :: [HeaderName]
+simpleHeaderName :: [Strict.ByteString]
 simpleHeaderName = ["md1", "md2", "md3"]
 
-simpleAsciiValue :: [AsciiValue]
+simpleAsciiValue :: [Strict.ByteString]
 simpleAsciiValue = ["a", "b", "c"]
 
 genMetadata :: Gen Metadata
 genMetadata = do
     n <- choose (0, 2)
 
-    -- TODO: For now we avoid generating duplicates; it's not entirely clear
-    -- what the semantics of that is.
-    names <- replicateM n genHeaderName `suchThat` allDisjoint
-    fmap Map.fromList $ forM names $ \nm -> oneof [
-        (\v -> (nm, BinaryHeader v)) <$> genBinaryValue
-      , (\v -> (nm, AsciiHeader  v)) <$> genAsciiValue
+    names <- replicateM n genHeaderName
+    fmap Metadata $ forM names $ \nm -> oneof [
+        (\v -> CustomMetadata (BinaryHeader (nm <> "-bin")) v) <$> genBinaryValue
+      , (\v -> CustomMetadata (AsciiHeader   nm           ) v) <$> genAsciiValue
       ]
   where
-    genHeaderName :: Gen HeaderName
+    genHeaderName :: Gen Strict.ByteString
     genHeaderName = elements simpleHeaderName
 
-    genBinaryValue :: Gen BinaryValue
+    genBinaryValue :: Gen Strict.ByteString
     genBinaryValue = sized $ \sz -> do
         n <- choose (0, sz)
-        BinaryValue . BS.Strict.pack <$> replicateM n arbitrary
+        BS.Strict.pack <$> replicateM n arbitrary
 
-    genAsciiValue :: Gen AsciiValue
+    genAsciiValue :: Gen Strict.ByteString
     genAsciiValue = elements simpleAsciiValue
 
 {-------------------------------------------------------------------------------
@@ -226,7 +225,7 @@ ensureCorrectUsage = go Map.empty []
                   UniOpen   -> True
                   UniClosed -> False
               ]
-            , [ ServerAction $ Send $ NoMoreElems Map.empty
+            , [ ServerAction $ Send $ NoMoreElems (Metadata [])
               | case (localGenClient st, localGenServer st) of
                   (UniUninit, _) -> False
                   (_, UniUninit) -> True
@@ -249,13 +248,13 @@ ensureCorrectUsage = go Map.empty []
 
           ClientAction (Send (StreamElem _)) ->
             case localGenClient st of
-              UniUninit  -> insert $ ClientAction (Initiate (Map.empty, RPC1))
+              UniUninit  -> insert $ ClientAction (Initiate (Metadata [], RPC1))
               UniOpen    -> contWith $ id
               UniClosed  -> skip
 
           ClientAction (Send _) -> -- FinalElem or NoMoreElems
             case localGenClient st of
-              UniUninit  -> insert (ClientAction (Initiate (Map.empty, RPC1)))
+              UniUninit  -> insert (ClientAction (Initiate (Metadata [], RPC1)))
               UniOpen    -> contWith $ updClient UniClosed
               UniClosed  -> skip
 
@@ -392,18 +391,18 @@ shrinkLocalStep :: LocalStep -> [LocalStep]
 shrinkLocalStep = \case
     ClientAction (Initiate (metadata, rpc)) -> concat [
         [ ClientAction $ Initiate (metadata', rpc)
-        | metadata' <- shrinkMetadataMap metadata
+        | metadata' <- shrinkMetadata metadata
         ]
       , [ ClientAction $ Initiate (metadata, rpc')
         | rpc' <- shrinkRPC rpc
         ]
       ]
     ServerAction (Initiate metadata) ->
-      map (ServerAction . Initiate) $ shrinkMetadataMap metadata
+      map (ServerAction . Initiate) $ shrinkMetadata metadata
     ClientAction (Send x) ->
       map (ClientAction . Send) $ shrinkElem (const []) x
     ServerAction (Send x) ->
-      map (ServerAction . Send) $ shrinkElem shrinkMetadataMap x
+      map (ServerAction . Send) $ shrinkElem shrinkMetadata x
     ClientAction (Terminate (Just (SomeClientException n))) ->
       map (ClientAction . Terminate . Just . SomeClientException) (shrink n)
     ServerAction (Terminate (Just (SomeServerException n))) ->
@@ -418,37 +417,39 @@ shrinkRPC RPC1 = []
 shrinkRPC RPC2 = [RPC1]
 shrinkRPC RPC3 = [RPC1, RPC2]
 
-shrinkMetadataMap :: Map HeaderName HeaderValue -> [Map HeaderName HeaderValue]
-shrinkMetadataMap =
-      map Map.fromList
-    . filter (allDisjoint . map fst)
-    . shrinkList shrinkMetadata
-    . Map.toList
+shrinkMetadata :: Metadata -> [Metadata]
+shrinkMetadata =
+      map Metadata
+    . shrinkList shrinkCustomMetadata
+    . getMetadata
 
-shrinkMetadata :: CustomMetadata -> [CustomMetadata]
-shrinkMetadata (nm, BinaryHeader (BinaryValue val)) = concat [
+shrinkCustomMetadata :: CustomMetadata -> [CustomMetadata]
+shrinkCustomMetadata (CustomMetadata (BinaryHeader name) val) = concat [
       -- prefer ASCII headers over binary headers
-      [ (nm, AsciiHeader val')
+      [ CustomMetadata (AsciiHeader nameWithoutSuffix) val'
       | val' <- simpleAsciiValue
       ]
       -- shrink the name
-    , [ (nm', BinaryHeader $ BinaryValue val)
-      | nm' <- filter (< nm) simpleHeaderName
+    , [ CustomMetadata (BinaryHeader (nm' <> "-bin")) val
+      | nm' <- filter (< nameWithoutSuffix) simpleHeaderName
       ]
       -- aggressively try to shrink to a single byte
-    , [ (nm, BinaryHeader $ BinaryValue (BS.Strict.pack [x]))
+    , [ CustomMetadata (BinaryHeader name) (BS.Strict.pack [x])
       | x:_:_ <- [BS.Strict.unpack val]
       ]
       -- normal shrinking of binary values
-    , [ (nm, BinaryHeader $ BinaryValue (BS.Strict.pack val'))
+    , [ CustomMetadata (BinaryHeader name) (BS.Strict.pack val')
       | val' <- shrink (BS.Strict.unpack val)
       ]
     ]
-shrinkMetadata (nm, AsciiHeader val) = concat [
-      [ (nm', AsciiHeader val)
-      | nm' <- filter (< nm) simpleHeaderName
+  where
+    nameWithoutSuffix :: Strict.ByteString
+    nameWithoutSuffix = dropEnd 4 name
+shrinkCustomMetadata (CustomMetadata (AsciiHeader name) val) = concat [
+      [ CustomMetadata (AsciiHeader name') val
+      | name' <- filter (< name) simpleHeaderName
       ]
-    , [ (nm, AsciiHeader val')
+    , [ CustomMetadata (AsciiHeader name) val'
       | val' <- filter (< val) simpleAsciiValue
       ]
     ]
@@ -507,10 +508,3 @@ instance Arbitrary DialogueWithExceptions where
 
   shrink (DialogueWithExceptions dialogue) =
       DialogueWithExceptions <$> shrinkDialogue dialogue
-
-{-------------------------------------------------------------------------------
-  Auxiliary: QuickCheck
--------------------------------------------------------------------------------}
-
-allDisjoint :: Ord a => [a] -> Bool
-allDisjoint xs = Set.size (Set.fromList xs) == length xs

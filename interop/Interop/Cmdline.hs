@@ -99,45 +99,45 @@ data Mode =
 -- These /are/ supported by some reference clients, but use features we do not
 -- currently provide.
 data TestCase =
-    EmptyUnary
-  | LargeUnary
-  | ClientCompressedUnary
-  | ServerCompressedUnary
-  | ClientStreaming
-  | ClientCompressedStreaming
-  | ServerStreaming
-  | ServerCompressedStreaming
-  | PingPong
-  | EmptyStream
-  | CustomMetadata
-  | StatusCodeAndMessage
-  | SpecialStatusMessage
-  | UnimplementedMethod
-  | UnimplementedService
-  | CancelAfterBegin
-  | CancelAfterFirstResponse
-  | TimeoutOnSleepingServer
+    TestEmptyUnary
+  | TestLargeUnary
+  | TestClientCompressedUnary
+  | TestServerCompressedUnary
+  | TestClientStreaming
+  | TestClientCompressedStreaming
+  | TestServerStreaming
+  | TestServerCompressedStreaming
+  | TestPingPong
+  | TestEmptyStream
+  | TestCustomMetadata
+  | TestStatusCodeAndMessage
+  | TestSpecialStatusMessage
+  | TestUnimplementedMethod
+  | TestUnimplementedService
+  | TestCancelAfterBegin
+  | TestCancelAfterFirstResponse
+  | TestTimeoutOnSleepingServer
   deriving (Eq, Enum, Bounded)
 
 instance Show TestCase where
-  show EmptyUnary                = "empty_unary"
-  show LargeUnary                = "large_unary"
-  show ClientCompressedUnary     = "client_compressed_unary"
-  show ServerCompressedUnary     = "server_compressed_unary"
-  show ClientStreaming           = "client_streaming"
-  show ClientCompressedStreaming = "client_compressed_streaming"
-  show ServerStreaming           = "server_streaming"
-  show ServerCompressedStreaming = "server_compressed_streaming"
-  show PingPong                  = "ping_pong"
-  show EmptyStream               = "empty_stream"
-  show CustomMetadata            = "custom_metadata"
-  show StatusCodeAndMessage      = "status_code_and_message"
-  show SpecialStatusMessage      = "special_status_message"
-  show UnimplementedMethod       = "unimplemented_method"
-  show UnimplementedService      = "unimplemented_service"
-  show CancelAfterBegin          = "cancel_after_begin"
-  show CancelAfterFirstResponse  = "cancel_after_first_response"
-  show TimeoutOnSleepingServer   = "timeout_on_sleeping_server"
+  show TestEmptyUnary                = "empty_unary"
+  show TestLargeUnary                = "large_unary"
+  show TestClientCompressedUnary     = "client_compressed_unary"
+  show TestServerCompressedUnary     = "server_compressed_unary"
+  show TestClientStreaming           = "client_streaming"
+  show TestClientCompressedStreaming = "client_compressed_streaming"
+  show TestServerStreaming           = "server_streaming"
+  show TestServerCompressedStreaming = "server_compressed_streaming"
+  show TestPingPong                  = "ping_pong"
+  show TestEmptyStream               = "empty_stream"
+  show TestCustomMetadata            = "custom_metadata"
+  show TestStatusCodeAndMessage      = "status_code_and_message"
+  show TestSpecialStatusMessage      = "special_status_message"
+  show TestUnimplementedMethod       = "unimplemented_method"
+  show TestUnimplementedService      = "unimplemented_service"
+  show TestCancelAfterBegin          = "cancel_after_begin"
+  show TestCancelAfterFirstResponse  = "cancel_after_first_response"
+  show TestTimeoutOnSleepingServer   = "timeout_on_sleeping_server"
 
 {-------------------------------------------------------------------------------
   Get command line args
@@ -341,22 +341,22 @@ readTestCase :: Opt.ReadM TestCase
 readTestCase = Opt.str >>= aux
   where
     aux :: String -> Opt.ReadM TestCase
-    aux "cancel_after_begin"          = return CancelAfterBegin
-    aux "cancel_after_first_response" = return CancelAfterFirstResponse
-    aux "client_compressed_streaming" = return ClientCompressedStreaming
-    aux "client_compressed_unary"     = return ClientCompressedUnary
-    aux "client_streaming"            = return ClientStreaming
-    aux "custom_metadata"             = return CustomMetadata
-    aux "empty_stream"                = return EmptyStream
-    aux "empty_unary"                 = return EmptyUnary
-    aux "large_unary"                 = return LargeUnary
-    aux "ping_pong"                   = return PingPong
-    aux "server_compressed_streaming" = return ServerCompressedStreaming
-    aux "server_compressed_unary"     = return ServerCompressedUnary
-    aux "server_streaming"            = return ServerStreaming
-    aux "special_status_message"      = return SpecialStatusMessage
-    aux "status_code_and_message"     = return StatusCodeAndMessage
-    aux "timeout_on_sleeping_server"  = return TimeoutOnSleepingServer
-    aux "unimplemented_method"        = return UnimplementedMethod
-    aux "unimplemented_service"       = return UnimplementedService
+    aux "cancel_after_begin"          = return TestCancelAfterBegin
+    aux "cancel_after_first_response" = return TestCancelAfterFirstResponse
+    aux "client_compressed_streaming" = return TestClientCompressedStreaming
+    aux "client_compressed_unary"     = return TestClientCompressedUnary
+    aux "client_streaming"            = return TestClientStreaming
+    aux "custom_metadata"             = return TestCustomMetadata
+    aux "empty_stream"                = return TestEmptyStream
+    aux "empty_unary"                 = return TestEmptyUnary
+    aux "large_unary"                 = return TestLargeUnary
+    aux "ping_pong"                   = return TestPingPong
+    aux "server_compressed_streaming" = return TestServerCompressedStreaming
+    aux "server_compressed_unary"     = return TestServerCompressedUnary
+    aux "server_streaming"            = return TestServerStreaming
+    aux "special_status_message"      = return TestSpecialStatusMessage
+    aux "status_code_and_message"     = return TestStatusCodeAndMessage
+    aux "timeout_on_sleeping_server"  = return TestTimeoutOnSleepingServer
+    aux "unimplemented_method"        = return TestUnimplementedMethod
+    aux "unimplemented_service"       = return TestUnimplementedService
     aux x                             = fail $ "Unknown test case " ++ show x
