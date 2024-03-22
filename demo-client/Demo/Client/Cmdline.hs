@@ -145,10 +145,10 @@ parseServer defaultPub =
       -> Client.Server
     mkServer host mPort Nothing mAuth =
         Client.ServerInsecure $
-          Client.Address host (fromMaybe 50051 mPort) mAuth
+          Client.Address host (fromMaybe defaultInsecurePort mPort) mAuth
     mkServer host mPort (Just validation) mAuth =
         Client.ServerSecure validation def $
-          Client.Address host (fromMaybe 50052 mPort) mAuth
+          Client.Address host (fromMaybe defaultSecurePort mPort) mAuth
 
 parseServerValidation :: FilePath -> Opt.Parser Client.ServerValidation
 parseServerValidation defaultPub =

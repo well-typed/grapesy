@@ -2,11 +2,11 @@ module Main where
 
 import System.IO
 
-import Interop.Client (client)
+import Interop.Client (runInteropClient)
 import Interop.Client.Ping (ping)
 import Interop.Cmdline
 import Interop.SelfTest (selfTest)
-import Interop.Server (server)
+import Interop.Server (runInteropServer)
 
 {-------------------------------------------------------------------------------
   Top-level application driver
@@ -20,8 +20,8 @@ main = do
 
     cmdline <- getCmdline
     case cmdMode cmdline of
-      Server   -> server   cmdline
-      Client   -> client   cmdline
-      Ping     -> ping     cmdline
+      Server   -> runInteropServer cmdline
+      Client   -> runInteropClient cmdline
+      Ping     -> ping cmdline
       SelfTest -> selfTest cmdline
 

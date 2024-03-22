@@ -21,7 +21,12 @@ server _cmdline =
       ]
   where
     config :: ServerConfig
-    config = def
+    config = ServerConfig {
+          serverInsecure =
+            Just $ InsecureConfig Nothing defaultInsecurePort
+        , serverSecure =
+            Nothing
+        }
 
     params :: ServerParams
     params = def

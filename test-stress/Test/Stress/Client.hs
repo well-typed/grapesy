@@ -30,7 +30,7 @@ client _cmdline test = do
     address :: Address
     address = Address {
           addressHost      = "127.0.0.1"
-        , addressPort      = 50051
+        , addressPort      = defaultInsecurePort
         , addressAuthority = Nothing
         }
 

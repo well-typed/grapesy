@@ -3,6 +3,7 @@ module Interop.Cmdline (
   , defaultCmdline
     -- * Definition
   , Cmdline(..)
+  , cmdPort
   , Mode(..)
   , TestCase(..)
   ) where
@@ -26,11 +27,11 @@ data Cmdline = Cmdline {
       -- Command line arguments used by the gRPC test suite
       --
 
-      cmdMode     :: Mode
-    , cmdPort     :: PortNumber
-    , cmdUseTLS   :: Bool
-    , cmdTestCase :: Maybe TestCase
-    , cmdHost     :: HostName
+      cmdMode         :: Mode
+    , cmdPortOverride :: Maybe PortNumber
+    , cmdUseTLS       :: Bool
+    , cmdTestCase     :: Maybe TestCase
+    , cmdHost         :: HostName
 
       -- | @:authority@/SNI hostname override
     , cmdServerHostOverride :: Maybe HostName
@@ -55,6 +56,14 @@ data Cmdline = Cmdline {
     , cmdSkipClientCompression :: Bool
     }
   deriving (Show)
+
+cmdPort :: Cmdline -> PortNumber
+cmdPort Cmdline{cmdPortOverride, cmdMode, cmdUseTLS} =
+    case (cmdPortOverride, cmdMode, cmdUseTLS) of
+      (Just port, _, _) -> port
+      (_, SelfTest, _)  -> 0
+      (_, _, False)     -> defaultInsecurePort
+      (_, _, True)      -> defaultSecurePort
 
 data Mode =
     Server   -- ^ Interop server (against reference client)
@@ -142,7 +151,7 @@ defaultCmdline = do
 
     return Cmdline {
         cmdMode                  = error "cmdMode: no default"
-      , cmdPort                  = 50052
+      , cmdPortOverride          = Nothing
       , cmdUseTLS                = True
       , cmdTestCase              = Nothing
       , cmdHost                  = "127.0.0.1"
@@ -188,18 +197,16 @@ parseCmdline defaults =
       -- gRPC test suite command line arguments
       --
 
-      <*> asum [
+      <*> (Opt.optional $ asum [
               Opt.option Opt.auto $ mconcat [
                   Opt.long "server_port"
                 , Opt.help "Alternative spelling for --port"
                 ]
             , Opt.option Opt.auto $ mconcat [
                   Opt.long "port"
-                , Opt.help "Port number"
-                , Opt.value (cmdPort defaults)
-                , Opt.showDefault
+                , Opt.help "Override default port. If not specified, will use 50051 if TLS is disabled, 50052 is TLS enabled, and 0 for self-tests (i.e., pick an arbitrary available port number)."
                 ]
-            ]
+            ])
       <*> (Opt.option readBool $ mconcat [
               Opt.long "use_tls"
             , Opt.help "Enable TLS"
