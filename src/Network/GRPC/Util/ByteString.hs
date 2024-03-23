@@ -3,7 +3,6 @@
 module Network.GRPC.Util.ByteString (
     ascii
   , strip
-  , dropEnd
   ) where
 
 import Data.ByteString qualified as BS.Strict
@@ -30,10 +29,3 @@ strip =
           c == ascii ' '
         , c == ascii '\t'
         ]
-
-dropEnd :: Int -> Strict.ByteString -> Strict.ByteString
-#if MIN_VERSION_bytestring(0,11,1)
-dropEnd = BS.Strict.dropEnd
-#else
-dropEnd n xs = BS.Strict.take (BS.Strict.length xs - n) xs
-#endif

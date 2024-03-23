@@ -22,10 +22,9 @@ import Control.Monad.State (State, execState, modify)
 import Data.ByteString qualified as Strict (ByteString)
 import Data.ByteString.Char8 qualified as BS.Strict.C8
 import Data.ByteString.UTF8 qualified as BS.Strict.UTF8
+import Data.Functor (($>))
 import Data.List (intersperse, intercalate)
 import Data.List.NonEmpty (NonEmpty)
-import Data.Map.Strict (Map)
-import Data.Map.Strict qualified as Map
 import Data.Maybe (catMaybes)
 import Data.Proxy
 import Data.Version
@@ -35,6 +34,7 @@ import Network.HTTP.Types qualified as HTTP
 import Network.GRPC.Spec.Common
 import Network.GRPC.Spec.Compression (CompressionId)
 import Network.GRPC.Spec.CustomMetadata
+import Network.GRPC.Spec.CustomMetadataMap
 import Network.GRPC.Spec.PercentEncoding qualified as PercentEncoding
 import Network.GRPC.Spec.RPC
 import Network.GRPC.Spec.Timeout
@@ -43,7 +43,6 @@ import Network.GRPC.Util.HKD (HKD, Undecorated, DecoratedWith)
 import Network.GRPC.Util.HKD qualified as HKD
 
 import Paths_grapesy qualified as Grapesy
-import Data.Functor (($>))
 
 {-------------------------------------------------------------------------------
   Inputs (message sent to the peer)
@@ -57,7 +56,7 @@ data RequestHeaders_ f = RequestHeaders {
       requestTimeout :: HKD f (Maybe Timeout)
 
       -- | Custom metadata
-    , requestMetadata :: HKD f (Map HeaderName HeaderValue)
+    , requestMetadata :: HKD f CustomMetadataMap
 
       -- | Compression used for outgoing messages
     , requestCompression :: HKD f (Maybe CompressionId)
@@ -137,7 +136,7 @@ buildRequestHeaders ::
   => Proxy rpc -> RequestHeaders -> [HTTP.Header]
 buildRequestHeaders proxy callParams@RequestHeaders{requestMetadata} = concat [
       callDefinition proxy callParams
-    , map buildCustomMetadata $ Map.toList requestMetadata
+    , map buildCustomMetadata $ customMetadataMapToList requestMetadata
     ]
 
 -- | Call definition
@@ -302,15 +301,14 @@ parseRequestHeaders proxy =
       | otherwise
       = modify $ \x -> x {
             requestMetadata = do
-              (parsedName, parsedValue) <- httpError HTTP.badRequest400 $
-                parseCustomMetadata hdr
-              Map.insert parsedName parsedValue <$> requestMetadata x
+              md <- httpError HTTP.badRequest400 $ parseCustomMetadata hdr
+              customMetadataMapInsert md <$> requestMetadata x
           }
 
     uninitRequestHeaders :: RequestHeaders_ (DecoratedWith m)
     uninitRequestHeaders = RequestHeaders {
           requestTimeout           = return Nothing
-        , requestMetadata          = return Map.empty
+        , requestMetadata          = return mempty
         , requestCompression       = return Nothing
         , requestAcceptCompression = return Nothing
         , requestContentType       = return Nothing

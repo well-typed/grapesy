@@ -11,7 +11,6 @@ import Control.Monad.Catch
 import Control.Monad.State
 import Data.Bifunctor
 import Data.List (sortBy)
-import Data.Map.Strict qualified as Map
 import Data.Ord (comparing)
 import Data.Proxy
 import Data.Text qualified as Text
@@ -28,7 +27,7 @@ import Test.Driver.ClientServer
 import Test.Driver.Dialogue.Definition
 import Test.Driver.Dialogue.TestClock (TestClock)
 import Test.Driver.Dialogue.TestClock qualified as TestClock
-import Test.Util.Within
+import Test.Util
 
 {-------------------------------------------------------------------------------
   Endpoints
@@ -198,7 +197,7 @@ clientLocal clock call = \(LocalSteps steps) ->
             receivedMetadata <- within timeoutReceive action $
                                   Client.recvResponseMetadata call
             expect (tick, action) (== expectedMetadata) $
-              Map.fromList receivedMetadata
+              Metadata receivedMetadata
           Send (FinalElem a b) -> do
             -- Known bug (limitation in http2). See recvMessageLoop.
             reactToServer tick $ Send (StreamElem a)
@@ -207,7 +206,7 @@ clientLocal clock call = \(LocalSteps steps) ->
             peerHealth <- get
             mOut <- try $ within timeoutReceive action $
                       Client.Binary.recvOutput call
-            let mOut'       = fmap (first Map.fromList) mOut
+            let mOut'       = fmap (first Metadata) mOut
                 expectation = case peerHealth of
                                 PeerAlive -> isExpectedElem expectedElem
                                 PeerTerminated mErr -> isGrpcException mErr
@@ -215,7 +214,7 @@ clientLocal clock call = \(LocalSteps steps) ->
           Terminate mErr -> do
             mOut <- try $ within timeoutReceive action $
                       Client.Binary.recvOutput call
-            let mOut'       = fmap (first Map.fromList) mOut
+            let mOut'       = fmap (first Metadata) mOut
                 mErr'       = DeliberateException <$> mErr
                 expectation = isGrpcException mErr'
             expect (tick, action) expectation mOut'
@@ -313,7 +312,7 @@ clientGlobal clock connPerRPC global connParams testServer delimitTestScope =
             -- arising from a timeout we test elsewhere.
             let params :: Client.CallParams
                 params = def {
-                    Client.callRequestMetadata = Map.toList metadata
+                    Client.callRequestMetadata = getMetadata metadata
                   }
 
             withProxy rpc $ \proxy ->
@@ -371,11 +370,11 @@ serverLocal clock call = \(LocalSteps steps) -> do
     serverAct tick action =
         case action of
           Initiate metadata -> liftIO $ do
-            Server.setResponseMetadata call (Map.toList metadata)
+            Server.setResponseMetadata call (getMetadata metadata)
             void $ Server.initiateResponse call
             return True
           Send x -> do
-            let x' = first Map.toList x
+            let x' = first getMetadata x
             peerHealth <- get
             case peerHealth of
               PeerAlive        -> liftIO $ Server.Binary.sendOutput call x'
@@ -478,7 +477,7 @@ serverGlobal clock globalStepsVar call = do
         -- It is important that we do this 'expect' outside the scope of the
         -- @modifyMVar@: if we do not, then if the expect fails, we'd leave the
         -- @MVar@ unchanged, and the next request would use the wrong steps.
-        expect (tick, step) (== metadata) $ Map.fromList receivedMetadata
+        expect (tick, step) (== metadata) $ Metadata receivedMetadata
         within timeoutLocal steps' $ serverLocal clock call (LocalSteps steps')
       _otherwise ->
          error "serverGlobal: expected ClientInitiateRequest"

@@ -5,13 +5,19 @@ module Test.Prop.Serialization (tests) where
 
 import Control.Monad
 import Control.Monad.Except (Except, runExcept)
+import Control.Monad.State
+import Data.Bifunctor
 import Data.ByteString qualified as BS.Strict
 import Data.ByteString qualified as Strict (ByteString)
 import Data.ByteString.Base64 qualified as BS.Strict.Base64
 import Data.ByteString.Char8 qualified as BS.Strict.Char8
+import Data.CaseInsensitive qualified as CI
 import Data.Char (isSpace)
+import Data.Function (on)
+import Data.List (nubBy, uncons, intersperse)
 import Data.Maybe (mapMaybe)
 import Data.Void (Void)
+import Network.HTTP.Types qualified as HTTP
 import Test.Tasty hiding (Timeout)
 import Test.Tasty.QuickCheck
 
@@ -24,12 +30,17 @@ import Test.Util.Awkward
 tests :: TestTree
 tests = testGroup "Test.Prop.Serialization" [
       testGroup "Base64" [
-          testProperty "unpadded" $ \(Awkward value) ->
-            encodingNotPadded value
-        , testProperty "acceptPadded" $
-            roundtrip buildUnpadded parseBinaryValue
-        , testProperty "roundtrip" $
+          testProperty "roundtrip" $
             roundtrip buildBinaryValue parseBinaryValue
+        , testProperty "emitUnpadded" $ \(Awkward value) ->
+            binaryNotPadded value
+        , testProperty "acceptPadded" $
+            roundtrip buildBinaryPadded parseBinaryValue
+        , testProperty "acceptCommas" $ \cs ->
+            roundtripWith
+              (showIntermediate .*. labelHasMultipleChunks)
+              (buildBinaryChunked cs)
+              parseBinaryValue
         ]
     , testGroup "Headers" [
           testProperty "CustomMetadata" $
@@ -51,21 +62,167 @@ tests = testGroup "Test.Prop.Serialization" [
             roundtrip (buildTrailersOnly unknown)
                       (parseTrailersOnly unknown)
         ]
+    , testGroup "Duplicates" [
+          testProperty "RequestHeaders" $ \dups ->
+            roundtripWith
+              (showIntermediate .*. labelDups)
+              (introduceDups dups . buildRequestHeaders unknown)
+              (                     parseRequestHeaders unknown)
+        , testProperty "ResponseHeaders" $ \dups ->
+            roundtripWith
+              (showIntermediate .*. labelDups)
+              (introduceDups dups . buildResponseHeaders unknown)
+              (                     parseResponseHeaders unknown)
+        , testProperty "ProperTrailers" $ \dups ->
+            roundtripWith
+              (showIntermediate .*. labelDups)
+              (introduceDups dups . buildProperTrailers)
+              (                     parseProperTrailers unknown)
+        , testProperty "TrailersOnly" $ \dups ->
+            roundtripWith
+              (showIntermediate .*. labelDups)
+              (introduceDups dups . buildTrailersOnly unknown)
+              (                     parseTrailersOnly unknown)
+        ]
     ]
   where
     unknown = Proxy @(UnknownRpc (Just "serv") (Just "meth"))
 
 {-------------------------------------------------------------------------------
-  Auxiliary: binary headers
+  Binary headers
 -------------------------------------------------------------------------------}
 
--- | The gRPC spec mandates we should not /create/ unpadded values
-encodingNotPadded :: BinaryValue -> Bool
-encodingNotPadded = BS.Strict.Char8.all (/= '=') . buildBinaryValue
+-- | The gRPC spec mandates we should not /create/ padded values
+binaryNotPadded :: Strict.ByteString -> Bool
+binaryNotPadded = BS.Strict.Char8.all (/= '=') . buildBinaryValue
 
--- | The gRPC spec mandates we must /accept/ unpadded values
-buildUnpadded :: BinaryValue -> BS.Strict.Char8.ByteString
-buildUnpadded = BS.Strict.Base64.encode . getBinaryValue
+-- | The gRPC spec mandates we must /accept/ padded values
+--
+-- We cannot call 'buildBinaryValue' here, because it creates padded values
+-- (as tested with 'binaryNotPadded').
+buildBinaryPadded :: Strict.ByteString -> Strict.ByteString
+buildBinaryPadded = BS.Strict.Base64.encode
+
+-- | Build binary value by encoding chunks separately and joining the results
+--
+-- See 'parseBinaryValue' for detailed discussion.
+--
+-- We depend on the presence of commas here; see discussion in 'introduceDups',
+-- with the corresponding statistics relevant to this case collected by
+-- 'labelHasMultipleChunks'.
+buildBinaryChunked :: [Bool] -> Strict.ByteString -> Strict.ByteString
+buildBinaryChunked ds value =
+    mconcat . intersperse "," $
+      map buildBinaryValue chunks
+  where
+    chunks :: [Strict.ByteString]
+    (chunks, _) =  splitHeaderValueBS ds value
+
+labelHasMultipleChunks :: (a, Strict.ByteString) -> Property -> Property
+labelHasMultipleChunks (_, bs) =
+    tabulate "has multiple chunks" [
+        show $ ',' `BS.Strict.Char8.elem` bs
+      ]
+
+{-------------------------------------------------------------------------------
+  Duplicates in Custom-Metadata
+
+  The spec mandates:
+
+  > Custom-Metadata header order is not guaranteed to be preserved except for
+  > values with duplicate header names. Duplicate header names may have their
+  > values joined with "," as the delimiter and be considered semantically
+  > equivalent.
+
+  We need to be careful with whitespace around the delimeter here; the spec
+  mandates
+
+  > ASCII-Value should not have leading or trailing whitespace. If it contains
+  > leading or trailing whitespace, it may be stripped.
+
+  Since `grapesy` does use an internal representation that allows for
+  duplicates, we test this by introducing duplicates in the serialized form.
+-------------------------------------------------------------------------------}
+
+-- | Introduce duplicte headers
+--
+-- We introduce duplicates by splitting existing custom-metadata at existing
+-- limiters (so that the roundtrip still passes), /if/ the corresponding 'Bool'
+-- value is 'True' (so that we can shrink towards not introducing duplicates).
+--
+-- NOTE: Our generator for strict bytestrings generates commas with relatively
+-- high probability, which ensures that we have enough source material here to
+-- generate duplicate headers. We should keep an eye on the statistics however
+-- to ensure that this continues to be the case (see 'labelDups').
+introduceDups :: [Bool] -> [HTTP.Header] -> [HTTP.Header]
+introduceDups = \dups -> concat . flip evalState dups . mapM go
+  where
+    go :: HTTP.Header -> State [Bool] [HTTP.Header]
+    go hdr@(name, value)
+      -- Don't split reserved headers (only metadata)
+      | Nothing <- safeHeaderName (CI.foldedCase name)
+      = return [hdr]
+
+      -- We can split ASCII or binary headers
+      | otherwise
+      = state $ \dups -> first (map (name,)) $ splitHeaderValueBS dups value
+
+splitHeaderValueBS ::
+     [Bool]
+  -> Strict.ByteString
+  -> ([Strict.ByteString], [Bool])
+splitHeaderValueBS ds =
+      first (map BS.Strict.Char8.pack)
+    . splitHeaderValue ds
+    . BS.Strict.Char8.unpack
+
+-- | Split a header value
+--
+-- We split the header value at @","@ boundaries, /provided/ that the comma is
+-- not preceded or followed by whitespace (otherwise that whitespace would be
+-- lost, since individual headers are trimmed).
+--
+-- Examples:
+--
+-- > splitHeaderValue []                "abc,def,ghi"  == (["abc,def,ghi"]     , [])
+-- > splitHeaderValue [True]            "abc,def,ghi"  == (["abc","def,ghi"]   , [])
+-- > splitHeaderValue [False]           "abc,def,ghi"  == (["abc,def,ghi"]     , [])
+-- > splitHeaderValue [False,True]      "abc,def,ghi"  == (["abc,def","ghi"]   , [])
+-- > splitHeaderValue [True,True]       "abc,def,ghi"  == (["abc","def","ghi"] , [])
+-- > splitHeaderValue [True,False,True] "abc,def"      == (["abc","def"]       , [False,True])
+-- > splitHeaderValue [True]            "abc, def,ghi" == (["abc, def","ghi"]  , [])
+-- > splitHeaderValue [True]            "abc ,def,ghi" == (["abc ,def","ghi"]  , [])
+splitHeaderValue ::
+     [Bool]  -- ^ Allowed splits (useful to shrink towards splitting less)
+  -> String  -- ^ String to split
+  -> ([String], [Bool])
+splitHeaderValue = go []
+  where
+    go ::
+         [Char] -- Accumulated chunk, in reverse order
+      -> [Bool] -- Allowed splits left
+      -> String -- String left to process
+      -> ([String], [Bool])
+    go acc []     xs     = finalize acc [] xs
+    go acc ds     []     = finalize acc ds []
+    go acc (d:ds) (x:xs)
+       | canSplit, d     = first (reverse acc :) $ go []         ds  xs
+       | canSplit, not d =                         go (x:acc)    ds  xs
+       | otherwise       =                         go (x:acc) (d:ds) xs
+      where
+        prevIsSpace, nextIsSpace, canSplit :: Bool
+        prevIsSpace = maybe False (isSpace . fst) $ uncons acc
+        nextIsSpace = maybe False (isSpace . fst) $ uncons xs
+        canSplit    = x == ',' && not prevIsSpace && not nextIsSpace
+
+    finalize :: [Char] -> [Bool] -> String -> ([String], [Bool])
+    finalize acc ds xs = ([reverse acc ++ xs], ds)
+
+labelDups :: (a, [HTTP.Header]) -> Property -> Property
+labelDups (_a, headers) =
+    tabulate "has duplicate headers" [
+        show $ length headers /= length (nubBy ((==) `on` fst) headers)
+      ]
 
 {-------------------------------------------------------------------------------
   Roundtrip tests
@@ -73,37 +230,62 @@ buildUnpadded = BS.Strict.Base64.encode . getBinaryValue
 
 roundtrip :: forall e a b.
      (Eq a, Eq e, Show a, Show b, Show e)
-  => (a -> b) -> (b -> Except e a) -> Awkward a -> Property
-roundtrip there back (Awkward a) =
-    counterexample (show b) $
-      runExcept (back b) === Right a
-  where
-    b :: b
-    b = there a
+  => (a -> b)             -- ^ There
+  -> (b -> Except e a)    -- ^ and back again
+  -> Awkward a -> Property
+roundtrip = roundtripWith showIntermediate
+
+roundtripWith :: forall e a b.
+     (Eq a, Eq e, Show a, Show e)
+  => ((a, b) -> Property -> Property) -- ^ Statistics, metadata, ..
+  -> (a -> b)             -- ^ There
+  -> (b -> Except e a)    -- ^ and back again
+  -> Awkward a -> Property
+roundtripWith modProp there back (Awkward a) =
+    modProp (a, b) $
+       runExcept (back b) === Right a
+   where
+     b :: b
+     b = there a
+
+showIntermediate :: Show b => (a, b) -> Property -> Property
+showIntermediate (_, b) = counterexample (show b)
+
+(.*.) ::
+     ((a, b) -> Property -> Property)
+  -> ((a, b) -> Property -> Property)
+  -> ((a, b) -> Property -> Property)
+(.*.) f g (a, b) = f (a, b) . g (a, b)
 
 {-------------------------------------------------------------------------------
   Arbitrary instances
 
-  We do not provide shrinkers for each definition; they should be defined if
+  We do not yet provide shrinkers for each definition; they should be defined if
   and when a test breaks.
 -------------------------------------------------------------------------------}
 
-instance Arbitrary (Awkward HeaderValue) where
-  arbitrary = fmap Awkward $
-      oneof [
-          BinaryHeader <$> awkward
-        , AsciiHeader  <$> awkward
-        ]
+instance Arbitrary (Awkward CustomMetadata) where
+  arbitrary = Awkward <$> do
+      name <- genName
+      awkward `suchThatMap` safeCustomMetadata name
+    where
+      genName :: Gen HeaderName
+      genName = oneof [
+            getAwkward <$> arbitrary
+          , fmap (<> "-bin") $ getAwkward <$> arbitrary
+          ] `suchThatMap` safeHeaderName
 
-instance Arbitrary (Awkward HeaderName) where
-  arbitrary = Awkward <$> suchThatMap (getAwkward <$> arbitrary) safeHeaderName
+  -- For now we shrink only the value
+  shrink (Awkward (CustomMetadata name value)) =
+      mapMaybe (fmap Awkward . safeCustomMetadata name) $ shrink value
 
-instance Arbitrary (Awkward BinaryValue) where
-  arbitrary = arbitraryAwkward BinaryValue
-  shrink    = shrinkAwkward    BinaryValue getBinaryValue
-
-instance Arbitrary (Awkward AsciiValue) where
-  arbitrary = Awkward <$> suchThatMap (getAwkward <$> arbitrary) safeAsciiValue
+instance Arbitrary (Awkward CustomMetadataMap) where
+  arbitrary = Awkward <$>
+      customMetadataMapFromList <$> awkward
+  shrink =
+        map (Awkward . customMetadataMapFromList . map getAwkward)
+      . shrink
+      . (map Awkward . customMetadataMapToList . getAwkward)
 
 instance Arbitrary (Awkward RequestHeaders) where
   arbitrary = Awkward <$> do
@@ -149,6 +331,13 @@ instance Arbitrary (Awkward ResponseHeaders) where
         , responseContentType
         }
 
+  shrink h@(Awkward h') = concat [
+        shrinkAwkward (\x -> h'{responseCompression       = x}) responseCompression       h
+      , shrinkAwkward (\x -> h'{responseAcceptCompression = x}) responseAcceptCompression h
+      , shrinkAwkward (\x -> h'{responseMetadata          = x}) responseMetadata          h
+      , shrinkAwkward (\x -> h'{responseContentType       = x}) responseContentType       h
+      ]
+
 instance Arbitrary (Awkward ProperTrailers) where
   arbitrary = Awkward <$> do
       properTrailersGrpcStatus  <- awkward
@@ -162,6 +351,13 @@ instance Arbitrary (Awkward ProperTrailers) where
         , properTrailersPushback
         }
 
+  shrink h@(Awkward h') = concat [
+        shrinkAwkward (\x -> h'{properTrailersGrpcStatus  = x}) properTrailersGrpcStatus  h
+      , shrinkAwkward (\x -> h'{properTrailersGrpcMessage = x}) properTrailersGrpcMessage h
+      , shrinkAwkward (\x -> h'{properTrailersMetadata    = x}) properTrailersMetadata    h
+      , shrinkAwkward (\x -> h'{properTrailersPushback    = x}) properTrailersPushback    h
+      ]
+
 instance Arbitrary (Awkward TrailersOnly) where
   arbitrary = Awkward <$> do
       trailersOnlyContentType <- awkward
@@ -170,6 +366,11 @@ instance Arbitrary (Awkward TrailersOnly) where
            trailersOnlyContentType
          , trailersOnlyProper
         }
+
+  shrink h@(Awkward h') = concat [
+        shrinkAwkward (\x -> h'{trailersOnlyContentType = x}) trailersOnlyContentType  h
+      , shrinkAwkward (\x -> h'{trailersOnlyProper      = x}) trailersOnlyProper       h
+      ]
 
 instance Arbitrary (Awkward Timeout) where
   arbitrary = fmap Awkward $

@@ -26,7 +26,6 @@ import Control.Monad
 import Control.Monad.Catch
 import Data.Default
 import Data.Foldable (asum)
-import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
 import Data.Proxy
 import GHC.Stack
@@ -343,7 +342,7 @@ startRPC Connection{connMetaVar, connParams, connStateVar} _ callParams = do
               , connDefaultTimeout connParams
               ]
         , requestMetadata =
-            Map.fromList $ callRequestMetadata callParams
+            customMetadataMapFromList $ callRequestMetadata callParams
         , requestCompression =
             compressionId <$> cOut
         , requestAcceptCompression = Just $

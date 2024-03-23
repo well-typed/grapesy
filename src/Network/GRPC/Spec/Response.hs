@@ -40,8 +40,6 @@ import Control.Monad.State
 import Data.ByteString qualified as Strict
 import Data.ByteString.Char8 qualified as BS.Strict.C8
 import Data.List.NonEmpty (NonEmpty)
-import Data.Map.Strict (Map)
-import Data.Map.Strict qualified as Map
 import Data.Proxy
 import Data.Text (Text)
 import GHC.Stack
@@ -51,6 +49,7 @@ import Text.Read (readMaybe)
 import Network.GRPC.Spec.Common
 import Network.GRPC.Spec.Compression (CompressionId)
 import Network.GRPC.Spec.CustomMetadata
+import Network.GRPC.Spec.CustomMetadataMap
 import Network.GRPC.Spec.PercentEncoding qualified as PercentEncoding
 import Network.GRPC.Spec.RPC
 import Network.GRPC.Spec.Status
@@ -73,7 +72,7 @@ data ResponseHeaders_ f = ResponseHeaders {
       --
       -- The response can include additional metadata in the trailers; see
       -- 'properTrailersMetadata'.
-    , responseMetadata :: HKD f (Map HeaderName HeaderValue)
+    , responseMetadata :: HKD f CustomMetadataMap
 
       -- | Content-type
       --
@@ -113,7 +112,7 @@ data ProperTrailers_ f = ProperTrailers {
       -- | Trailing metadata
       --
       -- See also 'responseMetadata' for the initial metadata.
-    , properTrailersMetadata :: HKD f (Map HeaderName HeaderValue)
+    , properTrailersMetadata :: HKD f CustomMetadataMap
 
       -- | Server pushback
     , properTrailersPushback :: HKD f (Maybe Pushback)
@@ -259,20 +258,24 @@ grpcClassifyTermination ProperTrailers {
                             } =
     case properTrailersGrpcStatus of
       GrpcOk -> Right GrpcNormalTermination {
-          grpcTerminatedMetadata  = Map.toList properTrailersMetadata
+          grpcTerminatedMetadata = customMetadataMapToList properTrailersMetadata
         }
       GrpcError err -> Left GrpcException{
           grpcError         = err
         , grpcErrorMessage  = properTrailersGrpcMessage
-        , grpcErrorMetadata = Map.toList properTrailersMetadata
+        , grpcErrorMetadata = customMetadataMapToList properTrailersMetadata
         }
 
 -- | Translate gRPC exception to response trailers
 grpcExceptionToTrailers ::  GrpcException -> ProperTrailers
-grpcExceptionToTrailers err = ProperTrailers{
-      properTrailersGrpcStatus  = GrpcError (grpcError err)
-    , properTrailersGrpcMessage = grpcErrorMessage err
-    , properTrailersMetadata    = Map.fromList $ grpcErrorMetadata  err
+grpcExceptionToTrailers GrpcException{
+                            grpcError
+                          , grpcErrorMessage
+                          , grpcErrorMetadata
+                          } = ProperTrailers{
+      properTrailersGrpcStatus  = GrpcError grpcError
+    , properTrailersGrpcMessage = grpcErrorMessage
+    , properTrailersMetadata    = customMetadataMapFromList grpcErrorMetadata
     , properTrailersPushback    = Nothing
     }
 
@@ -316,7 +319,7 @@ buildResponseHeaders proxy
       | Just x <- [responseAcceptCompression]
       ]
     , [ buildCustomMetadata x
-      | x <- Map.toList responseMetadata
+      | x <- customMetadataMapToList responseMetadata
       ]
     ]
 
@@ -351,15 +354,15 @@ parseResponseHeaders proxy =
       | otherwise
       = modify $ \x -> x {
             responseMetadata = do
-              (parsedName, parsedValue) <- parseCustomMetadata hdr
-              Map.insert parsedName parsedValue <$> responseMetadata x
+              md <- parseCustomMetadata hdr
+              customMetadataMapInsert md <$> responseMetadata x
           }
 
     uninitResponseHeaders :: ResponseHeaders_ (DecoratedWith m)
     uninitResponseHeaders = ResponseHeaders {
           responseCompression       = return Nothing
         , responseAcceptCompression = return Nothing
-        , responseMetadata          = return Map.empty
+        , responseMetadata          = return mempty
         , responseContentType       = return Nothing
         }
 
@@ -383,7 +386,7 @@ buildProperTrailers ProperTrailers{
       | Just x <- [properTrailersGrpcMessage]
       ]
     , [ buildCustomMetadata x
-      | x <- Map.toList properTrailersMetadata
+      | x <- customMetadataMapToList properTrailersMetadata
       ]
     , [ ( "grpc-retry-pushback-ms"
         , buildPushback x
@@ -470,8 +473,8 @@ parseTrailersOnly proxy =
       | otherwise
       = modify $ liftProperTrailers $ \x -> x{
             properTrailersMetadata = do
-              (parsedName, parsedValue) <- parseCustomMetadata hdr
-              Map.insert parsedName parsedValue <$> properTrailersMetadata x
+              md <- parseCustomMetadata hdr
+              customMetadataMapInsert md <$> properTrailersMetadata x
           }
 
     uninitTrailersOnly :: TrailersOnly_ (DecoratedWith m)
@@ -480,7 +483,7 @@ parseTrailersOnly proxy =
         , trailersOnlyProper      = ProperTrailers {
               properTrailersGrpcStatus  = throwError "missing: grpc-status"
             , properTrailersGrpcMessage = return Nothing
-            , properTrailersMetadata    = return Map.empty
+            , properTrailersMetadata    = return mempty
             , properTrailersPushback    = return Nothing
             }
         }

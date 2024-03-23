@@ -117,6 +117,7 @@ library
       Network.GRPC.Spec.Common
       Network.GRPC.Spec.Compression
       Network.GRPC.Spec.CustomMetadata
+      Network.GRPC.Spec.CustomMetadataMap
       Network.GRPC.Spec.LengthPrefixed
       Network.GRPC.Spec.PercentEncoding
       Network.GRPC.Spec.PseudoHeaders
@@ -242,8 +243,8 @@ test-suite test-grapesy
       Test.Sanity.Interop
       Test.Sanity.StreamingType.CustomFormat
       Test.Sanity.StreamingType.NonStreaming
+      Test.Util
       Test.Util.Awkward
-      Test.Util.Within
 
       Paths_grapesy
 
@@ -258,6 +259,7 @@ test-suite test-grapesy
     , async                >= 2.2   && < 2.3
     , base64-bytestring    >= 1.2   && < 1.3
     , bytestring           >= 0.10  && < 0.12
+    , case-insensitive     >= 1.2   && < 1.3
     , containers           >= 0.6   && < 0.7
     , exceptions           >= 0.10  && < 0.11
     , http-types           >= 0.12  && < 0.13

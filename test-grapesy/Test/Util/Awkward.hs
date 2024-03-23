@@ -7,15 +7,18 @@ module Test.Util.Awkward (
   , shrinkRegular
   ) where
 
+import Control.Monad
 import Data.ByteString qualified as BS.Strict
 import Data.ByteString qualified as Strict (ByteString)
+import Data.Char (ord, chr)
 import Data.List.NonEmpty (NonEmpty)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Test.QuickCheck
-import Test.QuickCheck.Instances ()
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Data.Word
+import Test.QuickCheck
+import Test.QuickCheck.Instances ()
 
 {-------------------------------------------------------------------------------
   \"Awkward\" instances
@@ -92,10 +95,26 @@ instance ( Arbitrary (Awkward k)
   shrink    = shrinkAwkward    Map.fromList Map.toList
 
 instance Arbitrary (Awkward Strict.ByteString) where
-  arbitrary = Awkward <$> BS.Strict.pack <$> arbitrary
-  shrink    = map (Awkward . BS.Strict.pack)
-            . shrink
-            . BS.Strict.unpack . getAwkward
+  arbitrary = sized $ \sz -> Awkward <$> do
+      n <- choose (0, sz)
+      BS.Strict.pack <$> replicateM n genChar
+    where
+      -- Generate commas with relatively high probability, so that the tests
+      -- for duplicate headers have enough material to work with.
+      genChar :: Gen Word8
+      genChar = frequency [
+            (9, arbitrary)
+          , (1, pure $ fromIntegral (ord ','))
+          ]
+
+  shrink =
+        map (Awkward . BS.Strict.pack)
+      . shrinkList shrinkChar
+      . BS.Strict.unpack . getAwkward
+    where
+      -- shrink as 'Char'
+      shrinkChar :: Word8 -> [Word8]
+      shrinkChar = map (fromIntegral . ord) . shrink . (chr . fromIntegral)
 
 instance {-# OVERLAPPING #-} Arbitrary (Awkward String) where
   arbitrary = Awkward <$> arbitrary

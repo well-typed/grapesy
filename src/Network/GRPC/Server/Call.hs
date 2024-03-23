@@ -52,7 +52,6 @@ import Control.Monad.XIO (XIO, XIO', NeverThrows)
 import Control.Monad.XIO qualified as XIO
 import Data.Bifunctor
 import Data.Default
-import Data.Map.Strict qualified as Map
 import Data.Text qualified as Text
 import GHC.Stack
 import Network.HTTP2.Internal qualified as HTTP2
@@ -209,7 +208,8 @@ setupCall conn callContext@ServerContext{params} = do
                 outHeaders = ResponseHeaders {
                     responseCompression       = Just $ Compr.compressionId cOut
                   , responseAcceptCompression = Just $ Compr.offer compr
-                  , responseMetadata          = Map.fromList responseMetadata
+                  , responseMetadata          = customMetadataMapFromList
+                                                  responseMetadata
                   , responseContentType       = Context.serverContentType params
                   }
               , outCompression = cOut
@@ -360,7 +360,7 @@ serverExceptionToClientError err
     = ProperTrailers {
           properTrailersGrpcStatus  = GrpcError GrpcUnknown
         , properTrailersGrpcMessage = Just $ Text.pack (show err)
-        , properTrailersMetadata    = Map.empty
+        , properTrailersMetadata    = mempty
         , properTrailersPushback    = Nothing
         }
 
@@ -438,7 +438,7 @@ sendOutputWithEnvelope call@Call{callChannel} msg = do
     mkTrailers metadata = ProperTrailers {
           properTrailersGrpcStatus  = GrpcOk
         , properTrailersGrpcMessage = Nothing
-        , properTrailersMetadata    = Map.fromList metadata
+        , properTrailersMetadata    = customMetadataMapFromList metadata
         , properTrailersPushback    = Nothing
         }
 
@@ -471,7 +471,7 @@ sendGrpcException call = sendProperTrailers call . grpcExceptionToTrailers
 -- (even if the first /message/ from the client may not yet have been sent).
 getRequestMetadata :: Call rpc -> IO [CustomMetadata]
 getRequestMetadata Call{callRequestHeaders} =
-    return $ Map.toList $ requestMetadata callRequestHeaders
+    return $ customMetadataMapToList $ requestMetadata callRequestHeaders
 
 -- | Set the initial response metadata
 --
@@ -549,7 +549,7 @@ sendTrailersOnly Call{ callContext
         , trailersOnlyProper      = ProperTrailers {
               properTrailersGrpcStatus  = GrpcOk
             , properTrailersGrpcMessage = Nothing
-            , properTrailersMetadata    = Map.fromList metadata
+            , properTrailersMetadata    = customMetadataMapFromList metadata
             , properTrailersPushback    = Nothing
             }
         }

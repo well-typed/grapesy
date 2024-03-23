@@ -116,20 +116,23 @@ module Network.GRPC.Spec (
   , grpcExceptionToTrailers
   , grpcClassifyTermination
     -- * Metadata
-  , CustomMetadata
-  , HeaderValue(..)
-  , HeaderName(..)
-  , BinaryValue(..)
-  , AsciiValue(..)
+  , CustomMetadata(CustomMetadata)
+  , customMetadataName
+  , customMetadataValue
+  , safeCustomMetadata
+  , HeaderName(BinaryHeader, AsciiHeader)
+  , safeHeaderName
   , NoMetadata(..)
+    -- ** Handling of duplicate metadata entries
+  , CustomMetadataMap -- opaque
+  , customMetadataMapFromList
+  , customMetadataMapToList
+  , customMetadataMapInsert
     -- ** Serialization
   , buildBinaryValue
   , parseBinaryValue
   , parseCustomMetadata
   , buildCustomMetadata
-    -- ** Validation
-  , safeHeaderName
-  , safeAsciiValue
     -- * Content type
   , ContentType(..)
     -- * OpenTelemetry
@@ -145,6 +148,7 @@ import Network.GRPC.Spec.Call
 import Network.GRPC.Spec.Common
 import Network.GRPC.Spec.Compression
 import Network.GRPC.Spec.CustomMetadata
+import Network.GRPC.Spec.CustomMetadataMap
 import Network.GRPC.Spec.LengthPrefixed
 import Network.GRPC.Spec.PseudoHeaders
 import Network.GRPC.Spec.Request
