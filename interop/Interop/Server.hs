@@ -1,4 +1,7 @@
-module Interop.Server (server) where
+module Interop.Server (
+      withInteropServer
+    , runInteropServer
+    ) where
 
 import Control.Exception (SomeException)
 import Control.Monad.Catch (generalBracket, ExitCase(..))
@@ -62,12 +65,10 @@ services =
   Main server definition
 -------------------------------------------------------------------------------}
 
-server :: Cmdline -> IO ()
-server cmdline = showStartStop $
-    runServerWithHandlers
-      serverConfig
-      serverParams
-      (fromServices services)
+withInteropServer :: Cmdline -> (RunningServer -> IO a) -> IO a
+withInteropServer cmdline k = do
+    server <- mkGrpcServer serverParams $ fromServices services
+    forkServer serverConfig server k
   where
     serverConfig :: ServerConfig
     serverConfig
@@ -103,6 +104,11 @@ server cmdline = showStartStop $
          RequestHandler SomeException ()
       -> RequestHandler XIO.NeverThrows   ()
     swallowExceptions h req resp = h req resp `XIO.catchError` \_ -> return ()
+
+runInteropServer :: Cmdline -> IO ()
+runInteropServer cmdline = withInteropServer cmdline $ \server ->
+    showStartStop $
+      waitServer server
 
 {-------------------------------------------------------------------------------
   Internal auxiliary

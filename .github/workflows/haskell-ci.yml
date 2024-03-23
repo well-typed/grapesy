@@ -8,9 +8,9 @@
 #
 # For more information, see https://github.com/haskell-CI/haskell-ci
 #
-# version: 0.18.1
+# version: 0.19.20240316
 #
-# REGENDATA ("0.18.1",["github","cabal.project.ci"])
+# REGENDATA ("0.19.20240316",["github","cabal.project.ci"])
 #
 name: Haskell-CI
 on:
@@ -57,6 +57,7 @@ jobs:
           mkdir -p "$HOME/.ghcup/bin"
           curl -sL https://downloads.haskell.org/ghcup/0.1.19.2/x86_64-linux-ghcup-0.1.19.2 > "$HOME/.ghcup/bin/ghcup"
           chmod a+x "$HOME/.ghcup/bin/ghcup"
+          "$HOME/.ghcup/bin/ghcup" config add-release-channel https://raw.githubusercontent.com/haskell/ghcup-metadata/master/ghcup-prereleases-0.0.8.yaml;
           "$HOME/.ghcup/bin/ghcup" install ghc "$HCVER" || (cat "$HOME"/.ghcup/logs/*.* && false)
           "$HOME/.ghcup/bin/ghcup" install cabal 3.10.2.0 || (cat "$HOME"/.ghcup/logs/*.* && false)
           apt-get update
@@ -162,6 +163,16 @@ jobs:
           echo "package grapesy" >> cabal.project
           echo "    ghc-options: -Werror=missing-methods" >> cabal.project
           cat >> cabal.project <<EOF
+          source-repository-package
+            type:     git
+            location: https://github.com/edsko/network-run
+            tag:      06bb569825033f1f827f0f85791b8e70d21c90cb
+
+          source-repository-package
+            type:     git
+            location: https://github.com/edsko/http2-tls
+            tag:      ad2df272fcc11359cb381b95c19a7fdd08754c5d
+
           package grapesy
             tests:       True
             flags:       +build-demo +build-stress-test +build-interop +snappy

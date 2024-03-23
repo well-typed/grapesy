@@ -30,6 +30,7 @@ import Data.Set qualified as Set
 import Data.Text qualified as Text
 import Network.HTTP.Types qualified as HTTP
 import Network.HTTP2.Server qualified as HTTP2.Server
+import Network.Socket (PortNumber)
 import Network.TLS
 import Test.QuickCheck.Monadic qualified as QuickCheck
 import Test.Tasty.QuickCheck qualified as QuickCheck
@@ -44,8 +45,6 @@ import Network.GRPC.Server.Run qualified as Server
 import Network.GRPC.Spec
 
 import Paths_grapesy
-import Network.GRPC.Client (ConnParams(connOverridePingRateLimit))
-import Control.Applicative
 
 {-------------------------------------------------------------------------------
   Top-level
@@ -66,8 +65,15 @@ propClientServer mkTest =
 -------------------------------------------------------------------------------}
 
 data ClientServerConfig = ClientServerConfig {
+      -- | Port number used by the server
+      --
+      -- The client will query the server for its port; this makes it possible
+      -- to use @0@ for 'serverPort', so that the server picks a random
+      -- available port (this is the default).
+      serverPort :: PortNumber
+
       -- | Compression algorithms supported by the client
-      clientCompr :: Compr.Negotation
+    , clientCompr :: Compr.Negotation
 
       -- | Initial compression algorithm used by the client (if any)
     , clientInitCompr :: Maybe Compr.Compression
@@ -112,15 +118,16 @@ data ContentTypeOverride =
 
 instance Default ClientServerConfig where
   def = ClientServerConfig {
-      clientCompr       = def
-    , clientInitCompr   = Nothing
-    , serverCompr       = def
-    , useTLS            = Nothing
-    , clientContentType = NoOverride
-    , serverContentType = NoOverride
-    , expectEarlyClientTermination = False
-    , expectEarlyServerTermination = False
-    }
+        serverPort        = 0
+      , clientCompr       = def
+      , clientInitCompr   = Nothing
+      , serverCompr       = def
+      , useTLS            = Nothing
+      , clientContentType = NoOverride
+      , serverContentType = NoOverride
+      , expectEarlyClientTermination = False
+      , expectEarlyServerTermination = False
+      }
 
 {-------------------------------------------------------------------------------
   Configuration: TLS
@@ -443,13 +450,14 @@ topLevelWithHandlerLock cfg firstTestFailure (ServerHandlerLock lock) handler =
   Server
 -------------------------------------------------------------------------------}
 
-runTestServer ::
+withTestServer ::
      ClientServerConfig
   -> FirstTestFailure
   -> ServerHandlerLock
   -> [Server.RpcHandler IO]
-  -> IO ()
-runTestServer cfg firstTestFailure handlerLock serverHandlers = do
+  -> (Server.RunningServer -> IO a)
+  -> IO a
+withTestServer cfg firstTestFailure handlerLock serverHandlers k = do
     pubCert <- getDataFileName "grpc-demo.pem"
     privKey <- getDataFileName "grpc-demo.key"
 
@@ -459,14 +467,14 @@ runTestServer cfg firstTestFailure handlerLock serverHandlers = do
               Nothing -> Server.ServerConfig {
                   serverInsecure = Just Server.InsecureConfig {
                       insecureHost = Nothing
-                    , insecurePort = 50051
+                    , insecurePort = serverPort cfg
                     }
                 , serverSecure   = Nothing
                 }
               Just (TlsFail TlsFailUnsupported) -> Server.ServerConfig {
                   serverInsecure = Just Server.InsecureConfig {
                       insecureHost = Nothing
-                    , insecurePort = 50052
+                    , insecurePort = serverPort cfg
                     }
                 , serverSecure   = Nothing
                 }
@@ -474,7 +482,7 @@ runTestServer cfg firstTestFailure handlerLock serverHandlers = do
                   serverInsecure = Nothing
                 , serverSecure   = Just $ Server.SecureConfig {
                       secureHost       = "localhost"
-                    , securePort       = 50052
+                    , securePort       = serverPort cfg
                     , securePubCert    = pubCert
                     , secureChainCerts = []
                     , securePrivKey    = privKey
@@ -495,7 +503,8 @@ runTestServer cfg firstTestFailure handlerLock serverHandlers = do
                   InvalidOverride ctype -> Just ctype
             }
 
-    Server.runServerWithHandlers serverConfig serverParams serverHandlers
+    server <- Server.mkGrpcServer serverParams serverHandlers
+    Server.forkServer serverConfig server k
 
 {-------------------------------------------------------------------------------
   Client
@@ -521,9 +530,10 @@ simpleTestClient test params testServer delimitTestScope =
 runTestClient ::
      ClientServerConfig
   -> FirstTestFailure
+  -> PortNumber
   -> TestClient
   -> IO ()
-runTestClient cfg firstTestFailure clientRun = do
+runTestClient cfg firstTestFailure port clientRun = do
     pubCert <- getDataFileName "grpc-demo.pem"
 
     let clientParams :: Client.ConnParams
@@ -587,13 +597,13 @@ runTestClient cfg firstTestFailure clientRun = do
                   addressHost      = case tlsSetup of
                                        TlsFail TlsFailHostname -> "127.0.0.1"
                                        _otherwise              -> "localhost"
-                , addressPort      = 50052
+                , addressPort      = port
                 , addressAuthority = Nothing
                 }
 
               Nothing -> Client.Address {
                   addressHost      = "localhost"
-                , addressPort      = 50051
+                , addressPort      = port
                 , addressAuthority = Nothing
                 }
 
@@ -622,57 +632,76 @@ data ClientServerTest = ClientServerTest {
     }
 
 runTestClientServer :: ClientServerTest -> IO ()
-runTestClientServer (ClientServerTest cfg clientRun serverHandlers) = do
+runTestClientServer (ClientServerTest cfg clientRun handlers) = do
     -- Setup client and server
-    firstTestFailure  <- newEmptyTMVarIO
+    firstTestFailure  <- FirstTestFailure <$> newEmptyTMVarIO
     serverHandlerLock <- newServerHandlerLock
 
-    let server :: IO ()
-        server =
-          runTestServer
-            cfg
-            (FirstTestFailure firstTestFailure)
-            serverHandlerLock
-            serverHandlers
+    let server :: (Server.RunningServer -> IO a) -> IO a
+        server = withTestServer cfg firstTestFailure serverHandlerLock handlers
 
-    let client :: IO ()
-        client =
-          runTestClient
-            cfg
-            (FirstTestFailure firstTestFailure)
-            clientRun
+    let client :: PortNumber -> IO ()
+        client port = runTestClient cfg firstTestFailure port clientRun
 
     -- Run the test
-    --
-    -- Leaving the scope of both @withAsync@ calls will kill both the client and
-    -- server (if they are still running)
-    testResult :: Maybe SomeException <-
-      -- Start the server
-      withAsync server $ \_serverThread ->
-        -- Start the client
-        withAsync client $ \clientThread -> do
-          -- Wait for clients to terminate (or test failure)
-          -- (the 'orElse' is only relevant if a /handler/ throws an exception)
-          clientResult <- atomically $
-              (either Just (const Nothing) <$> waitCatchSTM clientThread)
-            `orElse`
-              (const Nothing <$> readTMVar firstTestFailure)
+    server $ \runningServer -> do
+      port <- Server.getServerPort runningServer
 
-          -- Wait for handlers to terminate (or test failure)
-          -- (Note that the server /itself/ normally never terminates)
-          atomically $
-              (waitForHandlerTermination serverHandlerLock)
-            `orElse`
-              (void $ readTMVar firstTestFailure)
+      withAsync (client port) $ \clientThread -> do
+        let failure = waitForFailure runningServer clientThread firstTestFailure
 
-          -- /If/ a 'firstFailure' is reported, we want to report it (it can
-          -- happen that the client threw an exception, but the /first/ failure
-          -- occurred in a server handler, say). However, if no first failure
-          -- was reported, but the client nonetheless threw an exception,
-          -- something has gone very wrong and we throw the client exception.
-          firstFailure <- atomically $ tryReadTMVar firstTestFailure
-          return $ firstFailure <|> clientResult
+        -- Wait for client to terminate (or test failure)
+        -- (the 'orElse' is only relevant if a /handler/ throws an exception)
+        atomically $
+            (void $ waitCatchSTM clientThread)
+          `orElse`
+            (void failure)
 
-    case testResult of
-      Nothing      -> return () -- Test passed
-      Just failure -> throwIO failure
+        -- Wait for handlers to terminate (or test failure)
+        -- (Note that the server /itself/ normally never terminates)
+        atomically $
+            (waitForHandlerTermination serverHandlerLock)
+          `orElse`
+            (void failure)
+
+        atomically $ do
+            (failure >>= throwSTM)
+          `orElse`
+            return ()
+
+-- | Wait for test failure (retries/blocks if tests have not yet failed)
+--
+-- /If/ a first test failure has been reported, we prefer to report it. It is
+-- however possible that either the server or the client threw an exception
+-- /without/ the 'FirstTestFailure' being populated; for example, this can
+-- happen if the server fails to start at all, or if there is a bug in the test
+-- framework itself.
+waitForFailure ::
+     Server.RunningServer  -- ^ Server
+  -> Async ()              -- ^ Client
+  -> FirstTestFailure      -- ^ First test failure
+  -> STM SomeException
+waitForFailure server client (FirstTestFailure firstTestFailure) =
+      (readTMVar firstTestFailure)
+    `orElse`
+      (Server.waitServerSTM server >>= serverAux)
+    `orElse`
+      (waitCatchSTM client >>= clientAux)
+  where
+    serverAux ::
+         ( Either SomeException ()
+         , Either SomeException ()
+         )
+      -> STM SomeException
+    serverAux (Left e, _) = return e
+    serverAux (_, Left e) = return e
+    serverAux _otherwise  = throwSTM $ UnexpectedServerTermination
+
+    clientAux :: Either SomeException () -> STM SomeException
+    clientAux (Left e)   = return e
+    clientAux _otherwise = retry
+
+-- | We don't expect the server to shutdown until we kill it
+data UnexpectedServerTermination = UnexpectedServerTermination
+  deriving stock (Show)
+  deriving anyclass (Exception)

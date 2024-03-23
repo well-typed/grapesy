@@ -26,6 +26,10 @@ module Network.GRPC.Common (
     -- * Configuration
   , SslKeyLog(..)
 
+    -- * Defaults
+  , defaultInsecurePort
+  , defaultSecurePort
+
     -- * Exceptions
   , GrpcException(..)
   , GrpcError(..)
@@ -43,6 +47,7 @@ module Network.GRPC.Common (
 
 import Data.Default
 import Data.Proxy
+import Network.Socket (PortNumber)
 
 import Control.Exception
 
@@ -50,6 +55,23 @@ import Network.GRPC.Common.StreamElem (StreamElem(..))
 import Network.GRPC.Spec
 import Network.GRPC.Util.Session qualified as Session
 import Network.GRPC.Util.TLS
+
+{-------------------------------------------------------------------------------
+  Defaults
+-------------------------------------------------------------------------------}
+
+-- | Default port number for insecure servers
+--
+-- By convention, @50051@ is often used as the default port for gRPC servers.
+defaultInsecurePort :: PortNumber
+defaultInsecurePort = 50051
+
+-- | Default port number for secure servers (50052)
+--
+-- Unlike 'defaultInsecurePort', this is a @grapesy@ internal convention: we use
+-- @50052@ as the defualt port for secure gRPC servers.
+defaultSecurePort :: PortNumber
+defaultSecurePort = 50052
 
 {-------------------------------------------------------------------------------
   Exceptions

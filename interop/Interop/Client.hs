@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Interop.Client (client) where
+module Interop.Client (runInteropClient) where
 
 import Control.Exception
 import Control.Monad
@@ -35,8 +35,8 @@ import Interop.Client.TestCase.TimeoutOnSleepingServer   qualified as TimeoutOnS
   Top-level
 -------------------------------------------------------------------------------}
 
-client :: Cmdline -> IO ()
-client cmdline = do
+runInteropClient :: Cmdline -> IO ()
+runInteropClient cmdline = do
     stats <- newIORef initTestStats
 
     case cmdTestCase cmdline of
