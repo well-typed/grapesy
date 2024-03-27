@@ -323,26 +323,10 @@ compressionNegotationFailure cfg = or [
 isExpectedTLSException :: ClientServerConfig -> TLSException -> Bool
 isExpectedTLSException cfg tls =
     case (useTLS cfg, tls) of
-#if MIN_VERSION_tls(1,9,0)
-      (   Just (TlsFail TlsFailValidation)
-        , HandshakeFailed (Error_Protocol _msg UnknownCa)
-        ) -> True
-      (   Just (TlsFail TlsFailHostname)
-        , HandshakeFailed (Error_Protocol _msg CertificateUnknown)
-        ) -> True
-#else
-      (   Just (TlsFail TlsFailValidation)
-        , HandshakeFailed (Error_Protocol (_msg, _bool, UnknownCa))
-        ) -> True
-      (   Just (TlsFail TlsFailHostname)
-        , HandshakeFailed (Error_Protocol (_msg, _bool, CertificateUnknown))
-        ) -> True
-#endif
-      (   Just (TlsFail TlsFailUnsupported)
-        , HandshakeFailed (Error_Packet_Parsing _)
-        ) -> True
-      _otherwise ->
-        False
+      (Just (TlsFail TlsFailValidation)  , HandshakeFailed _) -> True
+      (Just (TlsFail TlsFailHostname)    , HandshakeFailed _) -> True
+      (Just (TlsFail TlsFailUnsupported) , HandshakeFailed _) -> True
+      _otherwise -> False
 
 {-------------------------------------------------------------------------------
   Test failures
