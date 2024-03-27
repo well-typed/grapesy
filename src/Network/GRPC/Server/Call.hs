@@ -133,7 +133,7 @@ kickoffCallStack (KickoffTrailersOnly cs _) = cs
 --
 -- No response is sent to the caller.
 setupCall :: forall rpc.
-     IsRPC rpc
+     SupportsServerRpc rpc
   => Server.ConnectionToClient
   -> ServerContext
   -> XIO' CallSetupFailure (Call rpc)

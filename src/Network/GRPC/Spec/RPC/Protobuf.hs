@@ -39,20 +39,30 @@ instance ( Typeable           serv
   type Input  (Protobuf serv meth) = MethodInput  serv meth
   type Output (Protobuf serv meth) = MethodOutput serv meth
 
-  rpcContentType         _ = defaultRpcContentType "proto"
-  rpcServiceName         _ = Text.pack $ concat [
-                                 symbolVal $ Proxy @(ServicePackage serv)
-                               , "."
-                               , symbolVal $ Proxy @(ServiceName serv)
-                               ]
-  rpcMethodName          _ = Text.pack . symbolVal $
-                               Proxy @(MethodName serv meth)
-  rpcMessageType         _ = Protobuf.messageName $
-                               Proxy @(MethodInput serv meth)
-  rpcSerializeInput      _ = Builder.toLazyByteString . Protobuf.buildMessage
-  rpcSerializeOutput     _ = Builder.toLazyByteString . Protobuf.buildMessage
-  rpcDeserializeInput    _ = Protobuf.runParser parseMessage . BS.Lazy.toStrict
-  rpcDeserializeOutput   _ = Protobuf.runParser parseMessage . BS.Lazy.toStrict
+  rpcContentType _ = defaultRpcContentType "proto"
+  rpcServiceName _ = Text.pack $ concat [
+                         symbolVal $ Proxy @(ServicePackage serv)
+                       , "."
+                       , symbolVal $ Proxy @(ServiceName serv)
+                       ]
+  rpcMethodName  _ = Text.pack . symbolVal $ Proxy @(MethodName  serv meth)
+  rpcMessageType _ = Protobuf.messageName  $ Proxy @(MethodInput serv meth)
+
+instance ( Typeable           serv
+         , HasMethodImpl      serv meth
+         , Show (MethodInput  serv meth)
+         , Show (MethodOutput serv meth)
+         ) => SupportsClientRpc (Protobuf serv meth) where
+  rpcSerializeInput    _ = Builder.toLazyByteString . Protobuf.buildMessage
+  rpcDeserializeOutput _ = Protobuf.runParser parseMessage . BS.Lazy.toStrict
+
+instance ( Typeable           serv
+         , HasMethodImpl      serv meth
+         , Show (MethodInput  serv meth)
+         , Show (MethodOutput serv meth)
+         ) => SupportsServerRpc (Protobuf serv meth) where
+  rpcDeserializeInput _ = Protobuf.runParser parseMessage . BS.Lazy.toStrict
+  rpcSerializeOutput  _ = Builder.toLazyByteString . Protobuf.buildMessage
 
 instance styp ~ MethodStreamingType serv meth
       => SupportsStreamingType (Protobuf serv meth) styp

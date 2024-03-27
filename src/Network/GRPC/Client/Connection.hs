@@ -276,7 +276,7 @@ withConnection connParams server k = do
 -- itself will not block. This non-blocking nature makes this safe to use
 -- in 'bracket' patterns.
 startRPC :: forall rpc.
-     (IsRPC rpc, HasCallStack)
+     (SupportsClientRpc rpc, HasCallStack)
   => Connection
   -> Proxy rpc
   -> CallParams

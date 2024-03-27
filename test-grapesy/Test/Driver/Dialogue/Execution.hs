@@ -37,16 +37,16 @@ type TestRpc1 = BinaryRpc "dialogue" "test1"
 type TestRpc2 = BinaryRpc "dialogue" "test2"
 type TestRpc3 = BinaryRpc "dialogue" "test3"
 
-withProxy ::
+withClientProxy ::
      RPC
   -> (forall serv meth.
-          IsRPC (BinaryRpc serv meth)
+          SupportsClientRpc (BinaryRpc serv meth)
        => Proxy (BinaryRpc serv meth)
        -> a)
   -> a
-withProxy RPC1 k = k (Proxy @TestRpc1)
-withProxy RPC2 k = k (Proxy @TestRpc2)
-withProxy RPC3 k = k (Proxy @TestRpc3)
+withClientProxy RPC1 k = k (Proxy @TestRpc1)
+withClientProxy RPC2 k = k (Proxy @TestRpc2)
+withClientProxy RPC3 k = k (Proxy @TestRpc3)
 
 {-------------------------------------------------------------------------------
   Test failures
@@ -315,7 +315,7 @@ clientGlobal clock connPerRPC global connParams testServer delimitTestScope =
                     Client.callRequestMetadata = getMetadata metadata
                   }
 
-            withProxy rpc $ \proxy ->
+            withClientProxy rpc $ \proxy ->
               (case mConn of
                   Just conn -> ($ conn)
                   Nothing   -> withConn) $ \conn ->
@@ -498,7 +498,7 @@ execGlobalSteps steps = do
     clock          <- TestClock.new
 
     let handler ::
-             IsRPC (BinaryRpc serv meth)
+             SupportsServerRpc (BinaryRpc serv meth)
           => Proxy (BinaryRpc serv meth) -> Server.RpcHandler IO
         handler rpc = Server.mkRpcHandler rpc $ \call ->
                         serverGlobal clock globalStepsVar call

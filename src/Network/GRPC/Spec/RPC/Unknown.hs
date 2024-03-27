@@ -30,14 +30,22 @@ instance ( MaybeKnown serv
   type Input  (UnknownRpc serv meth) = Void
   type Output (UnknownRpc serv meth) = Void
 
-  rpcContentType         = const "application/grpc"
-  rpcServiceName         = const $ Text.pack $ maybeSymbolVal (Proxy @serv)
-  rpcMethodName          = const $ Text.pack $ maybeSymbolVal (Proxy @meth)
-  rpcMessageType         = const "Void"
-  rpcSerializeInput      = const absurd
-  rpcSerializeOutput     = const absurd
-  rpcDeserializeInput    = const $ \_ -> Left "absurd"
-  rpcDeserializeOutput   = const $ \_ -> Left "absurd"
+  rpcContentType = const "application/grpc"
+  rpcServiceName = const $ Text.pack $ maybeSymbolVal (Proxy @serv)
+  rpcMethodName  = const $ Text.pack $ maybeSymbolVal (Proxy @meth)
+  rpcMessageType = const "Void"
+
+instance ( MaybeKnown serv
+         , MaybeKnown meth
+         ) => SupportsClientRpc (UnknownRpc serv meth) where
+  rpcSerializeInput    = const absurd
+  rpcDeserializeOutput = const $ \_ -> Left "absurd"
+
+instance ( MaybeKnown serv
+         , MaybeKnown meth
+         ) => SupportsServerRpc (UnknownRpc serv meth) where
+  rpcDeserializeInput = const $ \_ -> Left "absurd"
+  rpcSerializeOutput  = const absurd
 
 class Typeable msym => MaybeKnown (msym :: Maybe Symbol) where
   maybeSymbolVal :: HasCallStack => Proxy msym -> String

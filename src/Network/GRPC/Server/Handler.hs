@@ -69,7 +69,7 @@ import Network.GRPC.Spec
 -- terminates early (that is, before sending the final output and trailers), a
 -- 'Network.GRPC.Server.HandlerTerminated' exception will be raised and sent to
 -- the client as 'GrpcException' with 'GrpcUnknown' error code.
-data RpcHandler m = forall rpc. IsRPC rpc => RpcHandler {
+data RpcHandler m = forall rpc. SupportsServerRpc rpc => RpcHandler {
       -- | Handler proper
       runRpcHandler :: Call rpc -> m ()
     }
@@ -85,7 +85,9 @@ instance Show (RpcHandler m) where
 -------------------------------------------------------------------------------}
 
 -- | Constructor for 'RpcHandler'
-mkRpcHandler :: IsRPC rpc => Proxy rpc -> (Call rpc -> m ()) -> RpcHandler m
+mkRpcHandler ::
+     SupportsServerRpc rpc
+  => Proxy rpc -> (Call rpc -> m ()) -> RpcHandler m
 mkRpcHandler _ = RpcHandler
 
 {-------------------------------------------------------------------------------

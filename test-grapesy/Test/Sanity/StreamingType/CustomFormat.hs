@@ -96,14 +96,18 @@ instance CalculatorFunction fun => IsRPC (Calc fun) where
   type Input  (Calc fun) = CalcInput  fun
   type Output (Calc fun) = CalcOutput fun
 
-  rpcContentType         _ = defaultRpcContentType "cbor"
-  rpcMessageType         _ = "cbor"
-  rpcServiceName         _ = "calculator"
-  rpcMethodName          _ = calculatorMethod (Proxy @fun)
-  rpcSerializeInput      _ = Cbor.serialise @(CalcInput  fun)
-  rpcSerializeOutput     _ = Cbor.serialise @(CalcOutput fun)
-  rpcDeserializeInput    _ = first show . Cbor.deserialiseOrFail @(CalcInput  fun)
-  rpcDeserializeOutput   _ = first show . Cbor.deserialiseOrFail @(CalcOutput fun)
+  rpcContentType _ = defaultRpcContentType "cbor"
+  rpcMessageType _ = "cbor"
+  rpcServiceName _ = "calculator"
+  rpcMethodName  _ = calculatorMethod (Proxy @fun)
+
+instance CalculatorFunction fun => SupportsClientRpc (Calc fun) where
+  rpcSerializeInput    _ = Cbor.serialise @(CalcInput  fun)
+  rpcDeserializeOutput _ = first show . Cbor.deserialiseOrFail @(CalcOutput fun)
+
+instance CalculatorFunction fun => SupportsServerRpc (Calc fun) where
+  rpcDeserializeInput _ = first show . Cbor.deserialiseOrFail @(CalcInput  fun)
+  rpcSerializeOutput  _ = Cbor.serialise @(CalcOutput fun)
 
 {-------------------------------------------------------------------------------
   Tests proper

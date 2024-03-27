@@ -8,6 +8,8 @@
 module Network.GRPC.Spec (
     -- * RPC
     IsRPC(..)
+  , SupportsClientRpc(..)
+  , SupportsServerRpc(..)
   , defaultRpcContentType
     -- ** Instances
   , Protobuf

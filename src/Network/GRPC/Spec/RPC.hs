@@ -2,6 +2,8 @@
 
 module Network.GRPC.Spec.RPC (
     IsRPC(..)
+  , SupportsServerRpc(..)
+  , SupportsClientRpc(..)
   , defaultRpcContentType
   ) where
 
@@ -79,6 +81,10 @@ class ( Typeable rpc -- for use in exceptions
   -- For Protobuf, this is the fully qualified message type.
   rpcMessageType :: HasCallStack => Proxy rpc -> Text
 
+defaultRpcContentType :: Strict.ByteString -> Strict.ByteString
+defaultRpcContentType format = "application/grpc+" <> format
+
+class IsRPC rpc => SupportsClientRpc rpc where
   -- | Serialize RPC input
   --
   -- We don't ask for a builder here, but instead ask for the complete
@@ -91,9 +97,15 @@ class ( Typeable rpc -- for use in exceptions
   -- \"encode\"/\"decode\", which could refer to either process.
   rpcSerializeInput :: Proxy rpc -> Input rpc -> Lazy.ByteString
 
-  -- | Serialize RPC output
-  rpcSerializeOutput :: Proxy rpc -> Output rpc -> Lazy.ByteString
+  -- | Deserialize RPC output
+  --
+  -- Discussion of 'deserializeInput' applies here, also.
+  rpcDeserializeOutput ::
+       Proxy rpc
+    -> Lazy.ByteString
+    -> Either String (Output rpc)
 
+class IsRPC rpc => SupportsServerRpc rpc where
   -- | Deserialize RPC input
   --
   -- This function does not have to deal with compression or length prefixes,
@@ -104,13 +116,7 @@ class ( Typeable rpc -- for use in exceptions
     -> Lazy.ByteString
     -> Either String (Input rpc)
 
-  -- | Deserialize RPC output
-  --
-  -- Discussion of 'deserializeInput' applies here, also.
-  rpcDeserializeOutput ::
-       Proxy rpc
-    -> Lazy.ByteString
-    -> Either String (Output rpc)
+  -- | Serialize RPC output
+  rpcSerializeOutput :: Proxy rpc -> Output rpc -> Lazy.ByteString
 
-defaultRpcContentType :: Strict.ByteString -> Strict.ByteString
-defaultRpcContentType format = "application/grpc+" <> format
+

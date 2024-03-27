@@ -75,7 +75,7 @@ import Network.GRPC.Util.Thread qualified as Thread
 -- exception is raised (but the call is nonetheless still closed, and the server
 -- handler will be informed that the client has disappeared).
 withRPC :: forall m rpc a.
-     (MonadMask m, MonadIO m, IsRPC rpc, HasCallStack)
+     (MonadMask m, MonadIO m, SupportsClientRpc rpc, HasCallStack)
   => Connection -> CallParams -> Proxy rpc -> (Call rpc -> m a) -> m a
 withRPC conn callParams proxy k = fmap fst $
       generalBracket

@@ -55,7 +55,7 @@ instance IsRPC rpc => DataFlow (ServerOutbound rpc) where
   type Trailers   (ServerOutbound rpc) = ProperTrailers
   type NoMessages (ServerOutbound rpc) = TrailersOnly
 
-instance IsRPC rpc => IsSession (ServerSession rpc) where
+instance SupportsServerRpc rpc => IsSession (ServerSession rpc) where
   type Inbound  (ServerSession rpc) = ServerInbound rpc
   type Outbound (ServerSession rpc) = ServerOutbound rpc
 
@@ -65,7 +65,7 @@ instance IsRPC rpc => IsSession (ServerSession rpc) where
   parseMsg _ = parseInput  (Proxy @rpc) . inbCompression
   buildMsg _ = buildOutput (Proxy @rpc) . outCompression
 
-instance IsRPC rpc => AcceptSession (ServerSession rpc) where
+instance SupportsServerRpc rpc => AcceptSession (ServerSession rpc) where
   parseRequestRegular server headers = do
       requestHeaders :: RequestHeaders <-
         case parseRequestHeaders (Proxy @rpc) headers of
