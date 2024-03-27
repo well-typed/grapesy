@@ -35,14 +35,23 @@ class StreamingRpcHandler h where
   -- construct a list of 'RpcHandler's manually, without a type-level
   -- specification of the server's API, you can use 'streamingRpcHandler'.
   streamingRpcHandler ::
-        (MonadIO m, SupportsServerRpc rpc)
+        ( SupportsServerRpc rpc
+        , Default (ResponseInitialMetadata rpc)
+        , Default (ResponseTrailingMetadata rpc)
+        , MonadIO m
+        )
      => Proxy rpc -> h m rpc -> RpcHandler m
 
 -- | Proxy-free wrapper around 'streamingRpcHandler'
 --
 -- This can be used if the streaming type is clear from context.
 streamingRpcHandler' :: forall m rpc h.
-       (MonadIO m, SupportsServerRpc rpc, StreamingRpcHandler h)
+       ( StreamingRpcHandler h
+       , SupportsServerRpc rpc
+       , Default (ResponseInitialMetadata rpc)
+       , Default (ResponseTrailingMetadata rpc)
+       , MonadIO m
+       )
     => h m rpc -> RpcHandler m
 streamingRpcHandler' = streamingRpcHandler (Proxy @rpc)
 
@@ -141,8 +150,10 @@ data Methods (m :: Type -> Type) (rpcs :: [Type]) where
   NoMoreMethods :: Methods m '[]
 
   Method ::
-       ( SupportsServerRpc rpc
-       , StreamingRpcHandler h
+       ( StreamingRpcHandler h
+       , SupportsServerRpc rpc
+       , Default (ResponseInitialMetadata rpc)
+       , Default (ResponseTrailingMetadata rpc)
        , h ~ HandlerFor (RpcStreamingType rpc)
        )
     => h m rpc

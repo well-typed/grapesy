@@ -8,6 +8,8 @@ import Data.Void
 import GHC.Stack
 import GHC.TypeLits
 
+import Network.GRPC.Spec.CustomMetadata.NoMetadata
+import Network.GRPC.Spec.CustomMetadata.Typed
 import Network.GRPC.Spec.RPC
 
 -- | Unknown RPC
@@ -23,6 +25,11 @@ import Network.GRPC.Spec.RPC
 -- @application/grpc@, with no format specifier. Fortunately, this is allowed
 -- by the spec.
 data UnknownRpc (serv :: Maybe Symbol) (meth :: Maybe Symbol)
+
+instance HasCustomMetadata (UnknownRpc serv meth) where
+  type RequestMetadata          (UnknownRpc serv meth) = NoMetadata
+  type ResponseInitialMetadata  (UnknownRpc serv meth) = NoMetadata
+  type ResponseTrailingMetadata (UnknownRpc serv meth) = NoMetadata
 
 instance ( MaybeKnown serv
          , MaybeKnown meth

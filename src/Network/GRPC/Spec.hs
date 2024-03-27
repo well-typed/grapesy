@@ -125,6 +125,7 @@ module Network.GRPC.Spec (
   , HeaderName(BinaryHeader, AsciiHeader)
   , safeHeaderName
   , NoMetadata(..)
+  , UnexpectedMetadata(..)
     -- ** Handling of duplicate metadata entries
   , CustomMetadataMap -- opaque
   , customMetadataMapFromList
@@ -135,6 +136,18 @@ module Network.GRPC.Spec (
   , parseBinaryValue
   , parseCustomMetadata
   , buildCustomMetadata
+    -- ** Typed
+  , BuildMetadata(..)
+  , ParseMetadata(..)
+  , StaticMetadata(..)
+  , HasCustomMetadata(..)
+  , ResponseMetadata(..)
+  , RawMetadata(..)
+    --- ** Overrides
+  , OverrideMetadata
+  , OverrideRequestMetadata
+  , OverrideResponseInitialMetadata
+  , OverrideResponseTrailingMetadata
     -- * Content type
   , ContentType(..)
     -- * OpenTelemetry
@@ -152,6 +165,7 @@ import Network.GRPC.Spec.Compression
 import Network.GRPC.Spec.CustomMetadata.Map
 import Network.GRPC.Spec.CustomMetadata.NoMetadata
 import Network.GRPC.Spec.CustomMetadata.Raw
+import Network.GRPC.Spec.CustomMetadata.Typed
 import Network.GRPC.Spec.LengthPrefixed
 import Network.GRPC.Spec.PseudoHeaders
 import Network.GRPC.Spec.Request

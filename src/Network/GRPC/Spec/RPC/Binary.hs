@@ -7,6 +7,8 @@ import Data.Proxy
 import Data.Text qualified as Text
 import GHC.TypeLits
 
+import Network.GRPC.Spec.CustomMetadata.NoMetadata
+import Network.GRPC.Spec.CustomMetadata.Typed
 import Network.GRPC.Spec.RPC
 import Network.GRPC.Spec.RPC.StreamType
 
@@ -23,6 +25,11 @@ import Network.GRPC.Spec.RPC.StreamType
 -- This is a non-standard format (which the gRPC specification explicitly
 -- permits).
 data BinaryRpc (serv :: Symbol) (meth :: Symbol)
+
+instance HasCustomMetadata (BinaryRpc serv meth) where
+  type RequestMetadata          (BinaryRpc serv meth) = NoMetadata
+  type ResponseInitialMetadata  (BinaryRpc serv meth) = NoMetadata
+  type ResponseTrailingMetadata (BinaryRpc serv meth) = NoMetadata
 
 instance ( KnownSymbol serv
          , KnownSymbol meth

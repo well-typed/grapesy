@@ -76,7 +76,7 @@ import Network.GRPC.Util.Thread qualified as Thread
 -- handler will be informed that the client has disappeared).
 withRPC :: forall m rpc a.
      (MonadMask m, MonadIO m, SupportsClientRpc rpc, HasCallStack)
-  => Connection -> CallParams -> Proxy rpc -> (Call rpc -> m a) -> m a
+  => Connection -> CallParams rpc -> Proxy rpc -> (Call rpc -> m a) -> m a
 withRPC conn callParams proxy k = fmap fst $
       generalBracket
         (liftIO $ Connection.startRPC conn proxy callParams)
@@ -178,15 +178,15 @@ sendInputWithEnvelope Call{callChannel} msg = liftIO $ do
 recvOutput :: forall m rpc.
      (MonadIO m, HasCallStack)
   => Call rpc
-  -> m (StreamElem [CustomMetadata] (Output rpc))
-recvOutput call = liftIO $
+  -> m (StreamElem (ResponseTrailingMetadata rpc) (Output rpc))
+recvOutput call@Call{} = liftIO $
     recvOutputWithEnvelope call >>= bitraverse aux (return . snd)
   where
-    aux :: ProperTrailers -> IO [CustomMetadata]
+    aux :: ProperTrailers -> IO (ResponseTrailingMetadata rpc)
     aux trailers =
         case grpcClassifyTermination trailers of
-          Right terminatedNormally ->
-            return $ grpcTerminatedMetadata terminatedNormally
+          Right terminatedNormally -> do
+            parseMetadata $ grpcTerminatedMetadata terminatedNormally
           Left exception ->
             throwM exception
 
@@ -219,21 +219,25 @@ recvOutputWithEnvelope Call{callChannel} = liftIO $
 --   returns any replies.
 -- * The response metadata /will/ be available before the first output from the
 --   server, and may indeed be available /well/ before.
-recvResponseMetadata :: Call rpc -> IO [CustomMetadata]
-recvResponseMetadata call =
+--
+-- TODO: Update docs
+recvResponseMetadata :: forall rpc. Call rpc -> IO (ResponseMetadata rpc)
+recvResponseMetadata call@Call{} =
     recvInitialResponse call >>= aux
   where
-    aux :: Either TrailersOnly ResponseHeaders -> IO [CustomMetadata]
+    aux :: Either TrailersOnly ResponseHeaders -> IO (ResponseMetadata rpc)
     aux (Left trailers) =
         case grpcClassifyTermination properTrailers of
           Left exception ->
             throwM exception
-          Right terminatedNormally ->
-            return $ grpcTerminatedMetadata terminatedNormally
+          Right terminatedNormally -> do
+            ResponseTrailingMetadata <$>
+              parseMetadata (grpcTerminatedMetadata terminatedNormally)
       where
         (properTrailers, _contentType) = trailersOnlyToProperTrailers trailers
     aux (Right headers) =
-       return $ customMetadataMapToList $ responseMetadata headers
+        ResponseInitialMetadata <$>
+          parseMetadata (customMetadataMapToList $ responseMetadata headers)
 
 -- | Return the initial response from the server
 --
@@ -303,7 +307,7 @@ recvNextOutput call@Call{} = liftIO $ do
 recvFinalOutput :: forall m rpc.
      (MonadIO m, HasCallStack)
   => Call rpc
-  -> m (Output rpc, [CustomMetadata])
+  -> m (Output rpc, ResponseTrailingMetadata rpc)
 recvFinalOutput call@Call{} = liftIO $ do
     out1 <- recvOutput call
     case out1 of
@@ -324,7 +328,7 @@ recvFinalOutput call@Call{} = liftIO $ do
 -- Throws 'ProtocolException' if we received an output.
 recvTrailers :: forall m rpc.
      (MonadIO m, HasCallStack)
-  => Call rpc -> m [CustomMetadata]
+  => Call rpc -> m (ResponseTrailingMetadata rpc)
 recvTrailers call@Call{} = liftIO $ do
     mOut <- recvOutput call
     case mOut of
@@ -364,10 +368,10 @@ recvAllOutputs :: forall m rpc.
      MonadIO m
   => Call rpc
   -> (Output rpc -> m ())
-  -> m [CustomMetadata]
+  -> m (ResponseTrailingMetadata rpc)
 recvAllOutputs call processOutput = loop
   where
-    loop :: m [CustomMetadata]
+    loop :: m (ResponseTrailingMetadata rpc)
     loop = do
         mOut <- recvOutput call
         case mOut of

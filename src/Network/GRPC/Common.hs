@@ -24,6 +24,19 @@ module Network.GRPC.Common (
   , HeaderName(BinaryHeader, AsciiHeader)
   , NoMetadata(..)
 
+    -- ** Typed metadata
+  , HasCustomMetadata(..)
+  , ResponseMetadata(..)
+  , BuildMetadata(..)
+  , ParseMetadata(..)
+  , StaticMetadata(..)
+
+    -- ** Overrides
+  , OverrideMetadata
+  , OverrideRequestMetadata
+  , OverrideResponseInitialMetadata
+  , OverrideResponseTrailingMetadata
+
     -- * Configuration
   , SslKeyLog(..)
 
@@ -32,10 +45,11 @@ module Network.GRPC.Common (
   , defaultSecurePort
 
     -- * Exceptions
-  , GrpcException(..)
   , GrpcError(..)
+  , GrpcException(..)
   , ProtocolException(..)
   , SomeProtocolException(..)
+  , UnexpectedMetadata(..)
 
     -- ** Low-level
   , Session.ChannelDiscarded(..)
@@ -92,7 +106,7 @@ data ProtocolException rpc =
   | TooManyInputs (Input rpc)
 
     -- | We expected an output, but got trailers instead
-  | TooFewOutputs [CustomMetadata]
+  | TooFewOutputs (ResponseTrailingMetadata rpc)
 
     -- | We expected trailers, but got an output instead
   | TooManyOutputs (Output rpc)

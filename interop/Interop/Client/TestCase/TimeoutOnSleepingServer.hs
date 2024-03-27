@@ -24,7 +24,7 @@ runTest cmdline =
             _resp <- recvNextOutput call
             return ()
   where
-    callParams :: CallParams
+    callParams :: CallParams FullDuplexCall
     callParams = def {
           callTimeout = Just $ Timeout Millisecond (TimeoutValue 1)
         }

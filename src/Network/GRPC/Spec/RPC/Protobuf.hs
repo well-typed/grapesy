@@ -14,6 +14,8 @@ import Data.Proxy
 import Data.Text qualified as Text
 import GHC.TypeLits
 
+import Network.GRPC.Spec.CustomMetadata.NoMetadata
+import Network.GRPC.Spec.CustomMetadata.Typed
 import Network.GRPC.Spec.RPC
 import Network.GRPC.Spec.RPC.StreamType
 
@@ -29,6 +31,11 @@ import Network.GRPC.Spec.RPC.StreamType
 --
 -- This exists only as a type-level marker
 data Protobuf (serv :: Type) (meth :: Symbol)
+
+instance HasCustomMetadata (Protobuf serv meth) where
+  type RequestMetadata          (Protobuf serv meth) = NoMetadata
+  type ResponseInitialMetadata  (Protobuf serv meth) = NoMetadata
+  type ResponseTrailingMetadata (Protobuf serv meth) = NoMetadata
 
 instance ( HasMethodImpl      serv meth
          , Show (MethodInput  serv meth)

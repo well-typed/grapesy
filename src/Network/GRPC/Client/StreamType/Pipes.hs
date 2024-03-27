@@ -56,7 +56,7 @@ biDiStreaming :: forall rpc a.
      SupportsClientRpc rpc
   => SupportsStreamingType rpc BiDiStreaming
   => Connection
-  -> CallParams
+  -> CallParams rpc
   -> Proxy rpc
   -> (    Consumer' (StreamElem NoMetadata (Input rpc)) IO ()
        -> Producer' (Output rpc) IO ()

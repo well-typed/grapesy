@@ -73,7 +73,7 @@ import Network.GRPC.Util.Session.Server qualified as Server
 -------------------------------------------------------------------------------}
 
 -- | Open connection to a client
-data Call rpc = IsRPC rpc => Call {
+data Call rpc = SupportsServerRpc rpc => Call {
       -- | Server context (across all calls)
       callContext :: ServerContext
 
@@ -92,7 +92,7 @@ data Call rpc = IsRPC rpc => Call {
       --
       -- Can be updated until the first message (see 'callFirstMessage'), at
       -- which point it /must/ have been set (if not, an exception is thrown).
-    , callResponseMetadata :: TVar (Maybe [CustomMetadata])
+    , callResponseMetadata :: TVar (Maybe (ResponseInitialMetadata rpc))
 
       -- | What kicked off the response?
       --
@@ -189,7 +189,7 @@ setupCall conn callContext@ServerContext{params} = do
     req = Server.request conn
 
     mkOutboundHeaders ::
-         TVar (Maybe [CustomMetadata])
+         TVar (Maybe (ResponseInitialMetadata rpc))
       -> TMVar Kickoff
       -> Compression
       -> IO (Session.FlowStart (ServerOutbound rpc))
@@ -202,7 +202,7 @@ setupCall conn callContext@ServerContext{params} = do
         responseMetadata <- do
           mMetadata <- atomically $ readTVar metadataVar
           case mMetadata of
-            Just md -> return md
+            Just md -> return $ buildMetadata md
             Nothing -> throwIO $ ResponseInitialMetadataNotSet
 
         -- Session start
@@ -405,7 +405,8 @@ recvInputWithEnvelope Call{callChannel} =
 -- return until the message has been written to the HTTP2 stream).
 sendOutput ::
      HasCallStack
-  => Call rpc -> StreamElem [CustomMetadata] (Output rpc) -> IO ()
+  => Call rpc
+  -> StreamElem (ResponseTrailingMetadata rpc) (Output rpc) -> IO ()
 sendOutput call = sendOutputWithEnvelope call . fmap (def,)
 
 -- | Generalization of 'sendOutput' with additional control
@@ -414,10 +415,10 @@ sendOutput call = sendOutputWithEnvelope call . fmap (def,)
 -- messages.
 --
 -- Most applications will never need to use this function.
-sendOutputWithEnvelope ::
+sendOutputWithEnvelope :: forall rpc.
      HasCallStack
   => Call rpc
-  -> StreamElem [CustomMetadata] (OutboundEnvelope, Output rpc)
+  -> StreamElem (ResponseTrailingMetadata rpc) (OutboundEnvelope, Output rpc)
   -> IO ()
 sendOutputWithEnvelope call@Call{callChannel} msg = do
     _updated <- initiateResponse call
@@ -430,11 +431,12 @@ sendOutputWithEnvelope call@Call{callChannel} msg = do
     StreamElem.whenDefinitelyFinal msg $ \_ ->
       void $ Session.waitForOutbound callChannel
   where
-    mkTrailers :: [CustomMetadata] -> ProperTrailers
+    mkTrailers :: ResponseTrailingMetadata rpc -> ProperTrailers
     mkTrailers metadata = ProperTrailers {
           properTrailersGrpcStatus  = GrpcOk
         , properTrailersGrpcMessage = Nothing
-        , properTrailersMetadata    = customMetadataMapFromList metadata
+        , properTrailersMetadata    = customMetadataMapFromList $
+                                        buildMetadata metadata
         , properTrailersPushback    = Nothing
         }
 
@@ -465,9 +467,10 @@ sendGrpcException call = sendProperTrailers call . grpcExceptionToTrailers
 -- The request metadata is included in the client's request headers when they
 -- first make the request, and is therefore available immediately to the handler
 -- (even if the first /message/ from the client may not yet have been sent).
-getRequestMetadata :: Call rpc -> IO [CustomMetadata]
+getRequestMetadata :: Call rpc -> IO (RequestMetadata rpc)
 getRequestMetadata Call{callRequestHeaders} =
-    return $ customMetadataMapToList $ requestMetadata callRequestHeaders
+    parseMetadata . customMetadataMapToList $
+      requestMetadata callRequestHeaders
 
 -- | Set the initial response metadata
 --
@@ -481,7 +484,7 @@ getRequestMetadata Call{callRequestHeaders} =
 -- sent after the final message; see 'sendOutput'.
 setResponseInitialMetadata ::
      HasCallStack
-  => Call rpc -> [CustomMetadata] -> IO ()
+  => Call rpc -> ResponseInitialMetadata rpc -> IO ()
 setResponseInitialMetadata Call{ callResponseMetadata
                                , callResponseKickoff
                                }
@@ -577,7 +580,7 @@ sendNextOutput call = sendOutput call . StreamElem
 -- See also 'sendTrailers'.
 sendFinalOutput ::
      HasCallStack
-  => Call rpc -> (Output rpc, [CustomMetadata]) -> IO ()
+  => Call rpc -> (Output rpc, ResponseTrailingMetadata rpc) -> IO ()
 sendFinalOutput call = sendOutput call . uncurry FinalElem
 
 -- | Send trailers
@@ -587,7 +590,7 @@ sendFinalOutput call = sendOutput call . uncurry FinalElem
 -- included in the trailers.
 sendTrailers ::
      HasCallStack
-  => Call rpc -> [CustomMetadata] -> IO ()
+  => Call rpc -> ResponseTrailingMetadata rpc -> IO ()
 sendTrailers call = sendOutput call . NoMoreElems
 
 -- | Receive next input

@@ -51,7 +51,7 @@ sendFinalInput call inp =
 recvOutput :: forall out rpc m.
      (Binary out, Output rpc ~ Lazy.ByteString, MonadIO m)
   => Call rpc
-  -> m (StreamElem [CustomMetadata] out)
+  -> m (StreamElem (ResponseTrailingMetadata rpc) out)
 recvOutput call =
      Client.recvOutput call >>= traverse decodeOrThrow
 
@@ -64,7 +64,7 @@ recvNextOutput call = Client.recvNextOutput call >>= decodeOrThrow
 recvFinalOutput :: forall out rpc m.
      (Binary out, Output rpc ~ Lazy.ByteString, MonadIO m)
   => Call rpc
-  -> m (out, [CustomMetadata])
+  -> m (out, ResponseTrailingMetadata rpc)
 recvFinalOutput call = do
     (out, md) <- Client.recvFinalOutput call
     (, md) <$> decodeOrThrow out

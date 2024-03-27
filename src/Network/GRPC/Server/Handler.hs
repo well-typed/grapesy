@@ -12,6 +12,7 @@ module Network.GRPC.Server.Handler (
     RpcHandler(..)
     -- * Construction
   , mkRpcHandler
+  , mkRpcHandlerNoInitialMetadata
     -- * Query
   , path
     -- * Collection of handlers
@@ -23,13 +24,14 @@ module Network.GRPC.Server.Handler (
 
 import Prelude hiding (lookup)
 
+import Control.Monad.IO.Class
+import Data.Default
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
 import Data.Proxy
 
 import Network.GRPC.Server.Call
 import Network.GRPC.Spec
-import Control.Monad.IO.Class
 
 {-------------------------------------------------------------------------------
   Handlers
@@ -80,10 +82,22 @@ data RpcHandler m = forall rpc. SupportsServerRpc rpc => RpcHandler {
 
 -- | Constructor for 'RpcHandler'
 mkRpcHandler ::
-     (SupportsServerRpc rpc, MonadIO m)
+     ( SupportsServerRpc rpc
+     , Default (ResponseInitialMetadata rpc)
+     , MonadIO m
+     )
   => Proxy rpc -> (Call rpc -> m ()) -> RpcHandler m
 mkRpcHandler _ k = RpcHandler $ \call -> do
-    liftIO $ setResponseInitialMetadata call []
+    liftIO $ setResponseInitialMetadata call def
+    k call
+
+-- TODO: docs
+mkRpcHandlerNoInitialMetadata ::
+     SupportsServerRpc rpc
+  => Proxy rpc
+  -> (Call rpc -> m ())
+  -> RpcHandler m
+mkRpcHandlerNoInitialMetadata _ k = RpcHandler $ \call -> do
     k call
 
 {-------------------------------------------------------------------------------

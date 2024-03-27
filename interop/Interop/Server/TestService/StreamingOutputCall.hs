@@ -20,7 +20,7 @@ handle :: Call StreamingOutputCall -> IO ()
 handle call = do
     request <- recvFinalInput call
     handleRequest call request
-    sendTrailers call []
+    sendTrailers call def
 
 -- | Handle specific request
 --

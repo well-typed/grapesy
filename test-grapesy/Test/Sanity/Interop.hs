@@ -73,7 +73,7 @@ test_callAfterException =
             Server.mkRpcHandler (Proxy @Ping) $ \call -> do
               i :: Word <- Server.Binary.recvFinalInput call
               if i > 0 then
-                Server.Binary.sendFinalOutput call (i, [])
+                Server.Binary.sendFinalOutput call (i, NoMetadata)
               else
                 Server.sendGrpcException call $ GrpcException {
                     grpcError         = GrpcInvalidArgument
@@ -187,7 +187,7 @@ test_serverCompressedStreaming =
           Server.sendOutputWithEnvelope call $ StreamElem (envelope, response)
 
         -- No further output
-        Server.sendTrailers call []
+        Server.sendTrailers call NoMetadata
 
     verifyOutputs ::
          ( Maybe (InboundEnvelope, StreamingOutputCallResponse)
@@ -235,7 +235,7 @@ test_cancellation_client =
             forM_ [1 .. 100] $ \(i :: Int) -> do
               Server.Binary.sendNextOutput call i
               threadDelay 100_000
-            Server.sendTrailers call []
+            Server.sendTrailers call NoMetadata
         ]
       }
 

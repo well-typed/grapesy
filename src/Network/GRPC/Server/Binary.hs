@@ -37,7 +37,7 @@ import Network.GRPC.Server.StreamType qualified as StreamType
 sendOutput ::
      (Binary out, Output rpc ~ Lazy.ByteString, HasCallStack)
   => Call rpc
-  -> StreamElem [CustomMetadata] out
+  -> StreamElem (ResponseTrailingMetadata rpc) out
   -> IO ()
 sendOutput call out =
     Server.sendOutput call (encode <$> out)
@@ -53,7 +53,7 @@ sendNextOutput call out =
 sendFinalOutput ::
      (Binary out, Output rpc ~ Lazy.ByteString, HasCallStack)
   => Call rpc
-  -> (out, [CustomMetadata])
+  -> (out, ResponseTrailingMetadata rpc)
   -> IO ()
 sendFinalOutput call (out, trailers) =
     Server.sendFinalOutput call (encode out, trailers)

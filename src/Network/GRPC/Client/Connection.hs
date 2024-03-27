@@ -82,7 +82,7 @@ data Connection = Connection {
 -- | State of the call
 --
 -- This type is kept abstract (opaque) in the public facing API.
-data Call rpc = IsRPC rpc => Call {
+data Call rpc = SupportsClientRpc rpc => Call {
       callSession :: ClientSession rpc
     , callChannel :: Session.Channel (ClientSession rpc)
     }
@@ -279,7 +279,7 @@ startRPC :: forall rpc.
      (SupportsClientRpc rpc, HasCallStack)
   => Connection
   -> Proxy rpc
-  -> CallParams
+  -> CallParams rpc
   -> IO (Call rpc)
 startRPC Connection{connMetaVar, connParams, connStateVar} _ callParams = do
     (connClosed, conn) <-
@@ -342,7 +342,8 @@ startRPC Connection{connMetaVar, connParams, connStateVar} _ callParams = do
               , connDefaultTimeout connParams
               ]
         , requestMetadata =
-            customMetadataMapFromList $ callRequestMetadata callParams
+            customMetadataMapFromList $
+              buildMetadata $ callRequestMetadata callParams
         , requestCompression =
             compressionId <$> cOut
         , requestAcceptCompression = Just $

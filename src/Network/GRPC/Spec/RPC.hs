@@ -14,6 +14,8 @@ import Data.Text (Text)
 import Data.Typeable
 import GHC.Stack
 
+import Network.GRPC.Spec.CustomMetadata.Typed
+
 {-------------------------------------------------------------------------------
   RPC call
 -------------------------------------------------------------------------------}
@@ -35,6 +37,9 @@ class ( -- Debug constraints
         -- 'Show'able.
         Show (Input rpc)
       , Show (Output rpc)
+
+        -- Metadata
+      , HasCustomMetadata rpc
       ) => IsRPC (rpc :: k) where
   -- | Messages from the client to the server
   type Input rpc :: Type
@@ -82,7 +87,14 @@ class ( -- Debug constraints
 defaultRpcContentType :: Strict.ByteString -> Strict.ByteString
 defaultRpcContentType format = "application/grpc+" <> format
 
-class IsRPC rpc => SupportsClientRpc rpc where
+class ( IsRPC rpc
+
+        -- Serialization
+      , BuildMetadata (RequestMetadata rpc)
+      , ParseMetadata (ResponseInitialMetadata rpc)
+      , ParseMetadata (ResponseTrailingMetadata rpc)
+      ) => SupportsClientRpc rpc where
+
   -- | Serialize RPC input
   --
   -- We don't ask for a builder here, but instead ask for the complete
@@ -103,7 +115,14 @@ class IsRPC rpc => SupportsClientRpc rpc where
     -> Lazy.ByteString
     -> Either String (Output rpc)
 
-class IsRPC rpc => SupportsServerRpc rpc where
+class ( IsRPC rpc
+
+        -- Serialization
+      , ParseMetadata (RequestMetadata rpc)
+      , BuildMetadata (ResponseInitialMetadata rpc)
+      , StaticMetadata (ResponseTrailingMetadata rpc)
+      ) => SupportsServerRpc rpc where
+
   -- | Deserialize RPC input
   --
   -- This function does not have to deal with compression or length prefixes,
@@ -117,4 +136,51 @@ class IsRPC rpc => SupportsServerRpc rpc where
   -- | Serialize RPC output
   rpcSerializeOutput :: Proxy rpc -> Output rpc -> Lazy.ByteString
 
+{-------------------------------------------------------------------------------
+  Override metadata
+-------------------------------------------------------------------------------}
 
+instance ( IsRPC rpc
+
+           -- Debugging
+         , Show req
+         , Show init
+         , Show trail
+         ) => IsRPC (OverrideMetadata req init trail rpc) where
+  type Input  (OverrideMetadata req init trail rpc) = Input  rpc
+  type Output (OverrideMetadata req init trail rpc) = Output rpc
+
+  rpcContentType _ = rpcContentType (Proxy @rpc)
+  rpcServiceName _ = rpcServiceName (Proxy @rpc)
+  rpcMethodName  _ = rpcMethodName  (Proxy @rpc)
+  rpcMessageType _ = rpcMessageType (Proxy @rpc)
+
+instance ( SupportsClientRpc rpc
+
+           -- Debugging
+         , Show req
+         , Show init
+         , Show trail
+
+           -- Serialization
+         , BuildMetadata req
+         , ParseMetadata init
+         , ParseMetadata trail
+         ) => SupportsClientRpc (OverrideMetadata req init trail rpc) where
+  rpcSerializeInput    _ = rpcSerializeInput    (Proxy @rpc)
+  rpcDeserializeOutput _ = rpcDeserializeOutput (Proxy @rpc)
+
+instance ( SupportsServerRpc rpc
+
+           -- Debugging
+         , Show req
+         , Show init
+         , Show trail
+
+           -- Serialization
+         , ParseMetadata req
+         , BuildMetadata init
+         , StaticMetadata trail
+         ) => SupportsServerRpc (OverrideMetadata req init trail rpc) where
+  rpcDeserializeInput _ = rpcDeserializeInput (Proxy @rpc)
+  rpcSerializeOutput  _ = rpcSerializeOutput  (Proxy @rpc)
