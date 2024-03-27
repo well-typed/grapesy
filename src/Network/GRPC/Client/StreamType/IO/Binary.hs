@@ -17,12 +17,13 @@ module Network.GRPC.Client.StreamType.IO.Binary (
 import Control.Monad
 import Control.Monad.Reader
 import Data.Binary
+import Data.ByteString.Lazy qualified as Lazy (ByteString)
 
 import Network.GRPC.Client (Connection)
 import Network.GRPC.Client.StreamType hiding (CanCallRPC(..))
 import Network.GRPC.Client.StreamType.IO qualified as IO
 import Network.GRPC.Common
-import Network.GRPC.Common.Binary
+import Network.GRPC.Common.Binary (decodeOrThrow)
 import Network.GRPC.Common.StreamType
 
 {-------------------------------------------------------------------------------
@@ -30,29 +31,41 @@ import Network.GRPC.Common.StreamType
 -------------------------------------------------------------------------------}
 
 -- | Wrapper for 'IO.nonStreaming' that handles binary serialization
-nonStreaming :: forall inp out serv meth m.
-     (Binary inp, Binary out, MonadIO m)
+nonStreaming :: forall inp out rpc m.
+     ( SupportsStreamingType rpc NonStreaming
+     , Binary inp, Input  rpc ~ Lazy.ByteString
+     , Binary out, Output rpc ~ Lazy.ByteString
+     , MonadIO m
+     )
   => Connection
-  -> NonStreamingHandler (ReaderT Connection m) (BinaryRpc serv meth)
+  -> NonStreamingHandler (ReaderT Connection m) rpc
   -> inp -> m out
 nonStreaming conn h inp =
     IO.nonStreaming conn h (encode inp) >>= decodeOrThrow
 
 -- | Wrapper for 'IO.clientStreaming' that handles binary serialization
-clientStreaming :: forall inp out serv meth m.
-     (Binary inp, Binary out, MonadIO m)
+clientStreaming :: forall inp out rpc m.
+     ( SupportsStreamingType rpc ClientStreaming
+     , Binary inp, Input  rpc ~ Lazy.ByteString
+     , Binary out, Output rpc ~ Lazy.ByteString
+     , MonadIO m
+     )
   => Connection
-  -> ClientStreamingHandler (ReaderT Connection m) (BinaryRpc serv meth)
+  -> ClientStreamingHandler (ReaderT Connection m) rpc
   -> m (StreamElem NoMetadata inp)
   -> m out
 clientStreaming conn h f =
     IO.clientStreaming conn h (fmap encode <$> f) >>= decodeOrThrow
 
 -- | Wrapper for 'IO.serverStreaming' that binary serialization
-serverStreaming :: forall inp out serv meth m.
-     (Binary inp, Binary out, MonadIO m)
+serverStreaming :: forall inp out rpc m.
+     ( SupportsStreamingType rpc ServerStreaming
+     , Binary inp, Input  rpc ~ Lazy.ByteString
+     , Binary out, Output rpc ~ Lazy.ByteString
+     , MonadIO m
+     )
   => Connection
-  -> ServerStreamingHandler (ReaderT Connection m) (BinaryRpc serv meth)
+  -> ServerStreamingHandler (ReaderT Connection m) rpc
   -> inp
   -> (out -> m ())
   -> m ()
@@ -60,10 +73,14 @@ serverStreaming conn h inp f =
     IO.serverStreaming conn h (encode inp) (f <=< decodeOrThrow)
 
 -- | Wrapper for 'IO.biDiStreaming' that handles binary serialization
-biDiStreaming :: forall inp out serv meth m.
-     (Binary inp, Binary out, MonadIO m)
+biDiStreaming :: forall inp out rpc m.
+     ( SupportsStreamingType rpc BiDiStreaming
+     , Binary inp, Input  rpc ~ Lazy.ByteString
+     , Binary out, Output rpc ~ Lazy.ByteString
+     , MonadIO m
+     )
   => Connection
-  -> BiDiStreamingHandler (ReaderT Connection m) (BinaryRpc serv meth)
+  -> BiDiStreamingHandler (ReaderT Connection m) rpc
   -> m (StreamElem NoMetadata inp)
   -> (out -> m ())
   -> m ()

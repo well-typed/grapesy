@@ -15,54 +15,55 @@ module Network.GRPC.Client.Binary (
 
 import Control.Monad.IO.Class
 import Data.Binary
+import Data.ByteString.Lazy qualified as Lazy (ByteString)
 
 import Network.GRPC.Client (Call)
 import Network.GRPC.Client qualified as Client
 import Network.GRPC.Common
-import Network.GRPC.Common.Binary
+import Network.GRPC.Common.Binary (decodeOrThrow)
 
 {-------------------------------------------------------------------------------
   Convenience wrappers using @binary@ for serialization/deserialization
 -------------------------------------------------------------------------------}
 
-sendInput :: forall inp serv meth m.
-     (Binary inp, MonadIO m)
-  => Call (BinaryRpc serv meth)
+sendInput :: forall inp rpc m.
+     (Binary inp, Input rpc ~ Lazy.ByteString, MonadIO m)
+  => Call rpc
   -> StreamElem NoMetadata inp
   -> m ()
 sendInput call inp = Client.sendInput call (encode <$> inp)
 
 sendNextInput ::
-     (Binary inp, MonadIO m)
-  => Call (BinaryRpc serv meth)
+     (Binary inp, Input rpc ~ Lazy.ByteString, MonadIO m)
+  => Call rpc
   -> inp
   -> m ()
 sendNextInput call inp = Client.sendNextInput call (encode inp)
 
-sendFinalInput :: forall inp serv meth m.
-     (Binary inp, MonadIO m)
-  => Call (BinaryRpc serv meth)
+sendFinalInput :: forall inp rpc m.
+     (Binary inp, Input rpc ~ Lazy.ByteString, MonadIO m)
+  => Call rpc
   -> inp
   -> m ()
 sendFinalInput call inp =
    Client.sendFinalInput call (encode inp)
 
-recvOutput :: forall out serv meth m.
-     (Binary out, MonadIO m)
-  => Call (BinaryRpc serv meth)
+recvOutput :: forall out rpc m.
+     (Binary out, Output rpc ~ Lazy.ByteString, MonadIO m)
+  => Call rpc
   -> m (StreamElem [CustomMetadata] out)
 recvOutput call =
      Client.recvOutput call >>= traverse decodeOrThrow
 
 recvNextOutput ::
-     (Binary out, MonadIO m)
-  => Call (BinaryRpc serv meth)
+     (Binary out, Output rpc ~ Lazy.ByteString, MonadIO m)
+  => Call rpc
   -> m out
 recvNextOutput call = Client.recvNextOutput call >>= decodeOrThrow
 
-recvFinalOutput :: forall out serv meth m.
-     (Binary out, MonadIO m)
-  => Call (BinaryRpc serv meth)
+recvFinalOutput :: forall out rpc m.
+     (Binary out, Output rpc ~ Lazy.ByteString, MonadIO m)
+  => Call rpc
   -> m (out, [CustomMetadata])
 recvFinalOutput call = do
     (out, md) <- Client.recvFinalOutput call
