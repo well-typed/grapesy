@@ -26,7 +26,6 @@ import Prelude hiding (lookup)
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
 import Data.Proxy
-import Data.Typeable
 
 import Network.GRPC.Server.Call
 import Network.GRPC.Spec
@@ -73,12 +72,6 @@ data RpcHandler m = forall rpc. SupportsServerRpc rpc => RpcHandler {
       -- | Handler proper
       runRpcHandler :: Call rpc -> m ()
     }
-
-instance Show (RpcHandler m) where
-  show RpcHandler{runRpcHandler} = aux runRpcHandler
-    where
-      aux :: forall rpc. IsRPC rpc => (Call rpc -> m ()) -> String
-      aux _ = "<RpcHandler " ++ show (typeRep (Proxy @rpc)) ++ ">"
 
 {-------------------------------------------------------------------------------
   Construction

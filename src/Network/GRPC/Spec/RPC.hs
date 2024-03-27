@@ -27,15 +27,13 @@ import GHC.Stack
 --
 -- TODO: We need to check interop with existing libraries to see if they all
 -- agree on this.
-class ( Typeable rpc -- for use in exceptions
-
-        -- Debug constraints
+class ( -- Debug constraints
         --
         -- For debugging it is useful when we have 'Show' instances in scope.
         -- This is not that strong a requirement; after all, we must be able
         -- to serialize inputs and deserialize outputs, so they must also be
         -- 'Show'able.
-      , Show (Input rpc)
+        Show (Input rpc)
       , Show (Output rpc)
       ) => IsRPC (rpc :: k) where
   -- | Messages from the client to the server

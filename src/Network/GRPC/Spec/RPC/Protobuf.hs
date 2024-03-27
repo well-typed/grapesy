@@ -12,7 +12,6 @@ import Data.ProtoLens.Encoding.Parser qualified as Protobuf
 import Data.ProtoLens.Service.Types as Protobuf
 import Data.Proxy
 import Data.Text qualified as Text
-import Data.Typeable
 import GHC.TypeLits
 
 import Network.GRPC.Spec.RPC
@@ -31,8 +30,7 @@ import Network.GRPC.Spec.RPC.StreamType
 -- This exists only as a type-level marker
 data Protobuf (serv :: Type) (meth :: Symbol)
 
-instance ( Typeable           serv
-         , HasMethodImpl      serv meth
+instance ( HasMethodImpl      serv meth
          , Show (MethodInput  serv meth)
          , Show (MethodOutput serv meth)
          ) => IsRPC (Protobuf serv meth) where
@@ -48,16 +46,14 @@ instance ( Typeable           serv
   rpcMethodName  _ = Text.pack . symbolVal $ Proxy @(MethodName  serv meth)
   rpcMessageType _ = Protobuf.messageName  $ Proxy @(MethodInput serv meth)
 
-instance ( Typeable           serv
-         , HasMethodImpl      serv meth
+instance ( HasMethodImpl      serv meth
          , Show (MethodInput  serv meth)
          , Show (MethodOutput serv meth)
          ) => SupportsClientRpc (Protobuf serv meth) where
   rpcSerializeInput    _ = Builder.toLazyByteString . Protobuf.buildMessage
   rpcDeserializeOutput _ = Protobuf.runParser parseMessage . BS.Lazy.toStrict
 
-instance ( Typeable           serv
-         , HasMethodImpl      serv meth
+instance ( HasMethodImpl      serv meth
          , Show (MethodInput  serv meth)
          , Show (MethodOutput serv meth)
          ) => SupportsServerRpc (Protobuf serv meth) where
