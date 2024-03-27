@@ -117,6 +117,7 @@ library
       Network.GRPC.Spec.Common
       Network.GRPC.Spec.Compression
       Network.GRPC.Spec.CustomMetadata.Map
+      Network.GRPC.Spec.CustomMetadata.NoMetadata
       Network.GRPC.Spec.CustomMetadata.Raw
       Network.GRPC.Spec.LengthPrefixed
       Network.GRPC.Spec.PercentEncoding

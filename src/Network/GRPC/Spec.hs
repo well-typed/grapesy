@@ -150,6 +150,7 @@ import Network.GRPC.Spec.Call
 import Network.GRPC.Spec.Common
 import Network.GRPC.Spec.Compression
 import Network.GRPC.Spec.CustomMetadata.Map
+import Network.GRPC.Spec.CustomMetadata.NoMetadata
 import Network.GRPC.Spec.CustomMetadata.Raw
 import Network.GRPC.Spec.LengthPrefixed
 import Network.GRPC.Spec.PseudoHeaders

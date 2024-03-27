@@ -10,7 +10,6 @@ module Network.GRPC.Spec.Request (
     RequestHeaders_(..)
   , RequestHeaders
   , IsFinal(..)
-  , NoMetadata(..)
     -- * Serialization
   , buildRequestHeaders
   , parseRequestHeaders
@@ -116,10 +115,6 @@ instance HKD.Traversable RequestHeaders_ where
 
 -- | Mark a input sent as final
 data IsFinal = Final | NotFinal
-  deriving stock (Show, Eq)
-
--- | gRPC does not support request trailers (only response trailers)
-data NoMetadata = NoMetadata
   deriving stock (Show, Eq)
 
 {-------------------------------------------------------------------------------

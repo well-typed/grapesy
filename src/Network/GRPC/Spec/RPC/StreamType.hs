@@ -28,7 +28,7 @@ import Data.Kind
 import Data.ProtoLens.Service.Types (StreamingType(..))
 
 import Network.GRPC.Common.StreamElem
-import Network.GRPC.Spec.Request
+import Network.GRPC.Spec.CustomMetadata.NoMetadata
 import Network.GRPC.Spec.RPC
 import Network.GRPC.Util.RedundantConstraint
 
