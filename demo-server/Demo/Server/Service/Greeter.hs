@@ -42,7 +42,7 @@ sayHelloStreamReply =
   where
     go :: Call (Protobuf Greeter "sayHelloStreamReply") -> IO ()
     go call = do
-        setResponseMetadata call [
+        setResponseInitialMetadata call [
             CustomMetadata "initial-md" "initial-md-value"
           ]
 

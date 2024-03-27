@@ -37,7 +37,7 @@ constructResponseMetadata call = do
           find ((== nameMetadataTrailing) . customMetadataName) requestMetadata
 
     -- Send initial metadata
-    setResponseMetadata call initialResponseMetadata
+    setResponseInitialMetadata call initialResponseMetadata
     _initiated <- initiateResponse call
 
     -- Return the final metadata to be sent at the end of the call

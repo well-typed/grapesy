@@ -29,6 +29,7 @@ import Data.Proxy
 
 import Network.GRPC.Server.Call
 import Network.GRPC.Spec
+import Control.Monad.IO.Class
 
 {-------------------------------------------------------------------------------
   Handlers
@@ -79,9 +80,11 @@ data RpcHandler m = forall rpc. SupportsServerRpc rpc => RpcHandler {
 
 -- | Constructor for 'RpcHandler'
 mkRpcHandler ::
-     SupportsServerRpc rpc
+     (SupportsServerRpc rpc, MonadIO m)
   => Proxy rpc -> (Call rpc -> m ()) -> RpcHandler m
-mkRpcHandler _ = RpcHandler
+mkRpcHandler _ k = RpcHandler $ \call -> do
+    liftIO $ setResponseInitialMetadata call []
+    k call
 
 {-------------------------------------------------------------------------------
   Query

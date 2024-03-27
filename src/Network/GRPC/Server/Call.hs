@@ -15,7 +15,7 @@ module Network.GRPC.Server.Call (
   , sendOutput
   , sendGrpcException
   , getRequestMetadata
-  , setResponseMetadata
+  , setResponseInitialMetadata
 
     -- ** Protocol specific wrappers
   , sendNextOutput
@@ -89,10 +89,10 @@ data Call rpc = IsRPC rpc => Call {
       -- | Response metadata
       --
       -- Metadata to be included when we send the initial response headers.
-      -- Can be updated until the first message (see 'callFirstMessage').
       --
-      -- Defaults to the empty list.
-    , callResponseMetadata :: TVar [CustomMetadata]
+      -- Can be updated until the first message (see 'callFirstMessage'), at
+      -- which point it /must/ have been set (if not, an exception is thrown).
+    , callResponseMetadata :: TVar (Maybe [CustomMetadata])
 
       -- | What kicked off the response?
       --
@@ -138,7 +138,7 @@ setupCall :: forall rpc.
   -> ServerContext
   -> XIO' CallSetupFailure (Call rpc)
 setupCall conn callContext@ServerContext{params} = do
-    callResponseMetadata <- XIO.unsafeTrustMe $ newTVarIO []
+    callResponseMetadata <- XIO.unsafeTrustMe $ newTVarIO Nothing
     callResponseKickoff  <- XIO.unsafeTrustMe $ newEmptyTMVarIO
 
     flowStart :: Session.FlowStart (ServerInbound rpc) <-
@@ -189,7 +189,7 @@ setupCall conn callContext@ServerContext{params} = do
     req = Server.request conn
 
     mkOutboundHeaders ::
-         TVar [CustomMetadata]
+         TVar (Maybe [CustomMetadata])
       -> TMVar Kickoff
       -> Compression
       -> IO (Session.FlowStart (ServerOutbound rpc))
@@ -199,7 +199,11 @@ setupCall conn callContext@ServerContext{params} = do
 
         -- Get response metadata (see 'setResponseMetadata')
         -- It is important we read this only /after/ the kickoff.
-        responseMetadata <- atomically $ readTVar metadataVar
+        responseMetadata <- do
+          mMetadata <- atomically $ readTVar metadataVar
+          case mMetadata of
+            Just md -> return md
+            Nothing -> throwIO $ ResponseInitialMetadataNotSet
 
         -- Session start
         case kickoff of
@@ -364,14 +368,6 @@ serverExceptionToClientError err
         , properTrailersPushback    = Nothing
         }
 
--- | Handler terminated early
---
--- This gets thrown in the handler, and sent to the client, when the handler
--- terminates before sending the final output and trailers.
-data HandlerTerminated = HandlerTerminated
-  deriving stock (Show)
-  deriving anyclass (Exception)
-
 {-------------------------------------------------------------------------------
   Open (ongoing) call
 -------------------------------------------------------------------------------}
@@ -483,14 +479,16 @@ getRequestMetadata Call{callRequestHeaders} =
 --
 -- Note that this is about the /initial/ metadata; additional metadata can be
 -- sent after the final message; see 'sendOutput'.
-setResponseMetadata :: HasCallStack => Call rpc -> [CustomMetadata] -> IO ()
-setResponseMetadata Call{ callResponseMetadata
-                        , callResponseKickoff
-                        }
-                    md = atomically $ do
+setResponseInitialMetadata ::
+     HasCallStack
+  => Call rpc -> [CustomMetadata] -> IO ()
+setResponseInitialMetadata Call{ callResponseMetadata
+                               , callResponseKickoff
+                               }
+                           md = atomically $ do
     mKickoff <- fmap kickoffCallStack <$> tryReadTMVar callResponseKickoff
     case mKickoff of
-      Nothing -> writeTVar callResponseMetadata md
+      Nothing -> writeTVar callResponseMetadata (Just md)
       Just cs -> throwSTM $ ResponseAlreadyInitiated cs callStack
 
 {-------------------------------------------------------------------------------
@@ -553,16 +551,6 @@ sendTrailersOnly Call{ callContext
             , properTrailersPushback    = Nothing
             }
         }
-
-data ResponseAlreadyInitiated = ResponseAlreadyInitiated {
-      -- | When was the response first initiated?
-      responseInitiatedFirst :: CallStack
-
-      -- | Where did we attempt to initiate the response a second time?
-    , responseInitiatedAgain :: CallStack
-    }
-  deriving stock (Show)
-  deriving anyclass (Exception)
 
 -- | Get trace context for the request (if any)
 --
@@ -689,3 +677,30 @@ sendProperTrailers Call{callContext, callResponseKickoff, callChannel}
 -- This is internal API: the timeout is automatically imposed on the handler.
 getRequestTimeout :: Call rpc -> Maybe Timeout
 getRequestTimeout call = requestTimeout $ callRequestHeaders call
+
+{-------------------------------------------------------------------------------
+  Exceptions
+-------------------------------------------------------------------------------}
+
+-- | Handler terminated early
+--
+-- This gets thrown in the handler, and sent to the client, when the handler
+-- terminates before sending the final output and trailers.
+data HandlerTerminated = HandlerTerminated
+  deriving stock (Show)
+  deriving anyclass (Exception)
+
+data ResponseAlreadyInitiated = ResponseAlreadyInitiated {
+      -- | When was the response first initiated?
+      responseInitiatedFirst :: CallStack
+
+      -- | Where did we attempt to initiate the response a second time?
+    , responseInitiatedAgain :: CallStack
+    }
+  deriving stock (Show)
+  deriving anyclass (Exception)
+
+-- | The response initial metadata must be set before the first message is sent
+data ResponseInitialMetadataNotSet = ResponseInitialMetadataNotSet
+  deriving stock (Show)
+  deriving anyclass (Exception)

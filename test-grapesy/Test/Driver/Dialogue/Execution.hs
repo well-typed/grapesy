@@ -370,7 +370,7 @@ serverLocal clock call = \(LocalSteps steps) -> do
     serverAct tick action =
         case action of
           Initiate metadata -> liftIO $ do
-            Server.setResponseMetadata call (getMetadata metadata)
+            Server.setResponseInitialMetadata call (getMetadata metadata)
             void $ Server.initiateResponse call
             return True
           Send x -> do
