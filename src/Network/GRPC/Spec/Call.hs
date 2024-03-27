@@ -5,7 +5,7 @@ module Network.GRPC.Spec.Call (
 
 import Data.Default
 
-import Network.GRPC.Spec.CustomMetadata
+import Network.GRPC.Spec.CustomMetadata.Raw
 import Network.GRPC.Spec.Timeout
 
 {-------------------------------------------------------------------------------

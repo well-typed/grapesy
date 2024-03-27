@@ -5,7 +5,7 @@
 -- These are application-defined headers/trailers.
 --
 -- Intended for unqualified import.
-module Network.GRPC.Spec.CustomMetadata (
+module Network.GRPC.Spec.CustomMetadata.Raw (
     -- * Definition
     CustomMetadata(CustomMetadata)
   , customMetadataName

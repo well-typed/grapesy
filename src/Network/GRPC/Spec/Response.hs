@@ -48,8 +48,8 @@ import Text.Read (readMaybe)
 
 import Network.GRPC.Spec.Common
 import Network.GRPC.Spec.Compression (CompressionId)
-import Network.GRPC.Spec.CustomMetadata
-import Network.GRPC.Spec.CustomMetadataMap
+import Network.GRPC.Spec.CustomMetadata.Map
+import Network.GRPC.Spec.CustomMetadata.Raw
 import Network.GRPC.Spec.PercentEncoding qualified as PercentEncoding
 import Network.GRPC.Spec.RPC
 import Network.GRPC.Spec.Status
