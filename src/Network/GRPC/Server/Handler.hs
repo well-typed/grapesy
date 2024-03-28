@@ -12,6 +12,7 @@ module Network.GRPC.Server.Handler (
     RpcHandler(..)
     -- * Construction
   , mkRpcHandler
+  , mkRpcHandlerNoInitialMetadata
     -- * Query
   , path
     -- * Collection of handlers
@@ -23,10 +24,11 @@ module Network.GRPC.Server.Handler (
 
 import Prelude hiding (lookup)
 
+import Control.Monad.IO.Class
+import Data.Default
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
 import Data.Proxy
-import Data.Typeable
 
 import Network.GRPC.Server.Call
 import Network.GRPC.Spec
@@ -69,24 +71,34 @@ import Network.GRPC.Spec
 -- terminates early (that is, before sending the final output and trailers), a
 -- 'Network.GRPC.Server.HandlerTerminated' exception will be raised and sent to
 -- the client as 'GrpcException' with 'GrpcUnknown' error code.
-data RpcHandler m = forall rpc. IsRPC rpc => RpcHandler {
+data RpcHandler m = forall rpc. SupportsServerRpc rpc => RpcHandler {
       -- | Handler proper
       runRpcHandler :: Call rpc -> m ()
     }
-
-instance Show (RpcHandler m) where
-  show RpcHandler{runRpcHandler} = aux runRpcHandler
-    where
-      aux :: forall rpc. IsRPC rpc => (Call rpc -> m ()) -> String
-      aux _ = "<RpcHandler " ++ show (typeRep (Proxy @rpc)) ++ ">"
 
 {-------------------------------------------------------------------------------
   Construction
 -------------------------------------------------------------------------------}
 
 -- | Constructor for 'RpcHandler'
-mkRpcHandler :: IsRPC rpc => Proxy rpc -> (Call rpc -> m ()) -> RpcHandler m
-mkRpcHandler _ = RpcHandler
+mkRpcHandler ::
+     ( SupportsServerRpc rpc
+     , Default (ResponseInitialMetadata rpc)
+     , MonadIO m
+     )
+  => Proxy rpc -> (Call rpc -> m ()) -> RpcHandler m
+mkRpcHandler _ k = RpcHandler $ \call -> do
+    liftIO $ setResponseInitialMetadata call def
+    k call
+
+-- TODO: docs
+mkRpcHandlerNoInitialMetadata ::
+     SupportsServerRpc rpc
+  => Proxy rpc
+  -> (Call rpc -> m ())
+  -> RpcHandler m
+mkRpcHandlerNoInitialMetadata _ k = RpcHandler $ \call -> do
+    k call
 
 {-------------------------------------------------------------------------------
   Query

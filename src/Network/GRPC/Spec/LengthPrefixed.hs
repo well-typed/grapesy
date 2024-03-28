@@ -83,7 +83,7 @@ instance Default OutboundEnvelope where
 -- >                     # encoded as 4 byte unsigned integer (big endian)
 -- > Message         → *{binary octet}
 buildInput ::
-     IsRPC rpc
+     SupportsClientRpc rpc
   => Proxy rpc
   -> Compression
   -> (OutboundEnvelope, Input rpc)
@@ -92,7 +92,7 @@ buildInput = buildMsg . rpcSerializeInput
 
 -- | Serialize RPC output
 buildOutput ::
-     IsRPC rpc
+     SupportsServerRpc rpc
   => Proxy rpc
   -> Compression
   -> (OutboundEnvelope, Output rpc)
@@ -156,14 +156,14 @@ data InboundEnvelope = InboundEnvelope {
   deriving stock (Show)
 
 parseInput ::
-     IsRPC rpc
+     SupportsServerRpc rpc
   => Proxy rpc
   -> Compression
   -> Parser (InboundEnvelope, Input rpc)
 parseInput = parseMsg . rpcDeserializeInput
 
 parseOutput ::
-     IsRPC rpc
+     SupportsClientRpc rpc
   => Proxy rpc
   -> Compression
   -> Parser (InboundEnvelope, Output rpc)

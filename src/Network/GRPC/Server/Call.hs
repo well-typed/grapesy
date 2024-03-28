@@ -15,7 +15,7 @@ module Network.GRPC.Server.Call (
   , sendOutput
   , sendGrpcException
   , getRequestMetadata
-  , setResponseMetadata
+  , setResponseInitialMetadata
 
     -- ** Protocol specific wrappers
   , sendNextOutput
@@ -73,7 +73,7 @@ import Network.GRPC.Util.Session.Server qualified as Server
 -------------------------------------------------------------------------------}
 
 -- | Open connection to a client
-data Call rpc = IsRPC rpc => Call {
+data Call rpc = SupportsServerRpc rpc => Call {
       -- | Server context (across all calls)
       callContext :: ServerContext
 
@@ -89,10 +89,10 @@ data Call rpc = IsRPC rpc => Call {
       -- | Response metadata
       --
       -- Metadata to be included when we send the initial response headers.
-      -- Can be updated until the first message (see 'callFirstMessage').
       --
-      -- Defaults to the empty list.
-    , callResponseMetadata :: TVar [CustomMetadata]
+      -- Can be updated until the first message (see 'callFirstMessage'), at
+      -- which point it /must/ have been set (if not, an exception is thrown).
+    , callResponseMetadata :: TVar (Maybe (ResponseInitialMetadata rpc))
 
       -- | What kicked off the response?
       --
@@ -133,12 +133,12 @@ kickoffCallStack (KickoffTrailersOnly cs _) = cs
 --
 -- No response is sent to the caller.
 setupCall :: forall rpc.
-     IsRPC rpc
+     SupportsServerRpc rpc
   => Server.ConnectionToClient
   -> ServerContext
   -> XIO' CallSetupFailure (Call rpc)
 setupCall conn callContext@ServerContext{params} = do
-    callResponseMetadata <- XIO.unsafeTrustMe $ newTVarIO []
+    callResponseMetadata <- XIO.unsafeTrustMe $ newTVarIO Nothing
     callResponseKickoff  <- XIO.unsafeTrustMe $ newEmptyTMVarIO
 
     flowStart :: Session.FlowStart (ServerInbound rpc) <-
@@ -189,7 +189,7 @@ setupCall conn callContext@ServerContext{params} = do
     req = Server.request conn
 
     mkOutboundHeaders ::
-         TVar [CustomMetadata]
+         TVar (Maybe (ResponseInitialMetadata rpc))
       -> TMVar Kickoff
       -> Compression
       -> IO (Session.FlowStart (ServerOutbound rpc))
@@ -199,7 +199,11 @@ setupCall conn callContext@ServerContext{params} = do
 
         -- Get response metadata (see 'setResponseMetadata')
         -- It is important we read this only /after/ the kickoff.
-        responseMetadata <- atomically $ readTVar metadataVar
+        responseMetadata <- do
+          mMetadata <- atomically $ readTVar metadataVar
+          case mMetadata of
+            Just md -> return $ buildMetadata md
+            Nothing -> throwIO $ ResponseInitialMetadataNotSet
 
         -- Session start
         case kickoff of
@@ -358,19 +362,12 @@ serverExceptionToClientError err
 
     | otherwise
     = ProperTrailers {
-          properTrailersGrpcStatus  = GrpcError GrpcUnknown
-        , properTrailersGrpcMessage = Just $ Text.pack (show err)
-        , properTrailersMetadata    = mempty
-        , properTrailersPushback    = Nothing
+          properTrailersGrpcStatus     = GrpcError GrpcUnknown
+        , properTrailersGrpcMessage    = Just $ Text.pack (show err)
+        , properTrailersMetadata       = mempty
+        , properTrailersPushback       = Nothing
+        , properTrailersOrcaLoadReport = Nothing
         }
-
--- | Handler terminated early
---
--- This gets thrown in the handler, and sent to the client, when the handler
--- terminates before sending the final output and trailers.
-data HandlerTerminated = HandlerTerminated
-  deriving stock (Show)
-  deriving anyclass (Exception)
 
 {-------------------------------------------------------------------------------
   Open (ongoing) call
@@ -409,7 +406,8 @@ recvInputWithEnvelope Call{callChannel} =
 -- return until the message has been written to the HTTP2 stream).
 sendOutput ::
      HasCallStack
-  => Call rpc -> StreamElem [CustomMetadata] (Output rpc) -> IO ()
+  => Call rpc
+  -> StreamElem (ResponseTrailingMetadata rpc) (Output rpc) -> IO ()
 sendOutput call = sendOutputWithEnvelope call . fmap (def,)
 
 -- | Generalization of 'sendOutput' with additional control
@@ -418,10 +416,10 @@ sendOutput call = sendOutputWithEnvelope call . fmap (def,)
 -- messages.
 --
 -- Most applications will never need to use this function.
-sendOutputWithEnvelope ::
+sendOutputWithEnvelope :: forall rpc.
      HasCallStack
   => Call rpc
-  -> StreamElem [CustomMetadata] (OutboundEnvelope, Output rpc)
+  -> StreamElem (ResponseTrailingMetadata rpc) (OutboundEnvelope, Output rpc)
   -> IO ()
 sendOutputWithEnvelope call@Call{callChannel} msg = do
     _updated <- initiateResponse call
@@ -434,12 +432,14 @@ sendOutputWithEnvelope call@Call{callChannel} msg = do
     StreamElem.whenDefinitelyFinal msg $ \_ ->
       void $ Session.waitForOutbound callChannel
   where
-    mkTrailers :: [CustomMetadata] -> ProperTrailers
+    mkTrailers :: ResponseTrailingMetadata rpc -> ProperTrailers
     mkTrailers metadata = ProperTrailers {
-          properTrailersGrpcStatus  = GrpcOk
-        , properTrailersGrpcMessage = Nothing
-        , properTrailersMetadata    = customMetadataMapFromList metadata
-        , properTrailersPushback    = Nothing
+          properTrailersGrpcStatus     = GrpcOk
+        , properTrailersGrpcMessage    = Nothing
+        , properTrailersMetadata       = customMetadataMapFromList $
+                                           buildMetadata metadata
+        , properTrailersPushback       = Nothing
+        , properTrailersOrcaLoadReport = Nothing
         }
 
 -- | Send 'GrpcException' to the client
@@ -469,9 +469,10 @@ sendGrpcException call = sendProperTrailers call . grpcExceptionToTrailers
 -- The request metadata is included in the client's request headers when they
 -- first make the request, and is therefore available immediately to the handler
 -- (even if the first /message/ from the client may not yet have been sent).
-getRequestMetadata :: Call rpc -> IO [CustomMetadata]
+getRequestMetadata :: Call rpc -> IO (RequestMetadata rpc)
 getRequestMetadata Call{callRequestHeaders} =
-    return $ customMetadataMapToList $ requestMetadata callRequestHeaders
+    parseMetadata . customMetadataMapToList $
+      requestMetadata callRequestHeaders
 
 -- | Set the initial response metadata
 --
@@ -483,14 +484,16 @@ getRequestMetadata Call{callRequestHeaders} =
 --
 -- Note that this is about the /initial/ metadata; additional metadata can be
 -- sent after the final message; see 'sendOutput'.
-setResponseMetadata :: HasCallStack => Call rpc -> [CustomMetadata] -> IO ()
-setResponseMetadata Call{ callResponseMetadata
-                        , callResponseKickoff
-                        }
-                    md = atomically $ do
+setResponseInitialMetadata ::
+     HasCallStack
+  => Call rpc -> ResponseInitialMetadata rpc -> IO ()
+setResponseInitialMetadata Call{ callResponseMetadata
+                               , callResponseKickoff
+                               }
+                           md = atomically $ do
     mKickoff <- fmap kickoffCallStack <$> tryReadTMVar callResponseKickoff
     case mKickoff of
-      Nothing -> writeTVar callResponseMetadata md
+      Nothing -> writeTVar callResponseMetadata (Just md)
       Just cs -> throwSTM $ ResponseAlreadyInitiated cs callStack
 
 {-------------------------------------------------------------------------------
@@ -547,22 +550,13 @@ sendTrailersOnly Call{ callContext
     trailers = TrailersOnly {
           trailersOnlyContentType = Context.serverContentType params
         , trailersOnlyProper      = ProperTrailers {
-              properTrailersGrpcStatus  = GrpcOk
-            , properTrailersGrpcMessage = Nothing
-            , properTrailersMetadata    = customMetadataMapFromList metadata
-            , properTrailersPushback    = Nothing
+              properTrailersGrpcStatus     = GrpcOk
+            , properTrailersGrpcMessage    = Nothing
+            , properTrailersMetadata       = customMetadataMapFromList metadata
+            , properTrailersPushback       = Nothing
+            , properTrailersOrcaLoadReport = Nothing
             }
         }
-
-data ResponseAlreadyInitiated = ResponseAlreadyInitiated {
-      -- | When was the response first initiated?
-      responseInitiatedFirst :: CallStack
-
-      -- | Where did we attempt to initiate the response a second time?
-    , responseInitiatedAgain :: CallStack
-    }
-  deriving stock (Show)
-  deriving anyclass (Exception)
 
 -- | Get trace context for the request (if any)
 --
@@ -589,7 +583,7 @@ sendNextOutput call = sendOutput call . StreamElem
 -- See also 'sendTrailers'.
 sendFinalOutput ::
      HasCallStack
-  => Call rpc -> (Output rpc, [CustomMetadata]) -> IO ()
+  => Call rpc -> (Output rpc, ResponseTrailingMetadata rpc) -> IO ()
 sendFinalOutput call = sendOutput call . uncurry FinalElem
 
 -- | Send trailers
@@ -599,7 +593,7 @@ sendFinalOutput call = sendOutput call . uncurry FinalElem
 -- included in the trailers.
 sendTrailers ::
      HasCallStack
-  => Call rpc -> [CustomMetadata] -> IO ()
+  => Call rpc -> ResponseTrailingMetadata rpc -> IO ()
 sendTrailers call = sendOutput call . NoMoreElems
 
 -- | Receive next input
@@ -689,3 +683,30 @@ sendProperTrailers Call{callContext, callResponseKickoff, callChannel}
 -- This is internal API: the timeout is automatically imposed on the handler.
 getRequestTimeout :: Call rpc -> Maybe Timeout
 getRequestTimeout call = requestTimeout $ callRequestHeaders call
+
+{-------------------------------------------------------------------------------
+  Exceptions
+-------------------------------------------------------------------------------}
+
+-- | Handler terminated early
+--
+-- This gets thrown in the handler, and sent to the client, when the handler
+-- terminates before sending the final output and trailers.
+data HandlerTerminated = HandlerTerminated
+  deriving stock (Show)
+  deriving anyclass (Exception)
+
+data ResponseAlreadyInitiated = ResponseAlreadyInitiated {
+      -- | When was the response first initiated?
+      responseInitiatedFirst :: CallStack
+
+      -- | Where did we attempt to initiate the response a second time?
+    , responseInitiatedAgain :: CallStack
+    }
+  deriving stock (Show)
+  deriving anyclass (Exception)
+
+-- | The response initial metadata must be set before the first message is sent
+data ResponseInitialMetadataNotSet = ResponseInitialMetadataNotSet
+  deriving stock (Show)
+  deriving anyclass (Exception)

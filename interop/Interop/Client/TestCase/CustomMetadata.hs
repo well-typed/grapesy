@@ -3,6 +3,7 @@
 module Interop.Client.TestCase.CustomMetadata (runTest) where
 
 import Data.ByteString qualified as BS.Strict
+import Data.ByteString qualified as Strict (ByteString)
 
 import Network.GRPC.Client
 import Network.GRPC.Common
@@ -28,29 +29,22 @@ runTest cmdline = do
         sendFinalInput call simpleRequest
         responseMetadata <- recvResponseMetadata call
         (_, trailers)    <- recvFinalOutput call
-        assertBool $ metadataInit  `elem` responseMetadata
-        assertBool $ metadataFinal `elem` trailers
+        verifyRespMetadata responseMetadata trailers
 
       -- 2. FullDuplexCall
       withRPC conn callParams (Proxy @FullDuplexCall) $ \call -> do
         sendFinalInput call streamingRequest
         responseMetadata <- recvResponseMetadata call
         (_, trailers) <- recvFinalOutput call
-        assertBool $ metadataInit  `elem` responseMetadata
-        assertBool $ metadataFinal `elem` trailers
+        verifyRespMetadata responseMetadata trailers
   where
-    callParams :: CallParams
+    callParams :: forall rpc. CallParams (WithInteropMeta rpc)
     callParams = def {
-          callRequestMetadata = [metadataInit, metadataFinal]
+          callRequestMetadata = InteropReqMeta {
+              interopExpectInit  = Just expectInitVal
+            , interopExpectTrail = Just expectTrailVal
+            }
         }
-
-    metadataInit, metadataFinal :: CustomMetadata
-    metadataInit  = CustomMetadata
-                      (AsciiHeader "x-grpc-test-echo-initial")
-                      "test_initial_metadata_value"
-    metadataFinal = CustomMetadata
-                      (BinaryHeader "x-grpc-test-echo-trailing-bin")
-                      (BS.Strict.pack [0xab, 0xab, 0xab])
 
     simpleRequest :: SimpleRequest
     simpleRequest =
@@ -60,3 +54,17 @@ runTest cmdline = do
     streamingRequest =
         mkStreamingOutputCallRequest [(False, 314159)] (Just 271828)
 
+verifyRespMetadata ::
+     ResponseMetadata (WithInteropMeta rpc)
+     -- ^ This /could/ be trailing (if the server responded with Trailers-Only)
+  -> ResponseTrailingMetadata (WithInteropMeta rpc)
+  -> IO ()
+verifyRespMetadata initMeta trailMeta = do
+    assertEqual initMeta $
+      ResponseInitialMetadata $ InteropRespInitMeta (Just expectInitVal)
+    assertEqual trailMeta $
+      InteropRespTrailMeta (Just expectTrailVal)
+
+expectInitVal, expectTrailVal :: Strict.ByteString
+expectInitVal  = "test_initial_metadata_value"
+expectTrailVal = BS.Strict.pack [0xab, 0xab, 0xab]

@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Map of 'CustomMetadata', handling joining values
-module Network.GRPC.Spec.CustomMetadataMap (
+module Network.GRPC.Spec.CustomMetadata.Map (
     CustomMetadataMap -- opaque
     -- * Conversion
   , customMetadataMapFromList
@@ -15,7 +15,7 @@ import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
 
-import Network.GRPC.Spec.CustomMetadata
+import Network.GRPC.Spec.CustomMetadata.Raw
 
 {-------------------------------------------------------------------------------
   Definition

@@ -8,8 +8,6 @@ module Interop.Server.Common (
   ) where
 
 import Control.Exception
-import Data.List (find)
-import Data.Maybe (maybeToList)
 
 import Network.GRPC.Common
 import Network.GRPC.Server
@@ -27,33 +25,33 @@ import Interop.Util.Exceptions
 -- Sends the initial response metadata now, and returns the trailing metadata.
 --
 -- See <https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptions.md#custom_metadata>
-constructResponseMetadata :: Call rpc -> IO [CustomMetadata]
+constructResponseMetadata ::
+     Call (WithInteropMeta rpc)
+  -> IO InteropRespTrailMeta
 constructResponseMetadata call = do
     requestMetadata <- getRequestMetadata call
 
-    let initialResponseMetadata = maybeToList $
-          find ((== nameMetadataInitial) . customMetadataName) requestMetadata
-        trailingResponseMetadata = maybeToList $
-          find ((== nameMetadataTrailing) . customMetadataName) requestMetadata
+    let initMeta  :: InteropRespInitMeta
+        trailMeta :: InteropRespTrailMeta
+
+        initMeta  = InteropRespInitMeta  $ interopExpectInit  requestMetadata
+        trailMeta = InteropRespTrailMeta $ interopExpectTrail requestMetadata
 
     -- Send initial metadata
-    setResponseMetadata call initialResponseMetadata
+    setResponseInitialMetadata call initMeta
     _initiated <- initiateResponse call
 
     -- Return the final metadata to be sent at the end of the call
-    return trailingResponseMetadata
+    return trailMeta
   where
-    nameMetadataInitial, nameMetadataTrailing :: HeaderName
-    nameMetadataInitial  = AsciiHeader  "x-grpc-test-echo-initial"
-    nameMetadataTrailing = BinaryHeader "x-grpc-test-echo-trailing-bin"
 
 -- | Echo any non-OK status back to the client
 --
 -- Does nothing if @code@ is set to @0@ ('GrpcOk').
 --
 -- See <https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptions.md#status_code_and_message>
-echoStatus :: EchoStatus -> [CustomMetadata] -> IO ()
-echoStatus status trailers =
+echoStatus :: EchoStatus -> IO ()
+echoStatus status =
     case toGrpcStatus code of
       Just GrpcOk ->
         return ()
@@ -61,7 +59,7 @@ echoStatus status trailers =
         throwIO $ GrpcException {
             grpcError         = err
           , grpcErrorMessage  = Just $ status ^. #message
-          , grpcErrorMetadata = trailers
+          , grpcErrorMetadata = []
           }
       Nothing ->
         assertUnrecognized code

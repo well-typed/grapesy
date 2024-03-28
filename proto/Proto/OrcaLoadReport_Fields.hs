@@ -1,10 +1,10 @@
-{- This file was auto-generated from test.proto by the proto-lens-protoc program. -}
+{- This file was auto-generated from orca_load_report.proto by the proto-lens-protoc program. -}
 {-# LANGUAGE ScopedTypeVariables, DataKinds, TypeFamilies, UndecidableInstances, GeneralizedNewtypeDeriving, MultiParamTypeClasses, FlexibleContexts, FlexibleInstances, PatternSynonyms, MagicHash, NoImplicitPrelude, DataKinds, BangPatterns, TypeApplications, OverloadedStrings, DerivingStrategies#-}
 {-# OPTIONS_GHC -Wno-unused-imports#-}
 {-# OPTIONS_GHC -Wno-duplicate-exports#-}
 {-# OPTIONS_GHC -Wno-dodgy-exports#-}
 {-# OPTIONS_GHC -Wno-prepositive-qualified-module #-}
-module Proto.Test_Fields where
+module Proto.OrcaLoadReport_Fields where
 import qualified Data.ProtoLens.Runtime.Prelude as Prelude
 import qualified Data.ProtoLens.Runtime.Data.Int as Data.Int
 import qualified Data.ProtoLens.Runtime.Data.Monoid as Data.Monoid
@@ -28,5 +28,66 @@ import qualified Data.ProtoLens.Runtime.Data.Vector as Data.Vector
 import qualified Data.ProtoLens.Runtime.Data.Vector.Generic as Data.Vector.Generic
 import qualified Data.ProtoLens.Runtime.Data.Vector.Unboxed as Data.Vector.Unboxed
 import qualified Data.ProtoLens.Runtime.Text.Read as Text.Read
-import qualified Proto.Empty
-import qualified Proto.Messages
+applicationUtilization ::
+  forall f s a.
+  (Prelude.Functor f,
+   Data.ProtoLens.Field.HasField s "applicationUtilization" a) =>
+  Lens.Family2.LensLike' f s a
+applicationUtilization
+  = Data.ProtoLens.Field.field @"applicationUtilization"
+cpuUtilization ::
+  forall f s a.
+  (Prelude.Functor f,
+   Data.ProtoLens.Field.HasField s "cpuUtilization" a) =>
+  Lens.Family2.LensLike' f s a
+cpuUtilization = Data.ProtoLens.Field.field @"cpuUtilization"
+eps ::
+  forall f s a.
+  (Prelude.Functor f, Data.ProtoLens.Field.HasField s "eps" a) =>
+  Lens.Family2.LensLike' f s a
+eps = Data.ProtoLens.Field.field @"eps"
+key ::
+  forall f s a.
+  (Prelude.Functor f, Data.ProtoLens.Field.HasField s "key" a) =>
+  Lens.Family2.LensLike' f s a
+key = Data.ProtoLens.Field.field @"key"
+memUtilization ::
+  forall f s a.
+  (Prelude.Functor f,
+   Data.ProtoLens.Field.HasField s "memUtilization" a) =>
+  Lens.Family2.LensLike' f s a
+memUtilization = Data.ProtoLens.Field.field @"memUtilization"
+namedMetrics ::
+  forall f s a.
+  (Prelude.Functor f,
+   Data.ProtoLens.Field.HasField s "namedMetrics" a) =>
+  Lens.Family2.LensLike' f s a
+namedMetrics = Data.ProtoLens.Field.field @"namedMetrics"
+requestCost ::
+  forall f s a.
+  (Prelude.Functor f,
+   Data.ProtoLens.Field.HasField s "requestCost" a) =>
+  Lens.Family2.LensLike' f s a
+requestCost = Data.ProtoLens.Field.field @"requestCost"
+rps ::
+  forall f s a.
+  (Prelude.Functor f, Data.ProtoLens.Field.HasField s "rps" a) =>
+  Lens.Family2.LensLike' f s a
+rps = Data.ProtoLens.Field.field @"rps"
+rpsFractional ::
+  forall f s a.
+  (Prelude.Functor f,
+   Data.ProtoLens.Field.HasField s "rpsFractional" a) =>
+  Lens.Family2.LensLike' f s a
+rpsFractional = Data.ProtoLens.Field.field @"rpsFractional"
+utilization ::
+  forall f s a.
+  (Prelude.Functor f,
+   Data.ProtoLens.Field.HasField s "utilization" a) =>
+  Lens.Family2.LensLike' f s a
+utilization = Data.ProtoLens.Field.field @"utilization"
+value ::
+  forall f s a.
+  (Prelude.Functor f, Data.ProtoLens.Field.HasField s "value" a) =>
+  Lens.Family2.LensLike' f s a
+value = Data.ProtoLens.Field.field @"value"

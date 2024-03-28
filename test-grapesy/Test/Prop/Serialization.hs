@@ -1,4 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedLabels  #-}
+
 {-# OPTIONS_GHC -Wno-orphans #-}
 
 module Test.Prop.Serialization (tests) where
@@ -23,6 +25,7 @@ import Test.Tasty.QuickCheck
 
 import Network.GRPC.Common
 import Network.GRPC.Common.Compression qualified as Compr
+import Network.GRPC.Common.Protobuf
 import Network.GRPC.Spec
 
 import Test.Util.Awkward
@@ -340,15 +343,17 @@ instance Arbitrary (Awkward ResponseHeaders) where
 
 instance Arbitrary (Awkward ProperTrailers) where
   arbitrary = Awkward <$> do
-      properTrailersGrpcStatus  <- awkward
-      properTrailersGrpcMessage <- awkward
-      properTrailersMetadata    <- awkward
-      properTrailersPushback    <- awkward
+      properTrailersGrpcStatus     <- awkward
+      properTrailersGrpcMessage    <- awkward
+      properTrailersMetadata       <- awkward
+      properTrailersPushback       <- awkward
+      properTrailersOrcaLoadReport <- awkward
       return $ ProperTrailers{
           properTrailersGrpcStatus
         , properTrailersGrpcMessage
         , properTrailersMetadata
         , properTrailersPushback
+        , properTrailersOrcaLoadReport
         }
 
   shrink h@(Awkward h') = concat [
@@ -490,6 +495,28 @@ instance Arbitrary (Awkward Pushback) where
           RetryAfter <$> arbitrary
         , pure DoNotRetry
         ]
+
+instance Arbitrary (Awkward OrcaLoadReport) where
+  arbitrary = Awkward <$> do
+      -- @rps@ is a deprecated field, we omit it from the test
+      cpuUtilization         <- awkward
+      memUtilization         <- awkward
+      requestCost            <- awkward
+      utilization            <- awkward
+      rpsFractional          <- awkward
+      eps                    <- awkward
+      namedMetrics           <- awkward
+      applicationUtilization <- awkward
+      return $
+        defMessage
+          & #cpuUtilization         .~ cpuUtilization
+          & #memUtilization         .~ memUtilization
+          & #requestCost            .~ requestCost
+          & #utilization            .~ utilization
+          & #rpsFractional          .~ rpsFractional
+          & #eps                    .~ eps
+          & #namedMetrics           .~ namedMetrics
+          & #applicationUtilization .~ applicationUtilization
 
 {-------------------------------------------------------------------------------
   Auxiliary

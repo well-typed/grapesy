@@ -53,10 +53,10 @@ serverStreaming conn h input = IO.serverStreaming conn h input yield
 -- some insights here. However, for now this entire module is just meant as
 -- an illustration of how you could integrate @grapesy@ with a streaming lib.
 biDiStreaming :: forall rpc a.
-     IsRPC rpc
+     SupportsClientRpc rpc
   => SupportsStreamingType rpc BiDiStreaming
   => Connection
-  -> CallParams
+  -> CallParams rpc
   -> Proxy rpc
   -> (    Consumer' (StreamElem NoMetadata (Input rpc)) IO ()
        -> Producer' (Output rpc) IO ()

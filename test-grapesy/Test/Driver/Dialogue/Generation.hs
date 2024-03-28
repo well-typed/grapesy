@@ -21,7 +21,6 @@ import Network.GRPC.Common
 
 import Test.Driver.Dialogue.Definition
 import Test.Driver.Dialogue.TestClock qualified as TestClock
-import Test.Util (dropEnd)
 
 {-------------------------------------------------------------------------------
   Metadata
@@ -32,32 +31,24 @@ import Test.Util (dropEnd)
   in separate serialization tests ("Test.Prop.Serialization").
 -------------------------------------------------------------------------------}
 
-simpleHeaderName :: [Strict.ByteString]
-simpleHeaderName = ["md1", "md2", "md3"]
-
 simpleAsciiValue :: [Strict.ByteString]
 simpleAsciiValue = ["a", "b", "c"]
 
-genMetadata :: Gen Metadata
-genMetadata = do
-    n <- choose (0, 2)
-
-    names <- replicateM n genHeaderName
-    fmap Metadata $ forM names $ \nm -> oneof [
-        (\v -> CustomMetadata (BinaryHeader (nm <> "-bin")) v) <$> genBinaryValue
-      , (\v -> CustomMetadata (AsciiHeader   nm           ) v) <$> genAsciiValue
-      ]
+genMetadata :: Gen TestMetadata
+genMetadata =
+    TestMetadata
+      <$> liftArbitrary genAsciiValue
+      <*> liftArbitrary genAsciiValue
+      <*> liftArbitrary genBinaryValue
+      <*> liftArbitrary genBinaryValue
   where
-    genHeaderName :: Gen Strict.ByteString
-    genHeaderName = elements simpleHeaderName
+    genAsciiValue :: Gen Strict.ByteString
+    genAsciiValue = elements simpleAsciiValue
 
     genBinaryValue :: Gen Strict.ByteString
     genBinaryValue = sized $ \sz -> do
         n <- choose (0, sz)
         BS.Strict.pack <$> replicateM n arbitrary
-
-    genAsciiValue :: Gen Strict.ByteString
-    genAsciiValue = elements simpleAsciiValue
 
 {-------------------------------------------------------------------------------
   Local steps
@@ -225,7 +216,7 @@ ensureCorrectUsage = go Map.empty []
                   UniOpen   -> True
                   UniClosed -> False
               ]
-            , [ ServerAction $ Send $ NoMoreElems (Metadata [])
+            , [ ServerAction $ Send $ NoMoreElems def
               | case (localGenClient st, localGenServer st) of
                   (UniUninit, _) -> False
                   (_, UniUninit) -> True
@@ -248,13 +239,13 @@ ensureCorrectUsage = go Map.empty []
 
           ClientAction (Send (StreamElem _)) ->
             case localGenClient st of
-              UniUninit  -> insert $ ClientAction (Initiate (Metadata [], RPC1))
+              UniUninit  -> insert $ ClientAction (Initiate (def, RPC1))
               UniOpen    -> contWith $ id
               UniClosed  -> skip
 
           ClientAction (Send _) -> -- FinalElem or NoMoreElems
             case localGenClient st of
-              UniUninit  -> insert (ClientAction (Initiate (Metadata [], RPC1)))
+              UniUninit  -> insert (ClientAction (Initiate (def, RPC1)))
               UniOpen    -> contWith $ updClient UniClosed
               UniClosed  -> skip
 
@@ -417,42 +408,41 @@ shrinkRPC RPC1 = []
 shrinkRPC RPC2 = [RPC1]
 shrinkRPC RPC3 = [RPC1, RPC2]
 
-shrinkMetadata :: Metadata -> [Metadata]
-shrinkMetadata =
-      map Metadata
-    . shrinkList shrinkCustomMetadata
-    . getMetadata
-
-shrinkCustomMetadata :: CustomMetadata -> [CustomMetadata]
-shrinkCustomMetadata (CustomMetadata (BinaryHeader name) val) = concat [
-      -- prefer ASCII headers over binary headers
-      [ CustomMetadata (AsciiHeader nameWithoutSuffix) val'
-      | val' <- simpleAsciiValue
+-- | Shrink metadata
+--
+-- For now we just shrink individual values. In principle we could also try to
+-- /replace/ a binary header with an ASCII one.
+shrinkMetadata :: TestMetadata -> [TestMetadata]
+shrinkMetadata md = concat [
+      [ md{metadataAsc1 = x}
+      | x <- liftShrink shrinkAsciiValue (metadataAsc1 md)
       ]
-      -- shrink the name
-    , [ CustomMetadata (BinaryHeader (nm' <> "-bin")) val
-      | nm' <- filter (< nameWithoutSuffix) simpleHeaderName
+    , [ md{metadataAsc2 = x}
+      | x <- liftShrink shrinkAsciiValue (metadataAsc2 md)
       ]
-      -- aggressively try to shrink to a single byte
-    , [ CustomMetadata (BinaryHeader name) (BS.Strict.pack [x])
-      | x:_:_ <- [BS.Strict.unpack val]
+    , [ md{metadataBin3 = x}
+      | x <- liftShrink shrinkBinaryValue (metadataBin3 md)
       ]
-      -- normal shrinking of binary values
-    , [ CustomMetadata (BinaryHeader name) (BS.Strict.pack val')
-      | val' <- shrink (BS.Strict.unpack val)
+    , [ md{metadataBin4 = x}
+      | x <- liftShrink shrinkBinaryValue (metadataBin4 md)
       ]
     ]
   where
-    nameWithoutSuffix :: Strict.ByteString
-    nameWithoutSuffix = dropEnd 4 name
-shrinkCustomMetadata (CustomMetadata (AsciiHeader name) val) = concat [
-      [ CustomMetadata (AsciiHeader name') val
-      | name' <- filter (< name) simpleHeaderName
-      ]
-    , [ CustomMetadata (AsciiHeader name) val'
-      | val' <- filter (< val) simpleAsciiValue
-      ]
-    ]
+    shrinkAsciiValue :: Strict.ByteString -> [Strict.ByteString]
+    shrinkAsciiValue val = filter (< val) simpleAsciiValue
+
+    shrinkBinaryValue :: Strict.ByteString -> [Strict.ByteString]
+    shrinkBinaryValue val = concat [
+          -- aggressively try to shrink to a single byte
+          [ BS.Strict.pack [x]
+          | x:_:_ <- [BS.Strict.unpack val]
+          ]
+
+          -- normal shrinking of binary values
+        , [ BS.Strict.pack val'
+          | val' <- shrink (BS.Strict.unpack val)
+          ]
+        ]
 
 -- TODO: We currently don't change the nature of the elem. Not sure what the
 -- right definition of "simpler" is here

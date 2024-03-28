@@ -1,10 +1,8 @@
 {-# LANGUAGE CPP #-}
 
 module Test.Util (
-    -- * Bytestring utilities
-    dropEnd
     -- * Timeouts
-  , Timeout(..)
+    Timeout(..)
   , within
   ) where
 
@@ -12,20 +10,7 @@ import Control.Concurrent
 import Control.Exception
 import Control.Monad.Catch
 import Control.Monad.IO.Class
-import Data.ByteString qualified as BS.Strict
-import Data.ByteString qualified as Strict (ByteString)
 import GHC.Stack
-
-{-------------------------------------------------------------------------------
-  Bytestring utilities
--------------------------------------------------------------------------------}
-
-dropEnd :: Int -> Strict.ByteString -> Strict.ByteString
-#if MIN_VERSION_bytestring(0,11,1)
-dropEnd = BS.Strict.dropEnd
-#else
-dropEnd n xs = BS.Strict.take (BS.Strict.length xs - n) xs
-#endif
 
 {-------------------------------------------------------------------------------
   Timeouts

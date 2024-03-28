@@ -7,6 +7,8 @@ import Data.Proxy
 import Data.Text qualified as Text
 import GHC.TypeLits
 
+import Network.GRPC.Spec.CustomMetadata.NoMetadata
+import Network.GRPC.Spec.CustomMetadata.Typed
 import Network.GRPC.Spec.RPC
 import Network.GRPC.Spec.RPC.StreamType
 
@@ -24,20 +26,33 @@ import Network.GRPC.Spec.RPC.StreamType
 -- permits).
 data BinaryRpc (serv :: Symbol) (meth :: Symbol)
 
+instance HasCustomMetadata (BinaryRpc serv meth) where
+  type RequestMetadata          (BinaryRpc serv meth) = NoMetadata
+  type ResponseInitialMetadata  (BinaryRpc serv meth) = NoMetadata
+  type ResponseTrailingMetadata (BinaryRpc serv meth) = NoMetadata
+
 instance ( KnownSymbol serv
          , KnownSymbol meth
          ) => IsRPC (BinaryRpc serv meth) where
   type Input  (BinaryRpc serv meth) = Lazy.ByteString
   type Output (BinaryRpc serv meth) = Lazy.ByteString
 
-  rpcContentType         _ = defaultRpcContentType "binary"
-  rpcServiceName         _ = Text.pack $ symbolVal (Proxy @serv)
-  rpcMethodName          _ = Text.pack $ symbolVal (Proxy @meth)
-  rpcMessageType         _ = "bytestring"
-  rpcSerializeInput      _ = id
-  rpcSerializeOutput     _ = id
-  rpcDeserializeInput    _ = return
-  rpcDeserializeOutput   _ = return
+  rpcContentType _ = defaultRpcContentType "binary"
+  rpcServiceName _ = Text.pack $ symbolVal (Proxy @serv)
+  rpcMethodName  _ = Text.pack $ symbolVal (Proxy @meth)
+  rpcMessageType _ = "bytestring"
+
+instance ( KnownSymbol serv
+         , KnownSymbol meth
+         ) => SupportsClientRpc (BinaryRpc serv meth) where
+  rpcSerializeInput    _ = id
+  rpcDeserializeOutput _ = return
+
+instance ( KnownSymbol serv
+         , KnownSymbol meth
+         ) => SupportsServerRpc (BinaryRpc serv meth) where
+  rpcDeserializeInput _ = return
+  rpcSerializeOutput  _ = id
 
 -- | For the binary protocol we do not check communication protocols
 instance SupportsStreamingType (BinaryRpc serv meth) styp

@@ -64,7 +64,7 @@ instance IsRPC rpc => DataFlow (ClientOutbound rpc) where
   -- 'Trailers-Only' case, but the headers are just the normal headers.
   type NoMessages (ClientOutbound rpc) = RequestHeaders
 
-instance IsRPC rpc => IsSession (ClientSession rpc) where
+instance SupportsClientRpc rpc => IsSession (ClientSession rpc) where
   type Inbound  (ClientSession rpc) = ClientInbound  rpc
   type Outbound (ClientSession rpc) = ClientOutbound rpc
 
@@ -77,7 +77,7 @@ instance IsRPC rpc => IsSession (ClientSession rpc) where
   parseMsg _ = parseOutput (Proxy @rpc) . inbCompression
   buildMsg _ = buildInput  (Proxy @rpc) . outCompression
 
-instance IsRPC rpc => InitiateSession (ClientSession rpc) where
+instance SupportsClientRpc rpc => InitiateSession (ClientSession rpc) where
   parseResponseRegular client info = do
       unless (HTTP.statusCode (responseStatus info) == 200) $
         throwIO $ CallSetupUnexpectedStatus

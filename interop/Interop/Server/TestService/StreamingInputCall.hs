@@ -22,7 +22,7 @@ handle call = do
     let response :: StreamingInputCallResponse
         response = defMessage & #aggregatedPayloadSize .~ fromIntegral sz
 
-    sendFinalOutput call (response, [])
+    sendFinalOutput call (response, def)
   where
     -- Returns the sum of all request payload bodies received.
     loop :: Int -> IO Int
