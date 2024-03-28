@@ -50,5 +50,5 @@ handle call = do
     sendOutputWithEnvelope call $ StreamElem (outboundEnvelope, response)
 
     -- Send status and trailers
-    echoStatus (request ^. #responseStatus) trailers
+    echoStatus (request ^. #responseStatus)
     sendTrailers call trailers

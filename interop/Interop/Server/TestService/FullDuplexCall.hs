@@ -17,7 +17,7 @@ handle call = do
     let handleRequest :: StreamingOutputCallRequest -> IO ()
         handleRequest request = do
             StreamingOutputCall.handleRequest call request
-            echoStatus (request ^. #responseStatus) trailers
+            echoStatus (request ^. #responseStatus)
 
         loop :: IO ()
         loop = do

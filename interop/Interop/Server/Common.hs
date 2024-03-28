@@ -52,8 +52,8 @@ constructResponseMetadata call = do
 -- Does nothing if @code@ is set to @0@ ('GrpcOk').
 --
 -- See <https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptions.md#status_code_and_message>
-echoStatus :: EchoStatus -> [CustomMetadata] -> IO ()
-echoStatus status trailers =
+echoStatus :: EchoStatus -> IO ()
+echoStatus status =
     case toGrpcStatus code of
       Just GrpcOk ->
         return ()
@@ -61,7 +61,7 @@ echoStatus status trailers =
         throwIO $ GrpcException {
             grpcError         = err
           , grpcErrorMessage  = Just $ status ^. #message
-          , grpcErrorMetadata = trailers
+          , grpcErrorMetadata = []
           }
       Nothing ->
         assertUnrecognized code
