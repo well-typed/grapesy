@@ -86,6 +86,12 @@ data RequestHeaders_ f = RequestHeaders {
 
       -- | Should we include the @te: trailers@ header?
       --
+      -- The @TE@ header is part of the HTTP specification;
+      -- see also <https://datatracker.ietf.org/doc/html/rfc7230#section-4.3>.
+      -- It indicates that we are willing to accept a chunked encoding for the
+      -- response body, and that we expect trailers to be present after the
+      -- response body.
+      --
       -- To be conform to the gRPC spec, the @te@ header should be included, but
       -- @grapesy@ does not insist that the header is present for incoming
       -- requests. However, /if/ it is present, we /do/ verify that it has the
@@ -161,7 +167,7 @@ buildRequestHeaders proxy callParams@RequestHeaders{requestMetadata} = concat [
 -- @TE@ should come /after/ @Authority@ (if using). However, we will not include
 -- the reserved headers here /at all/, as they are automatically added by
 -- `http2`.
-callDefinition ::
+callDefinition :: forall rpc.
      (IsRPC rpc, HasCallStack)
   => Proxy rpc -> RequestHeaders -> [HTTP.Header]
 callDefinition proxy = \hdrs -> catMaybes [

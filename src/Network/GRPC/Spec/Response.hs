@@ -37,8 +37,10 @@ module Network.GRPC.Spec.Response (
 import Control.Exception
 import Control.Monad.Except
 import Control.Monad.State
-import Data.ByteString qualified as Strict
+import Data.ByteString qualified as BS.Strict
+import Data.ByteString qualified as Strict (ByteString)
 import Data.ByteString.Char8 qualified as BS.Strict.C8
+import Data.CaseInsensitive qualified as CI
 import Data.List.NonEmpty (NonEmpty)
 import Data.Proxy
 import Data.Text (Text)
@@ -55,6 +57,7 @@ import Network.GRPC.Spec.RPC
 import Network.GRPC.Spec.Status
 import Network.GRPC.Util.HKD (HKD, Undecorated, DecoratedWith)
 import Network.GRPC.Util.HKD qualified as HKD
+import Network.GRPC.Spec.CustomMetadata.Typed
 
 {-------------------------------------------------------------------------------
   Outputs (messages received from the peer)
@@ -300,8 +303,8 @@ grpcExceptionToTrailers GrpcException{
 -------------------------------------------------------------------------------}
 
 -- | Build response headers
-buildResponseHeaders ::
-     IsRPC rpc
+buildResponseHeaders :: forall rpc.
+     SupportsServerRpc rpc
   => Proxy rpc -> ResponseHeaders -> [HTTP.Header]
 buildResponseHeaders proxy
              ResponseHeaders{ responseCompression
@@ -318,10 +321,40 @@ buildResponseHeaders proxy
     , [ buildMessageAcceptEncoding x
       | Just x <- [responseAcceptCompression]
       ]
+    , [ buildTrailer proxy ]
     , [ buildCustomMetadata x
       | x <- customMetadataMapToList responseMetadata
       ]
     ]
+
+-- | Construct the HTTP 'Trailer' header
+--
+-- This lists all headers that /might/ be present in the trailers.
+--
+-- See
+--
+-- * <https://datatracker.ietf.org/doc/html/rfc7230#section-4.4>
+-- * <https://www.rfc-editor.org/rfc/rfc9110#name-processing-trailer-fields>
+buildTrailer :: forall rpc. SupportsServerRpc rpc => Proxy rpc -> HTTP.Header
+buildTrailer _ = (
+      "Trailer"
+    , BS.Strict.intercalate ", " allPotentialTrailers
+    )
+  where
+    allPotentialTrailers :: [Strict.ByteString]
+    allPotentialTrailers = concat [
+          reservedTrailers
+        , map (CI.original . buildHeaderName) $
+            metadataHeaderNames (Proxy @(ResponseTrailingMetadata rpc))
+        ]
+
+    -- These cannot be 'HeaderName' (which disallow reserved names)
+    reservedTrailers :: [Strict.ByteString]
+    reservedTrailers = [
+          "grpc-status"
+        , "grpc-message"
+        , "grpc-retry-pushback-ms"
+        ]
 
 -- | Parse response headers
 parseResponseHeaders :: forall rpc m.
@@ -351,6 +384,9 @@ parseResponseHeaders proxy =
             responseAcceptCompression = Just <$> parseMessageAcceptEncoding hdr
           }
 
+      | name == "trailer"
+      = return () -- ignore the HTTP trailer header
+
       | otherwise
       = modify $ \x -> x {
             responseMetadata = do
@@ -371,6 +407,9 @@ parseResponseHeaders proxy =
 -------------------------------------------------------------------------------}
 
 -- | Build trailers (see 'buildTrailersOnly' for the Trailers-Only case)
+--
+-- NOTE: If we add additional (reserved) headers here, we also need to add them
+-- to 'buildTrailer'.
 buildProperTrailers :: ProperTrailers -> [HTTP.Header]
 buildProperTrailers ProperTrailers{
                         properTrailersGrpcStatus
