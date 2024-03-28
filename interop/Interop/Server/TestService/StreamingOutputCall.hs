@@ -25,9 +25,9 @@ handle call = do
 -- | Handle specific request
 --
 -- Abstracted out because also used in the @fullDuplexCall@ test.
-handleRequest :: forall meth.
-     (Output (Protobuf TestService meth) ~ StreamingOutputCallResponse)
-  => Call (Protobuf TestService meth)
+handleRequest :: forall rpc.
+     (Output rpc ~ StreamingOutputCallResponse)
+  => Call rpc
   -> StreamingOutputCallRequest
   -> IO ()
 handleRequest call request =
