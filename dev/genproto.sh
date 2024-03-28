@@ -20,7 +20,7 @@ protoc \
   ping.proto
 
 ##
-## Examples and test cases from the gRPC repo
+## From the gRPC repo
 ##
 
 for i in dev/grpc-proto/*.proto
