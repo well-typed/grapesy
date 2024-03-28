@@ -157,6 +157,8 @@ module Network.GRPC.Spec (
   , TraceOptions(..)
   , buildTraceContext
   , parseTraceContext
+    -- * ORCA
+  , OrcaLoadReport
   ) where
 
 import Network.GRPC.Spec.Call
@@ -167,6 +169,7 @@ import Network.GRPC.Spec.CustomMetadata.NoMetadata
 import Network.GRPC.Spec.CustomMetadata.Raw
 import Network.GRPC.Spec.CustomMetadata.Typed
 import Network.GRPC.Spec.LengthPrefixed
+import Network.GRPC.Spec.OrcaLoadReport
 import Network.GRPC.Spec.PseudoHeaders
 import Network.GRPC.Spec.Request
 import Network.GRPC.Spec.Response

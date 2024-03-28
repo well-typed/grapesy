@@ -52,12 +52,14 @@ import Network.GRPC.Spec.Common
 import Network.GRPC.Spec.Compression (CompressionId)
 import Network.GRPC.Spec.CustomMetadata.Map
 import Network.GRPC.Spec.CustomMetadata.Raw
+import Network.GRPC.Spec.CustomMetadata.Typed
+import Network.GRPC.Spec.OrcaLoadReport
 import Network.GRPC.Spec.PercentEncoding qualified as PercentEncoding
 import Network.GRPC.Spec.RPC
 import Network.GRPC.Spec.Status
 import Network.GRPC.Util.HKD (HKD, Undecorated, DecoratedWith)
 import Network.GRPC.Util.HKD qualified as HKD
-import Network.GRPC.Spec.CustomMetadata.Typed
+import Network.GRPC.Util.Protobuf qualified as Protobuf
 
 {-------------------------------------------------------------------------------
   Outputs (messages received from the peer)
@@ -119,6 +121,11 @@ data ProperTrailers_ f = ProperTrailers {
 
       -- | Server pushback
     , properTrailersPushback :: HKD f (Maybe Pushback)
+
+      -- | ORCA load report
+      --
+      -- See <https://github.com/grpc/proposal/blob/master/A51-custom-backend-metrics.md>
+    , properTrailersOrcaLoadReport :: HKD f (Maybe OrcaLoadReport)
     }
 
 type ProperTrailers = ProperTrailers_ Undecorated
@@ -129,10 +136,11 @@ deriving stock instance Eq   ProperTrailers
 instance HKD.Traversable ProperTrailers_ where
   sequence x =
       ProperTrailers
-        <$> properTrailersGrpcStatus  x
-        <*> properTrailersGrpcMessage x
-        <*> properTrailersMetadata    x
-        <*> properTrailersPushback    x
+        <$> properTrailersGrpcStatus     x
+        <*> properTrailersGrpcMessage    x
+        <*> properTrailersMetadata       x
+        <*> properTrailersPushback       x
+        <*> properTrailersOrcaLoadReport x
 
 -- | Trailers sent in the gRPC Trailers-Only case
 --
@@ -276,10 +284,11 @@ grpcExceptionToTrailers GrpcException{
                           , grpcErrorMessage
                           , grpcErrorMetadata
                           } = ProperTrailers{
-      properTrailersGrpcStatus  = GrpcError grpcError
-    , properTrailersGrpcMessage = grpcErrorMessage
-    , properTrailersMetadata    = customMetadataMapFromList grpcErrorMetadata
-    , properTrailersPushback    = Nothing
+      properTrailersGrpcStatus     = GrpcError grpcError
+    , properTrailersGrpcMessage    = grpcErrorMessage
+    , properTrailersMetadata       = customMetadataMapFromList grpcErrorMetadata
+    , properTrailersPushback       = Nothing
+    , properTrailersOrcaLoadReport = Nothing
     }
 
 {-------------------------------------------------------------------------------
@@ -416,6 +425,7 @@ buildProperTrailers ProperTrailers{
                       , properTrailersGrpcMessage
                       , properTrailersMetadata
                       , properTrailersPushback
+                      , properTrailersOrcaLoadReport
                       } = concat [
       [ ( "grpc-status"
         , BS.Strict.C8.pack $ show $ fromGrpcStatus properTrailersGrpcStatus
@@ -431,6 +441,11 @@ buildProperTrailers ProperTrailers{
         , buildPushback x
         )
       | Just x <- [properTrailersPushback]
+      ]
+    , [ ( "endpoint-load-metrics-bin"
+        , buildBinaryValue $ Protobuf.buildStrict x
+        )
+      | Just x <- [properTrailersOrcaLoadReport]
       ]
     ]
 
@@ -509,6 +524,15 @@ parseTrailersOnly proxy =
               Just <$> parsePushback value
           }
 
+      | name == "endpoint-load-metrics-bin"
+      = modify $ liftProperTrailers $ \x -> x{
+            properTrailersOrcaLoadReport = do
+              value' <- parseBinaryValue value
+              case Protobuf.parseStrict value' of
+                Left  err    -> throwError err
+                Right report -> return $ Just report
+          }
+
       | otherwise
       = modify $ liftProperTrailers $ \x -> x{
             properTrailersMetadata = do
@@ -520,10 +544,11 @@ parseTrailersOnly proxy =
     uninitTrailersOnly = TrailersOnly {
           trailersOnlyContentType = return Nothing
         , trailersOnlyProper      = ProperTrailers {
-              properTrailersGrpcStatus  = throwError "missing: grpc-status"
-            , properTrailersGrpcMessage = return Nothing
-            , properTrailersMetadata    = return mempty
-            , properTrailersPushback    = return Nothing
+              properTrailersGrpcStatus     = throwError "missing: grpc-status"
+            , properTrailersGrpcMessage    = return Nothing
+            , properTrailersMetadata       = return mempty
+            , properTrailersPushback       = return Nothing
+            , properTrailersOrcaLoadReport = return Nothing
             }
         }
 

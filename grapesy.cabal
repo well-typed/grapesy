@@ -121,6 +121,7 @@ library
       Network.GRPC.Spec.CustomMetadata.Raw
       Network.GRPC.Spec.CustomMetadata.Typed
       Network.GRPC.Spec.LengthPrefixed
+      Network.GRPC.Spec.OrcaLoadReport
       Network.GRPC.Spec.PercentEncoding
       Network.GRPC.Spec.PseudoHeaders
       Network.GRPC.Spec.Request
@@ -139,6 +140,7 @@ library
       Network.GRPC.Util.HTTP2
       Network.GRPC.Util.HTTP2.Stream
       Network.GRPC.Util.Parser
+      Network.GRPC.Util.Protobuf
       Network.GRPC.Util.RedundantConstraint
       Network.GRPC.Util.Session
       Network.GRPC.Util.Session.API
@@ -255,6 +257,7 @@ test-suite test-grapesy
 
       Proto.Empty
       Proto.Messages
+      Proto.OrcaLoadReport
       Proto.Test
   build-depends:
       -- Internal dependencies

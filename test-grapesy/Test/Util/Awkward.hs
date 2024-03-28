@@ -123,3 +123,7 @@ instance {-# OVERLAPPING #-} Arbitrary (Awkward String) where
 instance Arbitrary (Awkward Text) where
   arbitrary = Awkward . Text.pack . getAwkward <$> arbitrary
   shrink    = map (Awkward . Text.pack) . shrink . (Text.unpack . getAwkward)
+
+instance Arbitrary (Awkward Double) where
+  arbitrary = Awkward <$> arbitrary
+  shrink    = map Awkward . shrink . getAwkward

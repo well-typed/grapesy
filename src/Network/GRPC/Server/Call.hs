@@ -362,10 +362,11 @@ serverExceptionToClientError err
 
     | otherwise
     = ProperTrailers {
-          properTrailersGrpcStatus  = GrpcError GrpcUnknown
-        , properTrailersGrpcMessage = Just $ Text.pack (show err)
-        , properTrailersMetadata    = mempty
-        , properTrailersPushback    = Nothing
+          properTrailersGrpcStatus     = GrpcError GrpcUnknown
+        , properTrailersGrpcMessage    = Just $ Text.pack (show err)
+        , properTrailersMetadata       = mempty
+        , properTrailersPushback       = Nothing
+        , properTrailersOrcaLoadReport = Nothing
         }
 
 {-------------------------------------------------------------------------------
@@ -433,11 +434,12 @@ sendOutputWithEnvelope call@Call{callChannel} msg = do
   where
     mkTrailers :: ResponseTrailingMetadata rpc -> ProperTrailers
     mkTrailers metadata = ProperTrailers {
-          properTrailersGrpcStatus  = GrpcOk
-        , properTrailersGrpcMessage = Nothing
-        , properTrailersMetadata    = customMetadataMapFromList $
-                                        buildMetadata metadata
-        , properTrailersPushback    = Nothing
+          properTrailersGrpcStatus     = GrpcOk
+        , properTrailersGrpcMessage    = Nothing
+        , properTrailersMetadata       = customMetadataMapFromList $
+                                           buildMetadata metadata
+        , properTrailersPushback       = Nothing
+        , properTrailersOrcaLoadReport = Nothing
         }
 
 -- | Send 'GrpcException' to the client
@@ -548,10 +550,11 @@ sendTrailersOnly Call{ callContext
     trailers = TrailersOnly {
           trailersOnlyContentType = Context.serverContentType params
         , trailersOnlyProper      = ProperTrailers {
-              properTrailersGrpcStatus  = GrpcOk
-            , properTrailersGrpcMessage = Nothing
-            , properTrailersMetadata    = customMetadataMapFromList metadata
-            , properTrailersPushback    = Nothing
+              properTrailersGrpcStatus     = GrpcOk
+            , properTrailersGrpcMessage    = Nothing
+            , properTrailersMetadata       = customMetadataMapFromList metadata
+            , properTrailersPushback       = Nothing
+            , properTrailersOrcaLoadReport = Nothing
             }
         }
 
