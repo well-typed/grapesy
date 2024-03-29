@@ -34,7 +34,7 @@ module Network.GRPC.Server (
   , sendTrailersOnly
   , recvInputWithEnvelope
   , sendOutputWithEnvelope
-  , getRequestTraceContext
+  , getRequestHeaders
 
     -- * Exceptions
   , CallSetupFailure(..)

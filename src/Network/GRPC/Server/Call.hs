@@ -30,7 +30,7 @@ module Network.GRPC.Server.Call (
   , sendTrailersOnly
   , recvInputWithEnvelope
   , sendOutputWithEnvelope
-  , getRequestTraceContext
+  , getRequestHeaders
 
     -- ** Internal API
   , sendProperTrailers
@@ -558,12 +558,10 @@ sendTrailersOnly Call{ callContext
             }
         }
 
--- | Get trace context for the request (if any)
---
--- This provides (minimal) support for OpenTelemetry.
-getRequestTraceContext :: Call rpc -> IO (Maybe TraceContext)
-getRequestTraceContext Call{callRequestHeaders} =
-    return $ requestTraceContext callRequestHeaders
+-- | Get full request headers
+getRequestHeaders :: Call rpc -> IO RequestHeaders
+getRequestHeaders Call{callRequestHeaders} =
+    return callRequestHeaders
 
 {-------------------------------------------------------------------------------
   Protocol specific wrappers
