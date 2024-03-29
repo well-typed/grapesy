@@ -300,6 +300,7 @@ instance Arbitrary (Awkward RequestHeaders) where
       requestMessageType         <- arbitrary
       requestIncludeTE           <- arbitrary
       requestTraceContext        <- awkward
+      requestPreviousRpcAttempts <- awkward
       return $ RequestHeaders{
           requestTimeout
         , requestMetadata
@@ -309,6 +310,7 @@ instance Arbitrary (Awkward RequestHeaders) where
         , requestMessageType
         , requestIncludeTE
         , requestTraceContext
+        , requestPreviousRpcAttempts
         }
   shrink h@(Awkward h') = concat [
         shrinkAwkward (\x -> h'{requestTimeout             = x}) requestTimeout             h
@@ -319,6 +321,7 @@ instance Arbitrary (Awkward RequestHeaders) where
       , shrinkRegular (\x -> h'{requestMessageType         = x}) requestMessageType         h
       , shrinkRegular (\x -> h'{requestIncludeTE           = x}) requestIncludeTE           h
       , shrinkAwkward (\x -> h'{requestTraceContext        = x}) requestTraceContext        h
+      , shrinkAwkward (\x -> h'{requestPreviousRpcAttempts = x}) requestPreviousRpcAttempts h
       ]
 
 instance Arbitrary (Awkward ResponseHeaders) where
@@ -357,10 +360,11 @@ instance Arbitrary (Awkward ProperTrailers) where
         }
 
   shrink h@(Awkward h') = concat [
-        shrinkAwkward (\x -> h'{properTrailersGrpcStatus  = x}) properTrailersGrpcStatus  h
-      , shrinkAwkward (\x -> h'{properTrailersGrpcMessage = x}) properTrailersGrpcMessage h
-      , shrinkAwkward (\x -> h'{properTrailersMetadata    = x}) properTrailersMetadata    h
-      , shrinkAwkward (\x -> h'{properTrailersPushback    = x}) properTrailersPushback    h
+        shrinkAwkward (\x -> h'{properTrailersGrpcStatus     = x}) properTrailersGrpcStatus     h
+      , shrinkAwkward (\x -> h'{properTrailersGrpcMessage    = x}) properTrailersGrpcMessage    h
+      , shrinkAwkward (\x -> h'{properTrailersMetadata       = x}) properTrailersMetadata       h
+      , shrinkAwkward (\x -> h'{properTrailersPushback       = x}) properTrailersPushback       h
+      , shrinkAwkward (\x -> h'{properTrailersOrcaLoadReport = x}) properTrailersOrcaLoadReport h
       ]
 
 instance Arbitrary (Awkward TrailersOnly) where

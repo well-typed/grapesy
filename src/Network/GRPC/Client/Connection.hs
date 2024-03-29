@@ -356,6 +356,8 @@ startRPC Connection{connMetaVar, connParams, connStateVar} _ callParams = do
             True
         , requestTraceContext =
             Nothing
+        , requestPreviousRpcAttempts =
+            Nothing
         }
 
     callSession :: ClientSession rpc

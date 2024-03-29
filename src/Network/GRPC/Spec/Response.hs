@@ -120,6 +120,9 @@ data ProperTrailers_ f = ProperTrailers {
     , properTrailersMetadata :: HKD f CustomMetadataMap
 
       -- | Server pushback
+      --
+      -- This is part of automatic retries.
+      -- See <https://github.com/grpc/proposal/blob/master/A6-client-retries.md>.
     , properTrailersPushback :: HKD f (Maybe Pushback)
 
       -- | ORCA load report
