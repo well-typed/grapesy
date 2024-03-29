@@ -70,6 +70,8 @@ import Network.GRPC.Util.Thread qualified as Thread
 -- RPC (that is, the server already sent the trailers), then the call is
 -- considered closed and the cancellation exception is not raised. Under normal
 -- circumstances (with well-behaved server handlers) this should not arise.
+-- (The gRPC specification itself is not very specific about this case; see
+-- discussion at https://stackoverflow.com/questions/55511528/should-grpc-server-side-half-closing-implicitly-terminate-the-client.)
 --
 -- If there are still /inbound/ messages upon leaving the scope of 'withRPC' no
 -- exception is raised (but the call is nonetheless still closed, and the server
