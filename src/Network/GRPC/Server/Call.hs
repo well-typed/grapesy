@@ -532,7 +532,9 @@ initiateResponse Call{callResponseKickoff} =
 -- 'sendTrailersOnly'.
 --
 -- Throws 'ResponseAlreadyInitiated' if the response has already been initiated.
-sendTrailersOnly :: HasCallStack => Call rpc -> [CustomMetadata] -> IO ()
+sendTrailersOnly ::
+     HasCallStack
+  => Call rpc -> ResponseTrailingMetadata rpc -> IO ()
 sendTrailersOnly Call{ callContext
                      , callResponseKickoff
                      }
@@ -552,7 +554,8 @@ sendTrailersOnly Call{ callContext
         , trailersOnlyProper      = ProperTrailers {
               properTrailersGrpcStatus     = GrpcOk
             , properTrailersGrpcMessage    = Nothing
-            , properTrailersMetadata       = customMetadataMapFromList metadata
+            , properTrailersMetadata       = customMetadataMapFromList $
+                                               buildMetadata metadata
             , properTrailersPushback       = Nothing
             , properTrailersOrcaLoadReport = Nothing
             }
