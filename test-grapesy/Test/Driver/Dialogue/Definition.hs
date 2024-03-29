@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module Test.Driver.Dialogue.Definition (
     -- * Local
     LocalStep(..)
@@ -5,8 +7,7 @@ module Test.Driver.Dialogue.Definition (
   , ClientAction
   , ServerAction
   , RPC(..)
-  , Metadata(Metadata)
-  , getMetadata
+  , TestMetadata(..)
     -- * Bird's-eye view
   , GlobalSteps(..)
   , LocalSteps(..)
@@ -20,13 +21,14 @@ module Test.Driver.Dialogue.Definition (
   ) where
 
 import Control.Exception
+import Control.Monad.State (StateT, execStateT, modify)
 import Data.Bifunctor
-import Data.Function (on)
-import Data.List (sortBy, nubBy)
+import Data.ByteString qualified as Strict (ByteString)
 
 import Network.GRPC.Common
 
 import Test.Driver.Dialogue.TestClock qualified as TestClock
+import Control.Monad.Catch
 
 {-------------------------------------------------------------------------------
   Single RPC
@@ -37,8 +39,8 @@ data LocalStep =
   | ServerAction ServerAction
   deriving stock (Show, Eq)
 
-type ClientAction = Action (Metadata, RPC) NoMetadata SomeClientException
-type ServerAction = Action Metadata        Metadata   SomeServerException
+type ClientAction = Action (TestMetadata, RPC) NoMetadata   SomeClientException
+type ServerAction = Action TestMetadata        TestMetadata SomeServerException
 
 data Action a b e =
     -- | Initiate request and response
@@ -62,26 +64,56 @@ data Action a b e =
 data RPC = RPC1 | RPC2 | RPC3
   deriving stock (Show, Eq)
 
--- | Metadata
---
--- For the sake of these tests, we don't want to deal with duplicate headers
--- (this is tested separately in the serialization tests). We do however ensure
--- that this listed is always ordered (header ordering is not guaranteed).
-newtype Metadata = UnsafeMetadata { getMetadata :: [CustomMetadata] }
-  deriving stock (Show, Eq)
+{-------------------------------------------------------------------------------
+  Metadata
+-------------------------------------------------------------------------------}
 
-mkMetadata :: [CustomMetadata] -> Metadata
-mkMetadata =
-      UnsafeMetadata
-    . sortBy (compare `on` customMetadataName)
-    . nubBy  ((==)    `on` customMetadataName)
+data TestMetadata = TestMetadata {
+      metadataAsc1 :: Maybe Strict.ByteString
+    , metadataAsc2 :: Maybe Strict.ByteString
+    , metadataBin3 :: Maybe Strict.ByteString
+    , metadataBin4 :: Maybe Strict.ByteString
+    }
+  deriving (Show, Eq)
 
-pattern Metadata :: [CustomMetadata] -> Metadata
-pattern Metadata mds <- UnsafeMetadata mds
-  where
-    Metadata = mkMetadata
+instance Default TestMetadata where
+  def = TestMetadata {
+        metadataAsc1 = Nothing
+      , metadataAsc2 = Nothing
+      , metadataBin3 = Nothing
+      , metadataBin4 = Nothing
+      }
 
-{-# COMPLETE Metadata #-}
+instance BuildMetadata TestMetadata where
+  buildMetadata md = concat [
+        [ CustomMetadata "md1"     x | Just x <- [metadataAsc1 md]]
+      , [ CustomMetadata "md2"     x | Just x <- [metadataAsc2 md]]
+      , [ CustomMetadata "md3-bin" x | Just x <- [metadataBin3 md]]
+      , [ CustomMetadata "md4-bin" x | Just x <- [metadataBin4 md]]
+      ]
+
+instance ParseMetadata TestMetadata where
+  parseMetadata = flip execStateT def . mapM go
+    where
+      go :: MonadThrow m => CustomMetadata -> StateT TestMetadata m ()
+      go md
+        | customMetadataName md == "md1"
+        = modify $ \x -> x{metadataAsc1 = Just $ customMetadataValue md}
+
+        | customMetadataName md == "md2"
+        = modify $ \x -> x{metadataAsc2 = Just $ customMetadataValue md}
+
+        | customMetadataName md == "md3-bin"
+        = modify $ \x -> x{metadataBin3 = Just $ customMetadataValue md}
+
+        | customMetadataName md == "md4-bin"
+        = modify $ \x -> x{metadataBin4 = Just $ customMetadataValue md}
+
+        | otherwise
+        = throwM $ UnexpectedMetadata [md]
+
+instance StaticMetadata TestMetadata where
+  metadataHeaderNames _ = ["md1", "md2", "md3-bin", "md4-bin"]
 
 {-------------------------------------------------------------------------------
   Many RPCs (bird's-eye view)

@@ -9,12 +9,12 @@ import Control.Concurrent.Async
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.State
-import Data.Bifunctor
 import Data.List (sortBy)
 import Data.Ord (comparing)
 import Data.Proxy
 import Data.Text qualified as Text
 import GHC.Stack
+import GHC.TypeLits
 
 import Network.GRPC.Client qualified as Client
 import Network.GRPC.Client.Binary qualified as Client.Binary
@@ -33,20 +33,23 @@ import Test.Util
   Endpoints
 -------------------------------------------------------------------------------}
 
-type TestRpc1 = BinaryRpc "dialogue" "test1"
-type TestRpc2 = BinaryRpc "dialogue" "test2"
-type TestRpc3 = BinaryRpc "dialogue" "test3"
+type TestProtocol serv meth =
+    OverrideMetadata TestMetadata TestMetadata TestMetadata (BinaryRpc serv meth)
 
-withProxy ::
+type TestRpc1 = TestProtocol "dialogue" "test1"
+type TestRpc2 = TestProtocol "dialogue" "test2"
+type TestRpc3 = TestProtocol "dialogue" "test3"
+
+withClientProxy ::
      RPC
-  -> (forall serv meth.
-          IsRPC (BinaryRpc serv meth)
-       => Proxy (BinaryRpc serv meth)
+  -> (forall meth.
+          SupportsClientRpc (TestProtocol "dialogue" meth)
+       => Proxy meth
        -> a)
   -> a
-withProxy RPC1 k = k (Proxy @TestRpc1)
-withProxy RPC2 k = k (Proxy @TestRpc2)
-withProxy RPC3 k = k (Proxy @TestRpc3)
+withClientProxy RPC1 k = k (Proxy @"test1")
+withClientProxy RPC2 k = k (Proxy @"test2")
+withClientProxy RPC3 k = k (Proxy @"test3")
 
 {-------------------------------------------------------------------------------
   Test failures
@@ -145,7 +148,7 @@ ifPeerAlive (PeerTerminated mErr) = const (PeerTerminated mErr)
 clientLocal ::
      HasCallStack
   => TestClock
-  -> Client.Call (BinaryRpc meth srv)
+  -> Client.Call (TestProtocol serv meth)
   -> LocalSteps
   -> IO ()
 clientLocal clock call = \(LocalSteps steps) ->
@@ -195,9 +198,9 @@ clientLocal clock call = \(LocalSteps steps) ->
         case action of
           Initiate expectedMetadata -> liftIO $ do
             receivedMetadata <- within timeoutReceive action $
-                                  Client.recvResponseMetadata call
-            expect (tick, action) (== expectedMetadata) $
-              Metadata receivedMetadata
+                                  Client.recvResponseInitialMetadata call
+            expect (tick, action) (== ResponseInitialMetadata expectedMetadata) $
+              receivedMetadata
           Send (FinalElem a b) -> do
             -- Known bug (limitation in http2). See recvMessageLoop.
             reactToServer tick $ Send (StreamElem a)
@@ -206,18 +209,18 @@ clientLocal clock call = \(LocalSteps steps) ->
             peerHealth <- get
             mOut <- try $ within timeoutReceive action $
                       Client.Binary.recvOutput call
-            let mOut'       = fmap (first Metadata) mOut
-                expectation = case peerHealth of
+            -- TODO: This pattern match seems unnecessary; if we always use
+            -- 'isExpectedElem', the tests still pass. Why?
+            let expectation = case peerHealth of
                                 PeerAlive -> isExpectedElem expectedElem
                                 PeerTerminated mErr -> isGrpcException mErr
-            expect (tick, action) expectation mOut'
+            expect (tick, action) expectation mOut
           Terminate mErr -> do
             mOut <- try $ within timeoutReceive action $
                       Client.Binary.recvOutput call
-            let mOut'       = fmap (first Metadata) mOut
-                mErr'       = DeliberateException <$> mErr
+            let mErr'       = DeliberateException <$> mErr
                 expectation = isGrpcException mErr'
-            expect (tick, action) expectation mOut'
+            expect (tick, action) expectation mOut
             modify $ ifPeerAlive $ PeerTerminated mErr'
 
     -- Wait for the server disconnect to become visible
@@ -245,15 +248,15 @@ clientLocal clock call = \(LocalSteps steps) ->
                 loop
 
     isExpectedElem ::
-         StreamElem Metadata Int
-      -> Either GrpcException (StreamElem Metadata Int)
+         StreamElem TestMetadata Int
+      -> Either GrpcException (StreamElem TestMetadata Int)
       -> Bool
     isExpectedElem _ (Left _) = False
     isExpectedElem expectedElem (Right streamElem) = expectedElem == streamElem
 
     isGrpcException ::
          Maybe DeliberateException
-      -> Either GrpcException (StreamElem Metadata Int)
+      -> Either GrpcException (StreamElem TestMetadata Int)
       -> Bool
     isGrpcException mErr (Left err) = and [
           grpcError        err == GrpcUnknown
@@ -306,34 +309,40 @@ clientGlobal clock connPerRPC global connParams testServer delimitTestScope =
           (tick, ClientAction (Initiate (metadata, rpc))) : steps' -> do
             TestClock.waitForTick clock tick
 
-            -- Timeouts are outside the scope of these tests: it's too finicky
-            -- to relate timeouts (in seconds) to specific test execution.
-            -- We do test exceptions in general here; the specific exception
-            -- arising from a timeout we test elsewhere.
-            let params :: Client.CallParams
-                params = def {
-                    Client.callRequestMetadata = getMetadata metadata
-                  }
-
-            withProxy rpc $ \proxy ->
-              (case mConn of
-                  Just conn -> ($ conn)
-                  Nothing   -> withConn) $ \conn ->
-                Client.withRPC conn params proxy $ \call -> do
-                  -- We wait for the /server/ to advance the test clock (so that
-                  -- we are sure the next step doesn't happen until the
-                  -- connection is established).
-                  --
-                  -- NOTE: We could instead wait for the server to send the
-                  -- initial metadata; this too would provide evidence that the
-                  -- connection has been established. However, doing so
-                  -- precludes a class of correct behaviour: the server might
-                  -- not respond with that initial metadata until the client has
-                  -- sent some messages.
-                  clientLocal clock call (LocalSteps steps')
-
+            withClientProxy rpc $ startCall mConn metadata steps'
           _otherwise ->
             error $ "clientGlobal: expected Initiate, got " ++ show steps
+
+    startCall :: forall (meth :: Symbol).
+         SupportsClientRpc (TestProtocol "dialogue" meth)
+      => Maybe Client.Connection
+      -> TestMetadata
+      -> [(TestClock.Tick, LocalStep)]
+      -> Proxy meth -> IO ()
+    startCall mConn metadata steps' _ = do
+        (case mConn of
+            Just conn -> ($ conn)
+            Nothing   -> withConn) $ \conn ->
+          Client.withRPC conn params (Proxy @(TestProtocol "dialogue" meth)) $ \call -> do
+            -- We wait for the /server/ to advance the test clock (so that
+            -- we are sure the next step doesn't happen until the
+            -- connection is established).
+            --
+            -- NOTE: We could instead wait for the server to send the
+            -- initial metadata; this too would provide evidence that the
+            -- connection has been established. However, doing so
+            -- precludes a class of correct behaviour: the server might
+            -- not respond with that initial metadata until the client has
+            -- sent some messages.
+            clientLocal clock call (LocalSteps steps')
+     where
+       -- Timeouts are outside the scope of these tests: it's too finicky
+       -- to relate timeouts (in seconds) to specific test execution. We
+       -- do test exceptions in general here; the specific exception
+       -- arising from a timeout we test elsewhere.
+       params = def {
+           Client.callRequestMetadata = metadata
+         }
 
 {-------------------------------------------------------------------------------
   Server-side interpretation
@@ -344,7 +353,7 @@ clientGlobal clock connPerRPC global connParams testServer delimitTestScope =
 
 serverLocal ::
      TestClock
-  -> Server.Call (BinaryRpc serv meth)
+  -> Server.Call (TestProtocol serv meth)
   -> LocalSteps -> IO ()
 serverLocal clock call = \(LocalSteps steps) -> do
     evalStateT (go steps) PeerAlive
@@ -370,14 +379,13 @@ serverLocal clock call = \(LocalSteps steps) -> do
     serverAct tick action =
         case action of
           Initiate metadata -> liftIO $ do
-            Server.setResponseMetadata call (getMetadata metadata)
+            Server.setResponseInitialMetadata call metadata
             void $ Server.initiateResponse call
             return True
           Send x -> do
-            let x' = first getMetadata x
             peerHealth <- get
             case peerHealth of
-              PeerAlive        -> liftIO $ Server.Binary.sendOutput call x'
+              PeerAlive        -> liftIO $ Server.Binary.sendOutput call x
               PeerTerminated _ -> liftIO $ waitForClientDisconnect
             return True
           Terminate mException -> do
@@ -463,7 +471,7 @@ serverGlobal ::
     -- particular handler corresponds to, we take the next 'LocalSteps' from
     -- this @MVar@. Since all requests are started by the client from /one/
     -- thread, the order of these incoming requests is deterministic.
-  -> Server.Call (BinaryRpc serv meth)
+  -> Server.Call (TestProtocol serv meth)
   -> IO ()
 serverGlobal clock globalStepsVar call = do
     steps <- modifyMVar globalStepsVar (getNextSteps . getGlobalSteps)
@@ -477,7 +485,7 @@ serverGlobal clock globalStepsVar call = do
         -- It is important that we do this 'expect' outside the scope of the
         -- @modifyMVar@: if we do not, then if the expect fails, we'd leave the
         -- @MVar@ unchanged, and the next request would use the wrong steps.
-        expect (tick, step) (== metadata) $ Metadata receivedMetadata
+        expect (tick, step) (== metadata) $ receivedMetadata
         within timeoutLocal steps' $ serverLocal clock call (LocalSteps steps')
       _otherwise ->
          error "serverGlobal: expected ClientInitiateRequest"
@@ -498,8 +506,8 @@ execGlobalSteps steps = do
     clock          <- TestClock.new
 
     let handler ::
-             IsRPC (BinaryRpc serv meth)
-          => Proxy (BinaryRpc serv meth) -> Server.RpcHandler IO
+             SupportsServerRpc (TestProtocol serv meth)
+          => Proxy (TestProtocol serv meth) -> Server.RpcHandler IO
         handler rpc = Server.mkRpcHandler rpc $ \call ->
                         serverGlobal clock globalStepsVar call
 

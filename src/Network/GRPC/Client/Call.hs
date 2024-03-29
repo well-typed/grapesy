@@ -10,7 +10,7 @@ module Network.GRPC.Client.Call (
     -- * Open (ongoing) call
   , sendInput
   , recvOutput
-  , recvResponseMetadata
+  , recvResponseInitialMetadata
 
     -- ** Protocol specific wrappers
   , sendNextInput
@@ -75,8 +75,8 @@ import Network.GRPC.Util.Thread qualified as Thread
 -- exception is raised (but the call is nonetheless still closed, and the server
 -- handler will be informed that the client has disappeared).
 withRPC :: forall m rpc a.
-     (MonadMask m, MonadIO m, IsRPC rpc, HasCallStack)
-  => Connection -> CallParams -> Proxy rpc -> (Call rpc -> m a) -> m a
+     (MonadMask m, MonadIO m, SupportsClientRpc rpc, HasCallStack)
+  => Connection -> CallParams rpc -> Proxy rpc -> (Call rpc -> m a) -> m a
 withRPC conn callParams proxy k = fmap fst $
       generalBracket
         (liftIO $ Connection.startRPC conn proxy callParams)
@@ -178,15 +178,15 @@ sendInputWithEnvelope Call{callChannel} msg = liftIO $ do
 recvOutput :: forall m rpc.
      (MonadIO m, HasCallStack)
   => Call rpc
-  -> m (StreamElem [CustomMetadata] (Output rpc))
-recvOutput call = liftIO $
+  -> m (StreamElem (ResponseTrailingMetadata rpc) (Output rpc))
+recvOutput call@Call{} = liftIO $
     recvOutputWithEnvelope call >>= bitraverse aux (return . snd)
   where
-    aux :: ProperTrailers -> IO [CustomMetadata]
+    aux :: ProperTrailers -> IO (ResponseTrailingMetadata rpc)
     aux trailers =
         case grpcClassifyTermination trailers of
-          Right terminatedNormally ->
-            return $ grpcTerminatedMetadata terminatedNormally
+          Right terminatedNormally -> do
+            parseMetadata $ grpcTerminatedMetadata terminatedNormally
           Left exception ->
             throwM exception
 
@@ -209,8 +209,16 @@ recvOutputWithEnvelope Call{callChannel} = liftIO $
 
 -- | The initial metadata that was included in the response headers
 --
--- The server might send additional metadata after the final output; see
--- 'recvOutput'.
+-- The server can send two sets of metadata: an initial set of type
+-- @ResponseInitialMetadata@ when it first initiates the response, and then a
+-- final set of type @ResponseTrailingMetadata@ after the final message (see
+-- 'recvOutput'). See also 'HasCustomMetadata'.
+--
+-- It is however possible for the server to send only a /single/ set; this is
+-- the gRPC \"Trailers-Only\" case. The server can choose to do so when it knows
+-- it will not send any messages; in this case, the initial response metadata is
+-- fact of type @ResponseTrailingMetadata@ instead. The 'ResponseMetadata' type
+-- distinguishes between these two cases.
 --
 -- This can block: we need to wait until we receive the metadata. The precise
 -- communication pattern will depend on the specifics of each server:
@@ -219,21 +227,23 @@ recvOutputWithEnvelope Call{callChannel} = liftIO $
 --   returns any replies.
 -- * The response metadata /will/ be available before the first output from the
 --   server, and may indeed be available /well/ before.
-recvResponseMetadata :: Call rpc -> IO [CustomMetadata]
-recvResponseMetadata call =
+recvResponseInitialMetadata :: forall rpc. Call rpc -> IO (ResponseMetadata rpc)
+recvResponseInitialMetadata call@Call{} =
     recvInitialResponse call >>= aux
   where
-    aux :: Either TrailersOnly ResponseHeaders -> IO [CustomMetadata]
+    aux :: Either TrailersOnly ResponseHeaders -> IO (ResponseMetadata rpc)
     aux (Left trailers) =
         case grpcClassifyTermination properTrailers of
           Left exception ->
             throwM exception
-          Right terminatedNormally ->
-            return $ grpcTerminatedMetadata terminatedNormally
+          Right terminatedNormally -> do
+            ResponseTrailingMetadata <$>
+              parseMetadata (grpcTerminatedMetadata terminatedNormally)
       where
         (properTrailers, _contentType) = trailersOnlyToProperTrailers trailers
     aux (Right headers) =
-       return $ customMetadataMapToList $ responseMetadata headers
+        ResponseInitialMetadata <$>
+          parseMetadata (customMetadataMapToList $ responseMetadata headers)
 
 -- | Return the initial response from the server
 --
@@ -303,7 +313,7 @@ recvNextOutput call@Call{} = liftIO $ do
 recvFinalOutput :: forall m rpc.
      (MonadIO m, HasCallStack)
   => Call rpc
-  -> m (Output rpc, [CustomMetadata])
+  -> m (Output rpc, ResponseTrailingMetadata rpc)
 recvFinalOutput call@Call{} = liftIO $ do
     out1 <- recvOutput call
     case out1 of
@@ -324,7 +334,7 @@ recvFinalOutput call@Call{} = liftIO $ do
 -- Throws 'ProtocolException' if we received an output.
 recvTrailers :: forall m rpc.
      (MonadIO m, HasCallStack)
-  => Call rpc -> m [CustomMetadata]
+  => Call rpc -> m (ResponseTrailingMetadata rpc)
 recvTrailers call@Call{} = liftIO $ do
     mOut <- recvOutput call
     case mOut of
@@ -364,10 +374,10 @@ recvAllOutputs :: forall m rpc.
      MonadIO m
   => Call rpc
   -> (Output rpc -> m ())
-  -> m [CustomMetadata]
+  -> m (ResponseTrailingMetadata rpc)
 recvAllOutputs call processOutput = loop
   where
-    loop :: m [CustomMetadata]
+    loop :: m (ResponseTrailingMetadata rpc)
     loop = do
         mOut <- recvOutput call
         case mOut of

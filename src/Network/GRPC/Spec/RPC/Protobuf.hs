@@ -3,20 +3,18 @@
 -- | gRPC with Protobuf
 module Network.GRPC.Spec.RPC.Protobuf (Protobuf) where
 
-import Data.ByteString.Builder qualified as Builder
-import Data.ByteString.Lazy qualified as BS.Lazy
 import Data.Kind
-import Data.ProtoLens qualified as Protobuf
-import Data.ProtoLens.Encoding.Parser (Parser)
-import Data.ProtoLens.Encoding.Parser qualified as Protobuf
-import Data.ProtoLens.Service.Types as Protobuf
+import Data.ProtoLens
+import Data.ProtoLens.Service.Types
 import Data.Proxy
 import Data.Text qualified as Text
-import Data.Typeable
 import GHC.TypeLits
 
+import Network.GRPC.Spec.CustomMetadata.NoMetadata
+import Network.GRPC.Spec.CustomMetadata.Typed
 import Network.GRPC.Spec.RPC
 import Network.GRPC.Spec.RPC.StreamType
+import Network.GRPC.Util.Protobuf qualified as Protobuf
 
 {-------------------------------------------------------------------------------
   The spec defines the following in Appendix A, "GRPC for Protobuf":
@@ -31,28 +29,40 @@ import Network.GRPC.Spec.RPC.StreamType
 -- This exists only as a type-level marker
 data Protobuf (serv :: Type) (meth :: Symbol)
 
-instance ( Typeable           serv
-         , HasMethodImpl      serv meth
+instance HasCustomMetadata (Protobuf serv meth) where
+  type RequestMetadata          (Protobuf serv meth) = NoMetadata
+  type ResponseInitialMetadata  (Protobuf serv meth) = NoMetadata
+  type ResponseTrailingMetadata (Protobuf serv meth) = NoMetadata
+
+instance ( HasMethodImpl      serv meth
          , Show (MethodInput  serv meth)
          , Show (MethodOutput serv meth)
          ) => IsRPC (Protobuf serv meth) where
   type Input  (Protobuf serv meth) = MethodInput  serv meth
   type Output (Protobuf serv meth) = MethodOutput serv meth
 
-  rpcContentType         _ = defaultRpcContentType "proto"
-  rpcServiceName         _ = Text.pack $ concat [
-                                 symbolVal $ Proxy @(ServicePackage serv)
-                               , "."
-                               , symbolVal $ Proxy @(ServiceName serv)
-                               ]
-  rpcMethodName          _ = Text.pack . symbolVal $
-                               Proxy @(MethodName serv meth)
-  rpcMessageType         _ = Protobuf.messageName $
-                               Proxy @(MethodInput serv meth)
-  rpcSerializeInput      _ = Builder.toLazyByteString . Protobuf.buildMessage
-  rpcSerializeOutput     _ = Builder.toLazyByteString . Protobuf.buildMessage
-  rpcDeserializeInput    _ = Protobuf.runParser parseMessage . BS.Lazy.toStrict
-  rpcDeserializeOutput   _ = Protobuf.runParser parseMessage . BS.Lazy.toStrict
+  rpcContentType _ = defaultRpcContentType "proto"
+  rpcServiceName _ = Text.pack $ concat [
+                         symbolVal $ Proxy @(ServicePackage serv)
+                       , "."
+                       , symbolVal $ Proxy @(ServiceName serv)
+                       ]
+  rpcMethodName  _ = Text.pack . symbolVal $ Proxy @(MethodName  serv meth)
+  rpcMessageType _ = messageName  $ Proxy @(MethodInput serv meth)
+
+instance ( HasMethodImpl      serv meth
+         , Show (MethodInput  serv meth)
+         , Show (MethodOutput serv meth)
+         ) => SupportsClientRpc (Protobuf serv meth) where
+  rpcSerializeInput    _ = Protobuf.buildLazy
+  rpcDeserializeOutput _ = Protobuf.parseLazy
+
+instance ( HasMethodImpl      serv meth
+         , Show (MethodInput  serv meth)
+         , Show (MethodOutput serv meth)
+         ) => SupportsServerRpc (Protobuf serv meth) where
+  rpcDeserializeInput _ = Protobuf.parseLazy
+  rpcSerializeOutput  _ = Protobuf.buildLazy
 
 instance styp ~ MethodStreamingType serv meth
       => SupportsStreamingType (Protobuf serv meth) styp
@@ -60,14 +70,3 @@ instance styp ~ MethodStreamingType serv meth
 instance HasStreamingType (Protobuf serv meth) where
   type RpcStreamingType (Protobuf serv meth) = MethodStreamingType serv meth
 
-parseMessage :: forall msg. Protobuf.Message msg => Parser msg
-parseMessage = do
-    msg   <- Protobuf.parseMessage
-    atEnd <- Protobuf.atEnd
-    if atEnd then
-      return msg
-    else
-      fail $ concat [
-          Text.unpack $ Protobuf.messageName $ Proxy @msg
-        , ": unconsumed bytes"
-        ]

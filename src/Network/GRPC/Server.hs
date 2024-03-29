@@ -12,13 +12,14 @@ module Network.GRPC.Server (
   , Call       -- opaque
   , RpcHandler -- opaque
   , Handler.mkRpcHandler
+  , Handler.mkRpcHandlerNoInitialMetadata
 
     -- * Open (ongoing) call
   , recvInput
   , sendOutput
   , sendGrpcException
   , getRequestMetadata
-  , setResponseMetadata
+  , setResponseInitialMetadata
 
     -- ** Protocol specific wrappers
   , sendNextOutput

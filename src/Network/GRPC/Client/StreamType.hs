@@ -44,14 +44,19 @@ instance (MonadIO m, MonadMask m) => CanCallRPC (ReaderT Connection m) where
 -------------------------------------------------------------------------------}
 
 class ClientHandler h where
-  rpcWith :: IsRPC rpc => CallParams -> Proxy rpc -> h rpc
+  rpcWith :: SupportsClientRpc rpc => CallParams rpc -> Proxy rpc -> h rpc
 
 -- | Construct RPC handler
 --
 -- See 'nonStreaming' and friends for example usage.
 --
 -- If you want to use non-default 'CallParams', use 'rpcWith'.
-rpc :: forall rpc h. (ClientHandler h, IsRPC rpc)  => h rpc
+rpc :: forall rpc h.
+     ( ClientHandler h
+     , SupportsClientRpc rpc
+     , Default (RequestMetadata rpc)
+     )
+  => h rpc
 rpc = rpcWith def (Proxy @rpc)
 
 instance CanCallRPC m => ClientHandler (NonStreamingHandler m) where
@@ -92,8 +97,8 @@ instance CanCallRPC m => ClientHandler (ServerStreamingHandler m) where
 -- of this function, unlike for the other streaming functions.
 instance ClientHandler (BiDiStreamingHandler (ReaderT Connection IO)) where
   rpcWith :: forall rpc.
-       IsRPC rpc
-    => CallParams
+       SupportsClientRpc rpc
+    => CallParams rpc
     -> Proxy rpc
     -> BiDiStreamingHandler (ReaderT Connection IO) rpc
   rpcWith params proxy =

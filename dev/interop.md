@@ -204,34 +204,38 @@ Take note of the port numbers that were assigned to them:
 ```bash
 $ docker ps --format 'table {{.Image}}\t{{.Ports}}'
 IMAGE                                                      PORTS
-grpc_interop_java:0ac5c6f1-9835-45ee-9664-ad9925a41680     0.0.0.0:32773->8080/tcp
-grpc_interop_go:b2a668d2-718c-4c66-b0e6-f7f6111974a6       0.0.0.0:32772->8080/tcp
-grpc_interop_cxx:288ee67a-f462-40d1-b5a2-a29be5562fb2      0.0.0.0:32771->8080/tcp
-grpc_interop_python:f558f1af-9ee5-41bc-8a6b-0b84a1a9e87a   0.0.0.0:32770->8080/tcp
+grpc_interop_java:0ac5c6f1-9835-45ee-9664-ad9925a41680     0.0.0.0:32771->8080/tcp
+grpc_interop_go:b2a668d2-718c-4c66-b0e6-f7f6111974a6       0.0.0.0:32770->8080/tcp
+grpc_interop_cxx:288ee67a-f462-40d1-b5a2-a29be5562fb2      0.0.0.0:32769->8080/tcp
+grpc_interop_python:f558f1af-9ee5-41bc-8a6b-0b84a1a9e87a   0.0.0.0:32768->8080/tcp
 ```
 
 We can now run the `grapesy` client against each reference server:
 
 ```bash
 grapesy$ cabal run grapesy-interop -- --client \
-  --server_port=32770 \
+  --server_port=32768 \
   --skip_compression # Python
 
 grapesy$ cabal run grapesy-interop -- --client \
-  --server_port=32771 # C++
+  --server_port=32769 # C++
 
 grapesy$ cabal run grapesy-interop -- --client \
-  --server_port=32772 \
+  --server_port=32770 \
   --skip_compression # Go
 
 grapesy$ cabal run grapesy-interop -- --client \
-  --server_port=32773 \
+  --server_port=32771 \
   --skip_client_compression \
   --skip_test=server_compressed_streaming \
   --skip_test=timeout_on_sleeping_server # Java
 ```
 
-All tests should pass.
+All tests should pass. All servers can be terminated using
+
+```bash
+$ docker stop $(docker ps -q)
+```
 
 > [!NOTE]
 > Not all reference servers support all features, motivating the various
@@ -253,7 +257,7 @@ It is also possible to only run one specific test case, for example:
 
 ```bash
 grapesy$ cabal run grapesy-interop -- --client \
-  --server_port=32773 \
+  --server_port=32771 \
   --test_case=timeout_on_sleeping_server
 ```
 

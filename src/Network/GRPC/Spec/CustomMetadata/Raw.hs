@@ -5,7 +5,7 @@
 -- These are application-defined headers/trailers.
 --
 -- Intended for unqualified import.
-module Network.GRPC.Spec.CustomMetadata (
+module Network.GRPC.Spec.CustomMetadata.Raw (
     -- * Definition
     CustomMetadata(CustomMetadata)
   , customMetadataName
@@ -14,8 +14,12 @@ module Network.GRPC.Spec.CustomMetadata (
   , HeaderName(BinaryHeader, AsciiHeader)
   , safeHeaderName
     -- * Serialization
+  , buildHeaderName
+  , buildAsciiValue
   , buildBinaryValue
   , buildCustomMetadata
+  , parseHeaderName
+  , parseAsciiValue
   , parseBinaryValue
   , parseCustomMetadata
   ) where
@@ -24,6 +28,7 @@ import Control.Monad
 import Control.Monad.Except (MonadError(throwError))
 import Data.ByteString qualified as BS.Strict
 import Data.ByteString qualified as Strict (ByteString)
+import Data.CaseInsensitive (CI)
 import Data.CaseInsensitive qualified as CI
 import Data.List (intersperse)
 import Data.List qualified as List
@@ -218,6 +223,7 @@ safeHeaderName bs = do
           "user-agent"
         , "content-type"
         , "te"
+        , "trailer"
         ]
 
 instance IsString HeaderName where
@@ -239,6 +245,29 @@ instance Show HeaderName where
 {-------------------------------------------------------------------------------
   Serialization
 -------------------------------------------------------------------------------}
+
+buildHeaderName :: HeaderName -> CI Strict.ByteString
+buildHeaderName name =
+    case name of
+      UnsafeBinaryHeader name' -> CI.mk name'
+      UnsafeAsciiHeader  name' -> CI.mk name'
+
+parseHeaderName :: MonadError String m => CI Strict.ByteString -> m HeaderName
+parseHeaderName name =
+    case safeHeaderName (CI.foldedCase name) of
+      Nothing    -> throwError $ "Invalid header name: " ++ show name
+      Just name' -> return name'
+
+buildAsciiValue :: Strict.ByteString -> Strict.ByteString
+buildAsciiValue = id
+
+parseAsciiValue ::
+     MonadError String m
+  => Strict.ByteString -> m Strict.ByteString
+parseAsciiValue bs = do
+    unless (isValidAsciiValue bs) $
+      throwError $ "Invalid ASCII header: " ++ show bs
+    return bs
 
 buildBinaryValue :: Strict.ByteString -> Strict.ByteString
 buildBinaryValue = encodeBase64
@@ -292,27 +321,17 @@ parseBinaryValue bs = do
 buildCustomMetadata :: CustomMetadata -> HTTP.Header
 buildCustomMetadata (CustomMetadata name value) =
     case name of
-      UnsafeBinaryHeader name' -> (CI.mk name', buildBinaryValue value)
-      UnsafeAsciiHeader  name' -> (CI.mk name', value)
+      UnsafeBinaryHeader _ -> (buildHeaderName name, buildBinaryValue value)
+      UnsafeAsciiHeader  _ -> (buildHeaderName name, buildAsciiValue  value)
 
 parseCustomMetadata :: MonadError String m => HTTP.Header -> m CustomMetadata
-parseCustomMetadata (name, value) =
-    case safeHeaderName (CI.foldedCase name) of
-      Nothing    -> throwError $ "Invalid header name: " ++ show (name, value)
-      Just name' -> do
-        mMetadata <-
-          case name' of
-            UnsafeAsciiHeader _ ->
-              return $ safeCustomMetadata name' value
-            UnsafeBinaryHeader _ -> do
-              case parseBinaryValue value of
-                Right value' ->
-                  return $ safeCustomMetadata name' value'
-                Left err ->
-                  throwError $ "Cannot decode binary header: " ++ err
-        case mMetadata of
-          Nothing -> throwError $ "Invalid header value: " ++ show (name, value)
-          Just md -> return md
+parseCustomMetadata (name, value) = do
+    name'     <- parseHeaderName name
+    value'    <- case name' of
+                   UnsafeAsciiHeader  _ -> parseAsciiValue  value
+                   UnsafeBinaryHeader _ -> parseBinaryValue value
+    -- If parsing succeeds, that justifies the use of 'UnsafeCustomMetadata'
+    return $ UnsafeCustomMetadata name' value'
 
 {-------------------------------------------------------------------------------
   Internal auxiliary

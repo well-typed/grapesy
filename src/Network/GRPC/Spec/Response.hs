@@ -37,8 +37,10 @@ module Network.GRPC.Spec.Response (
 import Control.Exception
 import Control.Monad.Except
 import Control.Monad.State
-import Data.ByteString qualified as Strict
+import Data.ByteString qualified as BS.Strict
+import Data.ByteString qualified as Strict (ByteString)
 import Data.ByteString.Char8 qualified as BS.Strict.C8
+import Data.CaseInsensitive qualified as CI
 import Data.List.NonEmpty (NonEmpty)
 import Data.Proxy
 import Data.Text (Text)
@@ -48,13 +50,16 @@ import Text.Read (readMaybe)
 
 import Network.GRPC.Spec.Common
 import Network.GRPC.Spec.Compression (CompressionId)
-import Network.GRPC.Spec.CustomMetadata
-import Network.GRPC.Spec.CustomMetadataMap
+import Network.GRPC.Spec.CustomMetadata.Map
+import Network.GRPC.Spec.CustomMetadata.Raw
+import Network.GRPC.Spec.CustomMetadata.Typed
+import Network.GRPC.Spec.OrcaLoadReport
 import Network.GRPC.Spec.PercentEncoding qualified as PercentEncoding
 import Network.GRPC.Spec.RPC
 import Network.GRPC.Spec.Status
 import Network.GRPC.Util.HKD (HKD, Undecorated, DecoratedWith)
 import Network.GRPC.Util.HKD qualified as HKD
+import Network.GRPC.Util.Protobuf qualified as Protobuf
 
 {-------------------------------------------------------------------------------
   Outputs (messages received from the peer)
@@ -116,6 +121,11 @@ data ProperTrailers_ f = ProperTrailers {
 
       -- | Server pushback
     , properTrailersPushback :: HKD f (Maybe Pushback)
+
+      -- | ORCA load report
+      --
+      -- See <https://github.com/grpc/proposal/blob/master/A51-custom-backend-metrics.md>
+    , properTrailersOrcaLoadReport :: HKD f (Maybe OrcaLoadReport)
     }
 
 type ProperTrailers = ProperTrailers_ Undecorated
@@ -126,10 +136,11 @@ deriving stock instance Eq   ProperTrailers
 instance HKD.Traversable ProperTrailers_ where
   sequence x =
       ProperTrailers
-        <$> properTrailersGrpcStatus  x
-        <*> properTrailersGrpcMessage x
-        <*> properTrailersMetadata    x
-        <*> properTrailersPushback    x
+        <$> properTrailersGrpcStatus     x
+        <*> properTrailersGrpcMessage    x
+        <*> properTrailersMetadata       x
+        <*> properTrailersPushback       x
+        <*> properTrailersOrcaLoadReport x
 
 -- | Trailers sent in the gRPC Trailers-Only case
 --
@@ -273,10 +284,11 @@ grpcExceptionToTrailers GrpcException{
                           , grpcErrorMessage
                           , grpcErrorMetadata
                           } = ProperTrailers{
-      properTrailersGrpcStatus  = GrpcError grpcError
-    , properTrailersGrpcMessage = grpcErrorMessage
-    , properTrailersMetadata    = customMetadataMapFromList grpcErrorMetadata
-    , properTrailersPushback    = Nothing
+      properTrailersGrpcStatus     = GrpcError grpcError
+    , properTrailersGrpcMessage    = grpcErrorMessage
+    , properTrailersMetadata       = customMetadataMapFromList grpcErrorMetadata
+    , properTrailersPushback       = Nothing
+    , properTrailersOrcaLoadReport = Nothing
     }
 
 {-------------------------------------------------------------------------------
@@ -300,8 +312,8 @@ grpcExceptionToTrailers GrpcException{
 -------------------------------------------------------------------------------}
 
 -- | Build response headers
-buildResponseHeaders ::
-     IsRPC rpc
+buildResponseHeaders :: forall rpc.
+     SupportsServerRpc rpc
   => Proxy rpc -> ResponseHeaders -> [HTTP.Header]
 buildResponseHeaders proxy
              ResponseHeaders{ responseCompression
@@ -318,6 +330,7 @@ buildResponseHeaders proxy
     , [ buildMessageAcceptEncoding x
       | Just x <- [responseAcceptCompression]
       ]
+    , [ buildTrailer proxy ]
     , [ buildCustomMetadata x
       | x <- customMetadataMapToList responseMetadata
       ]
@@ -351,6 +364,9 @@ parseResponseHeaders proxy =
             responseAcceptCompression = Just <$> parseMessageAcceptEncoding hdr
           }
 
+      | name == "trailer"
+      = return () -- ignore the HTTP trailer header
+
       | otherwise
       = modify $ \x -> x {
             responseMetadata = do
@@ -370,13 +386,50 @@ parseResponseHeaders proxy =
   > Trailers → Status [Status-Message] *Custom-Metadata
 -------------------------------------------------------------------------------}
 
+-- | Construct the HTTP 'Trailer' header
+--
+-- This lists all headers that /might/ be present in the trailers.
+--
+-- See
+--
+-- * <https://datatracker.ietf.org/doc/html/rfc7230#section-4.4>
+-- * <https://www.rfc-editor.org/rfc/rfc9110#name-processing-trailer-fields>
+buildTrailer :: forall rpc. SupportsServerRpc rpc => Proxy rpc -> HTTP.Header
+buildTrailer _ = (
+      "Trailer"
+    , BS.Strict.intercalate ", " allPotentialTrailers
+    )
+  where
+    allPotentialTrailers :: [Strict.ByteString]
+    allPotentialTrailers = concat [
+          reservedTrailers
+        , map (CI.original . buildHeaderName) $
+            metadataHeaderNames (Proxy @(ResponseTrailingMetadata rpc))
+        ]
+
+    -- These cannot be 'HeaderName' (which disallow reserved names)
+    --
+    -- This list must match the names used by 'buildProperTrailers'
+    -- and recognized by 'parseProperTrailers'.
+    reservedTrailers :: [Strict.ByteString]
+    reservedTrailers = [
+          "grpc-status"
+        , "grpc-message"
+        , "grpc-retry-pushback-ms"
+        , "endpoint-load-metrics-bin"
+        ]
+
 -- | Build trailers (see 'buildTrailersOnly' for the Trailers-Only case)
+--
+-- NOTE: If we add additional (reserved) headers here, we also need to add them
+-- to 'buildTrailer'.
 buildProperTrailers :: ProperTrailers -> [HTTP.Header]
 buildProperTrailers ProperTrailers{
                         properTrailersGrpcStatus
                       , properTrailersGrpcMessage
                       , properTrailersMetadata
                       , properTrailersPushback
+                      , properTrailersOrcaLoadReport
                       } = concat [
       [ ( "grpc-status"
         , BS.Strict.C8.pack $ show $ fromGrpcStatus properTrailersGrpcStatus
@@ -385,13 +438,18 @@ buildProperTrailers ProperTrailers{
     , [ ("grpc-message", PercentEncoding.encode x)
       | Just x <- [properTrailersGrpcMessage]
       ]
-    , [ buildCustomMetadata x
-      | x <- customMetadataMapToList properTrailersMetadata
-      ]
     , [ ( "grpc-retry-pushback-ms"
         , buildPushback x
         )
       | Just x <- [properTrailersPushback]
+      ]
+    , [ ( "endpoint-load-metrics-bin"
+        , buildBinaryValue $ Protobuf.buildStrict x
+        )
+      | Just x <- [properTrailersOrcaLoadReport]
+      ]
+    , [ buildCustomMetadata x
+      | x <- customMetadataMapToList properTrailersMetadata
       ]
     ]
 
@@ -470,6 +528,15 @@ parseTrailersOnly proxy =
               Just <$> parsePushback value
           }
 
+      | name == "endpoint-load-metrics-bin"
+      = modify $ liftProperTrailers $ \x -> x{
+            properTrailersOrcaLoadReport = do
+              value' <- parseBinaryValue value
+              case Protobuf.parseStrict value' of
+                Left  err    -> throwError err
+                Right report -> return $ Just report
+          }
+
       | otherwise
       = modify $ liftProperTrailers $ \x -> x{
             properTrailersMetadata = do
@@ -481,10 +548,11 @@ parseTrailersOnly proxy =
     uninitTrailersOnly = TrailersOnly {
           trailersOnlyContentType = return Nothing
         , trailersOnlyProper      = ProperTrailers {
-              properTrailersGrpcStatus  = throwError "missing: grpc-status"
-            , properTrailersGrpcMessage = return Nothing
-            , properTrailersMetadata    = return mempty
-            , properTrailersPushback    = return Nothing
+              properTrailersGrpcStatus     = throwError "missing: grpc-status"
+            , properTrailersGrpcMessage    = return Nothing
+            , properTrailersMetadata       = return mempty
+            , properTrailersPushback       = return Nothing
+            , properTrailersOrcaLoadReport = return Nothing
             }
         }
 

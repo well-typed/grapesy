@@ -111,26 +111,26 @@ data RegressionTestFailed = RegressionTestFailed {
 -- itself) is that the server gets the chance to terminate cleanly.
 trivial1 :: Dialogue
 trivial1 = NormalizedDialogue [
-      (0, ClientAction $ Initiate (Metadata [], RPC1))
+      (0, ClientAction $ Initiate (def, RPC1))
     , (0, ClientAction $ Send (NoMoreElems NoMetadata))
-    , (0, ServerAction $ Send (NoMoreElems (Metadata [])))
+    , (0, ServerAction $ Send (NoMoreElems def))
     ]
 
 -- | Variation on 'trivial1' where the client sends a message before the
 -- server closed the call
 trivial2 :: Dialogue
 trivial2 = NormalizedDialogue [
-      (0, ClientAction $ Initiate (Metadata [], RPC1))
+      (0, ClientAction $ Initiate (def, RPC1))
     , (0, ClientAction $ Send (StreamElem 1234))
     , (0, ClientAction $ Send (NoMoreElems NoMetadata))
-    , (0, ServerAction $ Send (NoMoreElems (Metadata [])))
+    , (0, ServerAction $ Send (NoMoreElems def))
     ]
 
 -- | Variation on 'trivial1' where the server closes the call unilaterally
 trivial3 :: Dialogue
 trivial3 = NormalizedDialogue [
-      (0, ClientAction $ Initiate (Metadata [], RPC1))
-    , (0, ServerAction $ Send (NoMoreElems (Metadata [])))
+      (0, ClientAction $ Initiate (def, RPC1))
+    , (0, ServerAction $ Send (NoMoreElems def))
     ]
 
 -- | Verify that the test infrastructure does not confuse client/server threads
@@ -141,32 +141,32 @@ trivial3 = NormalizedDialogue [
 -- goes well.
 concurrent1 :: Dialogue
 concurrent1 = NormalizedDialogue [
-      (0, ClientAction $ Initiate (Metadata [], RPC1))
+      (0, ClientAction $ Initiate (def, RPC1))
     , (0, ClientAction $ Send (NoMoreElems NoMetadata))
-    , (1, ClientAction $ Initiate (Metadata [], RPC1))
+    , (1, ClientAction $ Initiate (def, RPC1))
     , (1, ClientAction $ Send (NoMoreElems NoMetadata))
-    , (0, ServerAction $ Send (NoMoreElems (Metadata [])))
-    , (1, ServerAction $ Send (NoMoreElems (Metadata [])))
+    , (0, ServerAction $ Send (NoMoreElems def))
+    , (1, ServerAction $ Send (NoMoreElems def))
     ]
 
 concurrent2 :: Dialogue
 concurrent2 = NormalizedDialogue [
-      (1, ClientAction $ Initiate (Metadata [], RPC1))
+      (1, ClientAction $ Initiate (def, RPC1))
     , (1, ClientAction $ Send (NoMoreElems NoMetadata))
-    , (0, ClientAction $ Initiate (Metadata [], RPC1))
+    , (0, ClientAction $ Initiate (def, RPC1))
     , (0, ClientAction $ Send (NoMoreElems NoMetadata))
-    , (0, ServerAction $ Send (NoMoreElems (Metadata [])))
-    , (1, ServerAction $ Send (NoMoreElems (Metadata [])))
+    , (0, ServerAction $ Send (NoMoreElems def))
+    , (1, ServerAction $ Send (NoMoreElems def))
     ]
 
 concurrent3 :: Dialogue
 concurrent3 = NormalizedDialogue [
-      (1, ClientAction $ Initiate (Metadata [CustomMetadata "md2" "b"], RPC1))
-    , (0, ClientAction $ Initiate (Metadata [CustomMetadata "md1" "a"], RPC1))
+      (1, ClientAction $ Initiate (def{metadataAsc2 = Just "b"}, RPC1))
+    , (0, ClientAction $ Initiate (def{metadataAsc1 = Just "a"}, RPC1))
     , (0, ClientAction $ Send (NoMoreElems NoMetadata))
-    , (0, ServerAction $ Send (NoMoreElems (Metadata [])))
+    , (0, ServerAction $ Send (NoMoreElems def))
     , (1, ClientAction $ Send (NoMoreElems NoMetadata))
-    , (1, ServerAction $ Send (NoMoreElems (Metadata [])))
+    , (1, ServerAction $ Send (NoMoreElems def))
     ]
 
 -- | Test that the final message is received
@@ -174,12 +174,12 @@ concurrent3 = NormalizedDialogue [
 -- See also <https://github.com/kazu-yamamoto/http2/issues/86>.
 concurrent4 :: Dialogue
 concurrent4 = NormalizedDialogue [
-      (1, ClientAction $ Initiate (Metadata [], RPC1))
+      (1, ClientAction $ Initiate (def, RPC1))
     , (1, ClientAction $ Send (FinalElem 1 NoMetadata))
-    , (0, ClientAction $ Initiate (Metadata [], RPC1))
+    , (0, ClientAction $ Initiate (def, RPC1))
     , (0, ClientAction $ Send (FinalElem 2 NoMetadata))
-    , (1, ServerAction $ Send (FinalElem 3 (Metadata [])))
-    , (0, ServerAction $ Send (FinalElem 4 (Metadata [])))
+    , (1, ServerAction $ Send (FinalElem 3 def))
+    , (0, ServerAction $ Send (FinalElem 4 def))
     ]
 
 -- | Server-side exception
@@ -189,31 +189,31 @@ concurrent4 = NormalizedDialogue [
 -- This test also verifies that the client can /receive/ this message
 exception1 :: Dialogue
 exception1 = NormalizedDialogue [
-      (0, ClientAction $ Initiate (Metadata [], RPC1))
+      (0, ClientAction $ Initiate (def, RPC1))
     , (0, ServerAction $ Terminate (Just $ SomeServerException 0))
     ]
 
 -- | Client-side exception
 exception2 :: Dialogue
 exception2 = NormalizedDialogue [
-      (0, ClientAction $ Initiate (Metadata [], RPC1))
+      (0, ClientAction $ Initiate (def, RPC1))
     , (0, ClientAction $ Terminate (Just (SomeClientException 0)))
-    , (0, ServerAction $ Send (NoMoreElems (Metadata [])))
+    , (0, ServerAction $ Send (NoMoreElems def))
     ]
 
 -- | Server handler terminates before the client expects it
 earlyTermination01 :: Dialogue
 earlyTermination01 = NormalizedDialogue [
-      (0, ClientAction (Initiate (Metadata [], RPC1)))
+      (0, ClientAction (Initiate (def, RPC1)))
     , (0, ServerAction (Terminate Nothing))
     ]
 
 -- | Client terminates before the server handler expects it
 earlyTermination02 :: Dialogue
 earlyTermination02 = NormalizedDialogue [
-      (0, ClientAction $ Initiate (Metadata [], RPC1))
+      (0, ClientAction $ Initiate (def, RPC1))
     , (0, ClientAction $ Terminate Nothing)
-    , (0, ServerAction $ Send (NoMoreElems (Metadata [])))
+    , (0, ServerAction $ Send (NoMoreElems def))
     ]
 
 -- | Variation on early client-side termination that tends to trigger a
@@ -222,25 +222,25 @@ earlyTermination02 = NormalizedDialogue [
 -- in the same manner (as 'ClientDisconnected' exceptions).
 earlyTermination03 :: Dialogue
 earlyTermination03 = NormalizedDialogue [
-      (1, ClientAction $ Initiate (Metadata [], RPC1 ))
-    , (0, ClientAction $ Initiate (Metadata [], RPC1))
+      (1, ClientAction $ Initiate (def, RPC1 ))
+    , (0, ClientAction $ Initiate (def, RPC1))
     , (1, ClientAction $ Terminate (Just (SomeClientException 0)))
     , (0, ClientAction $ Send (NoMoreElems NoMetadata))
-    , (1, ServerAction $ Send (NoMoreElems (Metadata [])))
-    , (0, ServerAction $ Send (NoMoreElems (Metadata [])))
+    , (1, ServerAction $ Send (NoMoreElems def))
+    , (0, ServerAction $ Send (NoMoreElems def))
     ]
 
 -- | Another minor variation on 'earlyTermination03', which tends to trigger yet
 -- another codepath
 earlyTermination04 :: Dialogue
 earlyTermination04 = NormalizedDialogue [
-      (0, ClientAction $ Initiate (Metadata [], RPC1))
-    , (0, ServerAction $ Initiate (Metadata []))
-    , (1, ClientAction $ Initiate (Metadata [], RPC1 ))
+      (0, ClientAction $ Initiate (def, RPC1))
+    , (0, ServerAction $ Initiate def)
+    , (1, ClientAction $ Initiate (def, RPC1 ))
     , (1, ClientAction $ Terminate (Just (SomeClientException 0)))
-    , (1, ServerAction $ Send (NoMoreElems (Metadata [])))
+    , (1, ServerAction $ Send (NoMoreElems def))
     , (0, ClientAction $ Send (NoMoreElems NoMetadata))
-    , (0, ServerAction $ Send (NoMoreElems (Metadata [])))
+    , (0, ServerAction $ Send (NoMoreElems def))
     ]
 
 -- Test that early termination in one call does not affect the other. This is
@@ -248,11 +248,11 @@ earlyTermination04 = NormalizedDialogue [
 -- 'clientGlobal'.
 earlyTermination05 :: Dialogue
 earlyTermination05 = NormalizedDialogue [
-      (1, ClientAction $ Initiate (Metadata [],RPC1))
+      (1, ClientAction $ Initiate (def,RPC1))
     , (1, ServerAction $ Terminate Nothing)
-    , (0, ClientAction $ Initiate (Metadata [],RPC1))
+    , (0, ClientAction $ Initiate (def,RPC1))
     , (0, ClientAction $ Send (NoMoreElems NoMetadata))
-    , (0, ServerAction $ Send (NoMoreElems (Metadata [])))
+    , (0, ServerAction $ Send (NoMoreElems def))
     ]
 
 -- | Variation where the client does send some messages before throwing an
@@ -265,17 +265,17 @@ earlyTermination05 = NormalizedDialogue [
 -- each operation in a synchronous manner.
 earlyTermination06 :: Dialogue
 earlyTermination06 = NormalizedDialogue [
-      (0, ClientAction $ Initiate (Metadata [], RPC1))
+      (0, ClientAction $ Initiate (def, RPC1))
     , (0, ClientAction $ Send (StreamElem 0))
     , (0, ClientAction $ Terminate (Just (SomeClientException 0)))
-    , (0, ServerAction $ Send (NoMoreElems (Metadata [])))
+    , (0, ServerAction $ Send (NoMoreElems def))
     ]
 
 -- | Server-side early termination
 earlyTermination07 :: Dialogue
 earlyTermination07 = NormalizedDialogue [
-      (0, ClientAction $ Initiate (Metadata [], RPC1))
-    , (0, ServerAction $ Initiate (Metadata []))
+      (0, ClientAction $ Initiate (def, RPC1))
+    , (0, ServerAction $ Initiate def)
     , (0, ServerAction $ Terminate (Just (SomeServerException 0)))
     ]
 
@@ -286,35 +286,35 @@ earlyTermination07 = NormalizedDialogue [
 -- Trailers-Only case to send the error to the client.
 earlyTermination08 :: Dialogue
 earlyTermination08 = NormalizedDialogue [
-      (0, ClientAction $ Initiate (Metadata [], RPC1))
+      (0, ClientAction $ Initiate (def, RPC1))
     , (0, ServerAction $ Terminate (Just (SomeServerException 0)))
     ]
 
 -- | Like 'earlyTermination07', but now without an exception
 earlyTermination09 :: Dialogue
 earlyTermination09 = NormalizedDialogue [
-      (0, ClientAction $ Initiate (Metadata [], RPC1))
-    , (0, ServerAction $ Initiate (Metadata []))
+      (0, ClientAction $ Initiate (def, RPC1))
+    , (0, ServerAction $ Initiate def)
     , (0, ServerAction $ Terminate Nothing)
     ]
 
 -- | Client throws after the server sends their initial metadata
 earlyTermination10 :: Dialogue
 earlyTermination10 = NormalizedDialogue [
-      (0, ClientAction $ Initiate (Metadata [], RPC1))
-    , (0, ServerAction $ Initiate (Metadata []))
+      (0, ClientAction $ Initiate (def, RPC1))
+    , (0, ServerAction $ Initiate def)
     , (0, ClientAction $ Terminate (Just (SomeClientException 0)))
-    , (0, ServerAction $ Send (NoMoreElems (Metadata [])))
+    , (0, ServerAction $ Send (NoMoreElems def))
     ]
 
 -- | Like 'earlyTermination10', but server sends a message before closing
 earlyTermination11 :: Dialogue
 earlyTermination11 = NormalizedDialogue [
-      (0, ClientAction $ Initiate (Metadata [], RPC1))
-    , (0, ServerAction $ Initiate (Metadata []))
+      (0, ClientAction $ Initiate (def, RPC1))
+    , (0, ServerAction $ Initiate def)
     , (0, ClientAction $ Terminate (Just (SomeClientException 0)))
     , (0, ServerAction $ Send (StreamElem 0))
-    , (0, ServerAction $ Send (NoMoreElems (Metadata [])))
+    , (0, ServerAction $ Send (NoMoreElems def))
     ]
 
 -- | Client tries to send message but server has already terminated
@@ -326,11 +326,11 @@ earlyTermination11 = NormalizedDialogue [
 -- clock correctly in the presence of failures.
 earlyTermination12 :: Dialogue
 earlyTermination12 = NormalizedDialogue [
-      (0, ClientAction $ Initiate (Metadata [], RPC2))
-    , (1, ClientAction $ Initiate (Metadata [], RPC1))
+      (0, ClientAction $ Initiate (def, RPC2))
+    , (1, ClientAction $ Initiate (def, RPC1))
     , (1, ServerAction $ Terminate Nothing)
     , (0, ClientAction $ Send (NoMoreElems NoMetadata))
-    , (0, ServerAction $ Send (NoMoreElems (Metadata [])))
+    , (0, ServerAction $ Send (NoMoreElems def))
     ]
 
 -- | Like earlyTermination12, but the sandwich the other way around
@@ -339,11 +339,11 @@ earlyTermination12 = NormalizedDialogue [
 -- itself (specifically, that the test clock is used correctly).
 earlyTermination13 :: Dialogue
 earlyTermination13 = NormalizedDialogue [
-      (0, ClientAction $ Initiate (Metadata [], RPC1))
+      (0, ClientAction $ Initiate (def, RPC1))
     , (0, ServerAction $ Send (StreamElem 1))
     , (0, ServerAction $ Send (StreamElem 2))
-    , (1, ClientAction $ Initiate (Metadata [], RPC1))
-    , (1, ServerAction $ Send (NoMoreElems (Metadata [])))
+    , (1, ClientAction $ Initiate (def, RPC1))
+    , (1, ServerAction $ Send (NoMoreElems def))
     , (0, ServerAction $ Send (StreamElem 3))
     , (0, ServerAction $ Terminate (Just (SomeServerException 0)))
     ]
@@ -354,7 +354,7 @@ earlyTermination13 = NormalizedDialogue [
 -- has terminated, it can no longer green-light the server.
 earlyTermination14 :: Dialogue
 earlyTermination14 = NormalizedDialogue [
-      (0, ClientAction $ Initiate (Metadata [], RPC1))
+      (0, ClientAction $ Initiate (def, RPC1))
     , (0, ClientAction $ Terminate Nothing)
     , (0, ServerAction $ Terminate (Just (SomeServerException 0)))
     ]
@@ -375,29 +375,29 @@ earlyTermination14 = NormalizedDialogue [
 -- detailed discussion.
 allowHalfClosed1 :: Dialogue
 allowHalfClosed1 = NormalizedDialogue [
-      (1, ClientAction $ Initiate (Metadata [], RPC1))
-    , (1, ServerAction $ Send (NoMoreElems (Metadata [])))
-    , (0, ClientAction $ Initiate (Metadata [], RPC1))
-    , (0, ServerAction $ Initiate (Metadata []))
+      (1, ClientAction $ Initiate (def, RPC1))
+    , (1, ServerAction $ Send (NoMoreElems def))
+    , (0, ClientAction $ Initiate (def, RPC1))
+    , (0, ServerAction $ Initiate def)
     , (0, ClientAction $ Send (NoMoreElems NoMetadata))
-    , (0, ServerAction $ Send (NoMoreElems (Metadata [])))
+    , (0, ServerAction $ Send (NoMoreElems def))
     ]
 
 -- | Variation on 'allowHalfClosed1' without an explicit server initiation.
 allowHalfClosed2 :: Dialogue
 allowHalfClosed2 = NormalizedDialogue [
-      (1, ClientAction $ Initiate (Metadata [], RPC1))
-    , (1, ServerAction $ Send (NoMoreElems (Metadata [])))
-    , (0, ClientAction $ Initiate (Metadata [], RPC1))
+      (1, ClientAction $ Initiate (def, RPC1))
+    , (1, ServerAction $ Send (NoMoreElems def))
+    , (0, ClientAction $ Initiate (def, RPC1))
     , (0, ClientAction $ Send (NoMoreElems NoMetadata))
-    , (0, ServerAction $ Send (NoMoreElems (Metadata [])))
+    , (0, ServerAction $ Send (NoMoreElems def))
     ]
 
 -- | Server initiates response after client half-closes
 allowHalfClosed3 :: Dialogue
 allowHalfClosed3 = NormalizedDialogue [
-      (0, ClientAction $ Initiate (Metadata [],RPC1))
+      (0, ClientAction $ Initiate (def,RPC1))
     , (0, ClientAction $ Terminate (Just (SomeClientException 0)))
-    , (0, ServerAction $ Initiate (Metadata []))
-    , (0, ServerAction $ Send (NoMoreElems (Metadata [])))
+    , (0, ServerAction $ Initiate def)
+    , (0, ServerAction $ Send (NoMoreElems def))
     ]

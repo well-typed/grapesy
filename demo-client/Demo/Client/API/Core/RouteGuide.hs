@@ -24,7 +24,7 @@ listFeatures conn r = do
       -- In the gRPC @Trailers-Only@ case (which will be triggered if there
       -- are zero features in the provided rectangle), this will also be the
       -- trailing custom metadata.
-      initMetadata <- recvResponseMetadata call
+      initMetadata <- recvResponseInitialMetadata call
       logMsg initMetadata
 
       finalMetadata <- recvAllOutputs call $ logMsg

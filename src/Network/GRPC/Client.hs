@@ -26,10 +26,12 @@ module Network.GRPC.Client (
   , Call -- opaque
   , withRPC
 
-    -- ** Call parameters
-  , CallParams(..)
+    -- ** Parameters
+  , CallParams -- opaque
+  , callTimeout
+  , callRequestMetadata
 
-    -- *** Timeouts
+    -- ** Timeouts
   , Timeout(..)
   , TimeoutValue(TimeoutValue, getTimeoutValue)
   , TimeoutUnit(..)
@@ -40,7 +42,7 @@ module Network.GRPC.Client (
     -- $openRequest
   , sendInput
   , recvOutput
-  , recvResponseMetadata
+  , recvResponseInitialMetadata
 
     -- ** Protocol specific wrappers
   , sendNextInput

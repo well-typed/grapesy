@@ -22,7 +22,7 @@ sayHelloStreamReply conn name =
 
       -- We should see the response metadata immediately, and the first output
       -- after a delay.
-      initMetadata <- recvResponseMetadata call
+      initMetadata <- recvResponseInitialMetadata call
       logMsg initMetadata
 
       -- For completeness, we also show the final metadata, although the
