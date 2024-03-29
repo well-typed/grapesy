@@ -170,7 +170,7 @@ sendInputWithEnvelope Call{callChannel} msg = liftIO $ do
 
 -- | Receive an output from the peer
 --
--- After the final 'Output', you will receive any 'CustomMetadata' (application
+-- After the final 'Output', you will receive any custom metadata (application
 -- defined trailers) that the server returns. We do /NOT/ include the
 -- 'GrpcStatus' here: a status of 'GrpcOk' carries no information, and any other
 -- status will result in a 'GrpcException'. Calling 'recvOutput' again after

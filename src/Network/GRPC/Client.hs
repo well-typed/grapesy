@@ -127,25 +127,25 @@ import Network.GRPC.Util.TLS qualified as Util.TLS
 -- [proto-lens](https://hackage.haskell.org/package/proto-lens-0.7.1.4/docs/Data-ProtoLens-Service-Types.html#t:HasMethodImpl).)
 -- On the client side we therefore have 'recvOutput' and 'sendInput' defined as
 --
--- > recvOutput :: Call rpc -> IO (StreamElem [CustomMetadata] (Output rpc))
--- > sendInput  :: Call rpc -> StreamElem NoMetadata (Input rpc) -> IO ()
+-- > recvOutput :: Call rpc -> m (StreamElem (ResponseTrailingMetadata rpc) (Output rpc))
+-- > sendInput  :: Call rpc -> StreamElem NoMetadata (Input rpc) -> m ()
 --
 -- and on the server side we have 'Network.GRPC.Server.recvInput' and
 -- 'Network.GRPC.Server.sendOutput':
 --
 -- > recvInput  :: Call rpc -> IO (StreamElem NoMetadata (Input rpc))
--- > sendOutput :: Call rpc -> StreamElem [CustomMetadata] (Output rpc) -> IO ()
+-- > sendOutput :: Call rpc -> StreamElem (ResponseTrailingMetadata rpc) (Output rpc) -> IO ()
 --
 -- == Metadata
 --
 -- Both the server and the client can send some metadata before they send their
 -- first message; see 'withRPC' and 'callRequestMetadata' for the client-side
--- (and 'Network.GRPC.Server.setResponseMetadata' for the server-side).
+-- (and 'Network.GRPC.Server.setResponseInitialMetadata' for the server-side).
 --
 -- The gRPC specification allows the server, but not the client, to include some
 -- /final/ metadata as well; this is the reason between the use of
--- 'CustomMetadata' for messages from the server to the client versus
--- 'NoMetadata' for messages from the client.
+-- @ResponseTrailingMetadata@ (from 'HasCustomMetadata') for messages from the
+-- server to the client versus 'NoMetadata' for messages from the client.
 --
 -- == 'FinalElem' versus 'NoMoreElems'
 --
