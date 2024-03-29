@@ -247,9 +247,9 @@ recvResponseInitialMetadata call@Call{} =
 
 -- | Return the initial response from the server
 --
--- This is a low-level function, and generalizes 'recvResponseMetadata'.
--- Unlike 'recvResponseMetadata', if the server returns a gRPC error, that
--- will be returned as a value here rather than thrown as an exception.
+-- This is a low-level function, and generalizes 'recvResponseInitialMetadata'.
+-- If the server returns a gRPC error, that will be returned as a value here
+-- rather than thrown as an exception.
 --
 -- Most applications will never need to use this function.
 recvInitialResponse ::
