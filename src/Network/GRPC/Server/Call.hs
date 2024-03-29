@@ -30,7 +30,7 @@ module Network.GRPC.Server.Call (
   , sendTrailersOnly
   , recvInputWithEnvelope
   , sendOutputWithEnvelope
-  , getRequestTraceContext
+  , getRequestHeaders
 
     -- ** Internal API
   , sendProperTrailers
@@ -532,7 +532,9 @@ initiateResponse Call{callResponseKickoff} =
 -- 'sendTrailersOnly'.
 --
 -- Throws 'ResponseAlreadyInitiated' if the response has already been initiated.
-sendTrailersOnly :: HasCallStack => Call rpc -> [CustomMetadata] -> IO ()
+sendTrailersOnly ::
+     HasCallStack
+  => Call rpc -> ResponseTrailingMetadata rpc -> IO ()
 sendTrailersOnly Call{ callContext
                      , callResponseKickoff
                      }
@@ -552,18 +554,17 @@ sendTrailersOnly Call{ callContext
         , trailersOnlyProper      = ProperTrailers {
               properTrailersGrpcStatus     = GrpcOk
             , properTrailersGrpcMessage    = Nothing
-            , properTrailersMetadata       = customMetadataMapFromList metadata
+            , properTrailersMetadata       = customMetadataMapFromList $
+                                               buildMetadata metadata
             , properTrailersPushback       = Nothing
             , properTrailersOrcaLoadReport = Nothing
             }
         }
 
--- | Get trace context for the request (if any)
---
--- This provides (minimal) support for OpenTelemetry.
-getRequestTraceContext :: Call rpc -> IO (Maybe TraceContext)
-getRequestTraceContext Call{callRequestHeaders} =
-    return $ requestTraceContext callRequestHeaders
+-- | Get full request headers
+getRequestHeaders :: Call rpc -> IO RequestHeaders
+getRequestHeaders Call{callRequestHeaders} =
+    return callRequestHeaders
 
 {-------------------------------------------------------------------------------
   Protocol specific wrappers

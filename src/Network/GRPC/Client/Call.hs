@@ -70,6 +70,8 @@ import Network.GRPC.Util.Thread qualified as Thread
 -- RPC (that is, the server already sent the trailers), then the call is
 -- considered closed and the cancellation exception is not raised. Under normal
 -- circumstances (with well-behaved server handlers) this should not arise.
+-- (The gRPC specification itself is not very specific about this case; see
+-- discussion at https://stackoverflow.com/questions/55511528/should-grpc-server-side-half-closing-implicitly-terminate-the-client.)
 --
 -- If there are still /inbound/ messages upon leaving the scope of 'withRPC' no
 -- exception is raised (but the call is nonetheless still closed, and the server
@@ -170,7 +172,7 @@ sendInputWithEnvelope Call{callChannel} msg = liftIO $ do
 
 -- | Receive an output from the peer
 --
--- After the final 'Output', you will receive any 'CustomMetadata' (application
+-- After the final 'Output', you will receive any custom metadata (application
 -- defined trailers) that the server returns. We do /NOT/ include the
 -- 'GrpcStatus' here: a status of 'GrpcOk' carries no information, and any other
 -- status will result in a 'GrpcException'. Calling 'recvOutput' again after
@@ -247,9 +249,9 @@ recvResponseInitialMetadata call@Call{} =
 
 -- | Return the initial response from the server
 --
--- This is a low-level function, and generalizes 'recvResponseMetadata'.
--- Unlike 'recvResponseMetadata', if the server returns a gRPC error, that
--- will be returned as a value here rather than thrown as an exception.
+-- This is a low-level function, and generalizes 'recvResponseInitialMetadata'.
+-- If the server returns a gRPC error, that will be returned as a value here
+-- rather than thrown as an exception.
 --
 -- Most applications will never need to use this function.
 recvInitialResponse ::

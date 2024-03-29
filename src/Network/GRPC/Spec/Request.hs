@@ -42,6 +42,7 @@ import Network.GRPC.Util.HKD (HKD, Undecorated, DecoratedWith)
 import Network.GRPC.Util.HKD qualified as HKD
 
 import Paths_grapesy qualified as Grapesy
+import Text.Read (readMaybe)
 
 {-------------------------------------------------------------------------------
   Inputs (message sent to the peer)
@@ -100,6 +101,12 @@ data RequestHeaders_ f = RequestHeaders {
 
       -- | Trace context (for OpenTelemetry)
     , requestTraceContext :: HKD f (Maybe TraceContext)
+
+      -- | Previous RPC attempts
+      --
+      -- This is part of automatic retries.
+      -- See <https://github.com/grpc/proposal/blob/master/A6-client-retries.md>.
+    , requestPreviousRpcAttempts :: HKD f (Maybe Int)
     }
 
 type RequestHeaders = RequestHeaders_ Undecorated
@@ -110,14 +117,15 @@ deriving stock instance Eq   RequestHeaders
 instance HKD.Traversable RequestHeaders_ where
   sequence x =
       RequestHeaders
-        <$> requestTimeout           x
-        <*> requestMetadata          x
-        <*> requestCompression       x
-        <*> requestAcceptCompression x
-        <*> requestContentType       x
-        <*> requestMessageType       x
-        <*> requestIncludeTE         x
-        <*> requestTraceContext      x
+        <$> requestTimeout             x
+        <*> requestMetadata            x
+        <*> requestCompression         x
+        <*> requestAcceptCompression   x
+        <*> requestContentType         x
+        <*> requestMessageType         x
+        <*> requestIncludeTE           x
+        <*> requestTraceContext        x
+        <*> requestPreviousRpcAttempts x
 
 -- | Mark a input sent as final
 data IsFinal = Final | NotFinal
@@ -179,6 +187,7 @@ callDefinition proxy = \hdrs -> catMaybes [
     , buildMessageAcceptEncoding <$> requestAcceptCompression hdrs
     , Just $ buildUserAgent
     , buildGrpcTraceBin <$> requestTraceContext hdrs
+    , buildPreviousRpcAttempts <$> requestPreviousRpcAttempts hdrs
     ]
   where
     hdrTimeout :: Timeout -> HTTP.Header
@@ -227,6 +236,12 @@ callDefinition proxy = \hdrs -> catMaybes [
     buildGrpcTraceBin ctxt = (
           "grpc-trace-bin"
         , buildBinaryValue $ buildTraceContext ctxt
+        )
+
+    buildPreviousRpcAttempts :: Int -> HTTP.Header
+    buildPreviousRpcAttempts n = (
+          "grpc-previous-rpc-attempts"
+        , BS.Strict.C8.pack $ show n
         )
 
 {-------------------------------------------------------------------------------
@@ -299,6 +314,16 @@ parseRequestHeaders proxy =
               return True
           }
 
+      | name == "grpc-previous-rpc-attempts"
+      = modify $ \x -> x {
+            requestPreviousRpcAttempts = do
+              httpError HTTP.badRequest400 $
+                maybe
+                  (Left $ "grpc-previous-rpc-attempts: invalid " ++ show value)
+                  (Right . Just)
+                  (readMaybe $ BS.Strict.C8.unpack value)
+          }
+
       | otherwise
       = modify $ \x -> x {
             requestMetadata = do
@@ -308,14 +333,15 @@ parseRequestHeaders proxy =
 
     uninitRequestHeaders :: RequestHeaders_ (DecoratedWith m)
     uninitRequestHeaders = RequestHeaders {
-          requestTimeout           = return Nothing
-        , requestMetadata          = return mempty
-        , requestCompression       = return Nothing
-        , requestAcceptCompression = return Nothing
-        , requestContentType       = return Nothing
-        , requestMessageType       = return False
-        , requestIncludeTE         = return False
-        , requestTraceContext      = return Nothing
+          requestTimeout             = return Nothing
+        , requestMetadata            = return mempty
+        , requestCompression         = return Nothing
+        , requestAcceptCompression   = return Nothing
+        , requestContentType         = return Nothing
+        , requestMessageType         = return False
+        , requestIncludeTE           = return False
+        , requestTraceContext        = return Nothing
+        , requestPreviousRpcAttempts = return Nothing
         }
 
     httpError ::
