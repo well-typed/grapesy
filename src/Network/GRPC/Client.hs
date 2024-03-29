@@ -42,7 +42,7 @@ module Network.GRPC.Client (
     -- $openRequest
   , sendInput
   , recvOutput
-  , recvResponseMetadata
+  , recvResponseInitialMetadata
 
     -- ** Protocol specific wrappers
   , sendNextInput

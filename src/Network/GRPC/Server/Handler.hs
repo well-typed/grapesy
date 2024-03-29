@@ -81,6 +81,19 @@ data RpcHandler m = forall rpc. SupportsServerRpc rpc => RpcHandler {
 -------------------------------------------------------------------------------}
 
 -- | Constructor for 'RpcHandler'
+--
+-- When the handler sends its first message to the client, @grapesy@ must first
+-- send the initial metadata (of type @ResponseInitialMetadata@) to the client.
+-- This metadata can be updated at any point before that first message (for
+-- example, after receiving some messages from the client) by calling
+-- 'setResponseInitialMetadata'. If this function is never called, however, then
+-- we need a default value; 'mkRpcHandler' therefore calls
+-- 'setResponseInitialMetadata' once before the handler proper, relying on the
+-- 'Default' instance.
+--
+-- For RPCs where a sensible default does not exist (perhaps the initial
+-- response metadata needs the request metadata from the client, or even some
+-- messages from the client), you can use 'mkRpcHandlerNoInitialMetadata'.
 mkRpcHandler ::
      ( SupportsServerRpc rpc
      , Default (ResponseInitialMetadata rpc)
@@ -91,7 +104,10 @@ mkRpcHandler _ k = RpcHandler $ \call -> do
     liftIO $ setResponseInitialMetadata call def
     k call
 
--- TODO: docs
+-- | Variant on 'mkRpcHandler' that does not call 'setResponseInitialMetadata'
+--
+-- You /must/ call 'setResponseInitialMetadata' before sending the first
+-- message. See 'mkRpcHandler' for additional discussion.
 mkRpcHandlerNoInitialMetadata ::
      SupportsServerRpc rpc
   => Proxy rpc

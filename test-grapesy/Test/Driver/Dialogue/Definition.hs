@@ -64,29 +64,6 @@ data Action a b e =
 data RPC = RPC1 | RPC2 | RPC3
   deriving stock (Show, Eq)
 
-{-
--- | Metadata
---
--- For the sake of these tests, we don't want to deal with duplicate headers
--- (this is tested separately in the serialization tests). We do however ensure
--- that this listed is always ordered (header ordering is not guaranteed).
-newtype Metadata = UnsafeMetadata { getMetadata :: [CustomMetadata] }
-  deriving stock (Show, Eq)
-
-mkMetadata :: [CustomMetadata] -> Metadata
-mkMetadata =
-      UnsafeMetadata
-    . sortBy (compare `on` customMetadataName)
-    . nubBy  ((==)    `on` customMetadataName)
-
-pattern Metadata :: [CustomMetadata] -> Metadata
-pattern Metadata mds <- UnsafeMetadata mds
-  where
-    Metadata = mkMetadata
-
-{-# COMPLETE Metadata #-}
--}
-
 {-------------------------------------------------------------------------------
   Metadata
 -------------------------------------------------------------------------------}

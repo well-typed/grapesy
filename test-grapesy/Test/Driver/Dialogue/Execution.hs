@@ -198,7 +198,7 @@ clientLocal clock call = \(LocalSteps steps) ->
         case action of
           Initiate expectedMetadata -> liftIO $ do
             receivedMetadata <- within timeoutReceive action $
-                                  Client.recvResponseMetadata call
+                                  Client.recvResponseInitialMetadata call
             expect (tick, action) (== ResponseInitialMetadata expectedMetadata) $
               receivedMetadata
           Send (FinalElem a b) -> do
@@ -209,6 +209,8 @@ clientLocal clock call = \(LocalSteps steps) ->
             peerHealth <- get
             mOut <- try $ within timeoutReceive action $
                       Client.Binary.recvOutput call
+            -- TODO: This pattern match seems unnecessary; if we always use
+            -- 'isExpectedElem', the tests still pass. Why?
             let expectation = case peerHealth of
                                 PeerAlive -> isExpectedElem expectedElem
                                 PeerTerminated mErr -> isGrpcException mErr

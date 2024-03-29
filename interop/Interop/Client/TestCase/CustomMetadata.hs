@@ -27,14 +27,14 @@ runTest cmdline = do
       withRPC conn callParams (Proxy @UnaryCall) $ \call -> do
         -- For UnaryCall the server does not respond until we send the input
         sendFinalInput call simpleRequest
-        responseMetadata <- recvResponseMetadata call
+        responseMetadata <- recvResponseInitialMetadata call
         (_, trailers)    <- recvFinalOutput call
         verifyRespMetadata responseMetadata trailers
 
       -- 2. FullDuplexCall
       withRPC conn callParams (Proxy @FullDuplexCall) $ \call -> do
         sendFinalInput call streamingRequest
-        responseMetadata <- recvResponseMetadata call
+        responseMetadata <- recvResponseInitialMetadata call
         (_, trailers) <- recvFinalOutput call
         verifyRespMetadata responseMetadata trailers
   where

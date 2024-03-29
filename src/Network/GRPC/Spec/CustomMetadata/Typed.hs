@@ -1,13 +1,13 @@
 module Network.GRPC.Spec.CustomMetadata.Typed (
-    -- * API
-    BuildMetadata(..)
+    -- * Map RPC to metadata
+    HasCustomMetadata(..)
+  , ResponseMetadata(..)
+    -- * Serialization
+  , BuildMetadata(..)
   , StaticMetadata(..)
   , ParseMetadata(..)
     -- * Specific instances
   , RawMetadata(..)
-    -- * Map RPC to metadata
-  , HasCustomMetadata(..)
-  , ResponseMetadata(..)
     -- ** Overriding metadata
   , OverrideMetadata
   , OverrideRequestMetadata
@@ -24,18 +24,156 @@ import GHC.TypeLits
 import Network.GRPC.Spec.CustomMetadata.Raw
 
 {-------------------------------------------------------------------------------
-  API
-
-  TODO: Docs
+  Map RPC to metadata
 -------------------------------------------------------------------------------}
 
+-- | Type of custom metadata associated with a particular RPC
+class ( -- 'Show' instances (for debugging)
+        Show (RequestMetadata rpc)
+      , Show (ResponseInitialMetadata rpc)
+      , Show (ResponseTrailingMetadata rpc)
+      ) => HasCustomMetadata rpc where
+  -- | Metadata included in the request
+  type RequestMetadata rpc :: Type
+
+  -- | Metadata included in the initial response
+  type ResponseInitialMetadata rpc :: Type
+
+  -- | Metadata included in the response trailers
+  type ResponseTrailingMetadata rpc :: Type
+
+-- | Response metadata
+--
+-- It occassionally happens that we do not know if we should expect the initial
+-- metadata from the server or the trailing metadata (when the server uses
+-- Trailers-Only); for example, see
+-- 'Network.GRPC.Client.recvResponseInitialMetadata'.
+data ResponseMetadata rpc =
+    ResponseInitialMetadata  (ResponseInitialMetadata  rpc)
+  | ResponseTrailingMetadata (ResponseTrailingMetadata rpc)
+
+deriving stock instance
+     HasCustomMetadata rpc
+  => Show (ResponseMetadata rpc)
+
+deriving stock instance
+     ( Eq (ResponseInitialMetadata rpc)
+     , Eq (ResponseTrailingMetadata rpc)
+     )
+  => Eq (ResponseMetadata rpc)
+
+{-------------------------------------------------------------------------------
+  Override metadata
+-------------------------------------------------------------------------------}
+
+-- | Override metadata associated with a given RPC
+--
+-- The standard RPC instances (most importantly,
+-- 'Network.GRPC.Common.Protobuf.Protobuf') do not have any standard associated
+-- metadata. You can use 'OverrideMetadata' to change this.
+--
+-- As an example, consider these definitions from the @grapesy@ interop test
+-- suite (<https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptions.md>):
+--
+-- > type WithInteropMeta =
+-- >        OverrideMetadata
+-- >          InteropReqMeta
+-- >          InteropRespInitMeta
+-- >          InteropRespTrailMeta
+-- >
+-- > type UnaryCall = WithInteropMeta (Protobuf TestService "unaryCall")
+--
+-- By default, @(Protobuf TestService "unaryCall")@ has no associated metadata;
+-- the 'WithInteropMeta' type synonym here is used to use @InteropReqMeta@
+-- for the request metadata, @InteropRespInitMeta@ for the response initial
+-- metadata, and @InteropRespTrailMeta@ for the response trailing metadata.
+--
+-- When you override metadata, you will need to provide some instances. For
+-- clients, you will need to provide
+--
+-- * 'BuildMetadata' instance for @req@
+-- * 'ParseMetadata' instances for @init@ and @trail@
+--
+-- You will probably also want to provide a 'Data.Default.Default' instance for
+-- @req@, unless every RPC call must be given explicit request metadata
+-- (see 'Network.GRPC.Client.rpc' versus 'Network.GRPC.Client.rpcWith').
+--
+-- On the server side, you will need to provide
+--
+-- * 'ParseMetadata' instance for @req@
+-- * 'BuildMetadata' instances for @init@ and @trail@
+-- * 'StaticMetadata' instance for @trail@
+--
+-- You will probably also want to provide a 'Data.Default.Default' instance for
+-- @init@ and @trail@. If you do not, you cannot
+-- 'Network.GRPC.Server.mkRpcHandler' or any of the high level handler
+-- constructions, and you need to use
+-- 'Network.GRPC.Server.mkRpcHandlerNoInitialMetadata' instead.
+--
+-- See 'RawMetadata' for getting access to the raw custom metadata headers.
+data OverrideMetadata (req :: Type) (init :: Type) (trail :: Type) rpc
+
+instance ( Show req
+         , Show init
+         , Show trail
+         ) => HasCustomMetadata (OverrideMetadata req init trail rpc) where
+  type RequestMetadata          (OverrideMetadata req init trail rpc) = req
+  type ResponseInitialMetadata  (OverrideMetadata req init trail rpc) = init
+  type ResponseTrailingMetadata (OverrideMetadata req init trail rpc) = trail
+
+-- | Alias for 'OverrideMeta' to override /only/ the request metadata
+type OverrideRequestMetadata req rpc =
+       OverrideMetadata
+         req
+         (ResponseInitialMetadata rpc)
+         (ResponseTrailingMetadata rpc)
+         rpc
+
+-- | Alias for 'OverrideMeta' to override /only/ the response initial metadata
+type OverrideResponseInitialMetadata init rpc =
+       OverrideMetadata
+         (RequestMetadata rpc)
+         init
+         (ResponseTrailingMetadata rpc)
+         rpc
+
+-- | Alias for 'OverrideMeta' to override /only/ the response trailing metadata
+type OverrideResponseTrailingMetadata trail rpc =
+       OverrideMetadata
+         (RequestMetadata rpc)
+         (ResponseInitialMetadata rpc)
+         trail
+         rpc
+
+{-------------------------------------------------------------------------------
+  Serialization
+-------------------------------------------------------------------------------}
+
+-- | Serialize metadata to custom metadata headers
 class BuildMetadata a where
   buildMetadata :: a -> [CustomMetadata]
 
+-- | Metadata with statically known fields
+--
+-- This is required for the response trailing metadata. When the server sends
+-- the /initial/ set of headers to the client, it must tell the client which
+-- trailers to expect (by means of the HTTP @Trailer@ header; see
+-- <https://datatracker.ietf.org/doc/html/rfc7230#section-4.4>).
+--
+-- Any headers constructed in 'buildMetadata' /must/ be listed here; not doing
+-- so is a bug. However, the converse is not true: it is acceptable for a header
+-- to be listed in 'metadataHeaderNames' but not in 'buildMetadata'. Put another
+-- way: the list of "trailers to expect" included in the initial request headers
+-- is allowed to be an overapproximation, but not an underapproximation.
 class BuildMetadata a => StaticMetadata a where
   metadataHeaderNames :: Proxy a -> [HeaderName]
 
--- TODO: Docs should say something about duplicate headers
+-- | Parse metadata from custom metadata headers
+--
+-- This method is allowed to assume the list of headers does not contain any
+-- duplicates (the gRPC spec does allow for duplicate headers and specifies
+-- how to process them, but @grapesy@ will take care of this before calling
+-- 'parseMetadata').
 class ParseMetadata a where
   parseMetadata :: MonadThrow m => [CustomMetadata] -> m a
 
@@ -43,7 +181,11 @@ class ParseMetadata a where
   Clients that want access to all raw, unparsed, custom metadata
 -------------------------------------------------------------------------------}
 
--- TODO: Docs
+-- | Raw metadata
+--
+-- This can be used with 'OverrideMetadata' to provide essentially an untyped
+-- interface to custom metadata, and get access to the raw metadata without
+-- any serialization.
 newtype RawMetadata (md :: [Symbol]) = RawMetadata {
       getRawMetadata :: [CustomMetadata]
     }
@@ -70,56 +212,3 @@ instance KnownSymbols '[] where
 
 instance (KnownSymbol n, KnownSymbols ns) => KnownSymbols (n:ns) where
   symbolVals _ = symbolVal (Proxy @n) : symbolVals (Proxy @ns)
-
-{-------------------------------------------------------------------------------
-  Map RPC to metadata
--------------------------------------------------------------------------------}
-
-class ( -- 'Show' instances (for debugging)
-        Show (RequestMetadata rpc)
-      , Show (ResponseInitialMetadata rpc)
-      , Show (ResponseTrailingMetadata rpc)
-      ) => HasCustomMetadata rpc where
-  -- | Metadata included in the request
-  type RequestMetadata rpc :: Type
-
-  -- | Metadata included in the initial response
-  type ResponseInitialMetadata rpc :: Type
-
-  -- | Metadata included in the response trailers
-  type ResponseTrailingMetadata rpc :: Type
-
--- TODO: Docs
-data ResponseMetadata rpc =
-    ResponseInitialMetadata  (ResponseInitialMetadata  rpc)
-  | ResponseTrailingMetadata (ResponseTrailingMetadata rpc)
-
-deriving stock instance
-     HasCustomMetadata rpc
-  => Show (ResponseMetadata rpc)
-
-deriving stock instance
-     ( Eq (ResponseInitialMetadata rpc)
-     , Eq (ResponseTrailingMetadata rpc)
-     )
-  => Eq (ResponseMetadata rpc)
-
-{-------------------------------------------------------------------------------
-  Override metadata
-
-  TODO: Docs
--------------------------------------------------------------------------------}
-
-data OverrideMetadata (req :: Type) (init :: Type) (trail :: Type) rpc
-
-instance ( Show req
-         , Show init
-         , Show trail
-         ) => HasCustomMetadata (OverrideMetadata req init trail rpc) where
-  type RequestMetadata          (OverrideMetadata req init trail rpc) = req
-  type ResponseInitialMetadata  (OverrideMetadata req init trail rpc) = init
-  type ResponseTrailingMetadata (OverrideMetadata req init trail rpc) = trail
-
-type OverrideRequestMetadata          req   rpc = OverrideMetadata req                   (ResponseInitialMetadata rpc) (ResponseTrailingMetadata rpc) rpc
-type OverrideResponseInitialMetadata  init  rpc = OverrideMetadata (RequestMetadata rpc) init                          (ResponseTrailingMetadata rpc) rpc
-type OverrideResponseTrailingMetadata trail rpc = OverrideMetadata (RequestMetadata rpc) (ResponseInitialMetadata rpc) trail                          rpc

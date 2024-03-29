@@ -257,7 +257,6 @@ test-suite test-grapesy
 
       Proto.Empty
       Proto.Messages
-      Proto.OrcaLoadReport
       Proto.Test
   build-depends:
       -- Internal dependencies

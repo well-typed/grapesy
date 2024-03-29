@@ -36,6 +36,7 @@ module Network.GRPC.Common (
   , OverrideRequestMetadata
   , OverrideResponseInitialMetadata
   , OverrideResponseTrailingMetadata
+  , RawMetadata(..)
 
     -- * Configuration
   , SslKeyLog(..)

@@ -336,35 +336,6 @@ buildResponseHeaders proxy
       ]
     ]
 
--- | Construct the HTTP 'Trailer' header
---
--- This lists all headers that /might/ be present in the trailers.
---
--- See
---
--- * <https://datatracker.ietf.org/doc/html/rfc7230#section-4.4>
--- * <https://www.rfc-editor.org/rfc/rfc9110#name-processing-trailer-fields>
-buildTrailer :: forall rpc. SupportsServerRpc rpc => Proxy rpc -> HTTP.Header
-buildTrailer _ = (
-      "Trailer"
-    , BS.Strict.intercalate ", " allPotentialTrailers
-    )
-  where
-    allPotentialTrailers :: [Strict.ByteString]
-    allPotentialTrailers = concat [
-          reservedTrailers
-        , map (CI.original . buildHeaderName) $
-            metadataHeaderNames (Proxy @(ResponseTrailingMetadata rpc))
-        ]
-
-    -- These cannot be 'HeaderName' (which disallow reserved names)
-    reservedTrailers :: [Strict.ByteString]
-    reservedTrailers = [
-          "grpc-status"
-        , "grpc-message"
-        , "grpc-retry-pushback-ms"
-        ]
-
 -- | Parse response headers
 parseResponseHeaders :: forall rpc m.
      (IsRPC rpc, MonadError String m)
@@ -415,6 +386,39 @@ parseResponseHeaders proxy =
   > Trailers → Status [Status-Message] *Custom-Metadata
 -------------------------------------------------------------------------------}
 
+-- | Construct the HTTP 'Trailer' header
+--
+-- This lists all headers that /might/ be present in the trailers.
+--
+-- See
+--
+-- * <https://datatracker.ietf.org/doc/html/rfc7230#section-4.4>
+-- * <https://www.rfc-editor.org/rfc/rfc9110#name-processing-trailer-fields>
+buildTrailer :: forall rpc. SupportsServerRpc rpc => Proxy rpc -> HTTP.Header
+buildTrailer _ = (
+      "Trailer"
+    , BS.Strict.intercalate ", " allPotentialTrailers
+    )
+  where
+    allPotentialTrailers :: [Strict.ByteString]
+    allPotentialTrailers = concat [
+          reservedTrailers
+        , map (CI.original . buildHeaderName) $
+            metadataHeaderNames (Proxy @(ResponseTrailingMetadata rpc))
+        ]
+
+    -- These cannot be 'HeaderName' (which disallow reserved names)
+    --
+    -- This list must match the names used by 'buildProperTrailers'
+    -- and recognized by 'parseProperTrailers'.
+    reservedTrailers :: [Strict.ByteString]
+    reservedTrailers = [
+          "grpc-status"
+        , "grpc-message"
+        , "grpc-retry-pushback-ms"
+        , "endpoint-load-metrics-bin"
+        ]
+
 -- | Build trailers (see 'buildTrailersOnly' for the Trailers-Only case)
 --
 -- NOTE: If we add additional (reserved) headers here, we also need to add them
@@ -434,9 +438,6 @@ buildProperTrailers ProperTrailers{
     , [ ("grpc-message", PercentEncoding.encode x)
       | Just x <- [properTrailersGrpcMessage]
       ]
-    , [ buildCustomMetadata x
-      | x <- customMetadataMapToList properTrailersMetadata
-      ]
     , [ ( "grpc-retry-pushback-ms"
         , buildPushback x
         )
@@ -446,6 +447,9 @@ buildProperTrailers ProperTrailers{
         , buildBinaryValue $ Protobuf.buildStrict x
         )
       | Just x <- [properTrailersOrcaLoadReport]
+      ]
+    , [ buildCustomMetadata x
+      | x <- customMetadataMapToList properTrailersMetadata
       ]
     ]
 

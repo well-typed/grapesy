@@ -237,7 +237,6 @@ All tests should pass. All servers can be terminated using
 $ docker stop $(docker ps -q)
 ```
 
-
 > [!NOTE]
 > Not all reference servers support all features, motivating the various
 > `--skip-xyz` command line flags. To verify which features are unsupported,
