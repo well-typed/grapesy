@@ -3,6 +3,7 @@
 
 module Demo.Server.Service.Greeter (handlers) where
 
+import Control.Exception
 import Control.Monad
 import Data.Text (Text)
 
@@ -21,7 +22,7 @@ import Demo.Common.API
 handlers :: Methods IO (ProtobufMethodsOf Greeter)
 handlers =
       Method (mkNonStreaming sayHello)
-    $ UnsupportedMethod -- TODO: sayHelloBidiStream
+    $ RawMethod sayHelloBidiStream
     $ RawMethod sayHelloStreamReply
     $ NoMoreMethods
 
@@ -51,3 +52,26 @@ sayHelloStreamReply = mkRpcHandlerNoInitialMetadata $ \call -> do
       sendNextOutput call $ defMessage & #message .~ msg i
 
     sendTrailers call def
+
+sayHelloBidiStream :: RpcHandler IO (Protobuf Greeter "sayHelloBidiStream")
+sayHelloBidiStream = mkRpcHandler $ \call -> do
+    let loop :: IO ()
+        loop = do
+          mReq <- recvInput call
+          case mReq of
+            StreamElem req   -> handleRequest call req >> loop
+            FinalElem  req _ -> handleRequest call req
+            NoMoreElems    _ -> return ()
+
+    handle cancellation $ loop
+  where
+    handleRequest :: Call SayHelloBidiStream -> HelloRequest -> IO ()
+    handleRequest call req =
+        sendNextOutput call $ defMessage & #message .~ msg
+      where
+        msg :: Text
+        msg = req ^. #name <> " Ack"
+
+    cancellation :: ClientDisconnected -> IO ()
+    cancellation _ = putStrLn "RPC Cancelled!"
+

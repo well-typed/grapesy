@@ -23,6 +23,8 @@ Python code to enable TLS.
 
 ### `Greeter`
 
+#### `Greeter.SayHello`
+
 To test the server against a `Greeter` client, can run the Python one:
 
 ```
@@ -31,7 +33,9 @@ Will try to greet world ...
 Greeter client received: Hello, you!
 ```
 
-and
+#### `Greeter.SayHelloStreamReply`
+
+This appears to be supported only by a Python demo:
 
 ```
 grpc-repo/examples/python/wait_for_ready$ python3 wait_for_ready_with_client_timeout_example_client.py
@@ -41,6 +45,19 @@ Greeter client received: Hello you times 0
 Greeter client received: Hello you times 1
 Greeter client received: Hello you times 2
 ```
+
+#### `Greeter.SayHelloBidiStream`
+
+This is a recent addition to the demo, illustrating cancellation
+(https://grpc.io/docs/guides/cancellation/). It appears to be supported only by
+a C++ demo:
+
+```
+grpc-repo/examples/cpp/cancellation/cmake/build$ ./client
+```
+
+(See https://grpc.io/docs/languages/cpp/quickstart/ for instructions on how
+to compile the C++ examples.)
 
 ### `RouteGuide`
 

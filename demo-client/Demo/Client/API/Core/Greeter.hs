@@ -1,6 +1,10 @@
 module Demo.Client.API.Core.Greeter (
     sayHelloStreamReply
+  , sayHelloBidiStream
   ) where
+
+import Control.Exception
+import Control.Monad
 
 import Network.GRPC.Client
 import Network.GRPC.Common
@@ -27,3 +31,19 @@ sayHelloStreamReply conn name =
       -- example does not include any.
       finalMetadata <- recvAllOutputs call logMsg
       logMsg finalMetadata
+
+sayHelloBidiStream :: Connection -> [HelloRequest] -> IO ()
+sayHelloBidiStream conn names = handle cancelled $
+    withRPC conn def (Proxy @SayHelloBidiStream) $ \call -> do
+      forM_ names $ \name -> do
+        sendNextInput call name
+        print =<< recvNextOutput call
+  where
+    cancelled :: GrpcException -> IO ()
+    cancelled err
+      | grpcError err == GrpcCancelled
+      = putStrLn "RPC Cancelled!"
+
+      | otherwise
+      = throwIO err
+

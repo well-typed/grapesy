@@ -4,6 +4,7 @@ module Demo.Common.API (
     -- * Greeter
     SayHello
   , SayHelloStreamReply
+  , SayHelloBidiStream
 
     -- ** Metadata
   , SayHelloMetadata(..)
@@ -35,6 +36,7 @@ import Proto.RouteGuide
 
 type SayHello            = Protobuf Greeter "sayHello"
 type SayHelloStreamReply = Protobuf Greeter "sayHelloStreamReply"
+type SayHelloBidiStream  = Protobuf Greeter "sayHelloBidiStream"
 
 type instance RequestMetadata          (Protobuf Greeter meth) = NoMetadata
 type instance ResponseInitialMetadata  (Protobuf Greeter meth) = GreeterResponseInitialMetadata meth

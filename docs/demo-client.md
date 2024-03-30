@@ -206,6 +206,20 @@ This should output something like:
 []
 ```
 
+### `helloworld.Greeter.SayHelloBidiStream`
+
+This is an illustration of cancellation
+(https://grpc.io/docs/guides/cancellation/) and is only supported by the C++
+example in `grpc-repo/examples/cpp/cancellation`. Provided the C++ server is
+running, you can run the client with
+
+```
+cabal run demo-client -- --core sayHelloBidiStream \
+  --name 'John' \
+  --name 'Joe' \
+  --name 'Jay'
+```
+
 ## Route guide
 
 Instructions below assume a running server:
