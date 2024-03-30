@@ -12,10 +12,8 @@ import Pipes.Safe
 import Network.GRPC.Client
 import Network.GRPC.Client.StreamType.Pipes
 import Network.GRPC.Common
-import Network.GRPC.Common.Protobuf
 
-import Proto.RouteGuide
-
+import Demo.Common.API
 import Demo.Common.Logging
 
 {-------------------------------------------------------------------------------
@@ -29,7 +27,7 @@ listFeatures conn r = runSafeT . runEffect $
     (prod >>= logMsg) >-> Pipes.mapM_ logMsg
   where
     prod :: Producer Feature (SafeT IO) ()
-    prod = serverStreaming conn (rpc @(Protobuf RouteGuide "listFeatures")) r
+    prod = serverStreaming conn (rpc @ListFeatures) r
 
 recordRoute ::
      Connection
@@ -39,14 +37,14 @@ recordRoute conn ps = runSafeT . runEffect $
     ps >-> (cons >>= logMsg)
   where
     cons :: Consumer (StreamElem NoMetadata Point) (SafeT IO) RouteSummary
-    cons = clientStreaming conn (rpc @(Protobuf RouteGuide "recordRoute"))
+    cons = clientStreaming conn (rpc @RecordRoute)
 
 routeChat ::
      Connection
   -> Producer' (StreamElem NoMetadata RouteNote) IO ()
   -> IO ()
 routeChat conn ns =
-    biDiStreaming conn def (Proxy @(Protobuf RouteGuide "routeChat")) aux
+    biDiStreaming conn def (Proxy @RouteChat) aux
   where
     aux ::
          Consumer' (StreamElem NoMetadata RouteNote) IO ()

@@ -8,13 +8,8 @@ module Network.GRPC.Spec.CustomMetadata.Typed (
   , BuildMetadata(..)
   , StaticMetadata(..)
   , ParseMetadata(..)
-    -- * Specific instances
+    -- * Escape hatch: raw metadata
   , RawMetadata(..)
-    -- ** Overriding metadata
-  , OverrideMetadata
-  , OverrideRequestMetadata
-  , OverrideResponseInitialMetadata
-  , OverrideResponseTrailingMetadata
   ) where
 
 import Control.Monad.Catch
@@ -30,12 +25,33 @@ import Network.GRPC.Spec.CustomMetadata.Raw
 -------------------------------------------------------------------------------}
 
 -- | Metadata included in the request
+--
+-- Often you can give a blanket metadata definition for all methods in a
+-- service. For example:
+--
+-- > type instance RequestMetadata          (Protobuf RouteGuide meth) = NoMetadata
+-- > type instance ResponseInitialMetadata  (Protobuf RouteGuide meth) = NoMetadata
+-- > type instance ResponseTrailingMetadata (Protobuf RouteGuide meth) = NoMetadata
+--
+-- If you want to give specific types of metadata for specific methods but not
+-- for others, it can sometimes be useful to introduce an auxiliary closed type,
+-- so that you can give a catch-all case. For example:
+--
+-- > type instance ResponseInitialMetadata (Protobuf Greeter meth) = GreeterResponseInitialMetadata meth
+-- >
+-- > type family GreeterResponseInitialMetadata (meth :: Symbol) where
+-- >   GreeterResponseInitialMetadata "sayHelloStreamReply" = SayHelloMetadata
+-- >   GreeterResponseInitialMetadata meth                  = NoMetadata
 type family RequestMetadata (rpc :: k) :: Type
 
 -- | Metadata included in the initial response
+--
+-- See 'RequestMetadata' for discussion.
 type family ResponseInitialMetadata (rpc :: k) :: Type
 
 -- | Metadata included in the response trailers
+--
+-- See 'RequestMetadata' for discussion.
 type family ResponseTrailingMetadata (rpc :: k) :: Type
 
 -- | Response metadata
@@ -59,85 +75,6 @@ deriving stock instance
      , Eq (ResponseTrailingMetadata rpc)
      )
   => Eq (ResponseMetadata rpc)
-
-{-------------------------------------------------------------------------------
-  Override metadata
--------------------------------------------------------------------------------}
-
--- | Override metadata associated with a given RPC
---
--- The standard RPC instances (most importantly,
--- 'Network.GRPC.Common.Protobuf.Protobuf') do not have any standard associated
--- metadata. You can use 'OverrideMetadata' to change this.
---
--- As an example, consider these definitions from the @grapesy@ interop test
--- suite (<https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptions.md>):
---
--- > type WithInteropMeta =
--- >        OverrideMetadata
--- >          InteropReqMeta
--- >          InteropRespInitMeta
--- >          InteropRespTrailMeta
--- >
--- > type UnaryCall = WithInteropMeta (Protobuf TestService "unaryCall")
---
--- By default, @(Protobuf TestService "unaryCall")@ has no associated metadata;
--- the 'WithInteropMeta' type synonym here is used to use @InteropReqMeta@
--- for the request metadata, @InteropRespInitMeta@ for the response initial
--- metadata, and @InteropRespTrailMeta@ for the response trailing metadata.
---
--- When you override metadata, you will need to provide some instances. For
--- clients, you will need to provide
---
--- * 'BuildMetadata' instance for @req@
--- * 'ParseMetadata' instances for @init@ and @trail@
---
--- You will probably also want to provide a 'Data.Default.Default' instance for
--- @req@, unless every RPC call must be given explicit request metadata
--- (see 'Network.GRPC.Client.rpc' versus 'Network.GRPC.Client.rpcWith').
---
--- On the server side, you will need to provide
---
--- * 'ParseMetadata' instance for @req@
--- * 'BuildMetadata' instances for @init@ and @trail@
--- * 'StaticMetadata' instance for @trail@
---
--- You will probably also want to provide a 'Data.Default.Default' instance for
--- @init@ and @trail@. If you do not, you cannot
--- 'Network.GRPC.Server.mkRpcHandler' or any of the high level handler
--- constructions, and you need to use
--- 'Network.GRPC.Server.mkRpcHandlerNoInitialMetadata' instead.
---
--- See 'RawMetadata' for getting access to the raw custom metadata headers.
-data OverrideMetadata (req :: Type) (init :: Type) (trail :: Type) rpc
-
-type instance RequestMetadata          (OverrideMetadata req init trail rpc) = req
-type instance ResponseInitialMetadata  (OverrideMetadata req init trail rpc) = init
-type instance ResponseTrailingMetadata (OverrideMetadata req init trail rpc) = trail
-
--- | Alias for 'OverrideMeta' to override /only/ the request metadata
-type OverrideRequestMetadata req rpc =
-       OverrideMetadata
-         req
-         (ResponseInitialMetadata rpc)
-         (ResponseTrailingMetadata rpc)
-         rpc
-
--- | Alias for 'OverrideMeta' to override /only/ the response initial metadata
-type OverrideResponseInitialMetadata init rpc =
-       OverrideMetadata
-         (RequestMetadata rpc)
-         init
-         (ResponseTrailingMetadata rpc)
-         rpc
-
--- | Alias for 'OverrideMeta' to override /only/ the response trailing metadata
-type OverrideResponseTrailingMetadata trail rpc =
-       OverrideMetadata
-         (RequestMetadata rpc)
-         (ResponseInitialMetadata rpc)
-         trail
-         rpc
 
 {-------------------------------------------------------------------------------
   Serialization

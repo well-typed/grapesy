@@ -29,15 +29,10 @@ module Network.GRPC.Common (
   , ResponseTrailingMetadata
   , ResponseMetadata(..)
   , RawMetadata(..)
-    -- *** Serialization
+    -- ** Serialization
   , BuildMetadata(..)
   , ParseMetadata(..)
   , StaticMetadata(..)
-    --- *** Overrides
-  , OverrideMetadata
-  , OverrideRequestMetadata
-  , OverrideResponseInitialMetadata
-  , OverrideResponseTrailingMetadata
 
     -- * Configuration
   , SslKeyLog(..)

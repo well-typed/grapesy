@@ -4,10 +4,8 @@ module Demo.Client.API.Core.Greeter (
 
 import Network.GRPC.Client
 import Network.GRPC.Common
-import Network.GRPC.Common.Protobuf
 
-import Proto.Helloworld
-
+import Demo.Common.API
 import Demo.Common.Logging
 
 {-------------------------------------------------------------------------------
@@ -16,7 +14,7 @@ import Demo.Common.Logging
 
 sayHelloStreamReply :: Connection -> HelloRequest -> IO ()
 sayHelloStreamReply conn name =
-    withRPC conn def (Proxy @(Protobuf Greeter "sayHelloStreamReply")) $ \call -> do
+    withRPC conn def (Proxy @SayHelloStreamReply) $ \call -> do
       -- The server only sends a response once we send an input
       sendFinalInput call name
 

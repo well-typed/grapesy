@@ -31,7 +31,6 @@ import Data.ProtoLens.Service.Types (StreamingType(..))
 
 import Network.GRPC.Common.StreamElem
 import Network.GRPC.Spec.CustomMetadata.NoMetadata
-import Network.GRPC.Spec.CustomMetadata.Typed
 import Network.GRPC.Spec.RPC
 import Network.GRPC.Util.RedundantConstraint
 
@@ -50,13 +49,6 @@ class SupportsStreamingType rpc (RpcStreamingType rpc)
    => HasStreamingType rpc where
   -- | Streaming type supported by this RPC
   type RpcStreamingType rpc :: StreamingType
-
-instance SupportsStreamingType rpc styp
-      => SupportsStreamingType (OverrideMetadata req init trail rpc) styp
-
-instance HasStreamingType rpc
-      => HasStreamingType (OverrideMetadata req init trail rpc) where
-  type RpcStreamingType (OverrideMetadata req init trail rpc) = RpcStreamingType rpc
 
 {-------------------------------------------------------------------------------
   Handler types

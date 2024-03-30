@@ -33,8 +33,11 @@ import Test.Util
   Endpoints
 -------------------------------------------------------------------------------}
 
-type TestProtocol meth =
-    OverrideMetadata TestMetadata TestMetadata TestMetadata (BinaryRpc "dialogue" meth)
+type TestProtocol meth = BinaryRpc "dialogue" meth
+
+type instance RequestMetadata          (TestProtocol meth) = TestMetadata
+type instance ResponseInitialMetadata  (TestProtocol meth) = TestMetadata
+type instance ResponseTrailingMetadata (TestProtocol meth) = TestMetadata
 
 type TestRpc1 = TestProtocol "test1"
 type TestRpc2 = TestProtocol "test2"

@@ -142,15 +142,10 @@ module Network.GRPC.Spec (
   , ResponseTrailingMetadata
   , ResponseMetadata(..)
   , RawMetadata(..)
-    -- *** Serialization
+    -- ** Serialization
   , BuildMetadata(..)
   , ParseMetadata(..)
   , StaticMetadata(..)
-    --- *** Overrides
-  , OverrideMetadata
-  , OverrideRequestMetadata
-  , OverrideResponseInitialMetadata
-  , OverrideResponseTrailingMetadata
     -- * Content type
   , ContentType(..)
     -- * OpenTelemetry

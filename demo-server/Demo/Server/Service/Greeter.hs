@@ -4,7 +4,6 @@
 module Demo.Server.Service.Greeter (handlers) where
 
 import Control.Monad
-import Data.ByteString qualified as Strict (ByteString)
 import Data.Proxy
 import Data.Text (Text)
 
@@ -14,7 +13,7 @@ import Network.GRPC.Server
 import Network.GRPC.Server.Protobuf
 import Network.GRPC.Server.StreamType
 
-import Proto.Helloworld
+import Demo.Common.API
 
 {-------------------------------------------------------------------------------
   Top-level
@@ -31,16 +30,6 @@ handlers =
   Individual handlers
 -------------------------------------------------------------------------------}
 
-type SayHelloStreamReply =
-       OverrideResponseInitialMetadata InitialMetadata
-         (Protobuf Greeter "sayHelloStreamReply")
-
-data InitialMetadata = InitialMetadata Strict.ByteString
-  deriving (Show)
-
-instance BuildMetadata InitialMetadata where
-  buildMetadata (InitialMetadata val) = [CustomMetadata "initial-md" val]
-
 sayHello :: HelloRequest -> IO HelloReply
 sayHello req = return $ defMessage & #message .~ msg
   where
@@ -53,7 +42,8 @@ sayHelloStreamReply =
   where
     go :: Call SayHelloStreamReply -> IO ()
     go call = do
-        setResponseInitialMetadata call $ InitialMetadata "initial-md-value"
+        setResponseInitialMetadata call $
+          SayHelloMetadata (Just "initial-md-value")
 
         -- The client expects the metadata well before the first output
         _ <- initiateResponse call

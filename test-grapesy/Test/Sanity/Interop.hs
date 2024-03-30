@@ -270,3 +270,15 @@ test_cancellation_server =
             Server.Binary.sendNextOutput call (1 :: Int)
         ]
       }
+
+{-------------------------------------------------------------------------------
+  Internal: we don't care about metadata in these tests
+-------------------------------------------------------------------------------}
+
+type instance RequestMetadata          (Protobuf TestService meth) = NoMetadata
+type instance ResponseInitialMetadata  (Protobuf TestService meth) = NoMetadata
+type instance ResponseTrailingMetadata (Protobuf TestService meth) = NoMetadata
+
+type instance RequestMetadata          (BinaryRpc "test" meth) = NoMetadata
+type instance ResponseInitialMetadata  (BinaryRpc "test" meth) = NoMetadata
+type instance ResponseTrailingMetadata (BinaryRpc "test" meth) = NoMetadata

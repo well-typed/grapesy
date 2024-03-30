@@ -119,6 +119,10 @@ tests = testGroup "Test.Sanity.StreamingType.NonStreaming" [
 
 type BinaryIncrement = BinaryRpc "binary" "increment"
 
+type instance RequestMetadata          BinaryIncrement = NoMetadata
+type instance ResponseInitialMetadata  BinaryIncrement = NoMetadata
+type instance ResponseTrailingMetadata BinaryIncrement = NoMetadata
+
 test_increment :: ClientServerConfig -> IO ()
 test_increment config = testClientServer $ ClientServerTest {
       config

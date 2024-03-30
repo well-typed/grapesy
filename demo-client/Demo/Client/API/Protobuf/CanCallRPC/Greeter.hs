@@ -10,10 +10,8 @@ import Control.Monad.Trans.Reader
 
 import Network.GRPC.Client
 import Network.GRPC.Client.StreamType.CanCallRPC
-import Network.GRPC.Common.Protobuf
 
-import Proto.Helloworld
-
+import Demo.Common.API
 import Demo.Common.Logging qualified as Logging
 
 {-------------------------------------------------------------------------------
@@ -56,10 +54,10 @@ runMyClient conn client =
 
 sayHello :: Connection -> HelloRequest -> IO ()
 sayHello conn name = runMyClient conn $ do
-    reply <- nonStreaming (rpc @(Protobuf Greeter "sayHello")) name
+    reply <- nonStreaming (rpc @SayHello) name
     clientLogMsg reply
 
 sayHelloStreamReply :: Connection -> HelloRequest -> IO ()
 sayHelloStreamReply conn name = runMyClient conn $ do
-    serverStreaming (rpc @(Protobuf Greeter "sayHelloStreamReply")) name $
+    serverStreaming (rpc @SayHelloStreamReply) name $
       clientLogMsg

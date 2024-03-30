@@ -18,8 +18,7 @@ import Network.GRPC.Server
 import Network.GRPC.Server.Protobuf
 import Network.GRPC.Server.StreamType
 
-import Proto.RouteGuide
-
+import Demo.Common.API
 import Demo.Server.Aux.RouteGuide
 import Demo.Server.Cmdline
 
@@ -32,7 +31,7 @@ handlers cmdline db =
       Method (mkNonStreaming    $ getFeature   db)
     $ ( if cmdTrailersOnlyShortcut cmdline
           then RawMethod $ mkRpcHandler
-                             (Proxy @(Protobuf RouteGuide "listFeatures"))
+                             (Proxy @ListFeatures)
                              (trailersOnlyShortcut db)
           else Method (mkServerStreaming $ listFeatures db)
       )
@@ -77,10 +76,7 @@ routeChat _db recv send = do
   See discussion in @demo-server.md@.
 -------------------------------------------------------------------------------}
 
-trailersOnlyShortcut ::
-     [Feature]
-  -> Call (Protobuf RouteGuide "listFeatures")
-  -> IO ()
+trailersOnlyShortcut :: [Feature] -> Call ListFeatures -> IO ()
 trailersOnlyShortcut db call = do
     r <- recvFinalInput call
     let features = filter (\f -> inRectangle r (f ^. #location)) db
