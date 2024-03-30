@@ -1,6 +1,8 @@
 module Network.GRPC.Spec.CustomMetadata.Typed (
     -- * Map RPC to metadata
-    HasCustomMetadata(..)
+    RequestMetadata
+  , ResponseInitialMetadata
+  , ResponseTrailingMetadata
   , ResponseMetadata(..)
     -- * Serialization
   , BuildMetadata(..)
@@ -27,20 +29,14 @@ import Network.GRPC.Spec.CustomMetadata.Raw
   Map RPC to metadata
 -------------------------------------------------------------------------------}
 
--- | Type of custom metadata associated with a particular RPC
-class ( -- 'Show' instances (for debugging)
-        Show (RequestMetadata rpc)
-      , Show (ResponseInitialMetadata rpc)
-      , Show (ResponseTrailingMetadata rpc)
-      ) => HasCustomMetadata rpc where
-  -- | Metadata included in the request
-  type RequestMetadata rpc :: Type
+-- | Metadata included in the request
+type family RequestMetadata (rpc :: k) :: Type
 
-  -- | Metadata included in the initial response
-  type ResponseInitialMetadata rpc :: Type
+-- | Metadata included in the initial response
+type family ResponseInitialMetadata (rpc :: k) :: Type
 
-  -- | Metadata included in the response trailers
-  type ResponseTrailingMetadata rpc :: Type
+-- | Metadata included in the response trailers
+type family ResponseTrailingMetadata (rpc :: k) :: Type
 
 -- | Response metadata
 --
@@ -53,7 +49,9 @@ data ResponseMetadata rpc =
   | ResponseTrailingMetadata (ResponseTrailingMetadata rpc)
 
 deriving stock instance
-     HasCustomMetadata rpc
+     ( Show (ResponseInitialMetadata rpc)
+     , Show (ResponseTrailingMetadata rpc)
+     )
   => Show (ResponseMetadata rpc)
 
 deriving stock instance
@@ -113,13 +111,9 @@ deriving stock instance
 -- See 'RawMetadata' for getting access to the raw custom metadata headers.
 data OverrideMetadata (req :: Type) (init :: Type) (trail :: Type) rpc
 
-instance ( Show req
-         , Show init
-         , Show trail
-         ) => HasCustomMetadata (OverrideMetadata req init trail rpc) where
-  type RequestMetadata          (OverrideMetadata req init trail rpc) = req
-  type ResponseInitialMetadata  (OverrideMetadata req init trail rpc) = init
-  type ResponseTrailingMetadata (OverrideMetadata req init trail rpc) = trail
+type instance RequestMetadata          (OverrideMetadata req init trail rpc) = req
+type instance ResponseInitialMetadata  (OverrideMetadata req init trail rpc) = init
+type instance ResponseTrailingMetadata (OverrideMetadata req init trail rpc) = trail
 
 -- | Alias for 'OverrideMeta' to override /only/ the request metadata
 type OverrideRequestMetadata req rpc =

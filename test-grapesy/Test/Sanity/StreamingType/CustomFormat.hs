@@ -92,10 +92,9 @@ instance CalculatorFunction SumChat where
   type CalcOutput SumChat = Int
   calculatorMethod _ = "sumChat"
 
-instance HasCustomMetadata (Calc fun) where
-  type RequestMetadata          (Calc fun) = NoMetadata
-  type ResponseInitialMetadata  (Calc fun) = NoMetadata
-  type ResponseTrailingMetadata (Calc fun) = NoMetadata
+type instance RequestMetadata          (Calc fun) = NoMetadata
+type instance ResponseInitialMetadata  (Calc fun) = NoMetadata
+type instance ResponseTrailingMetadata (Calc fun) = NoMetadata
 
 instance CalculatorFunction fun => IsRPC (Calc fun) where
   type Input  (Calc fun) = CalcInput  fun

@@ -144,8 +144,8 @@ import Network.GRPC.Util.TLS qualified as Util.TLS
 --
 -- The gRPC specification allows the server, but not the client, to include some
 -- /final/ metadata as well; this is the reason between the use of
--- @ResponseTrailingMetadata@ (from 'HasCustomMetadata') for messages from the
--- server to the client versus 'NoMetadata' for messages from the client.
+-- 'ResponseTrailingMetadata' for messages from the server to the client versus
+-- 'NoMetadata' for messages from the client.
 --
 -- == 'FinalElem' versus 'NoMoreElems'
 --

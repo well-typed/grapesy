@@ -137,13 +137,16 @@ module Network.GRPC.Spec (
   , parseCustomMetadata
   , buildCustomMetadata
     -- ** Typed
+  , RequestMetadata
+  , ResponseInitialMetadata
+  , ResponseTrailingMetadata
+  , ResponseMetadata(..)
+  , RawMetadata(..)
+    -- *** Serialization
   , BuildMetadata(..)
   , ParseMetadata(..)
   , StaticMetadata(..)
-  , HasCustomMetadata(..)
-  , ResponseMetadata(..)
-  , RawMetadata(..)
-    --- ** Overrides
+    --- *** Overrides
   , OverrideMetadata
   , OverrideRequestMetadata
   , OverrideResponseInitialMetadata

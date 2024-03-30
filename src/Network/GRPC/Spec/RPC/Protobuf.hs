@@ -29,10 +29,9 @@ import Network.GRPC.Util.Protobuf qualified as Protobuf
 -- This exists only as a type-level marker
 data Protobuf (serv :: Type) (meth :: Symbol)
 
-instance HasCustomMetadata (Protobuf serv meth) where
-  type RequestMetadata          (Protobuf serv meth) = NoMetadata
-  type ResponseInitialMetadata  (Protobuf serv meth) = NoMetadata
-  type ResponseTrailingMetadata (Protobuf serv meth) = NoMetadata
+type instance RequestMetadata          (Protobuf serv meth) = NoMetadata
+type instance ResponseInitialMetadata  (Protobuf serv meth) = NoMetadata
+type instance ResponseTrailingMetadata (Protobuf serv meth) = NoMetadata
 
 instance ( HasMethodImpl      serv meth
          , Show (MethodInput  serv meth)

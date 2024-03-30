@@ -26,10 +26,9 @@ import Network.GRPC.Spec.RPC.StreamType
 -- permits).
 data BinaryRpc (serv :: Symbol) (meth :: Symbol)
 
-instance HasCustomMetadata (BinaryRpc serv meth) where
-  type RequestMetadata          (BinaryRpc serv meth) = NoMetadata
-  type ResponseInitialMetadata  (BinaryRpc serv meth) = NoMetadata
-  type ResponseTrailingMetadata (BinaryRpc serv meth) = NoMetadata
+type instance RequestMetadata          (BinaryRpc serv meth) = NoMetadata
+type instance ResponseInitialMetadata  (BinaryRpc serv meth) = NoMetadata
+type instance ResponseTrailingMetadata (BinaryRpc serv meth) = NoMetadata
 
 instance ( KnownSymbol serv
          , KnownSymbol meth

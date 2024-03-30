@@ -26,10 +26,9 @@ import Network.GRPC.Spec.RPC
 -- by the spec.
 data UnknownRpc (serv :: Maybe Symbol) (meth :: Maybe Symbol)
 
-instance HasCustomMetadata (UnknownRpc serv meth) where
-  type RequestMetadata          (UnknownRpc serv meth) = NoMetadata
-  type ResponseInitialMetadata  (UnknownRpc serv meth) = NoMetadata
-  type ResponseTrailingMetadata (UnknownRpc serv meth) = NoMetadata
+type instance RequestMetadata          (UnknownRpc serv meth) = NoMetadata
+type instance ResponseInitialMetadata  (UnknownRpc serv meth) = NoMetadata
+type instance ResponseTrailingMetadata (UnknownRpc serv meth) = NoMetadata
 
 instance ( MaybeKnown serv
          , MaybeKnown meth

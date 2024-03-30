@@ -37,9 +37,9 @@ class ( -- Debug constraints
         -- 'Show'able.
         Show (Input rpc)
       , Show (Output rpc)
-
-        -- Metadata
-      , HasCustomMetadata rpc
+      , Show (RequestMetadata rpc)
+      , Show (ResponseInitialMetadata rpc)
+      , Show (ResponseTrailingMetadata rpc)
       ) => IsRPC (rpc :: k) where
   -- | Messages from the client to the server
   type Input rpc :: Type

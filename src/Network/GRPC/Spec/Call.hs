@@ -45,7 +45,7 @@ data CallParams rpc = CallParams {
     , callFixTypeOfRPC :: Const () rpc
     }
 
-deriving instance HasCustomMetadata rpc => Show (CallParams rpc)
+deriving instance (Show (RequestMetadata rpc)) => Show (CallParams rpc)
 
 -- | Default 'CallParams'
 instance Default (RequestMetadata rpc) => Default (CallParams rpc) where

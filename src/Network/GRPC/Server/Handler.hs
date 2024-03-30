@@ -80,7 +80,7 @@ data RpcHandler m = forall rpc. SupportsServerRpc rpc => RpcHandler {
 -- | Constructor for 'RpcHandler'
 --
 -- When the handler sends its first message to the client, @grapesy@ must first
--- send the initial metadata (of type @ResponseInitialMetadata@) to the client.
+-- send the initial metadata (of type 'ResponseInitialMetadata') to the client.
 -- This metadata can be updated at any point before that first message (for
 -- example, after receiving some messages from the client) by calling
 -- 'setResponseInitialMetadata'. If this function is never called, however, then
