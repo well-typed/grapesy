@@ -29,6 +29,10 @@ import Data.Text qualified as Text
 parseStrict :: Message msg => Strict.ByteString -> Either String msg
 parseStrict = Protobuf.runParser parseMessage
 
+-- | Parse lazy bytestring
+--
+-- TODO: <https://github.com/well-typed/grapesy/issues/119>.
+-- We currently turn this into a strict bytestring before parsing.
 parseLazy :: Message msg => Lazy.ByteString -> Either String msg
 parseLazy = parseStrict . BS.Lazy.toStrict
 

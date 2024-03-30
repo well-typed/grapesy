@@ -47,6 +47,9 @@ data Compression = Compression {
     , compress :: Lazy.ByteString -> Lazy.ByteString
 
       -- | Decompress
+      --
+      -- TODO: <https://github.com/well-typed/grapesy/issues/57>.
+      -- We need to deal with decompression failures.
     , decompress :: Lazy.ByteString -> Lazy.ByteString
     }
 
@@ -118,7 +121,6 @@ noCompression = Compression {
     , decompress    = id
     }
 
--- TODO: We should deal with errors during decompression
 gzip :: Compression
 gzip = Compression {
       compressionId = GZip
@@ -131,8 +133,6 @@ gzip = Compression {
 -- Note: The gRPC spec calls this "deflate", but it is /not/ raw deflate
 -- format. The expected format (at least by the python server) is just zlib
 -- (which is an envelope holding the deflate data).
---
--- TODO: We should deal with exceptions during decompression
 deflate :: Compression
 deflate = Compression {
       compressionId = Deflate
@@ -142,8 +142,6 @@ deflate = Compression {
 
 #ifdef SNAPPY
 -- | Snappy compression
---
--- TODO: We should deal with exceptions during decompression
 snappy :: Compression
 snappy = Compression {
       compressionId = Snappy
