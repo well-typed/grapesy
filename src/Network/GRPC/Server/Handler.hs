@@ -13,8 +13,6 @@ module Network.GRPC.Server.Handler (
     -- * Construction
   , mkRpcHandler
   , mkRpcHandlerNoInitialMetadata
-    -- * Query
-  , path
     -- * Collection of handlers
   , Map -- opaque
   , constructMap
