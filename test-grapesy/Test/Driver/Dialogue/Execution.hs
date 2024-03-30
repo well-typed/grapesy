@@ -202,19 +202,13 @@ clientLocal clock call = \(LocalSteps steps) ->
             expect (tick, action) (== ResponseInitialMetadata expectedMetadata) $
               receivedMetadata
           Send (FinalElem a b) -> do
-            -- Known bug (limitation in http2). See recvMessageLoop.
+            -- <https://github.com/well-typed/grapesy/issues/114>
             reactToServer tick $ Send (StreamElem a)
             reactToServer tick $ Send (NoMoreElems b)
           Send expectedElem -> do
-            peerHealth <- get
             mOut <- try $ within timeoutReceive action $
                       Client.Binary.recvOutput call
-            -- TODO: This pattern match seems unnecessary; if we always use
-            -- 'isExpectedElem', the tests still pass. Why?
-            let expectation = case peerHealth of
-                                PeerAlive -> isExpectedElem expectedElem
-                                PeerTerminated mErr -> isGrpcException mErr
-            expect (tick, action) expectation mOut
+            expect (tick, action) (isExpectedElem expectedElem) mOut
           Terminate mErr -> do
             mOut <- try $ within timeoutReceive action $
                       Client.Binary.recvOutput call
@@ -404,18 +398,13 @@ serverLocal clock call = \(LocalSteps steps) -> do
           Initiate _ ->
             error "serverLocal: unexpected ClientInitiateRequest"
           Send (FinalElem a b) -> do
-            -- Known bug (limitation in http2). See recvMessageLoop.
+            -- <https://github.com/well-typed/grapesy/issues/114>
             reactToClient tick $ Send (StreamElem a)
             reactToClient tick $ Send (NoMoreElems b)
           Send expectedElem -> do
-            peerHealth <- get
             mInp <- liftIO $ try $ within timeoutReceive action $
                       Server.Binary.recvInput call
-            let expectation =
-                  case peerHealth of
-                    PeerAlive -> isExpectedElem expectedElem
-                    PeerTerminated _ -> isClientDisconnected
-            expect (tick, action) expectation mInp
+            expect (tick, action) (isExpectedElem expectedElem) mInp
           Terminate mErr -> do
             mInp <- liftIO $ try $ within timeoutReceive action $
                       Server.Binary.recvInput call
@@ -448,19 +437,12 @@ serverLocal clock call = \(LocalSteps steps) -> do
                 threadDelay 10_000
                 loop
 
-    isClientDisconnected ::
-         Either Server.ClientDisconnected (StreamElem NoMetadata Int)
-      -> Bool
-    isClientDisconnected (Left Server.ClientDisconnected{}) = True
-    isClientDisconnected (Right _) = False
-
     isExpectedElem ::
          StreamElem NoMetadata Int
       -> Either Server.ClientDisconnected (StreamElem NoMetadata Int)
       -> Bool
     isExpectedElem _ (Left _) = False
     isExpectedElem expectedElem (Right streamElem) = expectedElem == streamElem
-
 
 serverGlobal ::
      HasCallStack

@@ -138,7 +138,24 @@ genLocalSteps genExceptions = sized $ \sz -> do
 -- 'Terminate' on one side as a receive on the other (see 'clientLocal' and
 -- 'serverLocal').
 --
--- TODO: We need to update the docs of withRPC.
+-- One consequence of all this worth spelling out once more is that we rule
+-- out tests such as
+--
+-- > NormalizedDialogue [
+-- >    (0, ClientAction $ Initiate (def, RPC1))
+-- >  , (0, ServerAction $ Terminate (Just $ SomeServerException 0))
+-- >  , (0, ServerAction $ Send (StreamElem 1))
+-- >  ]
+--
+-- where the server sends a message after throwing an exception; at one level,
+-- it may seem obvious that we must rule such tests out (it doesn't make sense
+-- for the server to send messages after terminating, after all). However, a
+-- server 'Send' action is also a client @recv@ action, so one could think that
+-- we need such tests to make sure that clients get an appropriate exception
+-- when they try to receive a message but the server aborted. However, this case
+-- is dealt with by the fact that that we treat a 'Terminate' on one side as a
+-- receive on the other, as discussed above. This means that in the tests, a
+-- 'Send' on one side /must/ be a /successful/ receive on the other.
 data LocalGenState = LocalGenState {
       localGenClient :: LocalUniState
     , localGenServer :: LocalUniState
@@ -444,8 +461,10 @@ shrinkMetadata md = concat [
           ]
         ]
 
--- TODO: We currently don't change the nature of the elem. Not sure what the
--- right definition of "simpler" is here
+-- | Shrink element
+--
+-- For now we don't change the nature of the elem. Not sure what the right
+-- definition of "simpler" is here.
 shrinkElem :: (a -> [a]) -> StreamElem a Int -> [StreamElem a Int]
 shrinkElem _ (StreamElem x) = concat [
       [ StreamElem x'

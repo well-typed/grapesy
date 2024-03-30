@@ -497,9 +497,8 @@ sendMessageLoop sess st stream = do
 
 -- | Receive all messages sent by the node's peer
 --
--- TODO: This is wrong, we are never marking the final element as final.
--- (But fixing this requires a patch to http2.) This is only relevent for
--- server-side; see discussion in "Network.GRPC.Client".
+-- TODO: <https://github.com/well-typed/grapesy/issues/114>.
+-- We are never marking the final element as final.
 recvMessageLoop :: forall sess.
      IsSession sess
   => sess
