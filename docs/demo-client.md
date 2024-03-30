@@ -198,12 +198,12 @@ This should output something like:
 
 ```
 # pause..
-[AsciiHeader (HeaderName "initial-md") (AsciiValue "initial-md-value")]
+ResponseInitialMetadata (SayHelloMetadata (Just "initial-md-value"))
 # pause..
 {message: "Hello John times 0"}
 {message: "Hello John times 1"}
 {message: "Hello John times 2"}
-[]
+NoMetadata
 ```
 
 ### `helloworld.Greeter.SayHelloBidiStream`
