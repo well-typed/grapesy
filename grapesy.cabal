@@ -109,6 +109,7 @@ library
       Network.GRPC.Server.Call
       Network.GRPC.Server.Context
       Network.GRPC.Server.Handler
+      Network.GRPC.Server.HandlerMap
       Network.GRPC.Server.RequestHandler
       Network.GRPC.Server.RequestHandler.API
       Network.GRPC.Server.Session
@@ -303,9 +304,10 @@ executable demo-client
       Demo.Client.API.Protobuf.IO.Greeter
       Demo.Client.API.Protobuf.IO.RouteGuide
       Demo.Client.API.Protobuf.Pipes.RouteGuide
-
       Demo.Client.Cmdline
       Demo.Client.Util.DelayOr
+
+      Demo.Common.API
       Demo.Common.Logging
 
       Paths_grapesy
@@ -320,6 +322,7 @@ executable demo-client
   build-depends:
       -- External dependencies
     , async                >= 2.2  && < 2.3
+    , bytestring           >= 0.10 && < 0.12
     , contra-tracer        >= 0.2  && < 0.3
     , exceptions           >= 0.10 && < 0.11
     , network              >= 3.1  && < 3.2
@@ -346,11 +349,13 @@ executable demo-server
   ghc-options:
       -threaded
   other-modules:
-      Demo.Common.Logging
       Demo.Server.Aux.RouteGuide
       Demo.Server.Cmdline
       Demo.Server.Service.Greeter
       Demo.Server.Service.RouteGuide
+
+      Demo.Common.API
+      Demo.Common.Logging
 
       Proto.Helloworld
       Proto.Helloworld_Fields
@@ -367,6 +372,7 @@ executable demo-server
     , bytestring           >= 0.10 && < 0.12
     , containers           >= 0.6  && < 0.7
     , contra-tracer        >= 0.2  && < 0.3
+    , exceptions           >= 0.10 && < 0.11
     , mtl                  >= 2.2  && < 2.4
     , network              >= 3.1  && < 3.2
     , optparse-applicative >= 0.16 && < 0.19

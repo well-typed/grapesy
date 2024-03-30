@@ -438,7 +438,7 @@ withTestServer ::
      ClientServerConfig
   -> FirstTestFailure
   -> ServerHandlerLock
-  -> [Server.RpcHandler IO]
+  -> [Server.SomeRpcHandler IO]
   -> (Server.RunningServer -> IO a)
   -> IO a
 withTestServer cfg firstTestFailure handlerLock serverHandlers k = do
@@ -612,7 +612,7 @@ runTestClient cfg firstTestFailure port clientRun = do
 data ClientServerTest = ClientServerTest {
       config :: ClientServerConfig
     , client :: TestClient
-    , server :: [Server.RpcHandler IO]
+    , server :: [Server.SomeRpcHandler IO]
     }
 
 runTestClientServer :: ClientServerTest -> IO ()

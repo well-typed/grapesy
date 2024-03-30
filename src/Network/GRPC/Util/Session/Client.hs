@@ -162,6 +162,8 @@ setupRequestChannel sess
                   , responseBody
                   }
 
+              -- TODO: <https://github.com/well-typed/grapesy/issues/120>.
+              -- We should not base our choice on the Content-Length header.
               if Client.responseBodySize resp /= Just 0 then do
                 headers <- parseResponseRegular sess responseInfo
                 regular <- initFlowStateRegular headers

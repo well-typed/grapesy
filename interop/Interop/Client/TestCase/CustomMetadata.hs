@@ -38,7 +38,7 @@ runTest cmdline = do
         (_, trailers) <- recvFinalOutput call
         verifyRespMetadata responseMetadata trailers
   where
-    callParams :: forall rpc. CallParams (WithInteropMeta rpc)
+    callParams :: forall meth. CallParams (Protobuf TestService meth)
     callParams = def {
           callRequestMetadata = InteropReqMeta {
               interopExpectInit  = Just expectInitVal
@@ -55,9 +55,9 @@ runTest cmdline = do
         mkStreamingOutputCallRequest [(False, 314159)] (Just 271828)
 
 verifyRespMetadata ::
-     ResponseMetadata (WithInteropMeta rpc)
+     ResponseMetadata (Protobuf TestService meth)
      -- ^ This /could/ be trailing (if the server responded with Trailers-Only)
-  -> ResponseTrailingMetadata (WithInteropMeta rpc)
+  -> ResponseTrailingMetadata (Protobuf TestService meth)
   -> IO ()
 verifyRespMetadata initMeta trailMeta = do
     assertEqual initMeta $

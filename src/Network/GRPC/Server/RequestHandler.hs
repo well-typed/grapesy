@@ -27,8 +27,9 @@ import Network.HTTP2.Server qualified as HTTP2
 
 import Network.GRPC.Server.Call
 import Network.GRPC.Server.Context (ServerContext)
-import Network.GRPC.Server.Handler (RpcHandler(..))
-import Network.GRPC.Server.Handler qualified as Handler
+import Network.GRPC.Server.Handler
+import Network.GRPC.Server.HandlerMap (HandlerMap)
+import Network.GRPC.Server.HandlerMap qualified as HandlerMap
 import Network.GRPC.Server.RequestHandler.API
 import Network.GRPC.Server.Session (CallSetupFailure(..))
 import Network.GRPC.Spec
@@ -40,11 +41,11 @@ import Network.GRPC.Util.Session.Server
 
 -- | Construct request handler
 requestHandler ::
-     Handler.Map IO
+     HandlerMap IO
   -> ServerContext
   -> RequestHandler SomeException ()
 requestHandler handlers ctxt request respond = do
-    RpcHandler (handler :: Call rpc -> IO ()) <-
+    SomeRpcHandler (_ :: Proxy rpc) handler <-
       findHandler handlers request      `XIO.catchError` setupFailure respond
     call :: Call rpc <- do
       setupCall connectionToClient ctxt `XIO.catchError` setupFailure respond
@@ -67,9 +68,9 @@ requestHandler handlers ctxt request respond = do
     imposeTimeout (Just t) = XIO.timeoutWith timeoutException (timeoutToMicro t)
 
 findHandler ::
-     Handler.Map IO
+     HandlerMap IO
   -> HTTP2.Request
-  -> XIO' CallSetupFailure (RpcHandler IO)
+  -> XIO' CallSetupFailure (SomeRpcHandler IO)
 findHandler handlers req = do
     -- TODO: Proper "Apache style" logging (in addition to the debug logging)
 
@@ -77,7 +78,7 @@ findHandler handlers req = do
       parseResourceHeaders rawHeaders
     let path = resourcePath resourceHeaders
     handler <- do
-      case Handler.lookup path handlers of
+      case HandlerMap.lookup path handlers of
         Just h  ->
           return h
         Nothing -> do

@@ -8,7 +8,6 @@ import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State qualified as State
 import Data.Map qualified as Map
 import Data.Maybe (fromMaybe)
-import Data.Proxy
 import Data.Time
 
 import Network.GRPC.Common
@@ -18,8 +17,7 @@ import Network.GRPC.Server
 import Network.GRPC.Server.Protobuf
 import Network.GRPC.Server.StreamType
 
-import Proto.RouteGuide
-
+import Demo.Common.API
 import Demo.Server.Aux.RouteGuide
 import Demo.Server.Cmdline
 
@@ -29,15 +27,13 @@ import Demo.Server.Cmdline
 
 handlers :: Cmdline -> [Feature] -> Methods IO (ProtobufMethodsOf RouteGuide)
 handlers cmdline db =
-      Method (mkNonStreaming    $ getFeature   db)
+      Method (mkNonStreaming $ getFeature db)
     $ ( if cmdTrailersOnlyShortcut cmdline
-          then RawMethod $ mkRpcHandler
-                             (Proxy @(Protobuf RouteGuide "listFeatures"))
-                             (trailersOnlyShortcut db)
+          then RawMethod (mkRpcHandler $ trailersOnlyShortcut db)
           else Method (mkServerStreaming $ listFeatures db)
       )
-    $ Method (mkClientStreaming $ recordRoute  db)
-    $ Method (mkBiDiStreaming   $ routeChat    db)
+    $ Method (mkClientStreaming $ recordRoute db)
+    $ Method (mkBiDiStreaming $ routeChat db)
     $ NoMoreMethods
 
 {-------------------------------------------------------------------------------
@@ -77,10 +73,7 @@ routeChat _db recv send = do
   See discussion in @demo-server.md@.
 -------------------------------------------------------------------------------}
 
-trailersOnlyShortcut ::
-     [Feature]
-  -> Call (Protobuf RouteGuide "listFeatures")
-  -> IO ()
+trailersOnlyShortcut :: [Feature] -> Call ListFeatures -> IO ()
 trailersOnlyShortcut db call = do
     r <- recvFinalInput call
     let features = filter (\f -> inRectangle r (f ^. #location)) db

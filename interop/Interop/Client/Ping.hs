@@ -12,6 +12,7 @@ import Network.GRPC.Common.Protobuf
 
 import Proto.Ping
 
+import Interop.API
 import Interop.Client.Connect
 import Interop.Cmdline
 
@@ -21,7 +22,7 @@ ping cmdline =
       forM_ [1..] $ \i -> do
         let msgPing :: PingMessage
             msgPing = defMessage & #id .~ i
-        msgPong <- nonStreaming conn (rpc @(Protobuf PingService "ping")) msgPing
+        msgPong <- nonStreaming conn (rpc @Ping) msgPing
         print msgPong
         threadDelay 1_000_000
 
@@ -49,4 +50,4 @@ waitReachable cmdline = do
     reach :: IO ()
     reach = do
         withConnection def (testServer cmdline) $ \conn -> void $
-          nonStreaming conn (rpc @(Protobuf PingService "ping")) defMessage
+          nonStreaming conn (rpc @Ping) defMessage

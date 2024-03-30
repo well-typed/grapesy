@@ -125,8 +125,8 @@ data RegularFlowState flow = RegularFlowState {
       -- read from for outgoing messages ('sendMessageLoop'). It acts as a
       -- one-place buffer, providing backpressure in both directions.
       --
-      -- TODO: It might make sense to generalize this to an @N@-place buffer,
-      -- for configurable @N@. This might result in better latency masking.
+      -- TODO: <https://github.com/well-typed/grapesy/issues/118>.
+      -- It might make sense to generalize this to an @N@-place buffer.
     , flowMsg :: TMVar (StreamElem (Trailers flow) (Message flow))
 
       -- | Trailers

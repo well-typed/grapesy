@@ -23,20 +23,16 @@ module Network.GRPC.Common (
   , customMetadataValue
   , HeaderName(BinaryHeader, AsciiHeader)
   , NoMetadata(..)
-
-    -- ** Typed metadata
-  , HasCustomMetadata(..)
+    -- ** Typed
+  , RequestMetadata
+  , ResponseInitialMetadata
+  , ResponseTrailingMetadata
   , ResponseMetadata(..)
+  , RawMetadata(..)
+    -- ** Serialization
   , BuildMetadata(..)
   , ParseMetadata(..)
   , StaticMetadata(..)
-
-    -- ** Overrides
-  , OverrideMetadata
-  , OverrideRequestMetadata
-  , OverrideResponseInitialMetadata
-  , OverrideResponseTrailingMetadata
-  , RawMetadata(..)
 
     -- * Configuration
   , SslKeyLog(..)

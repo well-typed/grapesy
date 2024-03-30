@@ -4,10 +4,8 @@ module Demo.Client.API.Core.RouteGuide (
 
 import Network.GRPC.Client
 import Network.GRPC.Common
-import Network.GRPC.Common.Protobuf
 
-import Proto.RouteGuide
-
+import Demo.Common.API
 import Demo.Common.Logging
 
 {-------------------------------------------------------------------------------
@@ -16,7 +14,7 @@ import Demo.Common.Logging
 
 listFeatures :: Connection -> Rectangle -> IO ()
 listFeatures conn r = do
-    withRPC conn def (Proxy @(Protobuf RouteGuide "listFeatures")) $ \call -> do
+    withRPC conn def (Proxy @ListFeatures) $ \call -> do
       sendFinalInput call r
 
       -- Show response custom metadata

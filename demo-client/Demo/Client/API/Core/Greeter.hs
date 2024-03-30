@@ -1,13 +1,15 @@
 module Demo.Client.API.Core.Greeter (
     sayHelloStreamReply
+  , sayHelloBidiStream
   ) where
+
+import Control.Exception
+import Control.Monad
 
 import Network.GRPC.Client
 import Network.GRPC.Common
-import Network.GRPC.Common.Protobuf
 
-import Proto.Helloworld
-
+import Demo.Common.API
 import Demo.Common.Logging
 
 {-------------------------------------------------------------------------------
@@ -16,7 +18,7 @@ import Demo.Common.Logging
 
 sayHelloStreamReply :: Connection -> HelloRequest -> IO ()
 sayHelloStreamReply conn name =
-    withRPC conn def (Proxy @(Protobuf Greeter "sayHelloStreamReply")) $ \call -> do
+    withRPC conn def (Proxy @SayHelloStreamReply) $ \call -> do
       -- The server only sends a response once we send an input
       sendFinalInput call name
 
@@ -29,3 +31,19 @@ sayHelloStreamReply conn name =
       -- example does not include any.
       finalMetadata <- recvAllOutputs call logMsg
       logMsg finalMetadata
+
+sayHelloBidiStream :: Connection -> [HelloRequest] -> IO ()
+sayHelloBidiStream conn names = handle cancelled $
+    withRPC conn def (Proxy @SayHelloBidiStream) $ \call -> do
+      forM_ names $ \name -> do
+        sendNextInput call name
+        print =<< recvNextOutput call
+  where
+    cancelled :: GrpcException -> IO ()
+    cancelled err
+      | grpcError err == GrpcCancelled
+      = putStrLn "RPC Cancelled!"
+
+      | otherwise
+      = throwIO err
+

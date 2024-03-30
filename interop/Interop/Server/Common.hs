@@ -26,7 +26,7 @@ import Interop.Util.Exceptions
 --
 -- See <https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptions.md#custom_metadata>
 constructResponseMetadata ::
-     Call (WithInteropMeta rpc)
+     Call (Protobuf TestService rpc)
   -> IO InteropRespTrailMeta
 constructResponseMetadata call = do
     requestMetadata <- getRequestMetadata call

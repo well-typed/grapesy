@@ -92,10 +92,9 @@ instance CalculatorFunction SumChat where
   type CalcOutput SumChat = Int
   calculatorMethod _ = "sumChat"
 
-instance HasCustomMetadata (Calc fun) where
-  type RequestMetadata          (Calc fun) = NoMetadata
-  type ResponseInitialMetadata  (Calc fun) = NoMetadata
-  type ResponseTrailingMetadata (Calc fun) = NoMetadata
+type instance RequestMetadata          (Calc fun) = NoMetadata
+type instance ResponseInitialMetadata  (Calc fun) = NoMetadata
+type instance ResponseTrailingMetadata (Calc fun) = NoMetadata
 
 instance CalculatorFunction fun => IsRPC (Calc fun) where
   type Input  (Calc fun) = CalcInput  fun
@@ -134,10 +133,10 @@ test_calculator_cbor = do
           clientStreamingSumCheck conn
           biDiStreamingSumCheck conn
       , server = [
-            nonStreamingSumHandler
-          , serverStreamingSumHandler
-          , clientStreamingSumHandler
-          , biDiStreamingSumHandler
+            Server.someRpcHandler nonStreamingSumHandler
+          , Server.someRpcHandler serverStreamingSumHandler
+          , Server.someRpcHandler clientStreamingSumHandler
+          , Server.someRpcHandler biDiStreamingSumHandler
           ]
       }
   where
@@ -165,9 +164,8 @@ test_calculator_cbor = do
       assertEqual "" (sum nums) resp
 
     -- Return the sum of a list of numbers
-    nonStreamingSumHandler :: Server.RpcHandler IO
-    nonStreamingSumHandler =
-      Server.streamingRpcHandler (Proxy @(Calc SumQuick)) $
+    nonStreamingSumHandler :: Server.RpcHandler IO (Calc SumQuick)
+    nonStreamingSumHandler = Server.streamingRpcHandler $
         Server.mkNonStreaming $ \(ns :: [Int]) ->
           return (sum ns)
 
@@ -182,9 +180,8 @@ test_calculator_cbor = do
       assertEqual "" intermediateSums (reverse resp)
 
     -- Stream the intermediate sums while summing a whole range of numbers
-    serverStreamingSumHandler :: Server.RpcHandler IO
-    serverStreamingSumHandler =
-      Server.streamingRpcHandler (Proxy @(Calc SumFromTo)) $
+    serverStreamingSumHandler :: Server.RpcHandler IO (Calc SumFromTo)
+    serverStreamingSumHandler = Server.streamingRpcHandler $
         Server.mkServerStreaming $ \((from, to) :: (Int, Int)) send ->
           foldM_
             (\acc n -> let next = acc + n in send next >> return next)
@@ -205,9 +202,8 @@ test_calculator_cbor = do
       assertEqual "" (sum nums) resp
 
     -- Receive a stream of numbers, return the sum
-    clientStreamingSumHandler :: Server.RpcHandler IO
-    clientStreamingSumHandler =
-      Server.streamingRpcHandler (Proxy @(Calc SumListen)) $
+    clientStreamingSumHandler :: Server.RpcHandler IO (Calc SumListen)
+    clientStreamingSumHandler = Server.streamingRpcHandler $
         Server.mkClientStreaming $ \recv -> do
           sum <$> StreamElem.collect recv
 
@@ -232,9 +228,8 @@ test_calculator_cbor = do
       assertEqual "" intermediateSums (reverse recvdNums)
 
     -- Receive numbers and stream the intermediate sums back
-    biDiStreamingSumHandler :: Server.RpcHandler IO
-    biDiStreamingSumHandler =
-      Server.streamingRpcHandler (Proxy @(Calc SumChat)) $
+    biDiStreamingSumHandler :: Server.RpcHandler IO (Calc SumChat)
+    biDiStreamingSumHandler = Server.streamingRpcHandler $
         Server.mkBiDiStreaming $ \recv send ->
           let
             go acc =

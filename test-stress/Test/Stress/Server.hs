@@ -15,21 +15,16 @@ import Test.Stress.Server.API
 
 server :: Cmdline -> IO ()
 server _cmdline =
-    runServerWithHandlers config params [
-        streamingRpcHandler (Proxy @ManyShortLived) $
-          Binary.mkNonStreaming serverManyShortLived
+    runServerWithHandlers config def [
+        SomeRpcHandler (Proxy @ManyShortLived) $
+          streamingRpcHandler $ Binary.mkNonStreaming serverManyShortLived
       ]
   where
     config :: ServerConfig
     config = ServerConfig {
-          serverInsecure =
-            Just $ InsecureConfig Nothing defaultInsecurePort
-        , serverSecure =
-            Nothing
+          serverInsecure = Just $ InsecureConfig Nothing defaultInsecurePort
+        , serverSecure   = Nothing
         }
-
-    params :: ServerParams
-    params = def
 
 {-------------------------------------------------------------------------------
   Handlers

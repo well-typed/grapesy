@@ -11,8 +11,12 @@ module Network.GRPC.Server (
     -- * Handlers
   , Call       -- opaque
   , RpcHandler -- opaque
-  , Handler.mkRpcHandler
-  , Handler.mkRpcHandlerNoInitialMetadata
+  , mkRpcHandler
+  , mkRpcHandlerNoInitialMetadata
+
+    -- ** Hide @rpc@ type variable
+  , SomeRpcHandler(..)
+  , someRpcHandler
 
     -- * Open (ongoing) call
   , recvInput
@@ -48,8 +52,9 @@ import Network.HTTP2.Server qualified as HTTP2
 import Network.GRPC.Server.Call
 import Network.GRPC.Server.Context (ServerParams(..))
 import Network.GRPC.Server.Context qualified as Context
-import Network.GRPC.Server.Handler (RpcHandler(..))
-import Network.GRPC.Server.Handler qualified as Handler
+import Network.GRPC.Server.Handler
+import Network.GRPC.Server.HandlerMap (HandlerMap)
+import Network.GRPC.Server.HandlerMap qualified as HandlerMap
 import Network.GRPC.Server.RequestHandler
 import Network.GRPC.Server.Session (CallSetupFailure(..))
 import Network.GRPC.Util.HTTP2.Stream (ClientDisconnected(..))
@@ -63,7 +68,7 @@ import Network.GRPC.Util.HTTP2.Stream (ClientDisconnected(..))
 -- The server can be run using the standard infrastructure offered by the
 -- @http2@ package, but "Network.GRPC.Server.Run" provides some convenience
 -- functions.
-mkGrpcServer :: ServerParams -> [RpcHandler IO] -> IO HTTP2.Server
+mkGrpcServer :: ServerParams -> [SomeRpcHandler IO] -> IO HTTP2.Server
 mkGrpcServer params@ServerParams{serverTopLevel} handlers = do
     ctxt <- Context.new params
     return $
@@ -71,6 +76,6 @@ mkGrpcServer params@ServerParams{serverTopLevel} handlers = do
       $ serverTopLevel
       $ requestHandler handlerMap ctxt
   where
-    handlerMap :: Handler.Map IO
-    handlerMap = Handler.constructMap handlers
+    handlerMap :: HandlerMap IO
+    handlerMap = HandlerMap.fromList handlers
 

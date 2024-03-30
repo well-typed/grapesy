@@ -212,14 +212,14 @@ recvOutputWithEnvelope Call{callChannel} = liftIO $
 -- | The initial metadata that was included in the response headers
 --
 -- The server can send two sets of metadata: an initial set of type
--- @ResponseInitialMetadata@ when it first initiates the response, and then a
--- final set of type @ResponseTrailingMetadata@ after the final message (see
--- 'recvOutput'). See also 'HasCustomMetadata'.
+-- 'ResponseInitialMetadata' when it first initiates the response, and then a
+-- final set of type 'ResponseTrailingMetadata' after the final message (see
+-- 'recvOutput').
 --
 -- It is however possible for the server to send only a /single/ set; this is
 -- the gRPC \"Trailers-Only\" case. The server can choose to do so when it knows
 -- it will not send any messages; in this case, the initial response metadata is
--- fact of type @ResponseTrailingMetadata@ instead. The 'ResponseMetadata' type
+-- fact of type 'ResponseTrailingMetadata' instead. The 'ResponseMetadata' type
 -- distinguishes between these two cases.
 --
 -- This can block: we need to wait until we receive the metadata. The precise

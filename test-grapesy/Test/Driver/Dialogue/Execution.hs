@@ -33,17 +33,20 @@ import Test.Util
   Endpoints
 -------------------------------------------------------------------------------}
 
-type TestProtocol serv meth =
-    OverrideMetadata TestMetadata TestMetadata TestMetadata (BinaryRpc serv meth)
+type TestProtocol meth = BinaryRpc "dialogue" meth
 
-type TestRpc1 = TestProtocol "dialogue" "test1"
-type TestRpc2 = TestProtocol "dialogue" "test2"
-type TestRpc3 = TestProtocol "dialogue" "test3"
+type instance RequestMetadata          (TestProtocol meth) = TestMetadata
+type instance ResponseInitialMetadata  (TestProtocol meth) = TestMetadata
+type instance ResponseTrailingMetadata (TestProtocol meth) = TestMetadata
+
+type TestRpc1 = TestProtocol "test1"
+type TestRpc2 = TestProtocol "test2"
+type TestRpc3 = TestProtocol "test3"
 
 withClientProxy ::
      RPC
   -> (forall meth.
-          SupportsClientRpc (TestProtocol "dialogue" meth)
+          SupportsClientRpc (TestProtocol meth)
        => Proxy meth
        -> a)
   -> a
@@ -148,7 +151,7 @@ ifPeerAlive (PeerTerminated mErr) = const (PeerTerminated mErr)
 clientLocal ::
      HasCallStack
   => TestClock
-  -> Client.Call (TestProtocol serv meth)
+  -> Client.Call (TestProtocol meth)
   -> LocalSteps
   -> IO ()
 clientLocal clock call = \(LocalSteps steps) ->
@@ -308,7 +311,7 @@ clientGlobal clock connPerRPC global connParams testServer delimitTestScope =
             error $ "clientGlobal: expected Initiate, got " ++ show steps
 
     startCall :: forall (meth :: Symbol).
-         SupportsClientRpc (TestProtocol "dialogue" meth)
+         SupportsClientRpc (TestProtocol meth)
       => Maybe Client.Connection
       -> TestMetadata
       -> [(TestClock.Tick, LocalStep)]
@@ -317,7 +320,7 @@ clientGlobal clock connPerRPC global connParams testServer delimitTestScope =
         (case mConn of
             Just conn -> ($ conn)
             Nothing   -> withConn) $ \conn ->
-          Client.withRPC conn params (Proxy @(TestProtocol "dialogue" meth)) $ \call -> do
+          Client.withRPC conn params (Proxy @(TestProtocol meth)) $ \call -> do
             -- We wait for the /server/ to advance the test clock (so that
             -- we are sure the next step doesn't happen until the
             -- connection is established).
@@ -347,7 +350,7 @@ clientGlobal clock connPerRPC global connParams testServer delimitTestScope =
 
 serverLocal ::
      TestClock
-  -> Server.Call (TestProtocol serv meth)
+  -> Server.Call (TestProtocol meth)
   -> LocalSteps -> IO ()
 serverLocal clock call = \(LocalSteps steps) -> do
     evalStateT (go steps) PeerAlive
@@ -453,7 +456,7 @@ serverGlobal ::
     -- particular handler corresponds to, we take the next 'LocalSteps' from
     -- this @MVar@. Since all requests are started by the client from /one/
     -- thread, the order of these incoming requests is deterministic.
-  -> Server.Call (TestProtocol serv meth)
+  -> Server.Call (TestProtocol meth)
   -> IO ()
 serverGlobal clock globalStepsVar call = do
     steps <- modifyMVar globalStepsVar (getNextSteps . getGlobalSteps)
@@ -488,10 +491,12 @@ execGlobalSteps steps = do
     clock          <- TestClock.new
 
     let handler ::
-             SupportsServerRpc (TestProtocol serv meth)
-          => Proxy (TestProtocol serv meth) -> Server.RpcHandler IO
-        handler rpc = Server.mkRpcHandler rpc $ \call ->
-                        serverGlobal clock globalStepsVar call
+             SupportsServerRpc (TestProtocol meth)
+          => Proxy (TestProtocol meth)
+          -> Server.SomeRpcHandler IO
+        handler rpc = Server.SomeRpcHandler rpc $
+          Server.mkRpcHandler $ \call ->
+            serverGlobal clock globalStepsVar call
 
     return ClientServerTest {
         config = def {

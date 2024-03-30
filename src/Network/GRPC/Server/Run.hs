@@ -33,7 +33,7 @@ import Network.Run.TCP qualified as Run
 import Network.Socket
 import Network.TLS qualified as TLS
 
-import Network.GRPC.Server (mkGrpcServer, ServerParams, RpcHandler)
+import Network.GRPC.Server
 import Network.GRPC.Util.TLS (SslKeyLog(..))
 import Network.GRPC.Util.TLS qualified as Util.TLS
 
@@ -124,7 +124,7 @@ runServer cfg server = forkServer cfg server $ waitServer
 runServerWithHandlers ::
      ServerConfig
   -> ServerParams
-  -> [RpcHandler IO]
+  -> [SomeRpcHandler IO]
   -> IO ()
 runServerWithHandlers config params handlers = do
     server <- mkGrpcServer params handlers

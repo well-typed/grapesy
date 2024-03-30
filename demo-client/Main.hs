@@ -60,6 +60,12 @@ dispatch cmd conn (Exec method) =
             CanCallRPC.Greeter.sayHelloStreamReply conn name
           _otherwise ->
             unsupportedMode
+      SomeMethod SGreeter (SSayHelloBidiStream names) ->
+        case cmdAPI cmd of
+          Core ->
+            Core.Greeter.sayHelloBidiStream conn names
+          _otherwise ->
+            unsupportedMode
       SomeMethod SRouteGuide (SGetFeature p) ->
         case cmdAPI cmd of
           ProtobufIO ->

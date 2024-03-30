@@ -1,7 +1,9 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Interop.API (
-    -- * Endpoints
+    -- * TestService
+
+    -- ** Endpoints
     EmptyCall
   , UnaryCall
   , StreamingInputCall
@@ -9,11 +11,16 @@ module Interop.API (
   , FullDuplexCall
   , UnimplementedCall
 
-    -- * Metadata
-  , WithInteropMeta
+    -- ** Metadata
   , InteropReqMeta(..)
   , InteropRespInitMeta(..)
   , InteropRespTrailMeta(..)
+
+    -- * UnimplementedService
+  , UnimplementedServiceCall
+
+    -- * PingService
+  , Ping
 
     -- * Re-exports
   , module Network.GRPC.Common.Protobuf
@@ -31,28 +38,27 @@ import Network.GRPC.Common.Protobuf
 
 import Proto.Empty
 import Proto.Messages
+import Proto.Ping
 import Proto.Test
 
 {-------------------------------------------------------------------------------
   Endpoints
 -------------------------------------------------------------------------------}
 
-type EmptyCall           = WithInteropMeta (Protobuf TestService "emptyCall")
-type UnaryCall           = WithInteropMeta (Protobuf TestService "unaryCall")
-type StreamingInputCall  = WithInteropMeta (Protobuf TestService "streamingInputCall")
-type StreamingOutputCall = WithInteropMeta (Protobuf TestService "streamingOutputCall")
-type FullDuplexCall      = WithInteropMeta (Protobuf TestService "fullDuplexCall")
-type UnimplementedCall   = WithInteropMeta (Protobuf TestService "unimplementedCall")
+type EmptyCall           = Protobuf TestService "emptyCall"
+type UnaryCall           = Protobuf TestService "unaryCall"
+type StreamingInputCall  = Protobuf TestService "streamingInputCall"
+type StreamingOutputCall = Protobuf TestService "streamingOutputCall"
+type FullDuplexCall      = Protobuf TestService "fullDuplexCall"
+type UnimplementedCall   = Protobuf TestService "unimplementedCall"
 
 {-------------------------------------------------------------------------------
   Metadata
 -------------------------------------------------------------------------------}
 
-type WithInteropMeta =
-       OverrideMetadata
-         InteropReqMeta
-         InteropRespInitMeta
-         InteropRespTrailMeta
+type instance RequestMetadata          (Protobuf TestService meth) = InteropReqMeta
+type instance ResponseInitialMetadata  (Protobuf TestService meth) = InteropRespInitMeta
+type instance ResponseTrailingMetadata (Protobuf TestService meth) = InteropRespTrailMeta
 
 data InteropReqMeta = InteropReqMeta {
       -- | Header we expect the server to include in the initial metadata
@@ -167,3 +173,23 @@ instance BuildMetadata InteropRespTrailMeta where
 
 instance StaticMetadata InteropRespTrailMeta where
   metadataHeaderNames _ = [grpcTestEchoTrailingBin]
+
+{-------------------------------------------------------------------------------
+  UnimplementedService service
+-------------------------------------------------------------------------------}
+
+type UnimplementedServiceCall = Protobuf UnimplementedService "unimplementedCall"
+
+type instance RequestMetadata          (Protobuf UnimplementedService meth) = NoMetadata
+type instance ResponseInitialMetadata  (Protobuf UnimplementedService meth) = NoMetadata
+type instance ResponseTrailingMetadata (Protobuf UnimplementedService meth) = NoMetadata
+
+{-------------------------------------------------------------------------------
+  Ping service
+-------------------------------------------------------------------------------}
+
+type Ping = Protobuf PingService "ping"
+
+type instance RequestMetadata          (Protobuf PingService meth) = NoMetadata
+type instance ResponseInitialMetadata  (Protobuf PingService meth) = NoMetadata
+type instance ResponseTrailingMetadata (Protobuf PingService meth) = NoMetadata
