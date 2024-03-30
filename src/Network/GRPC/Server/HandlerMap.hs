@@ -20,9 +20,7 @@ import Prelude hiding (lookup)
 
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
-import Data.Proxy
 
-import Network.GRPC.Server.Call
 import Network.GRPC.Spec
 import Network.GRPC.Server.Handler
 
@@ -31,21 +29,21 @@ import Network.GRPC.Server.Handler
 -------------------------------------------------------------------------------}
 
 newtype HandlerMap m = HandlerMap {
-      getMap :: HashMap Path (RpcHandler m)
+      getMap :: HashMap Path (SomeRpcHandler m)
     }
 
 {-------------------------------------------------------------------------------
   Construction
 -------------------------------------------------------------------------------}
 
-fromList :: [RpcHandler m] -> HandlerMap m
+fromList :: [SomeRpcHandler m] -> HandlerMap m
 fromList = HandlerMap . HashMap.fromList . map (\h -> (path h, h))
 
 {-------------------------------------------------------------------------------
   Query
 -------------------------------------------------------------------------------}
 
-lookup :: Path -> HandlerMap m -> Maybe (RpcHandler m)
+lookup :: Path -> HandlerMap m -> Maybe (SomeRpcHandler m)
 lookup p = HashMap.lookup p . getMap
 
 keys :: HandlerMap m -> [Path]
@@ -55,9 +53,5 @@ keys = HashMap.keys . getMap
   Internal auxiliary
 -------------------------------------------------------------------------------}
 
-path :: forall m. RpcHandler m -> Path
-path RpcHandler{runRpcHandler} = aux runRpcHandler
-  where
-    aux :: forall rpc. IsRPC rpc => (Call rpc -> m ()) -> Path
-    aux _ = rpcPath (Proxy @rpc)
-
+path :: forall m. SomeRpcHandler m -> Path
+path (SomeRpcHandler rpc _handler) = rpcPath rpc

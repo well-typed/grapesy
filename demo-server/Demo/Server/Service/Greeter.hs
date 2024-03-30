@@ -4,7 +4,6 @@
 module Demo.Server.Service.Greeter (handlers) where
 
 import Control.Monad
-import Data.Proxy
 import Data.Text (Text)
 
 import Network.GRPC.Common
@@ -22,8 +21,8 @@ import Demo.Common.API
 handlers :: Methods IO (ProtobufMethodsOf Greeter)
 handlers =
       Method (mkNonStreaming sayHello)
-    $ RawMethod sayHelloStreamReply
     $ UnsupportedMethod -- TODO: sayHelloBidiStream
+    $ RawMethod sayHelloStreamReply
     $ NoMoreMethods
 
 {-------------------------------------------------------------------------------
@@ -36,24 +35,19 @@ sayHello req = return $ defMessage & #message .~ msg
     msg :: Text
     msg = "Hello, " <> req ^. #name <> "!"
 
-sayHelloStreamReply :: RpcHandler IO
-sayHelloStreamReply =
-    mkRpcHandlerNoInitialMetadata (Proxy @SayHelloStreamReply) go
-  where
-    go :: Call SayHelloStreamReply -> IO ()
-    go call = do
-        setResponseInitialMetadata call $
-          SayHelloMetadata (Just "initial-md-value")
+sayHelloStreamReply :: RpcHandler IO SayHelloStreamReply
+sayHelloStreamReply = mkRpcHandlerNoInitialMetadata $ \call -> do
+    setResponseInitialMetadata call $ SayHelloMetadata (Just "initial-md-value")
 
-        -- The client expects the metadata well before the first output
-        _ <- initiateResponse call
+    -- The client expects the metadata well before the first output
+    _ <- initiateResponse call
 
-        req <- recvFinalInput call
+    req <- recvFinalInput call
 
-        let msg :: Text -> Text
-            msg i = "Hello " <> req ^. #name <> " times " <> i
+    let msg :: Text -> Text
+        msg i = "Hello " <> req ^. #name <> " times " <> i
 
-        forM_ ["0", "1", "2"] $ \i ->
-          sendNextOutput call $ defMessage & #message .~ msg i
+    forM_ ["0", "1", "2"] $ \i ->
+      sendNextOutput call $ defMessage & #message .~ msg i
 
-        sendTrailers call def
+    sendTrailers call def

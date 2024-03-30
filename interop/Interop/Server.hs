@@ -46,12 +46,12 @@ methodsPingService =
 methodsTestService :: Methods IO (ProtobufMethodsOf TestService)
 methodsTestService =
       UnsupportedMethod -- cacheableUnaryCall
-    $ Method (mkNonStreaming EmptyCall.handle)
-    $ RawMethod (mkRpcHandler Proxy FullDuplexCall.handle)
+    $ Method    (mkNonStreaming EmptyCall.handle)
+    $ RawMethod (mkRpcHandler FullDuplexCall.handle)
     $ UnsupportedMethod -- halfDuplexCall
-    $ RawMethod (mkRpcHandler Proxy StreamingInputCall.handle)
-    $ RawMethod (mkRpcHandler Proxy StreamingOutputCall.handle)
-    $ RawMethod (mkRpcHandler Proxy UnaryCall.handle)
+    $ RawMethod (mkRpcHandler StreamingInputCall.handle)
+    $ RawMethod (mkRpcHandler StreamingOutputCall.handle)
+    $ RawMethod (mkRpcHandler UnaryCall.handle)
     $ UnsupportedMethod -- unimplementedCall
     $ NoMoreMethods
 

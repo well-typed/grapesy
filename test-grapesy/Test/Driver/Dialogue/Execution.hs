@@ -492,9 +492,11 @@ execGlobalSteps steps = do
 
     let handler ::
              SupportsServerRpc (TestProtocol meth)
-          => Proxy (TestProtocol meth) -> Server.RpcHandler IO
-        handler rpc = Server.mkRpcHandler rpc $ \call ->
-                        serverGlobal clock globalStepsVar call
+          => Proxy (TestProtocol meth)
+          -> Server.SomeRpcHandler IO
+        handler rpc = Server.SomeRpcHandler rpc $
+          Server.mkRpcHandler $ \call ->
+            serverGlobal clock globalStepsVar call
 
     return ClientServerTest {
         config = def {

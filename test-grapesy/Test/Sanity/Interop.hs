@@ -70,16 +70,17 @@ test_callAfterException =
             Left  _ -> assertFailure "Expected pong"
             Right i -> assertEqual "pong" i 1
       , server = [
-            Server.mkRpcHandler (Proxy @Ping) $ \call -> do
-              i :: Word <- Server.Binary.recvFinalInput call
-              if i > 0 then
-                Server.Binary.sendFinalOutput call (i, NoMetadata)
-              else
-                Server.sendGrpcException call $ GrpcException {
-                    grpcError         = GrpcInvalidArgument
-                  , grpcErrorMessage  = Just "Expected non-zero ping"
-                  , grpcErrorMetadata = []
-                  }
+            Server.SomeRpcHandler (Proxy @Ping) $
+              Server.mkRpcHandler $ \call -> do
+                i :: Word <- Server.Binary.recvFinalInput call
+                if i > 0 then
+                  Server.Binary.sendFinalOutput call (i, NoMetadata)
+                else
+                  Server.sendGrpcException call $ GrpcException {
+                      grpcError         = GrpcInvalidArgument
+                    , grpcErrorMessage  = Just "Expected non-zero ping"
+                    , grpcErrorMetadata = []
+                    }
           ]
       }
   where
@@ -111,9 +112,10 @@ test_emptyUnary =
               Nothing                      -> fail "Expected answer"
               Just (envelope, _x :: Empty) -> verifyEnvelope envelope
       , server = [
-            Server.streamingRpcHandler (Proxy @EmptyCall) $
-              Server.mkNonStreaming $ \(_ ::Empty) ->
-                return (defMessage :: Empty)
+            Server.SomeRpcHandler (Proxy @EmptyCall) $
+              Server.streamingRpcHandler $
+                Server.mkNonStreaming $ \(_ ::Empty) ->
+                  return (defMessage :: Empty)
           ]
       }
   where
@@ -154,8 +156,9 @@ test_serverCompressedStreaming =
             output2 <- Client.recvOutputWithEnvelope call
             verifyOutputs (StreamElem.value output1, StreamElem.value output2)
       , server = [
-            Server.mkRpcHandler (Proxy @StreamingOutputCall) $ \call -> do
-              handleStreamingOutputCall call
+            Server.SomeRpcHandler (Proxy @StreamingOutputCall) $
+              Server.mkRpcHandler $ \call -> do
+                handleStreamingOutputCall call
           ]
       }
   where
@@ -231,11 +234,12 @@ test_cancellation_client =
             Right _ ->
               assertFailure "Expected exception"
       , server = [
-          Server.mkRpcHandler (Proxy @StreamNats) $ \call -> do
-            forM_ [1 .. 100] $ \(i :: Int) -> do
-              Server.Binary.sendNextOutput call i
-              threadDelay 100_000
-            Server.sendTrailers call NoMetadata
+          Server.SomeRpcHandler (Proxy @StreamNats) $
+            Server.mkRpcHandler $ \call -> do
+              forM_ [1 .. 100] $ \(i :: Int) -> do
+                Server.Binary.sendNextOutput call i
+                threadDelay 100_000
+              Server.sendTrailers call NoMetadata
         ]
       }
 
@@ -265,9 +269,10 @@ test_cancellation_server =
             Right _ ->
               assertFailure "Expected exception"
       , server = [
-          -- The server sends only one value, then gives up
-          Server.mkRpcHandler (Proxy @StreamNats) $ \call -> do
-            Server.Binary.sendNextOutput call (1 :: Int)
+          Server.SomeRpcHandler (Proxy @StreamNats) $
+            -- The server sends only one value, then gives up
+            Server.mkRpcHandler $ \call -> do
+              Server.Binary.sendNextOutput call (1 :: Int)
         ]
       }
 

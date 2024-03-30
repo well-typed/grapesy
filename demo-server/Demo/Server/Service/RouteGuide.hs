@@ -8,7 +8,6 @@ import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State qualified as State
 import Data.Map qualified as Map
 import Data.Maybe (fromMaybe)
-import Data.Proxy
 import Data.Time
 
 import Network.GRPC.Common
@@ -28,15 +27,13 @@ import Demo.Server.Cmdline
 
 handlers :: Cmdline -> [Feature] -> Methods IO (ProtobufMethodsOf RouteGuide)
 handlers cmdline db =
-      Method (mkNonStreaming    $ getFeature   db)
+      Method (mkNonStreaming $ getFeature db)
     $ ( if cmdTrailersOnlyShortcut cmdline
-          then RawMethod $ mkRpcHandler
-                             (Proxy @ListFeatures)
-                             (trailersOnlyShortcut db)
+          then RawMethod (mkRpcHandler $ trailersOnlyShortcut db)
           else Method (mkServerStreaming $ listFeatures db)
       )
-    $ Method (mkClientStreaming $ recordRoute  db)
-    $ Method (mkBiDiStreaming   $ routeChat    db)
+    $ Method (mkClientStreaming $ recordRoute db)
+    $ Method (mkBiDiStreaming $ routeChat db)
     $ NoMoreMethods
 
 {-------------------------------------------------------------------------------

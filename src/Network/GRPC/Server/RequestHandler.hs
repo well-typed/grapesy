@@ -45,7 +45,7 @@ requestHandler ::
   -> ServerContext
   -> RequestHandler SomeException ()
 requestHandler handlers ctxt request respond = do
-    RpcHandler (handler :: Call rpc -> IO ()) <-
+    SomeRpcHandler (_ :: Proxy rpc) handler <-
       findHandler handlers request      `XIO.catchError` setupFailure respond
     call :: Call rpc <- do
       setupCall connectionToClient ctxt `XIO.catchError` setupFailure respond
@@ -70,7 +70,7 @@ requestHandler handlers ctxt request respond = do
 findHandler ::
      HandlerMap IO
   -> HTTP2.Request
-  -> XIO' CallSetupFailure (RpcHandler IO)
+  -> XIO' CallSetupFailure (SomeRpcHandler IO)
 findHandler handlers req = do
     -- TODO: Proper "Apache style" logging (in addition to the debug logging)
 

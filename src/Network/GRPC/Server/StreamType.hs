@@ -1,7 +1,6 @@
 module Network.GRPC.Server.StreamType (
     -- * Construct 'RpcHandler' from streaming type specific handler
     StreamingRpcHandler(..)
-  , streamingRpcHandler'
     -- * Constructors
   , mkNonStreaming
   , mkClientStreaming
@@ -17,7 +16,6 @@ module Network.GRPC.Server.StreamType (
 import Control.Monad.IO.Class
 import Data.Default
 import Data.Kind
-import Data.Proxy
 
 import Network.GRPC.Common.StreamType
 import Network.GRPC.Server
@@ -27,57 +25,44 @@ import Network.GRPC.Spec
   Construct 'RpcHandler'
 -------------------------------------------------------------------------------}
 
-class StreamingRpcHandler h where
+class StreamingRpcHandler (h :: (Type -> Type) -> k -> Type) where
   -- | Construct 'RpcHandler' from streaming type specific handler
   --
   -- Most applications will probably not need to call this function directly,
   -- instead relying on 'fromMethods'/'fromServices'. If however you want to
   -- construct a list of 'RpcHandler's manually, without a type-level
   -- specification of the server's API, you can use 'streamingRpcHandler'.
-  streamingRpcHandler ::
+  streamingRpcHandler :: forall (rpc :: k) m.
         ( SupportsServerRpc rpc
         , Default (ResponseInitialMetadata rpc)
         , Default (ResponseTrailingMetadata rpc)
         , MonadIO m
         )
-     => Proxy rpc -> h m rpc -> RpcHandler m
-
--- | Proxy-free wrapper around 'streamingRpcHandler'
---
--- This can be used if the streaming type is clear from context.
-streamingRpcHandler' :: forall m rpc h.
-       ( StreamingRpcHandler h
-       , SupportsServerRpc rpc
-       , Default (ResponseInitialMetadata rpc)
-       , Default (ResponseTrailingMetadata rpc)
-       , MonadIO m
-       )
-    => h m rpc -> RpcHandler m
-streamingRpcHandler' = streamingRpcHandler (Proxy @rpc)
+     => h m rpc -> RpcHandler m rpc
 
 instance StreamingRpcHandler NonStreamingHandler where
-  streamingRpcHandler proxy (UnsafeNonStreamingHandler h) =
-    mkRpcHandler proxy $ \call -> do
+  streamingRpcHandler (UnsafeNonStreamingHandler h) =
+    mkRpcHandler $ \call -> do
       inp <- liftIO $ recvFinalInput call
       out <- h inp
       liftIO $ sendFinalOutput call (out, def)
 
 instance StreamingRpcHandler ClientStreamingHandler where
-  streamingRpcHandler proxy (UnsafeClientStreamingHandler h) =
-    mkRpcHandler proxy $ \call -> do
+  streamingRpcHandler (UnsafeClientStreamingHandler h) =
+    mkRpcHandler $ \call -> do
       out <- h (liftIO $ recvInput call)
       liftIO $ sendFinalOutput call (out, def)
 
 instance StreamingRpcHandler ServerStreamingHandler where
-  streamingRpcHandler proxy (UnsafeServerStreamingHandler h) =
-    mkRpcHandler proxy $ \call -> do
+  streamingRpcHandler (UnsafeServerStreamingHandler h) =
+    mkRpcHandler $ \call -> do
       inp <- liftIO $ recvFinalInput call
       h inp (liftIO . sendNextOutput call)
       liftIO $ sendTrailers call def
 
 instance StreamingRpcHandler BiDiStreamingHandler where
-  streamingRpcHandler proxy (UnsafeBiDiStreamingHandler h) =
-    mkRpcHandler proxy $ \call -> do
+  streamingRpcHandler (UnsafeBiDiStreamingHandler h) =
+    mkRpcHandler $ \call -> do
       h (liftIO $ recvInput call)
         (liftIO . sendNextOutput call)
       liftIO $ sendTrailers call def
@@ -161,7 +146,8 @@ data Methods (m :: Type -> Type) (rpcs :: [Type]) where
     -> Methods m (rpc ': rpcs)
 
   RawMethod ::
-       RpcHandler m
+       SupportsServerRpc rpc
+    => RpcHandler m rpc
     -> Methods m rpcs
     -> Methods m (rpc ': rpcs)
 
@@ -190,21 +176,21 @@ data Services m (servs :: [[Type]]) where
 
 fromMethods :: forall m rpcs.
      MonadIO m
-  => Methods m rpcs -> [RpcHandler m]
+  => Methods m rpcs -> [SomeRpcHandler m]
 fromMethods = go
   where
-    go :: Methods m rpcs' -> [RpcHandler m]
+    go :: Methods m rpcs' -> [SomeRpcHandler m]
     go NoMoreMethods          = []
-    go (Method h ms)          = streamingRpcHandler' h : go ms
-    go (RawMethod m ms)       = m                      : go ms
-    go (UnsupportedMethod ms) =                          go ms
+    go (Method h ms)          = someRpcHandler (streamingRpcHandler h) : go ms
+    go (RawMethod m ms)       = someRpcHandler m                       : go ms
+    go (UnsupportedMethod ms) =                                          go ms
 
 fromServices :: forall m servs.
      MonadIO m
-  => Services m servs -> [RpcHandler m]
+  => Services m servs -> [SomeRpcHandler m]
 fromServices = concat . go
   where
-    go :: Services m servs' -> [[RpcHandler m]]
+    go :: Services m servs' -> [[SomeRpcHandler m]]
     go NoMoreServices = []
     go (Service s ss) = fromMethods s : go ss
 

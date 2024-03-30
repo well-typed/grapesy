@@ -1,13 +1,14 @@
 -- | RPC handlers
 --
--- This is part of grapesy's public API.
---
 -- Intended for unqualified import.
 module Network.GRPC.Server.Handler (
     RpcHandler(..)
     -- * Construction
   , mkRpcHandler
   , mkRpcHandlerNoInitialMetadata
+    -- * Hide type argument
+  , SomeRpcHandler(..)
+  , someRpcHandler
     -- * Execution
   , runHandler
   ) where
@@ -68,7 +69,7 @@ import Network.GRPC.Util.Session qualified as Session
 -- terminates early (that is, before sending the final output and trailers), a
 -- 'Network.GRPC.Server.HandlerTerminated' exception will be raised and sent to
 -- the client as 'GrpcException' with 'GrpcUnknown' error code.
-data RpcHandler m = forall rpc. SupportsServerRpc rpc => RpcHandler {
+data RpcHandler m rpc = RpcHandler {
       -- | Handler proper
       runRpcHandler :: Call rpc -> m ()
     }
@@ -92,12 +93,11 @@ data RpcHandler m = forall rpc. SupportsServerRpc rpc => RpcHandler {
 -- response metadata needs the request metadata from the client, or even some
 -- messages from the client), you can use 'mkRpcHandlerNoInitialMetadata'.
 mkRpcHandler ::
-     ( SupportsServerRpc rpc
-     , Default (ResponseInitialMetadata rpc)
+     ( Default (ResponseInitialMetadata rpc)
      , MonadIO m
      )
-  => Proxy rpc -> (Call rpc -> m ()) -> RpcHandler m
-mkRpcHandler _ k = RpcHandler $ \call -> do
+  => (Call rpc -> m ()) -> RpcHandler m rpc
+mkRpcHandler k = RpcHandler $ \call -> do
     liftIO $ setResponseInitialMetadata call def
     k call
 
@@ -105,13 +105,29 @@ mkRpcHandler _ k = RpcHandler $ \call -> do
 --
 -- You /must/ call 'setResponseInitialMetadata' before sending the first
 -- message. See 'mkRpcHandler' for additional discussion.
-mkRpcHandlerNoInitialMetadata ::
+mkRpcHandlerNoInitialMetadata :: (Call rpc -> m ()) -> RpcHandler m rpc
+mkRpcHandlerNoInitialMetadata = RpcHandler
+
+{-------------------------------------------------------------------------------
+  Hide the type argument
+-------------------------------------------------------------------------------}
+
+-- | Wrapper around 'RpcHandler' that hides the type argument
+--
+-- User code will only need to use this if there is no type level description of
+-- the server's protocol available. If there is a Protobuf service description,
+-- then 'Network.GRPC.Server.StreamType.fromServices' should be used.
+data SomeRpcHandler m = forall rpc.
      SupportsServerRpc rpc
-  => Proxy rpc
-  -> (Call rpc -> m ())
-  -> RpcHandler m
-mkRpcHandlerNoInitialMetadata _ k = RpcHandler $ \call -> do
-    k call
+  => SomeRpcHandler (Proxy rpc) (RpcHandler m rpc)
+
+-- | Convenience constructor for 'SomeRpcHandler'
+--
+-- This avoids the need to specify the proxy, but at the cost of less type
+-- safety: the type of the RPC is now completely unspecified. You way wish to
+-- 'use 'SomeRpcHandler' instead.
+someRpcHandler :: SupportsServerRpc rpc => RpcHandler m rpc -> SomeRpcHandler m
+someRpcHandler = SomeRpcHandler Proxy
 
 {-------------------------------------------------------------------------------
   Execution
@@ -124,9 +140,9 @@ mkRpcHandlerNoInitialMetadata _ k = RpcHandler $ \call -> do
 runHandler :: forall rpc.
      HasCallStack
   => Call rpc
-  -> (Call rpc -> IO ())
+  -> RpcHandler IO rpc
   -> XIO ()
-runHandler call@Call{callChannel} k = do
+runHandler call@Call{callChannel} (RpcHandler k) = do
     -- http2 will kill the handler when the client disappears, but we want the
     -- handler to be able to terminate cleanly. We therefore run the handler in
     -- a separate thread, and wait for that thread to terminate.

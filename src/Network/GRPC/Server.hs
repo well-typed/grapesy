@@ -14,6 +14,10 @@ module Network.GRPC.Server (
   , mkRpcHandler
   , mkRpcHandlerNoInitialMetadata
 
+    -- ** Hide @rpc@ type variable
+  , SomeRpcHandler(..)
+  , someRpcHandler
+
     -- * Open (ongoing) call
   , recvInput
   , sendOutput
@@ -64,7 +68,7 @@ import Network.GRPC.Util.HTTP2.Stream (ClientDisconnected(..))
 -- The server can be run using the standard infrastructure offered by the
 -- @http2@ package, but "Network.GRPC.Server.Run" provides some convenience
 -- functions.
-mkGrpcServer :: ServerParams -> [RpcHandler IO] -> IO HTTP2.Server
+mkGrpcServer :: ServerParams -> [SomeRpcHandler IO] -> IO HTTP2.Server
 mkGrpcServer params@ServerParams{serverTopLevel} handlers = do
     ctxt <- Context.new params
     return $

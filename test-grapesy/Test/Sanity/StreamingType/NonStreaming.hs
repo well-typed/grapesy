@@ -12,11 +12,12 @@ import Network.GRPC.Client.Binary qualified as Binary
 import Network.GRPC.Common
 import Network.GRPC.Common.Binary (BinaryRpc)
 import Network.GRPC.Common.Compression qualified as Compr
+import Network.GRPC.Server (SomeRpcHandler(..))
 import Network.GRPC.Server.Binary qualified as Binary
 import Network.GRPC.Server.StreamType
+import Network.GRPC.Spec (ContentType(ContentTypeOverride))
 
 import Test.Driver.ClientServer
-import Network.GRPC.Spec (ContentType(ContentTypeOverride))
 
 tests :: TestTree
 tests = testGroup "Test.Sanity.StreamingType.NonStreaming" [
@@ -132,7 +133,7 @@ test_increment config = testClientServer $ ClientServerTest {
           resp <- fst <$> Binary.recvFinalOutput @Word8 call
           assertEqual "" 2 $ resp
     , server = [
-          streamingRpcHandler (Proxy @BinaryIncrement) $
+          SomeRpcHandler (Proxy @BinaryIncrement) $ streamingRpcHandler $
             Binary.mkNonStreaming $ \(n :: Word8) ->
               return (succ n)
         ]
