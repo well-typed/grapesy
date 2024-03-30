@@ -109,6 +109,7 @@ library
       Network.GRPC.Server.Call
       Network.GRPC.Server.Context
       Network.GRPC.Server.Handler
+      Network.GRPC.Server.HandlerMap
       Network.GRPC.Server.RequestHandler
       Network.GRPC.Server.RequestHandler.API
       Network.GRPC.Server.Session

@@ -11,8 +11,8 @@ module Network.GRPC.Server (
     -- * Handlers
   , Call       -- opaque
   , RpcHandler -- opaque
-  , Handler.mkRpcHandler
-  , Handler.mkRpcHandlerNoInitialMetadata
+  , mkRpcHandler
+  , mkRpcHandlerNoInitialMetadata
 
     -- * Open (ongoing) call
   , recvInput
@@ -48,8 +48,9 @@ import Network.HTTP2.Server qualified as HTTP2
 import Network.GRPC.Server.Call
 import Network.GRPC.Server.Context (ServerParams(..))
 import Network.GRPC.Server.Context qualified as Context
-import Network.GRPC.Server.Handler (RpcHandler(..))
-import Network.GRPC.Server.Handler qualified as Handler
+import Network.GRPC.Server.Handler
+import Network.GRPC.Server.HandlerMap (HandlerMap)
+import Network.GRPC.Server.HandlerMap qualified as HandlerMap
 import Network.GRPC.Server.RequestHandler
 import Network.GRPC.Server.Session (CallSetupFailure(..))
 import Network.GRPC.Util.HTTP2.Stream (ClientDisconnected(..))
@@ -71,6 +72,6 @@ mkGrpcServer params@ServerParams{serverTopLevel} handlers = do
       $ serverTopLevel
       $ requestHandler handlerMap ctxt
   where
-    handlerMap :: Handler.Map IO
-    handlerMap = Handler.constructMap handlers
+    handlerMap :: HandlerMap IO
+    handlerMap = HandlerMap.fromList handlers
 
