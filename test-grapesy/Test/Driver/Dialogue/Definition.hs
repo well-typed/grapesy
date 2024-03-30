@@ -29,6 +29,7 @@ import Network.GRPC.Common
 
 import Test.Driver.Dialogue.TestClock qualified as TestClock
 import Control.Monad.Catch
+import GHC.Show (appPrec1, showCommaSpace)
 
 {-------------------------------------------------------------------------------
   Single RPC
@@ -74,7 +75,31 @@ data TestMetadata = TestMetadata {
     , metadataBin3 :: Maybe Strict.ByteString
     , metadataBin4 :: Maybe Strict.ByteString
     }
-  deriving (Show, Eq)
+  deriving (Eq)
+
+-- | Hand-written 'Show' instance which shows @def :: TestMetadata@ as @def@
+--
+-- This is by far the most common value that shows up in test failures, so this
+-- improves readability.
+instance Show TestMetadata where
+  showsPrec _ (TestMetadata Nothing Nothing Nothing Nothing) = showString "def"
+  showsPrec p (TestMetadata asc1 asc2 bin3 bin4) = showParen (p >= appPrec1) $
+        showString "TestMetadata {"
+      . showString "metadataAsc1 = "
+      . showVal asc1
+      . showCommaSpace
+      . showString "metadataAsc2 = "
+      . showVal asc2
+      . showCommaSpace
+      . showString "metadataBin3 = "
+      . showVal bin3
+      . showCommaSpace
+      . showString "metadataBin4 = "
+      . showVal bin4
+      . showString "}"
+    where
+      showVal Nothing  = showString "def"
+      showVal (Just x) = showsPrec 0 (Just x)
 
 instance Default TestMetadata where
   def = TestMetadata {

@@ -187,3 +187,7 @@ import Network.GRPC.Util.TLS qualified as Util.TLS
 -- The specialized functions from "Network.GRPC.Client.StreamType" take care of
 -- this; if these functions are not applicable, users may wish to use
 -- 'recvFinalOutput'.
+--
+-- **KNOWN LIMITATION**: for _incoming_ messages @grapesy@ cannot currently
+-- make this distinction. For detailed discussion, see
+-- <https://github.com/well-typed/grapesy/issues/114>.
