@@ -150,8 +150,6 @@ if you now start the server again, the client should be able to connect again:
 {message: "Hello, Alice!"}
 ```
 
-TODO: Reconnects should be visible. https://github.com/well-typed/grapesy/issues/107
-
 ### Dealing with unterminated streams
 
 Normally the last message to the server is marked as `END_STREAM`. If this is

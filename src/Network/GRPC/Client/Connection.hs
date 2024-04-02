@@ -172,8 +172,13 @@ data ReconnectPolicy =
     -- connection), do not attempt to connect again.
     DontReconnect
 
-    -- | Reconnect after random delay within specified interval (in seconds)
-  | ReconnectAfter (Double, Double) ReconnectPolicy
+    -- | Reconnect after random delay after the IO action returns
+    --
+    -- This is a very general API: typically the IO action will call
+    -- 'threadDelay' after some amount of time (which will typically involve
+    -- some randomness), but it can be used to do things such as display a
+    -- message to the user somewhere that the client is reconnecting.
+  | ReconnectAfter (IO ReconnectPolicy)
 
 -- | The default policy is 'DontReconnect'
 --
@@ -187,15 +192,32 @@ instance Default ReconnectPolicy where
 -- If the exponent is @1@, the delay interval will be the same every step;
 -- for an exponent of greater than @1@, we will wait longer each step.
 exponentialBackoff ::
-     Double           -- ^ Exponent
-  -> (Double, Double) -- ^ Initial delay
-  -> Word             -- ^ Maximum number of attempts
+     (Int -> IO ())
+     -- ^ Execute the delay (in microseconds)
+     --
+     -- The default choice here can simply be 'threadDelay', but it is also
+     -- possible to use this to add some logging. Simple example:
+     --
+     -- > waitFor :: Int -> IO ()
+     -- > waitFor delay = do
+     -- >   putStrLn $ "Disconnected. Reconnecting after " ++ show delay ++ "μs"
+     -- >   threadDelay delay
+     -- >   putStrLn "Reconnecting now."
+  -> Double
+     -- ^ Exponent
+  -> (Double, Double)
+     -- ^ Initial delay
+  -> Word
+     -- ^ Maximum number of attempts
   -> ReconnectPolicy
-exponentialBackoff e = go
+exponentialBackoff waitFor e = go
   where
     go :: (Double, Double) -> Word -> ReconnectPolicy
     go _        0 = DontReconnect
-    go (lo, hi) n = ReconnectAfter (lo, hi) $ go (lo * e, hi * e) (pred n)
+    go (lo, hi) n = ReconnectAfter $ do
+        delay <- randomRIO (lo, hi)
+        waitFor $ round $ delay * 1_000_000
+        return $ go (lo * e, hi * e) (pred n)
 
 {-------------------------------------------------------------------------------
   Fatal exceptions (no point reconnecting)
@@ -461,11 +483,9 @@ stayConnected connParams server connStateVar connOutOfScope =
                 atomically $ writeTVar connStateVar $ ConnectionAbandoned err
               (False, DontReconnect) -> do
                 atomically $ writeTVar connStateVar $ ConnectionAbandoned err
-              (False, ReconnectAfter (lo, hi) reconnectPolicy') -> do
-                delay <- randomRIO (lo, hi)
+              (False, ReconnectAfter f) -> do
                 atomically $ writeTVar connStateVar $ ConnectionNotReady
-                threadDelay $ round $ delay * 1_000_000
-                loop reconnectPolicy'
+                loop =<< f
 
 -- | Insecure connection (no TLS)
 connectInsecure :: ConnParams -> Attempt -> Address -> IO ()
