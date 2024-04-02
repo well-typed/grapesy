@@ -32,9 +32,9 @@ putDoc = \doc -> do
       then go doc
       else putStr $ flattenDoc doc
   where
-    -- TODO: By rights we should keep track of the state of the console here,
-    -- so that we can properly deal with nesting, rather than just resetting
-    -- everything. For now this is good enough.
+    -- By rights we should keep track of the state of the console here, so that
+    -- we can properly deal with nesting, rather than just resetting everything.
+    -- For now this is good enough.
     go :: Doc -> IO ()
     go (Color color doc) = do
       setSGR [SetColor Foreground Vivid color]

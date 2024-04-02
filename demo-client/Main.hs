@@ -120,6 +120,13 @@ connParams cmd = def {
     , connDefaultTimeout =
         Timeout Second . TimeoutValue <$> cmdTimeout cmd
     , connReconnectPolicy =
-        exponentialBackoff 1.5 (1, 2) 10
+        exponentialBackoff waitFor 1.5 (1, 2) 10
     }
+  where
+    waitFor :: Int -> IO ()
+    waitFor delay = do
+        putStrLn $ "Disconnected. Reconnecting after " ++ show delay ++ "μs"
+        threadDelay delay
+        putStrLn "Reconnecting now."
+
 

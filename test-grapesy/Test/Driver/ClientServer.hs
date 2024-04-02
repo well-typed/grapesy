@@ -18,6 +18,7 @@ module Test.Driver.ClientServer (
   , DeliberateException(..)
   ) where
 
+import Control.Concurrent
 import Control.Concurrent.Async
 import Control.Concurrent.STM
 import Control.Exception (throwIO)
@@ -538,8 +539,9 @@ runTestClient cfg firstTestFailure port clientRun = do
               -- This avoids a race condition between the server starting first
               -- and the client starting first.
             , connReconnectPolicy =
-                  Client.ReconnectAfter (0.1, 0.2)
-                $ Client.DontReconnect
+                  Client.ReconnectAfter $ do
+                    threadDelay 100_000
+                    return Client.DontReconnect
             }
 
         clientServer :: Client.Server
