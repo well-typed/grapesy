@@ -174,7 +174,6 @@ data ReconnectPolicy =
 
     -- | Reconnect after random delay within specified interval (in seconds)
   | ReconnectAfter (Double, Double) ReconnectPolicy
-  deriving (Show)
 
 -- | The default policy is 'DontReconnect'
 --
