@@ -142,12 +142,12 @@ runHandler :: forall rpc.
   => Call rpc
   -> RpcHandler IO rpc
   -> XIO ()
-runHandler call@Call{callChannel} (RpcHandler k) = do
+runHandler call (RpcHandler k) = do
     -- http2 will kill the handler when the client disappears, but we want the
     -- handler to be able to terminate cleanly. We therefore run the handler in
     -- a separate thread, and wait for that thread to terminate.
     handlerThread <- liftIO $ async $ XIO.runThrow handler
-    waitForHandler handlerThread
+    waitForHandler call handlerThread
   where
     -- The handler itself will run in a separate thread
     handler :: XIO ()
@@ -162,7 +162,7 @@ runHandler call@Call{callChannel} (RpcHandler k) = do
         -- /If/ the final message was sent, 'forwardException' does nothing.
         forwarded <- XIO.neverThrows $ do
           forwarded <- forwardException call $ toException HandlerTerminated
-          ignoreUncleanClose $ ExitCaseSuccess ()
+          ignoreUncleanClose call $ ExitCaseSuccess ()
           return forwarded
         when forwarded $
           -- The handler terminated before it sent the final message.
@@ -171,78 +171,82 @@ runHandler call@Call{callChannel} (RpcHandler k) = do
         -- The handler threw an exception. Attempt to tell the client.
         XIO.neverThrows $ do
           void $ forwardException call err
-          ignoreUncleanClose $ ExitCaseException err
+          ignoreUncleanClose call $ ExitCaseException err
         throwM err
 
-    -- An unclean shutdown can have 2 causes:
-    --
-    -- 1. We lost communication during the call.
-    --
-    --    We have no way of telling the client that something went wrong.
-    --
-    -- 2. The handler failed to properly terminate the communication
-    --    (send the final message and call 'waitForOutbound').
-    --
-    --    This is a bug in the handler, and is trickier to deal with. We don't
-    --    really know what state the handler left the channel in; for example,
-    --    we might have killed the thread halfway through sending a message.
-    --
-    --    So there not really anything we can do here (except perhaps show
-    --    the exception in 'serverTopLevel').
-    ignoreUncleanClose :: ExitCase a -> XIO' NeverThrows ()
-    ignoreUncleanClose reason =
-        XIO.swallowIO $ void $ Session.close callChannel reason
+-- | Close the connection to the client, ignoring errors
+--
+-- An unclean shutdown can have 2 causes:
+--
+-- 1. We lost communication during the call.
+--
+--    We have no way of telling the client that something went wrong.
+--
+-- 2. The handler failed to properly terminate the communication
+--    (send the final message and call 'waitForOutbound').
+--
+--    This is a bug in the handler, and is trickier to deal with. We don't
+--    really know what state the handler left the channel in; for example,
+--    we might have killed the thread halfway through sending a message.
+--
+--    So there not really anything we can do here (except perhaps show
+--    the exception in 'serverTopLevel').
+ignoreUncleanClose :: Call rpc -> ExitCase a -> XIO' NeverThrows ()
+ignoreUncleanClose Call{callChannel} reason =
+    XIO.swallowIO $ void $ Session.close callChannel reason
 
-    -- Wait for the handler to terminate
-    --
-    -- If we are interrupted while we wait, it depends on the
-    -- interruption:
-    --
-    -- * If we are interrupted by 'HTTP2.KilledByHttp2ThreadManager', it means
-    --   we got disconnected from the client. In this case, we shut down the
-    --   channel (if it's not already shut down); /if/ the handler at this tries
-    --   to communicate with the client, an exception will be raised. However,
-    --   the handler /can/ terminate cleanly and, of course, typically will.
-    --   Importantly, this avoids race conditions: even if the server and the
-    --   client agree that no further communication takes place (the client sent
-    --   their final message, the server sent the trailers), without the
-    --   indireciton of this additional thread it can still happen that http2
-    --   kills the handler (after the client disconnects) before the handler has
-    --   a chance to terminate.
-    -- * If we are interrupted by another kind of asynchronous exception, we
-    --   /do/ kill the handler (this might for example be a timeout).
-    --
-    -- This is in line with the overall design philosophy of communication in
-    -- this library: exceptions will only be raised synchronously when
-    -- communication is attempted, not asynchronously when we notice a problem.
-    waitForHandler :: Async () -> XIO ()
-    waitForHandler handlerThread = loop
-      where
-        loop :: XIO ()
-        loop = do
-            (liftIO $ wait handlerThread) `catch` \err ->
-             case fromException err of
-               Just (HTTP2.KilledByHttp2ThreadManager mErr) -> do
-                 let exitReason :: ExitCase ()
-                     exitReason =
-                       case mErr of
-                         Nothing -> ExitCaseSuccess ()
-                         Just exitWithException ->
-                           ExitCaseException . toException $
-                             ClientDisconnected exitWithException callStack
-                 XIO.neverThrows $ ignoreUncleanClose exitReason
-                 loop
-               Nothing -> do
-                 -- If we get an exception while waiting on the handler, there
-                 -- are two possibilities:
-                 --
-                 -- 1. The exception was an asynchronous exception, thrown to us
-                 --    externally. In this case @cancalWith@ will throw the
-                 --    exception to the handler (and wait for it to terminate).
-                 -- 2. The exception was thrown by the handler itself. In this
-                 --    case @cancelWith@ is a no-op.
-                 liftIO $ cancelWith handlerThread err
-                 throwM err
+-- | Wait for the handler to terminate
+--
+-- If we are interrupted while we wait, it depends on the interruption:
+--
+-- * If we are interrupted by 'HTTP2.KilledByHttp2ThreadManager', it means we
+--   got disconnected from the client. In this case, we shut down the channel
+--   (if it's not already shut down); /if/ the handler at this tries to
+--   communicate with the client, an exception will be raised. However, the
+--   handler /can/ terminate cleanly and, of course, typically will.
+--   Importantly, this avoids race conditions: even if the server and the client
+--   agree that no further communication takes place (the client sent their
+--   final message, the server sent the trailers), without the indireciton of
+--   this additional thread it can still happen that http2 kills the handler
+--   (after the client disconnects) before the handler has a chance to
+--   terminate.
+--
+-- * If we are interrupted by another kind of asynchronous exception, we /do/
+--   kill the handler (this might for example be a timeout).
+--
+-- This is in line with the overall design philosophy of communication in this
+-- library: exceptions will only be raised synchronously when communication is
+-- attempted, not asynchronously when we notice a problem.
+waitForHandler :: HasCallStack => Call rpc -> Async () -> XIO ()
+waitForHandler call handlerThread = loop
+  where
+    loop :: XIO ()
+    loop = liftIO (wait handlerThread) `catch` handleException
+
+    handleException :: SomeException -> XIO ()
+    handleException err
+      | Just (HTTP2.KilledByHttp2ThreadManager mErr) <- fromException err = do
+          let exitReason :: ExitCase ()
+              exitReason =
+                case mErr of
+                  Nothing -> ExitCaseSuccess ()
+                  Just exitWithException ->
+                    ExitCaseException . toException $
+                      ClientDisconnected exitWithException callStack
+          XIO.neverThrows $ ignoreUncleanClose call exitReason
+          loop
+
+      | otherwise = do
+          -- If we get an exception while waiting on the handler, there
+          -- are two possibilities:
+          --
+          -- 1. The exception was an asynchronous exception, thrown to us
+          --    externally. In this case @cancalWith@ will throw the
+          --    exception to the handler (and wait for it to terminate).
+          -- 2. The exception was thrown by the handler itself. In this
+          --    case @cancelWith@ is a no-op.
+          liftIO $ cancelWith handlerThread err
+          throwM err
 
 -- | Process exception thrown by a handler
 --

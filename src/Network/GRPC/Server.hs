@@ -78,4 +78,3 @@ mkGrpcServer params@ServerParams{serverTopLevel} handlers = do
   where
     handlerMap :: HandlerMap IO
     handlerMap = HandlerMap.fromList handlers
-
