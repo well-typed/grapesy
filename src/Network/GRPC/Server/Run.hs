@@ -1,3 +1,6 @@
+{-# LANGUAGE CPP #-}
+#include "MachDeps.h"
+
 -- | Convenience functions for running a HTTP2 server
 --
 -- Intended for unqualified import.
@@ -34,6 +37,7 @@ import Network.Socket
 import Network.TLS qualified as TLS
 
 import Network.GRPC.Server
+import Network.GRPC.Util.HTTP2 (allocConfigWithTimeout)
 import Network.GRPC.Util.TLS (SslKeyLog(..))
 import Network.GRPC.Util.TLS qualified as Util.TLS
 
@@ -277,7 +281,7 @@ runInsecure cfg socketTMVar server =
         (openServerSocket socketTMVar)
         (insecureHost cfg)
         (show $ insecurePort cfg) $ \sock -> do
-      bracket (HTTP2.allocSimpleConfig sock writeBufferSize)
+      bracket (allocConfigWithTimeout sock writeBufferSize disableTimeout)
               HTTP2.freeSimpleConfig $ \config ->
         HTTP2.run HTTP2.defaultServerConfig config server
 
@@ -303,6 +307,8 @@ runSecure cfg socketTMVar server = do
                 keyLogger
             , HTTP2.TLS.settingsOpenServerSocket =
                 openServerSocket socketTMVar
+            , HTTP2.TLS.settingsTimeout =
+                disableTimeout
             }
 
     HTTP2.TLS.run
@@ -321,6 +327,28 @@ data CouldNotLoadCredentials =
 {-------------------------------------------------------------------------------
   Internal auxiliary
 -------------------------------------------------------------------------------}
+
+-- | Work around the fact that we cannot disable timeouts in http2/http2-tls
+--
+-- TODO: <https://github.com/well-typed/grapesy/issues/123>
+-- We need a proper solution for this.
+disableTimeout :: Int
+disableTimeout =
+#if (WORD_SIZE_IN_BITS == 64)
+    -- Set a really high timeout to effectively disable timeouts
+    --
+    -- We cannot use `maxBound` here, because this is value in
+    -- seconds which will be multiplied by 1_000_000 to get a value
+    -- in microseconds; `maxBound` would result in overflow.
+    1000000000 -- roughly 30 years
+#else
+#warning "Timeout for RPC messages is set to 30 minutes on 32-bit systems."
+#warning "See https://github.com/kazu-yamamoto/http2/issues/112"
+    -- Unfortunately, the same trick does not work on 32-bit
+    -- systems, where we simply don't have enough range. The
+    -- maximum timeout we can support here is 30 mins.
+    30 * 60
+#endif
 
 openServerSocket :: TMVar Socket -> AddrInfo -> IO Socket
 openServerSocket socketTMVar addr = do
