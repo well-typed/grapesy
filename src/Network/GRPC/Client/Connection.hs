@@ -442,11 +442,12 @@ stayConnected connParams server connStateVar connOutOfScope =
   where
     loop :: ReconnectPolicy -> IO ()
     loop remainingReconnectPolicy = do
+        -- Start new attempt (this just allocates some internal state)
         attempt <- newConnectionAttempt connParams connStateVar connOutOfScope
 
-        -- Just like in 'runHandler' on the server side, it is important that we
-        -- call @run@ (from @http2@ or @http2-tls@) in a separate thread. If we
-        -- do not, then the moment we disconnect @http2[-tls]@ will throw and we
+        -- Just like in 'runHandler' on the server side, it is important that
+        -- 'stayConnected' runs in a separate thread. If it does not, then the
+        -- moment we disconnect @http2[-tls]@ will throw an exception and we
         -- will not get the chance to process any other messages. This is
         -- especially important when we fail to setup a call: the server will
         -- respond with an informative gRPC error message (which we will raise
