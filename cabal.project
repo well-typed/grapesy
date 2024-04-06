@@ -3,3 +3,11 @@ packages: .
 package grapesy
   tests: True
   flags: +build-demo +build-stress-test +build-interop
+
+-- for ghc 9.8. See <https://github.com/google/proto-lens/pull/466>
+allow-newer: proto-lens:base
+allow-newer: proto-lens:deepseq
+allow-newer: proto-lens:ghc-prim
+allow-newer: proto-lens:primitive
+allow-newer: proto-lens-runtime:base
+allow-newer: proto-lens-runtime:deepseq
