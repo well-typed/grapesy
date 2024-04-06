@@ -68,11 +68,8 @@ instance SupportsClientRpc rpc => IsSession (ClientSession rpc) where
   type Inbound  (ClientSession rpc) = ClientInbound  rpc
   type Outbound (ClientSession rpc) = ClientOutbound rpc
 
-  buildOutboundTrailers _client = \NoMetadata -> []
-  parseInboundTrailers  _client = \raw ->
-      case parseProperTrailers (Proxy @rpc) raw of
-        Left  err -> throwIO $ InvalidTrailers err
-        Right res -> return res
+  buildOutboundTrailers _ = \NoMetadata -> []
+  parseInboundTrailers  _ = parseTrailers $ parseProperTrailers (Proxy @rpc)
 
   parseMsg _ = parseOutput (Proxy @rpc) . inbCompression
   buildMsg _ = buildInput  (Proxy @rpc) . outCompression
@@ -112,9 +109,7 @@ instance SupportsClientRpc rpc => InitiateSession (ClientSession rpc) where
                     (responseStatus info)
                     (fromMaybe BS.Lazy.empty $ responseBody info)
 
-      case parseTrailersOnly (Proxy @rpc) (responseHeaders info) of
-        Left  err -> throwIO $ InvalidTrailers err
-        Right res -> return res
+      parseTrailers (parseTrailersOnly (Proxy @rpc)) (responseHeaders info)
 
   buildRequestInfo _ start = RequestInfo {
         requestMethod  = rawMethod resourceHeaders
@@ -133,6 +128,18 @@ instance SupportsClientRpc rpc => InitiateSession (ClientSession rpc) where
 
 instance NoTrailers (ClientSession rpc) where
   noTrailers _ = NoMetadata
+
+{-------------------------------------------------------------------------------
+  Internal auxiliary
+-------------------------------------------------------------------------------}
+
+parseTrailers ::
+     ([HTTP.Header] -> Either String trailers)
+  -> [HTTP.Header] -> IO trailers
+parseTrailers _ []  = throwIO $ CallClosedWithoutTrailers
+parseTrailers f raw = case f raw of
+                        Left  err -> throwIO $ InvalidTrailers raw err
+                        Right res -> return res
 
 {-------------------------------------------------------------------------------
   Exceptions
@@ -165,6 +172,19 @@ data CallSetupFailure =
   deriving anyclass (Exception)
 
 -- | We failed to parse the response trailers
-data InvalidTrailers = InvalidTrailers String
+data InvalidTrailers =
+    -- | Some of the trailers could not be parsed
+    InvalidTrailers {
+        invalidTrailers      :: [HTTP.Header]
+      , invalidTrailersError :: String
+      }
+
+    -- | The server terminated without sending trailers at all
+    --
+    -- This can also happen when a server just suddenly disappears (or the
+    -- network connection is dropped). We cannot reliably distinguish between
+    -- "we lost the connection" and "the server closed the connection but did
+    -- not send us any trailers".
+  | CallClosedWithoutTrailers
   deriving stock (Show)
   deriving anyclass (Exception)

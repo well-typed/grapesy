@@ -73,5 +73,5 @@ sayHelloBidiStream = mkRpcHandler $ \call -> do
         msg = req ^. #name <> " Ack"
 
     cancellation :: ClientDisconnected -> IO ()
-    cancellation _ = putStrLn "RPC Cancelled!"
+    cancellation _ = putStrLn "sayHelloBidiStream server: cancelled."
 

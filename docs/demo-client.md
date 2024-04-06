@@ -150,6 +150,28 @@ if you now start the server again, the client should be able to connect again:
 {message: "Hello, Alice!"}
 ```
 
+This means that code can just create one `Connection` object and keep using it,
+even in the presence of temporary network failures etc.: `grapesy` will
+automatically reconnect. Of course, this is only true for _new_ RPC calls;
+_existing_ calls will fail. To see this, we can run the `sayHelloBidiStream`
+version of hello world, which uses a streaming RPC call, saying "hello" to each
+name as they stream in (as opposed to making multiple RPC calls for each name).
+Start the server again, and then run the client; after the first hello, stop
+the server and start it again; the client will reconnect, but when it tries to
+send the next message, an exception will be raised:
+
+```
+$ cabal run demo-client --  --core sayHelloBidiStream  \
+  --name 'John' \
+  --delay 10  \
+  --name 'Joe' \
+  --name 'Jay'
+{message: "John Ack"}
+Disconnected. Reconnecting after 1701081μs
+Reconnecting now.
+demo-client: CallClosedWithoutTrailers
+```
+
 ### Dealing with unterminated streams
 
 Normally the last message to the server is marked as `END_STREAM`. If this is
