@@ -76,9 +76,9 @@ deriving stock instance Show (SService s)
 
 -- | Select method
 data SMethod :: Type -> Symbol -> Type where
-  SSayHello            :: HelloRequest   -> SMethod Greeter "sayHello"
-  SSayHelloStreamReply :: HelloRequest   -> SMethod Greeter "sayHelloStreamReply"
-  SSayHelloBidiStream  :: [HelloRequest] -> SMethod Greeter "sayHelloBidiStream"
+  SSayHello            :: HelloRequest           -> SMethod Greeter "sayHello"
+  SSayHelloStreamReply :: HelloRequest           -> SMethod Greeter "sayHelloStreamReply"
+  SSayHelloBidiStream  :: [DelayOr HelloRequest] -> SMethod Greeter "sayHelloBidiStream"
 
   SGetFeature   :: Point               -> SMethod RouteGuide "getFeature"
   SListFeatures :: Rectangle           -> SMethod RouteGuide "listFeatures"
@@ -242,7 +242,7 @@ parseSomeMethod = Opt.subparser $ mconcat [
           parseHelloRequest
     , sub "sayHelloBidiStream" "helloworld.Greeter.SayHelloBidiStream" $
         SomeMethod SGreeter . SSayHelloBidiStream <$>
-          Opt.many parseHelloRequest
+          Opt.many (parseDelayOr parseHelloRequest)
     , sub "getFeature" "routeguide.RouteGuide.GetFeature" $
         SomeMethod SRouteGuide . SGetFeature <$>
           parsePoint ""
