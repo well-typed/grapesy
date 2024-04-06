@@ -1,3 +1,5 @@
+{-# OPTIONS_GHC -Wno-orphans #-}
+
 module Test.Stress.Server.API (
     ManyShortLived
   ) where

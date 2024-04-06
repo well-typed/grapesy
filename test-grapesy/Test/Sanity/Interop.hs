@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedLabels  #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# OPTIONS_GHC -Wno-orphans #-}
 
 -- | Test functionality required by the gRPC interop tests
 module Test.Sanity.Interop (tests) where
