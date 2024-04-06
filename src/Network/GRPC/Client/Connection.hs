@@ -312,10 +312,11 @@ startRPC Connection{connMetaVar, connParams, connStateVar} _ callParams = do
           ConnectionAbandoned err         -> throwSTM err
           ConnectionOutOfScope            -> error "impossible"
 
-    cOut <- Meta.outboundCompression <$> currentMeta
+    cOut     <- Meta.outboundCompression <$> currentMeta
+    metadata <- buildMetadataIO $ callRequestMetadata callParams
     let flowStart :: Session.FlowStart (ClientOutbound rpc)
         flowStart = Session.FlowStartRegular $ OutboundHeaders {
-            outHeaders     = requestHeaders cOut
+            outHeaders     = requestHeaders cOut metadata
           , outCompression = fromMaybe noCompression cOut
           }
 
@@ -355,16 +356,15 @@ startRPC Connection{connMetaVar, connParams, connStateVar} _ callParams = do
     updateMeta hdrs =
         modifyMVar_ connMetaVar $ Meta.update (connCompression connParams) hdrs
 
-    requestHeaders :: Maybe Compression -> RequestHeaders
-    requestHeaders cOut = RequestHeaders{
+    requestHeaders :: Maybe Compression -> [CustomMetadata] -> RequestHeaders
+    requestHeaders cOut metadata = RequestHeaders{
           requestTimeout =
             asum [
                 callTimeout callParams
               , connDefaultTimeout connParams
               ]
         , requestMetadata =
-            customMetadataMapFromList $
-              buildMetadata $ callRequestMetadata callParams
+            customMetadataMapFromList metadata
         , requestCompression =
             compressionId <$> cOut
         , requestAcceptCompression = Just $

@@ -24,6 +24,7 @@ module Network.GRPC.Spec.CustomMetadata.Raw (
   , parseCustomMetadata
   ) where
 
+import Control.DeepSeq (NFData)
 import Control.Monad
 import Control.Monad.Except (MonadError(throwError))
 import Data.ByteString qualified as BS.Strict
@@ -37,6 +38,7 @@ import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.String
 import Data.Word
+import GHC.Generics (Generic)
 import GHC.Show
 import GHC.Stack
 import Network.HTTP.Types qualified as HTTP
@@ -71,7 +73,8 @@ data CustomMetadata = UnsafeCustomMetadata {
       customMetadataName  :: HeaderName
     , customMetadataValue :: Strict.ByteString
     }
-  deriving stock (Eq)
+  deriving stock (Eq, Generic)
+  deriving anyclass (NFData)
 
 -- | 'Show' instance relies on the 'CustomMetadata' pattern synonym
 instance Show CustomMetadata where
@@ -166,7 +169,8 @@ data HeaderName =
     -- but the ABNF spec defines it as "space and horizontal tab"
     -- <https://www.rfc-editor.org/rfc/rfc5234#section-3.1>.
   | UnsafeAsciiHeader Strict.ByteString
-  deriving stock (Eq, Ord)
+  deriving stock (Eq, Ord, Generic)
+  deriving anyclass (NFData)
 
 pattern BinaryHeader :: HasCallStack => Strict.ByteString -> HeaderName
 pattern BinaryHeader name <- UnsafeBinaryHeader name

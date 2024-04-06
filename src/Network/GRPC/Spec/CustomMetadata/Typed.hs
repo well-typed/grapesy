@@ -8,10 +8,13 @@ module Network.GRPC.Spec.CustomMetadata.Typed (
   , BuildMetadata(..)
   , StaticMetadata(..)
   , ParseMetadata(..)
+  , buildMetadataIO
     -- * Escape hatch: raw metadata
   , RawMetadata(..)
   ) where
 
+import Control.DeepSeq (force)
+import Control.Exception
 import Control.Monad.Catch
 import Data.Kind
 import Data.Proxy
@@ -83,6 +86,13 @@ deriving stock instance
 -- | Serialize metadata to custom metadata headers
 class BuildMetadata a where
   buildMetadata :: a -> [CustomMetadata]
+
+-- | Wrapper around 'buildMetadata' that catches any pure exceptions
+--
+-- These pure exceptions can arise when invalid headers are generated (for
+-- example, ASCII headers with non-ASCII values).
+buildMetadataIO :: BuildMetadata a => a -> IO [CustomMetadata]
+buildMetadataIO = evaluate . force . buildMetadata
 
 -- | Metadata with statically known fields
 --

@@ -164,8 +164,6 @@ instance BuildMetadata InteropRespInitMeta where
 
 instance BuildMetadata InteropRespTrailMeta where
   buildMetadata md = concat [
-        -- TODO: If we use the wrong header name here, we get a test failure
-        -- (that's good) with a very unhelpful exception.
         [ CustomMetadata grpcTestEchoTrailingBin val
         | Just val <- [interopActualTrail md]
         ]

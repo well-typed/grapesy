@@ -146,6 +146,7 @@ module Network.GRPC.Spec (
   , BuildMetadata(..)
   , ParseMetadata(..)
   , StaticMetadata(..)
+  , buildMetadataIO
     -- * Content type
   , ContentType(..)
     -- * OpenTelemetry
