@@ -48,6 +48,7 @@ import Control.Monad.Catch
 import Control.Monad.XIO (XIO')
 import Control.Monad.XIO qualified as XIO
 import Data.Bifunctor
+import Data.Bitraversable
 import Data.Default
 import Data.Text qualified as Text
 import GHC.Stack
@@ -197,7 +198,7 @@ setupCall conn callContext@ServerContext{params} = do
         responseMetadata <- do
           mMetadata <- atomically $ readTVar metadataVar
           case mMetadata of
-            Just md -> return $ buildMetadata md
+            Just md -> buildMetadataIO md
             Nothing -> throwIO $ ResponseInitialMetadataNotSet
 
         -- Session start
@@ -289,7 +290,8 @@ sendOutputWithEnvelope :: forall rpc.
   -> IO ()
 sendOutputWithEnvelope call@Call{callChannel} msg = do
     _updated <- initiateResponse call
-    Session.send callChannel (first mkTrailers msg)
+    msg'     <- bitraverse mkTrailers return msg
+    Session.send callChannel msg'
 
     -- This /must/ be called before leaving the scope of 'acceptCall' (or we
     -- risk that the HTTP2 stream is cancelled). We can't call 'waitForOutbound'
@@ -298,15 +300,16 @@ sendOutputWithEnvelope call@Call{callChannel} msg = do
     StreamElem.whenDefinitelyFinal msg $ \_ ->
       void $ Session.waitForOutbound callChannel
   where
-    mkTrailers :: ResponseTrailingMetadata rpc -> ProperTrailers
-    mkTrailers metadata = ProperTrailers {
-          properTrailersGrpcStatus     = GrpcOk
-        , properTrailersGrpcMessage    = Nothing
-        , properTrailersMetadata       = customMetadataMapFromList $
-                                           buildMetadata metadata
-        , properTrailersPushback       = Nothing
-        , properTrailersOrcaLoadReport = Nothing
-        }
+    mkTrailers :: ResponseTrailingMetadata rpc -> IO ProperTrailers
+    mkTrailers metadata = do
+        metadata' <- customMetadataMapFromList <$> buildMetadataIO metadata
+        return ProperTrailers {
+            properTrailersGrpcStatus     = GrpcOk
+          , properTrailersGrpcMessage    = Nothing
+          , properTrailersMetadata       = metadata'
+          , properTrailersPushback       = Nothing
+          , properTrailersOrcaLoadReport = Nothing
+          }
 
 -- | Send 'GrpcException' to the client
 --
@@ -401,27 +404,24 @@ initiateResponse Call{callResponseKickoff} =
 sendTrailersOnly ::
      HasCallStack
   => Call rpc -> ResponseTrailingMetadata rpc -> IO ()
-sendTrailersOnly Call{ callContext
-                     , callResponseKickoff
-                     }
-                 metadata
-               = atomically $ do
-    previously <- fmap kickoffCallStack <$> tryReadTMVar callResponseKickoff
-    case previously of
-      Nothing -> putTMVar callResponseKickoff $
-                   KickoffTrailersOnly callStack trailers
-      Just cs -> throwSTM $ ResponseAlreadyInitiated cs callStack
+sendTrailersOnly Call{callContext, callResponseKickoff} metadata = do
+    metadata' <- buildMetadataIO metadata
+    atomically $ do
+      previously <- fmap kickoffCallStack <$> tryReadTMVar callResponseKickoff
+      case previously of
+        Nothing -> putTMVar callResponseKickoff $
+                     KickoffTrailersOnly callStack (trailers metadata')
+        Just cs -> throwSTM $ ResponseAlreadyInitiated cs callStack
   where
     ServerContext{params} = callContext
 
-    trailers :: TrailersOnly
-    trailers = TrailersOnly {
+    trailers :: [CustomMetadata] -> TrailersOnly
+    trailers metadata' = TrailersOnly {
           trailersOnlyContentType = Context.serverContentType params
         , trailersOnlyProper      = ProperTrailers {
               properTrailersGrpcStatus     = GrpcOk
             , properTrailersGrpcMessage    = Nothing
-            , properTrailersMetadata       = customMetadataMapFromList $
-                                               buildMetadata metadata
+            , properTrailersMetadata       = customMetadataMapFromList metadata'
             , properTrailersPushback       = Nothing
             , properTrailersOrcaLoadReport = Nothing
             }
