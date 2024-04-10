@@ -2,15 +2,10 @@ packages: .
 
 package grapesy
   tests: True
-  -- Force the snappy flag to true for CI
-  flags: +build-demo +build-stress-test +build-interop +snappy
-  -- Insist on no warnings
+  flags: +build-demo +build-stress-test +snappy
   ghc-options: -Werror
 
--- for ghc 9.8. See <https://github.com/google/proto-lens/pull/466>
-allow-newer: proto-lens:base
-allow-newer: proto-lens:deepseq
-allow-newer: proto-lens:ghc-prim
-allow-newer: proto-lens:primitive
-allow-newer: proto-lens-runtime:base
-allow-newer: proto-lens-runtime:deepseq
+source-repository-package
+  type: git
+  location: https://github.com/well-typed/snappy-c.git 
+  tag: 7b37b14c847378c6519844a1b0c29d23e0db8f71
