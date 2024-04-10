@@ -13,6 +13,8 @@ import Data.Proxy
 import Network.HTTP.Types qualified as HTTP
 
 import Network.GRPC.Common.Compression qualified as Compr
+import Network.GRPC.Server.Context (ServerContext)
+import Network.GRPC.Server.Context qualified as Context
 import Network.GRPC.Spec
 import Network.GRPC.Util.Session
 
@@ -21,7 +23,7 @@ import Network.GRPC.Util.Session
 -------------------------------------------------------------------------------}
 
 data ServerSession rpc = ServerSession {
-      serverCompression :: Compr.Negotation
+      serverSessionContext :: ServerContext
     }
 
 {-------------------------------------------------------------------------------
@@ -66,7 +68,7 @@ instance SupportsServerRpc rpc => IsSession (ServerSession rpc) where
   buildMsg _ = buildOutput (Proxy @rpc) . outCompression
 
 instance SupportsServerRpc rpc => AcceptSession (ServerSession rpc) where
-  parseRequestRegular server headers = do
+  parseRequestRegular session headers = do
       requestHeaders :: RequestHeaders <-
         case parseRequestHeaders (Proxy @rpc) headers of
           Left (httpStatus, err) ->
@@ -80,7 +82,7 @@ instance SupportsServerRpc rpc => AcceptSession (ServerSession rpc) where
         case cInId of
           Nothing  -> return noCompression
           Just cid ->
-            case Compr.getSupported (serverCompression server) cid of
+            case Compr.getSupported serverCompression cid of
               Nothing    -> throwIO $ CallSetupUnsupportedCompression cid
               Just compr -> return compr
 
@@ -88,6 +90,10 @@ instance SupportsServerRpc rpc => AcceptSession (ServerSession rpc) where
           inbHeaders     = requestHeaders
         , inbCompression = cIn
         }
+    where
+      ServerSession{serverSessionContext} = session
+      Context.ServerContext{serverParams} = serverSessionContext
+      Context.ServerParams{serverCompression} = serverParams
 
   parseRequestNoMessages _ headers =
       case parseRequestHeaders (Proxy @rpc) headers of

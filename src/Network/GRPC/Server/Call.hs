@@ -175,7 +175,7 @@ setupCall conn callContext@ServerContext{serverParams} = do
   where
     callSession :: ServerSession rpc
     callSession = ServerSession {
-          serverCompression = compr
+          serverSessionContext = callContext
         }
 
     compr :: Compr.Negotation
