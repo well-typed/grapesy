@@ -476,12 +476,12 @@ withTestServer cfg firstTestFailure handlerLock serverHandlers k = do
                 }
 
         serverParams :: Server.ServerParams
-        serverParams = Server.ServerParams {
-              serverCompression =
+        serverParams = def {
+              Server.serverCompression =
                 serverCompr cfg
-            , serverTopLevel =
+            , Server.serverTopLevel =
                 topLevelWithHandlerLock cfg firstTestFailure handlerLock
-            , serverContentType =
+            , Server.serverContentType =
                 case serverContentType cfg of
                   NoOverride            -> Nothing
                   ValidOverride   ctype -> Just ctype

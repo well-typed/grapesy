@@ -13,8 +13,7 @@ import Data.Proxy
 import Network.HTTP.Types qualified as HTTP
 
 import Network.GRPC.Common.Compression qualified as Compr
-import Network.GRPC.Server.Context (ServerContext)
-import Network.GRPC.Server.Context qualified as Context
+import Network.GRPC.Server.Context
 import Network.GRPC.Spec
 import Network.GRPC.Util.Session
 
@@ -92,8 +91,8 @@ instance SupportsServerRpc rpc => AcceptSession (ServerSession rpc) where
         }
     where
       ServerSession{serverSessionContext} = session
-      Context.ServerContext{serverParams} = serverSessionContext
-      Context.ServerParams{serverCompression} = serverParams
+      ServerContext{serverParams} = serverSessionContext
+      ServerParams{serverCompression} = serverParams
 
   parseRequestNoMessages _ headers =
       case parseRequestHeaders (Proxy @rpc) headers of

@@ -50,15 +50,13 @@ import Control.Monad.XIO qualified as XIO
 import Data.Bifunctor
 import Data.Bitraversable
 import Data.Default
-import Data.Text qualified as Text
 import GHC.Stack
 import Network.HTTP2.Server qualified as HTTP2
 
 import Network.GRPC.Common
 import Network.GRPC.Common.Compression qualified as Compr
 import Network.GRPC.Common.StreamElem qualified as StreamElem
-import Network.GRPC.Server.Context (ServerContext(..))
-import Network.GRPC.Server.Context qualified as Context
+import Network.GRPC.Server.Context
 import Network.GRPC.Server.Session
 import Network.GRPC.Spec
 import Network.GRPC.Util.Session qualified as Session
@@ -179,7 +177,7 @@ setupCall conn callContext@ServerContext{serverParams} = do
         }
 
     compr :: Compr.Negotation
-    compr = Context.serverCompression serverParams
+    compr = serverCompression serverParams
 
     req :: HTTP2.Request
     req = Server.request conn
@@ -213,7 +211,7 @@ setupCall conn callContext@ServerContext{serverParams} = do
                   , responseMetadata =
                       customMetadataMapFromList responseMetadata
                   , responseContentType =
-                      Context.serverContentType serverParams
+                      serverContentType serverParams
                   }
               , outCompression = cOut
               }
@@ -222,22 +220,20 @@ setupCall conn callContext@ServerContext{serverParams} = do
 
 
 -- | Turn exception raised in server handler to error to be sent to the client
---
--- TODO: There might be a security concern here (server-side exceptions could
--- potentially leak some sensitive data).
-serverExceptionToClientError :: SomeException -> ProperTrailers
-serverExceptionToClientError err
-    | Just (err' :: GrpcException) <- fromException err
-    = grpcExceptionToTrailers err'
+serverExceptionToClientError :: ServerParams -> SomeException -> IO ProperTrailers
+serverExceptionToClientError params err
+    | Just (err' :: GrpcException) <- fromException err =
+        return $ grpcExceptionToTrailers err'
 
-    | otherwise
-    = ProperTrailers {
-          properTrailersGrpcStatus     = GrpcError GrpcUnknown
-        , properTrailersGrpcMessage    = Just $ Text.pack (show err)
-        , properTrailersMetadata       = mempty
-        , properTrailersPushback       = Nothing
-        , properTrailersOrcaLoadReport = Nothing
-        }
+    | otherwise = do
+        mMsg <- serverExceptionToClient params err
+        return $  ProperTrailers {
+            properTrailersGrpcStatus     = GrpcError GrpcUnknown
+          , properTrailersGrpcMessage    = mMsg
+          , properTrailersMetadata       = mempty
+          , properTrailersPushback       = Nothing
+          , properTrailersOrcaLoadReport = Nothing
+          }
 
 {-------------------------------------------------------------------------------
   Open (ongoing) call
@@ -420,7 +416,7 @@ sendTrailersOnly Call{callContext, callResponseKickoff} metadata = do
 
     trailers :: [CustomMetadata] -> TrailersOnly
     trailers metadata' = TrailersOnly {
-          trailersOnlyContentType = Context.serverContentType serverParams
+          trailersOnlyContentType = serverContentType serverParams
         , trailersOnlyProper      = ProperTrailers {
               properTrailersGrpcStatus     = GrpcOk
             , properTrailersGrpcMessage    = Nothing
@@ -537,7 +533,7 @@ sendProperTrailers Call{callContext, callResponseKickoff, callChannel}
             callStack
             ( properTrailersToTrailersOnly (
                 trailers
-              , Context.serverContentType serverParams
+              , serverContentType serverParams
               )
             )
     unless updated $
