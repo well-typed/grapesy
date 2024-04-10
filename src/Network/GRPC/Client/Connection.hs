@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 -- | Connection to a server
 --
 -- Intended for qualified import.
@@ -24,10 +26,13 @@ import Control.Concurrent
 import Control.Concurrent.STM
 import Control.Monad
 import Control.Monad.Catch
+import Data.ByteString.Char8 qualified as BS.Strict.C8
 import Data.Default
 import Data.Foldable (asum)
+import Data.List (intersperse)
 import Data.Maybe (fromMaybe)
 import Data.Proxy
+import Data.Version
 import GHC.Stack
 import Network.HPACK qualified as HPACK
 import Network.HTTP2.Client qualified as HTTP2.Client
@@ -48,6 +53,8 @@ import Network.GRPC.Util.Session qualified as Session
 import Network.GRPC.Util.Thread
 import Network.GRPC.Util.TLS (ServerValidation(..), SslKeyLog(..))
 import Network.GRPC.Util.TLS qualified as Util.TLS
+
+import Paths_grapesy qualified as Grapesy
 
 {---------------------------------------------------2----------------------------
   Connection API
@@ -391,6 +398,13 @@ startRPC Connection{connMetaVar, connParams, connStateVar} _ callParams = do
             connContentType connParams
         , requestMessageType =
             True
+        , requestUserAgent = Just $
+            mconcat [
+                "grpc-haskell-grapesy/"
+              , mconcat . intersperse "." $
+                  map (BS.Strict.C8.pack . show) $
+                    versionBranch Grapesy.version
+              ]
         , requestIncludeTE =
             True
         , requestTraceContext =

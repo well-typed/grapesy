@@ -22,11 +22,10 @@ import Data.ByteString qualified as Strict (ByteString)
 import Data.ByteString.Char8 qualified as BS.Strict.C8
 import Data.ByteString.UTF8 qualified as BS.Strict.UTF8
 import Data.Functor (($>))
-import Data.List (intersperse, intercalate)
+import Data.List (intercalate)
 import Data.List.NonEmpty (NonEmpty)
 import Data.Maybe (catMaybes)
 import Data.Proxy
-import Data.Version
 import GHC.Stack
 import Network.HTTP.Types qualified as HTTP
 
@@ -41,7 +40,6 @@ import Network.GRPC.Spec.TraceContext
 import Network.GRPC.Util.HKD (HKD, Undecorated, DecoratedWith)
 import Network.GRPC.Util.HKD qualified as HKD
 
-import Paths_grapesy qualified as Grapesy
 import Text.Read (readMaybe)
 
 {-------------------------------------------------------------------------------
@@ -85,6 +83,9 @@ data RequestHeaders_ f = RequestHeaders {
       -- we verify that it has the valeu we expect.
     , requestMessageType :: HKD f Bool
 
+      -- | User agent
+    , requestUserAgent :: HKD f (Maybe Strict.ByteString)
+
       -- | Should we include the @te: trailers@ header?
       --
       -- The @TE@ header is part of the HTTP specification;
@@ -123,6 +124,7 @@ instance HKD.Traversable RequestHeaders_ where
         <*> requestAcceptCompression   x
         <*> requestContentType         x
         <*> requestMessageType         x
+        <*> requestUserAgent           x
         <*> requestIncludeTE           x
         <*> requestTraceContext        x
         <*> requestPreviousRpcAttempts x
@@ -185,7 +187,7 @@ callDefinition proxy = \hdrs -> catMaybes [
     , guard (requestMessageType hdrs) $> buildMessageType
     , buildMessageEncoding <$> requestCompression hdrs
     , buildMessageAcceptEncoding <$> requestAcceptCompression hdrs
-    , Just $ buildUserAgent
+    , buildUserAgent <$> requestUserAgent hdrs
     , buildGrpcTraceBin <$> requestTraceContext hdrs
     , buildPreviousRpcAttempts <$> requestPreviousRpcAttempts hdrs
     ]
@@ -221,15 +223,10 @@ callDefinition proxy = \hdrs -> catMaybes [
     -- >   "/"
     -- >   Version
     -- >   ?( " ("  *(AdditionalProperty ";") ")" )
-    buildUserAgent :: HTTP.Header
-    buildUserAgent = (
+    buildUserAgent :: Strict.ByteString -> HTTP.Header
+    buildUserAgent userAgent = (
           "user-agent"
-        , mconcat [
-              "grpc-haskell-grapesy/"
-            , mconcat . intersperse "." $
-                map (BS.Strict.C8.pack . show) $
-                  versionBranch Grapesy.version
-            ]
+        , userAgent
         )
 
     buildGrpcTraceBin :: TraceContext -> HTTP.Header
@@ -260,7 +257,9 @@ parseRequestHeaders proxy =
     parseHeader :: HTTP.Header -> State (RequestHeaders_ (DecoratedWith m)) ()
     parseHeader hdr@(name, value)
       | name == "user-agent"
-      = return () -- TODO
+      = modify $ \x -> x {
+           requestUserAgent = return (Just value)
+          }
 
       | name == "grpc-timeout"
       = modify $ \x -> x {
@@ -340,6 +339,7 @@ parseRequestHeaders proxy =
         , requestContentType         = return Nothing
         , requestMessageType         = return False
         , requestIncludeTE           = return False
+        , requestUserAgent           = return Nothing
         , requestTraceContext        = return Nothing
         , requestPreviousRpcAttempts = return Nothing
         }
