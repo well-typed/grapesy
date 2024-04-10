@@ -110,6 +110,9 @@ library
       Network.GRPC.Server.Run
       Network.GRPC.Server.StreamType
       Network.GRPC.Spec
+
+      -- TODO: make this available to the test in a different way
+      Network.GRPC.Util.Parser
   other-modules:
       Network.GRPC.Client.Call
       Network.GRPC.Client.Connection
@@ -150,7 +153,6 @@ library
       Network.GRPC.Util.HKD
       Network.GRPC.Util.HTTP2
       Network.GRPC.Util.HTTP2.Stream
-      Network.GRPC.Util.Parser
       Network.GRPC.Util.Protobuf
       Network.GRPC.Util.RedundantConstraint
       Network.GRPC.Util.Session
@@ -260,6 +262,7 @@ test-suite test-grapesy
       Test.Driver.Dialogue.Generation
       Test.Driver.Dialogue.TestClock
       Test.Prop.Dialogue
+      Test.Prop.IncrementalParsing
       Test.Prop.Serialization
       Test.Sanity.Interop
       Test.Sanity.StreamingType.CustomFormat

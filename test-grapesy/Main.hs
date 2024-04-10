@@ -7,6 +7,7 @@ import System.IO
 import Test.Tasty
 
 import Test.Prop.Dialogue                     qualified as Dialogue
+import Test.Prop.IncrementalParsing           qualified as IncrementalParsing
 import Test.Prop.Serialization                qualified as Serialization
 import Test.Sanity.Interop                    qualified as Interop
 import Test.Sanity.StreamingType.CustomFormat qualified as StreamingType.CustomFormat
@@ -25,7 +26,8 @@ main = do
           , Interop.tests
           ]
       , testGroup "Prop" [
-            Serialization.tests
+            IncrementalParsing.tests
+          , Serialization.tests
           , Dialogue.tests
           ]
       ]

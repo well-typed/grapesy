@@ -17,7 +17,6 @@ module Network.GRPC.Spec.LengthPrefixed (
 
 import Data.Binary.Get (Get)
 import Data.Binary.Get qualified as Binary
-import Data.ByteString qualified as Strict (ByteString)
 import Data.ByteString.Builder (Builder)
 import Data.ByteString.Builder qualified as Builder
 import Data.ByteString.Lazy qualified as BS.Lazy
@@ -28,7 +27,8 @@ import Data.Word
 
 import Network.GRPC.Spec.Compression
 import Network.GRPC.Spec.RPC
-import Network.GRPC.Util.Parser (Parser(..))
+import Network.GRPC.Util.Parser (Parser)
+import Network.GRPC.Util.Parser qualified as Parser
 
 {-------------------------------------------------------------------------------
   Message prefix
@@ -140,10 +140,6 @@ buildMsg build compr (envelope, x) = mconcat [
 
 {-------------------------------------------------------------------------------
   Parsing
-
-  TODO: We should stress-test this parser, cutting the data stream into
-  arbitrary chunks, ideally both by calling the parser directly and through the
-  larger library, testing 'Network.GRPC.Call.Peer.receiveMessages'.
 -------------------------------------------------------------------------------}
 
 data InboundEnvelope = InboundEnvelope {
@@ -159,59 +155,45 @@ parseInput ::
      SupportsServerRpc rpc
   => Proxy rpc
   -> Compression
-  -> Parser (InboundEnvelope, Input rpc)
+  -> Parser String (InboundEnvelope, Input rpc)
 parseInput = parseMsg . rpcDeserializeInput
 
 parseOutput ::
      SupportsClientRpc rpc
   => Proxy rpc
   -> Compression
-  -> Parser (InboundEnvelope, Output rpc)
+  -> Parser String (InboundEnvelope, Output rpc)
 parseOutput = parseMsg . rpcDeserializeOutput
 
 parseMsg :: forall x.
      (Lazy.ByteString -> Either String x)
   -> Compression
-  -> Parser (InboundEnvelope, x)
-parseMsg parse compr =
-    waitForPrefix BS.Lazy.empty
+  -> Parser String (InboundEnvelope, x)
+parseMsg parse compr = do
+    prefix <- Parser.getExactly 5 getMessagePrefix
+    Parser.consumeExactly (fromIntegral $ msgLength prefix) $
+      parseBody (msgIsCompressed prefix)
   where
-    waitForPrefix :: Lazy.ByteString -> Parser (InboundEnvelope, x)
-    waitForPrefix acc
-      | BS.Lazy.length acc < 5
-      = ParserNeedsData acc $ \next -> waitForPrefix (snoc acc next)
+    parseBody :: Bool -> Lazy.ByteString -> Either String (InboundEnvelope, x)
+    parseBody False body =
+        (envelope,) <$> parse body
+      where
+        envelope :: InboundEnvelope
+        envelope = InboundEnvelope {
+              inboundCompressedSize   = Nothing
+            , inboundUncompressedSize = lengthOf body
+            }
+    parseBody True compressed =
+        (envelope,) <$> parse uncompressed
+      where
+        uncompressed :: Lazy.ByteString
+        uncompressed = decompress compr compressed
 
-      | otherwise
-      = case Binary.runGetOrFail getMessagePrefix acc of
-          Left (_, _, err) ->
-            ParserError err
-          Right (unconsumed, _lenConsumed, prefix) ->
-            withPrefix prefix unconsumed
+        envelope :: InboundEnvelope
+        envelope = InboundEnvelope {
+              inboundCompressedSize   = Just (lengthOf compressed)
+            , inboundUncompressedSize = lengthOf uncompressed
+            }
 
-    withPrefix ::
-         MessagePrefix
-      -> Lazy.ByteString
-      -> Parser (InboundEnvelope, x)
-    withPrefix prefix acc
-      | BS.Lazy.length acc < fromIntegral (msgLength prefix)
-      = ParserNeedsData acc $ \next -> withPrefix prefix (snoc acc next)
-
-      | otherwise
-      = let (msg, rest) = BS.Lazy.splitAt (fromIntegral $ msgLength prefix) acc
-            serialized  = if msgIsCompressed prefix
-                            then decompress compr msg
-                            else msg
-            envelope    = InboundEnvelope {
-                              inboundCompressedSize =
-                                if msgIsCompressed prefix
-                                  then Just $ msgLength prefix
-                                  else Nothing
-                            , inboundUncompressedSize =
-                                fromIntegral $ BS.Lazy.length serialized
-                            }
-        in case parse serialized of
-             Left err -> ParserError err
-             Right a  -> ParserDone (envelope, a) $ waitForPrefix rest
-
-    snoc :: Lazy.ByteString -> Strict.ByteString -> Lazy.ByteString
-    snoc acc next = acc <> BS.Lazy.fromStrict next
+    lengthOf :: Num a => Lazy.ByteString -> a
+    lengthOf = fromIntegral . BS.Lazy.length

@@ -36,20 +36,19 @@ import Control.Exception
 import Control.Monad
 import Control.Monad.Catch (ExitCase(..))
 import Data.Bifunctor
-import Data.ByteString qualified as BS.Strict
 import Data.ByteString.Builder (Builder)
-import Data.ByteString.Lazy qualified as BS.Lazy
 import GHC.Stack
-import Network.HTTP.Types qualified as HTTP
 import Network.HTTP2.Internal qualified as HTTP2
 
 import Network.GRPC.Common.StreamElem (StreamElem(..))
 import Network.GRPC.Common.StreamElem qualified as StreamElem
 import Network.GRPC.Util.HTTP2.Stream
-import Network.GRPC.Util.Parser
+import Network.GRPC.Util.Parser (Parser)
 import Network.GRPC.Util.RedundantConstraint
 import Network.GRPC.Util.Session.API
 import Network.GRPC.Util.Thread
+import Network.GRPC.Util.Parser qualified as Parser
+import Data.ByteString.Lazy qualified as BS.Lazy
 
 {-------------------------------------------------------------------------------
   Definitions
@@ -508,30 +507,19 @@ recvMessageLoop :: forall sess.
 recvMessageLoop sess st stream =
     go $ parseMsg sess (flowHeaders st)
   where
-    go :: Parser (Message (Inbound sess)) -> IO (Trailers (Inbound sess))
-    go = \parser -> do
-        trailers <- loop parser >>= parseInboundTrailers sess
+    go :: Parser String (Message (Inbound sess)) -> IO (Trailers (Inbound sess))
+    go parser = do
+        leftover <- Parser.processAllIO
+          (getChunk stream)
+          (atomically . putTMVar (flowMsg st) . StreamElem)
+          (first PeerSentMalformedMessage parser)
+        unless (BS.Lazy.null leftover) $
+          throwIO PeerSentIncompleteMessage
+
+        trailers <- parseInboundTrailers sess =<<  getTrailers stream
         atomically $ putTMVar (flowTerminated st) $ trailers
         atomically $ putTMVar (flowMsg        st) $ NoMoreElems trailers
         return trailers
-      where
-        loop :: Parser (Message (Inbound sess)) -> IO [HTTP.Header]
-        loop (ParserError err) =
-            throwIO $ PeerSentMalformedMessage err
-        loop (ParserDone x p') = do
-            atomically $ putTMVar (flowMsg st) $ StreamElem x
-            loop p'
-        loop (ParserNeedsData acc p') = do
-            bs <- getChunk stream
-
-            if | not (BS.Strict.null bs) ->
-                   loop $ p' bs
-
-               | not (BS.Lazy.null acc) ->
-                   throwIO PeerSentIncompleteMessage
-
-               | otherwise ->
-                   getTrailers stream
 
 outboundTrailersMaker :: forall sess.
      IsSession sess
