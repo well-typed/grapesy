@@ -24,8 +24,9 @@ import Data.Text qualified as Text
 {-------------------------------------------------------------------------------
   Context
 
-  TODO: The server context is more of a placeholder at the moment. The plan is
-  to use it to keep things like server usage statistics etc.
+  TODO: <https://github.com/well-typed/grapesy/issues/130>
+  The server context is more of a placeholder at the moment. The plan is to use
+  it to keep things like server usage statistics etc.
 -------------------------------------------------------------------------------}
 
 data ServerContext = ServerContext {

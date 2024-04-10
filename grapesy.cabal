@@ -166,7 +166,6 @@ library
       Proto.OrcaLoadReport
       Proto.OrcaLoadReport_Fields
 
-      -- TODO: Should move to its own package
       Control.Monad.XIO
   autogen-modules:
       Paths_grapesy

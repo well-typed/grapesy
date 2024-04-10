@@ -72,7 +72,8 @@ findHandler ::
   -> HTTP2.Request
   -> XIO' CallSetupFailure (SomeRpcHandler IO)
 findHandler handlers req = do
-    -- TODO: Proper "Apache style" logging (in addition to the debug logging)
+    -- TODO: <https://github.com/well-typed/grapesy/issues/131>
+    -- We should do some request logging.
 
     resourceHeaders <- liftEither . first CallSetupInvalidResourceHeaders $
       parseResourceHeaders rawHeaders
