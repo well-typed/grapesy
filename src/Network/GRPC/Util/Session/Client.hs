@@ -86,7 +86,7 @@ class NoTrailers sess where
 
 -- | Setup request channel
 --
--- This initiate a new request.
+-- This initiates a new request.
 --
 setupRequestChannel :: forall sess.
      (InitiateSession sess, NoTrailers sess)

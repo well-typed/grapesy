@@ -5,7 +5,10 @@ module Test.Stress.Cmdline (
   , getCmdline
   ) where
 
+import Data.Foldable (asum)
 import Options.Applicative qualified as Opt
+
+import Network.GRPC.Common.StreamType
 
 {-------------------------------------------------------------------------------
   Definition
@@ -20,7 +23,9 @@ data Role =
   | Server
 
 data Test =
-    ManyShortLived
+    ManyConnections Word
+  | ManyCalls Word
+  | ManyMessages Word StreamingType
 
 {-------------------------------------------------------------------------------
   Parser top-level
@@ -43,7 +48,45 @@ parseRole = Opt.subparser $ mconcat [
 
 parseTest :: Opt.Parser Test
 parseTest = Opt.subparser $ mconcat [
-      sub "manyshortlived" "Many short-lived RPC calls" (pure ManyShortLived)
+      sub
+        "many-connections"
+        "Many connections with single non-streaming RPC call" $
+          ManyConnections
+            <$> parseWord "NUM_CONNECTIONS" "number of connections to open"
+    , sub
+        "many-calls"
+        "Many non-streaming RPC calls on a single connection" $
+          ManyCalls
+            <$> parseWord "NUM_CALLS" "number of calls to make"
+    , sub
+        "many-messages"
+        "Single call on a single connection, many messages exchanged" $
+          ManyMessages
+            <$> parseWord "NUM_MESSAGES" "number of messages"
+            <*> parseStreamingType
+    ]
+
+parseWord :: String -> String -> Opt.Parser Word
+parseWord meta help =
+    Opt.argument Opt.auto $
+      Opt.metavar meta <> Opt.help help
+
+parseStreamingType :: Opt.Parser StreamingType
+parseStreamingType = asum [
+      Opt.flag' ClientStreaming $ mconcat [
+          Opt.long "stream-client"
+        , Opt.help "client-side streaming"
+        ]
+    , Opt.flag' ServerStreaming $ mconcat [
+          Opt.long "stream-server"
+        , Opt.help "server-side streaming"
+        ]
+    , Opt.flag' BiDiStreaming $ mconcat [
+          Opt.long "stream-bidi"
+        , Opt.help "Bidirectional streaming"
+        ]
+
+    -- 'NoStreaming' is tested by the many-connections and many-calls cases
     ]
 
 {-------------------------------------------------------------------------------

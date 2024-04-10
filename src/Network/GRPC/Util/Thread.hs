@@ -47,9 +47,10 @@ nextDebugThreadId = unsafePerformIO $ newMVar 0
 
 newDebugThreadId :: HasCallStack => IO DebugThreadId
 newDebugThreadId =
-    modifyMVar nextDebugThreadId $ \x ->
+    modifyMVar nextDebugThreadId $ \x -> do
+      let !nextId = succ x
       return (
-          succ x
+          nextId
         , DebugThreadId x (popIrrelevant callStack)
         )
   where
