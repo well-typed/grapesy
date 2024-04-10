@@ -30,11 +30,14 @@ import Network.GRPC.Spec
 -------------------------------------------------------------------------------}
 
 data ServerContext = ServerContext {
-      params :: ServerParams
+      serverParams :: ServerParams
     }
 
 new :: ServerParams -> IO ServerContext
-new params = return ServerContext{params}
+new serverParams = do
+    return ServerContext{
+        serverParams
+      }
 
 {-------------------------------------------------------------------------------
   Configuration

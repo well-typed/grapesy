@@ -133,7 +133,7 @@ setupCall :: forall rpc.
   => Server.ConnectionToClient
   -> ServerContext
   -> XIO' CallSetupFailure (Call rpc)
-setupCall conn callContext@ServerContext{params} = do
+setupCall conn callContext@ServerContext{serverParams} = do
     callResponseMetadata <- XIO.unsafeTrustMe $ newTVarIO Nothing
     callResponseKickoff  <- XIO.unsafeTrustMe $ newEmptyTMVarIO
 
@@ -179,7 +179,7 @@ setupCall conn callContext@ServerContext{params} = do
         }
 
     compr :: Compr.Negotation
-    compr = Context.serverCompression params
+    compr = Context.serverCompression serverParams
 
     req :: HTTP2.Request
     req = Server.request conn
@@ -206,11 +206,14 @@ setupCall conn callContext@ServerContext{params} = do
           KickoffRegular _cs ->
             return $ Session.FlowStartRegular $ OutboundHeaders {
                 outHeaders = ResponseHeaders {
-                    responseCompression       = Just $ Compr.compressionId cOut
-                  , responseAcceptCompression = Just $ Compr.offer compr
-                  , responseMetadata          = customMetadataMapFromList
-                                                  responseMetadata
-                  , responseContentType       = Context.serverContentType params
+                    responseCompression =
+                      Just $ Compr.compressionId cOut
+                  , responseAcceptCompression =
+                      Just $ Compr.offer compr
+                  , responseMetadata =
+                      customMetadataMapFromList responseMetadata
+                  , responseContentType =
+                      Context.serverContentType serverParams
                   }
               , outCompression = cOut
               }
@@ -413,11 +416,11 @@ sendTrailersOnly Call{callContext, callResponseKickoff} metadata = do
                      KickoffTrailersOnly callStack (trailers metadata')
         Just cs -> throwSTM $ ResponseAlreadyInitiated cs callStack
   where
-    ServerContext{params} = callContext
+    ServerContext{serverParams} = callContext
 
     trailers :: [CustomMetadata] -> TrailersOnly
     trailers metadata' = TrailersOnly {
-          trailersOnlyContentType = Context.serverContentType params
+          trailersOnlyContentType = Context.serverContentType serverParams
         , trailersOnlyProper      = ProperTrailers {
               properTrailersGrpcStatus     = GrpcOk
             , properTrailersGrpcMessage    = Nothing
@@ -534,7 +537,7 @@ sendProperTrailers Call{callContext, callResponseKickoff, callChannel}
             callStack
             ( properTrailersToTrailersOnly (
                 trailers
-              , Context.serverContentType params
+              , Context.serverContentType serverParams
               )
             )
     unless updated $
@@ -543,7 +546,7 @@ sendProperTrailers Call{callContext, callResponseKickoff, callChannel}
       Session.send callChannel (NoMoreElems trailers)
     void $ Session.waitForOutbound callChannel
   where
-    ServerContext{params} = callContext
+    ServerContext{serverParams} = callContext
 
 -- | Get the timeout
 --
