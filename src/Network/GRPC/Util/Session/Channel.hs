@@ -332,7 +332,7 @@ data RecvAfterFinal =
 -- See 'close' for discussion.
 waitForOutbound :: Channel sess -> IO (FlowState (Outbound sess))
 waitForOutbound Channel{channelOutbound} = atomically $
-    waitForThread channelOutbound
+    waitForNormalThreadTermination channelOutbound
 
 -- | Close the channel
 --

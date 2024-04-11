@@ -348,9 +348,10 @@ startRPC Connection{connMetaVar, connParams, connStateVar} _ callParams = do
     -- the (normal) case that the channel is closed before the connection is.
     _ <- forkIO $ do
       status <- atomically $ do
-            (Left <$> waitForThread (Session.channelOutbound channel))
-          `orElse`
-            (Right <$> readTMVar connClosed)
+          (Left <$> waitForNormalOrAbnormalThreadTermination
+                      (Session.channelOutbound channel))
+        `orElse`
+          (Right <$> readTMVar connClosed)
       case status of
         Left _ -> return () -- Channel closed before the connection
         Right mErr -> do
