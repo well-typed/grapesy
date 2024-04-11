@@ -273,8 +273,8 @@ data Server =
 -- Clients should prefer sending many calls on a single connection, rather than
 -- sending few calls on many connections, as minimizing the number of
 -- connections used via this interface results in better memory behavior. See
--- [this issue](https://github.com/well-typed/grapesy/issues/133) for
--- discussion.
+-- [well-typed/grapesy#134](https://github.com/well-typed/grapesy/issues/133)
+-- for discussion.
 withConnection ::
      ConnParams
   -> Server
@@ -342,17 +342,17 @@ startRPC Connection{connMetaVar, connParams, connStateVar} _ callParams = do
         serverClosedConnection
         flowStart
 
+    -- Spawn a thread to monitor the connection, and close the new channel when
+    -- the connection is closed. To prevent a memory leak by hanging on to the
+    -- channel for the lifetime of the connection, the thread also terminates in
+    -- the (normal) case that the channel is closed before the connection is.
     _ <- forkIO $ do
-      -- It is important that we also watch for the outbound channel to be
-      -- closed by other means, in which case we can simply return.
       status <- atomically $ do
             (Left <$> waitForThread (Session.channelOutbound channel))
           `orElse`
             (Right <$> readTMVar connClosed)
       case status of
-        Left _ ->
-          -- The channel is already closed
-          return ()
+        Left _ -> return () -- Channel closed before the connection
         Right mErr -> do
           let exitReason :: ExitCase ()
               exitReason =
