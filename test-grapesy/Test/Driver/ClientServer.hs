@@ -271,8 +271,6 @@ isExpectedClientException cfg e
   --
   -- Call setup failure
   --
-  -- TODO: Perhaps we should verify the contents of the body.
-  --
 
   | Just (Client.CallSetupUnexpectedStatus status _body) <- fromException e
   , InvalidOverride _ <- clientContentType cfg
