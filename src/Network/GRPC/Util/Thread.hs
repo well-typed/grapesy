@@ -15,7 +15,8 @@ module Network.GRPC.Util.Thread (
   , CancelResult(..)
   , cancelThread
   , withThreadInterface
-  , waitForThread
+  , waitForNormalThreadTermination
+  , waitForNormalOrAbnormalThreadTermination
   , hasThreadTerminated
   ) where
 
@@ -295,16 +296,19 @@ withThreadInterface state k =
           ThreadDone         _   a -> return a
           ThreadException    _   e -> throwSTM e
 
--- | Wait for the thread to terminate
-waitForThread :: TVar (ThreadState a) -> STM a
-waitForThread state = do
-    st <- readTVar state
-    case st of
-      ThreadNotStarted   _     -> retry
-      ThreadInitializing _ _   -> retry
-      ThreadRunning      _ _ _ -> retry
-      ThreadDone         _   a -> return a
-      ThreadException    _   e -> throwSTM e
+-- | Wait for the thread to terminate normally
+--
+-- If the thread terminated with an exception, this rethrows that exception.
+waitForNormalThreadTermination :: TVar (ThreadState a) -> STM a
+waitForNormalThreadTermination state =
+    waitForNormalOrAbnormalThreadTermination state >>= either throwSTM return
+
+-- | Wait for the thread to terminate normally or abnormally
+waitForNormalOrAbnormalThreadTermination ::
+     TVar (ThreadState a)
+  -> STM (Either SomeException a)
+waitForNormalOrAbnormalThreadTermination state =
+    hasThreadTerminated state >>= maybe retry return
 
 -- | Has the thread terminated?
 hasThreadTerminated ::
