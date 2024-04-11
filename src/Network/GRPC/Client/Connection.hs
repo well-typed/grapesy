@@ -45,6 +45,7 @@ import Network.GRPC.Common.Compression qualified as Compression
 import Network.GRPC.Spec
 import Network.GRPC.Util.HTTP2.Stream (ServerDisconnected(..))
 import Network.GRPC.Util.Session qualified as Session
+import Network.GRPC.Util.Thread
 import Network.GRPC.Util.TLS (ServerValidation(..), SslKeyLog(..))
 import Network.GRPC.Util.TLS qualified as Util.TLS
 
@@ -257,7 +258,7 @@ data Server =
 -- wait the time specified by the policy and try again. This implements the gRPC
 -- "Wait for ready" semantics.
 --
--- If the connection to the server is lost /after/ it has een established, any
+-- If the connection to the server is lost /after/ it has been established, any
 -- currently ongoing RPC calls will be closed; attempts at further communication
 -- on any of these calls will result in an exception being thrown. However, if
 -- the 'ReconnectPolicy' allows, we will automatically try to re-establish a
@@ -268,6 +269,12 @@ data Server =
 -- NOTE: The /default/ 'ReconnectPolicy' is 'DontReconnect', as per the gRPC
 -- specification of "Wait for ready" semantics. You may wish to override this
 -- default.
+--
+-- Clients should prefer sending many calls on a single connection, rather than
+-- sending few calls on many connections, as minimizing the number of
+-- connections used via this interface results in better memory behavior. See
+-- [well-typed/grapesy#134](https://github.com/well-typed/grapesy/issues/133)
+-- for discussion.
 withConnection ::
      ConnParams
   -> Server
@@ -335,17 +342,27 @@ startRPC Connection{connMetaVar, connParams, connStateVar} _ callParams = do
         serverClosedConnection
         flowStart
 
+    -- Spawn a thread to monitor the connection, and close the new channel when
+    -- the connection is closed. To prevent a memory leak by hanging on to the
+    -- channel for the lifetime of the connection, the thread also terminates in
+    -- the (normal) case that the channel is closed before the connection is.
     _ <- forkIO $ do
-      mErr <- atomically $ readTMVar connClosed
-      let exitReason :: ExitCase ()
-          exitReason =
-            case mErr of
-              Nothing -> ExitCaseSuccess ()
-              Just exitWithException ->
-                ExitCaseException . toException $
-                  ServerDisconnected exitWithException callStack
-      _mAlreadyClosed <- Session.close channel exitReason
-      return ()
+      status <- atomically $ do
+            (Left <$> waitForThread (Session.channelOutbound channel))
+          `orElse`
+            (Right <$> readTMVar connClosed)
+      case status of
+        Left _ -> return () -- Channel closed before the connection
+        Right mErr -> do
+          let exitReason :: ExitCase ()
+              exitReason =
+                case mErr of
+                  Nothing -> ExitCaseSuccess ()
+                  Just exitWithException ->
+                    ExitCaseException . toException $
+                      ServerDisconnected exitWithException callStack
+          _mAlreadyClosed <- Session.close channel exitReason
+          return ()
 
     return $ Call callSession channel
   where
