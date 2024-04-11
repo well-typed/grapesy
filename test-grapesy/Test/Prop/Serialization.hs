@@ -298,6 +298,7 @@ instance Arbitrary (Awkward RequestHeaders) where
       requestAcceptCompression   <- awkward
       requestContentType         <- awkward
       requestMessageType         <- arbitrary
+      requestUserAgent           <- awkward
       requestIncludeTE           <- arbitrary
       requestTraceContext        <- awkward
       requestPreviousRpcAttempts <- awkward
@@ -308,6 +309,7 @@ instance Arbitrary (Awkward RequestHeaders) where
         , requestAcceptCompression
         , requestContentType
         , requestMessageType
+        , requestUserAgent
         , requestIncludeTE
         , requestTraceContext
         , requestPreviousRpcAttempts
@@ -319,6 +321,7 @@ instance Arbitrary (Awkward RequestHeaders) where
       , shrinkAwkward (\x -> h'{requestAcceptCompression   = x}) requestAcceptCompression   h
       , shrinkAwkward (\x -> h'{requestContentType         = x}) requestContentType         h
       , shrinkRegular (\x -> h'{requestMessageType         = x}) requestMessageType         h
+      , shrinkAwkward (\x -> h'{requestUserAgent           = x}) requestUserAgent           h
       , shrinkRegular (\x -> h'{requestIncludeTE           = x}) requestIncludeTE           h
       , shrinkAwkward (\x -> h'{requestTraceContext        = x}) requestTraceContext        h
       , shrinkAwkward (\x -> h'{requestPreviousRpcAttempts = x}) requestPreviousRpcAttempts h

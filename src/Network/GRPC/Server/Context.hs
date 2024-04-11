@@ -1,13 +1,10 @@
 -- | Server context
 --
--- Intended for qualified import.
---
--- > import Network.GRPC.Server.Context (ServerContext, ServerParams)
--- > import Network.GRPC.Server.Context as Context
+-- Intended for unqualified import.
 module Network.GRPC.Server.Context (
     -- * Context
     ServerContext(..)
-  , new
+  , newServerContext
     -- * Configuration
   , ServerParams(..)
   ) where
@@ -21,20 +18,26 @@ import System.IO
 import Network.GRPC.Common.Compression qualified as Compr
 import Network.GRPC.Server.RequestHandler.API
 import Network.GRPC.Spec
+import Data.Text (Text)
+import Data.Text qualified as Text
 
 {-------------------------------------------------------------------------------
   Context
 
-  TODO: The server context is more of a placeholder at the moment. The plan is
-  to use it to keep things like server usage statistics etc.
+  TODO: <https://github.com/well-typed/grapesy/issues/130>
+  The server context is more of a placeholder at the moment. The plan is to use
+  it to keep things like server usage statistics etc.
 -------------------------------------------------------------------------------}
 
 data ServerContext = ServerContext {
-      params :: ServerParams
+      serverParams :: ServerParams
     }
 
-new :: ServerParams -> IO ServerContext
-new params = return ServerContext{params}
+newServerContext :: ServerParams -> IO ServerContext
+newServerContext serverParams = do
+    return ServerContext{
+        serverParams
+      }
 
 {-------------------------------------------------------------------------------
   Configuration
@@ -55,6 +58,19 @@ data ServerParams = ServerParams {
            RequestHandler SomeException ()
         -> RequestHandler NeverThrows   ()
 
+      -- | Render handler-side exceptions for the client
+      --
+      -- When a handler throws an exception other than a 'GrpcException', we use
+      -- this function to render that exception for the client (server-side
+      -- logging is taken care of by 'serverTopLevel'). The default
+      -- implementation simply calls 'displayException' on the exception, which
+      -- means the full context is visible on the client, which is most useful
+      -- for debugging. However, it is a potential security concern: if the
+      -- exception happens to contain sensitive information, this information
+      -- will also be visible on the client. You may therefore wish to override
+      -- the default behaviour.
+    , serverExceptionToClient :: SomeException -> IO (Maybe Text)
+
       -- | Override content-type for response to client.
       --
       -- Set to 'Nothing' to omit the content-type header completely
@@ -64,9 +80,10 @@ data ServerParams = ServerParams {
 
 instance Default ServerParams where
   def = ServerParams {
-        serverCompression = def
-      , serverTopLevel    = defaultServerTopLevel
-      , serverContentType = Just ContentTypeDefault
+        serverCompression       = def
+      , serverTopLevel          = defaultServerTopLevel
+      , serverExceptionToClient = return . Just . Text.pack . displayException
+      , serverContentType       = Just ContentTypeDefault
       }
 
 defaultServerTopLevel ::

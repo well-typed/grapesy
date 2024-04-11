@@ -90,11 +90,6 @@ instance CanCallRPC m => ClientHandler (ServerStreamingHandler m) where
 --
 -- Unlike the other functions, we have not generalized this to an arbitrary
 -- monad @m@, because it spawns a new thread.
---
--- TODO: This is an indication that we should reconsider the signature of this
--- function. Another indication that we should is that the corresponding
--- function in "Network.GRPC.Protobuf.Pipes" cannot be defined in terms
--- of this function, unlike for the other streaming functions.
 instance ClientHandler (BiDiStreamingHandler (ReaderT Connection IO)) where
   rpcWith :: forall rpc.
        SupportsClientRpc rpc

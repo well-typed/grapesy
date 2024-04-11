@@ -147,11 +147,6 @@ clientOutputStream writeChunk' flush' = do
     -- frame in the stream, but this does not matter: gRPC does not support
     -- request headers, which means that, unlike in the server, we do not need
     -- to give the empty case special treatment.
-    --
-    -- TODO: A better alternative might be to offer the user an explicit
-    -- 'initiateRequest' API, just like we offer for responses. This would also
-    -- improve the "duality" between the server/client API.
-
     let outputStream = OutputStream {
             _writeChunk = \c -> wrapStreamExceptionsWith ServerDisconnected $
                             writeChunk' c

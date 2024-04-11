@@ -271,8 +271,6 @@ isExpectedClientException cfg e
   --
   -- Call setup failure
   --
-  -- TODO: Perhaps we should verify the contents of the body.
-  --
 
   | Just (Client.CallSetupUnexpectedStatus status _body) <- fromException e
   , InvalidOverride _ <- clientContentType cfg
@@ -476,12 +474,12 @@ withTestServer cfg firstTestFailure handlerLock serverHandlers k = do
                 }
 
         serverParams :: Server.ServerParams
-        serverParams = Server.ServerParams {
-              serverCompression =
+        serverParams = def {
+              Server.serverCompression =
                 serverCompr cfg
-            , serverTopLevel =
+            , Server.serverTopLevel =
                 topLevelWithHandlerLock cfg firstTestFailure handlerLock
-            , serverContentType =
+            , Server.serverContentType =
                 case serverContentType cfg of
                   NoOverride            -> Nothing
                   ValidOverride   ctype -> Just ctype

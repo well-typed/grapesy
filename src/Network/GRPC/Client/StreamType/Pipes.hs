@@ -45,13 +45,7 @@ serverStreaming conn h input = IO.serverStreaming conn h input yield
 --
 -- This function is of a slightly different nature as 'clientStreaming' and
 -- 'serverStreaming': since we need a resource (the RPC call) in /both/ pipes,
--- it's more challenging to allocate it /inside/ the pipe. Perhaps with a
--- careful design this is solvable, but for now we simply allocate it on the
--- outside, and use \"with\" style here.
---
--- TODO: Another thing to consider here whether @pipes-concurrency@ might offer
--- some insights here. However, for now this entire module is just meant as
--- an illustration of how you could integrate @grapesy@ with a streaming lib.
+-- it's more challenging to allocate it /inside/ the pipe.
 biDiStreaming :: forall rpc a.
      SupportsClientRpc rpc
   => SupportsStreamingType rpc BiDiStreaming

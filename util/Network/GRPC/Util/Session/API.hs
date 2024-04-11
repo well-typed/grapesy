@@ -115,7 +115,7 @@ class ( DataFlow (Inbound  sess)
   parseMsg ::
        sess
     -> Headers (Inbound sess)
-    -> Parser (Message (Inbound sess))
+    -> Parser String (Message (Inbound sess))
 
   -- | Build message
   buildMsg ::

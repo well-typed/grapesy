@@ -27,6 +27,7 @@ import GHC.Stack
 import Network.HTTP2.Internal qualified as HTTP2
 
 import Network.GRPC.Server.Call
+import Network.GRPC.Server.Context
 import Network.GRPC.Spec
 import Network.GRPC.Util.HTTP2.Stream (ClientDisconnected(..))
 import Network.GRPC.Util.Session qualified as Session
@@ -262,9 +263,6 @@ waitForHandler call handlerThread = loop
 -- We therefore catch and suppress all exceptions here. Returns @True@ if the
 -- forwarding was successful, @False@ if it raised an exception.
 forwardException :: Call rpc -> SomeException -> XIO' NeverThrows Bool
-forwardException call =
-      XIO.swallowIO'
-    . sendProperTrailers call
-    . serverExceptionToClientError
-
-
+forwardException call@Call{callContext} err = XIO.swallowIO' $ do
+    trailers <- serverExceptionToClientError (serverParams callContext) err
+    sendProperTrailers call trailers
