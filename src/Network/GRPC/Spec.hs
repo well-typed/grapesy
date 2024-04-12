@@ -114,6 +114,7 @@ module Network.GRPC.Spec (
   , toGrpcStatus
     -- *** gRPC termination
   , GrpcException(..)
+  , throwGrpcError
   , GrpcNormalTermination(..)
   , grpcExceptionToTrailers
   , grpcClassifyTermination

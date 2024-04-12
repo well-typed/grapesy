@@ -18,6 +18,7 @@ module Network.GRPC.Spec.Response (
   , properTrailersToTrailersOnly
     -- * gRPC termination
   , GrpcException(..)
+  , throwGrpcError
   , GrpcNormalTermination(..)
   , grpcClassifyTermination
   , grpcExceptionToTrailers
@@ -236,6 +237,9 @@ parsePushback bs =
 -------------------------------------------------------------------------------}
 
 -- | Server indicated a gRPC error
+--
+-- For the common case where you just want to set 'grpcError', you can use
+-- 'throwGrpcError'.
 data GrpcException = GrpcException {
       grpcError          :: GrpcError
     , grpcErrorMessage   :: Maybe Text
@@ -243,6 +247,13 @@ data GrpcException = GrpcException {
     }
   deriving stock (Show)
   deriving anyclass (Exception)
+
+throwGrpcError :: GrpcError -> IO a
+throwGrpcError grpcError = throwIO $ GrpcException {
+      grpcError
+    , grpcErrorMessage  = Nothing
+    , grpcErrorMetadata = []
+    }
 
 -- | Server indicated normal termination
 --

@@ -42,15 +42,18 @@ module Network.GRPC.Common (
   , defaultSecurePort
 
     -- * Exceptions
+
+    -- ** gRPC exceptions
   , GrpcError(..)
   , GrpcException(..)
-  , ProtocolException(..)
-  , SomeProtocolException(..)
-  , UnexpectedMetadata(..)
+  , throwGrpcError
 
     -- ** Low-level
+  , ProtocolException(..)
   , Session.ChannelDiscarded(..)
   , Session.PeerException(..)
+  , SomeProtocolException(..)
+  , UnexpectedMetadata(..)
 
     -- * Convenience re-exports
   , Proxy(..)

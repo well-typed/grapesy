@@ -2,4 +2,5 @@ packages: .
 
 package grapesy
   tests: True
+  benchmarks: True
   flags: +build-demo +build-stress-test +snappy

@@ -2,7 +2,7 @@
 
 -- | Public 'Compression' API
 --
--- Intended for unqualified import.
+-- Intended for qualified import.
 --
 -- > import Network.GRPC.Common.Compression (Compression(..))
 -- > import Network.GRPC.Common.Compression qualified as Compr
