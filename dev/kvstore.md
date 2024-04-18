@@ -88,6 +88,37 @@ port 50051
 
 and then capture the loopback device.
 
+### Eventlog
+
+The KVStore implementation issues some eventlog events; run with
+
+```bash
+$ cabal run grapesy-kvstore -- +RTS -l
+```
+
+then inspect the eventlog, for example with Threadscope
+
+```bash
+$ threadscope ./grapesy-kvstore.eventlog
+```
+
+or with
+
+```bash
+$ ghc-events show grapesy-kvstore.eventlog
+```
+
+This magic incantiation (thanks Ben) shows the relative time between events:
+
+```bash
+$ ghc-events show grapesy-kvstore.eventlog \
+  | grep -i -e 'handler\|client\|foreign' \
+  | awk 'BEGIN{t0=0} {t=$1; printf "%13f  %13f   %s\n", ((t-t0)/1000/1000), (t/1000/1000), $0; t0=t; }' \
+  | less
+ ```
+
+(you may wish to tweak the `grep` of course).
+
 ### `perf` (CPU cycles/on CPU)
 
 In order to figure out what is happening during the time that the Haskell
@@ -130,5 +161,24 @@ The above @record@ command records CPU cycles; to record wallclock instead
 (useful for debugging blocking behaviour), you can use
 
 ```bash
-$ perf sched record (find . -name grapesy-kvstore -type f)
+$ perf sched record $(find . -name grapesy-kvstore -type f)
 ```
+
+Notes:
+
+* You will need a version of `perf` with `sched` support (the default build on
+  Ubuntu does not; you will need to compile it yourself; see
+  https://medium.com/@manas.marwah/building-perf-tool-fc838f084f71 .
+
+* You may need to make some system changes to make this work; if getting
+
+  ```
+  event syntax error: 'sched:sched_switch'
+                       \___ can't access trace events
+
+  Error:	No permissions to read /sys/kernel/tracing//events/sched/sched_switch
+  Hint:	Try 'sudo mount -o remount,mode=755 /sys/kernel/tracing/'
+  ```
+
+  you can try that hint, but it may not work. Google for
+  "/sys/kernel/tracing/events permissions" on the linux-perf-users mailing list.
