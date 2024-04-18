@@ -13,8 +13,6 @@ import Network.GRPC.Server.Protobuf
 import Network.GRPC.Server.Run
 import Network.GRPC.Server.StreamType
 
-import Proto.Ping
-
 import Interop.API
 import Interop.Cmdline
 

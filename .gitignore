@@ -3,3 +3,9 @@ dist-newstyle
 *.swp
 *.pcapng
 cabal.project.local
+*.eventlog
+*.eventlog.html
+*.hp
+*.prof
+perf.data
+perf.data.*

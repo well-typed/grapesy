@@ -27,6 +27,7 @@ module Interop.API (
   , module Network.GRPC.Common.Protobuf
   , module Proto.Empty
   , module Proto.Messages
+  , module Proto.Ping
   , module Proto.Test
   ) where
 

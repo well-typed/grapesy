@@ -87,6 +87,11 @@ common lang
   if flag(snappy)
     cpp-options: -DSNAPPY
 
+common common-executable-flags
+  ghc-options:
+      -threaded
+      -rtsopts
+
 library
   import:
       lang
@@ -242,10 +247,8 @@ library
 
 test-suite test-grapesy
   import:
-      lang
-  ghc-options:
-      -threaded
-      -rtsopts
+    , lang
+    , common-executable-flags
   type:
       exitcode-stdio-1.0
   hs-source-dirs:
@@ -315,15 +318,14 @@ test-suite test-grapesy
 
 executable demo-client
   import:
-      lang
+    , lang
+    , common-executable-flags
   hs-source-dirs:
       demo-client
       demo-common
       proto
   main-is:
       Main.hs
-  ghc-options:
-      -threaded
   other-modules:
       Demo.Client.API.Core.Greeter
       Demo.Client.API.Core.NoFinal.Greeter
@@ -369,15 +371,14 @@ executable demo-client
 
 executable demo-server
   import:
-      lang
+    , lang
+    , common-executable-flags
   hs-source-dirs:
       demo-server
       demo-common
       proto
   main-is:
       Main.hs
-  ghc-options:
-      -threaded
   other-modules:
       Demo.Server.Aux.RouteGuide
       Demo.Server.Cmdline
@@ -419,13 +420,12 @@ executable demo-server
 
 executable test-stress
   import:
-      lang
+    , lang
+    , common-executable-flags
   hs-source-dirs:
       test-stress
   main-is:
       Main.hs
-  ghc-options:
-      -threaded
   other-modules:
       Test.Stress.Client
       Test.Stress.Cmdline
@@ -444,7 +444,8 @@ executable test-stress
 
 test-suite grapesy-interop
   import:
-      lang
+    , lang
+    , common-executable-flags
   default-extensions:
       OverloadedLabels
   type:
@@ -511,6 +512,40 @@ test-suite grapesy-interop
     , optparse-applicative >= 0.16 && < 0.19
     , proto-lens-runtime   >= 0.7  && < 0.8
     , text                 >= 1.2  && < 2.2
+
+benchmark grapesy-kvstore
+  import:
+    , lang
+    , common-executable-flags
+  default-extensions:
+      OverloadedLabels
+  type:
+      exitcode-stdio-1.0
+  main-is:
+      Main.hs
+  hs-source-dirs:
+      kvstore
+      proto
+  other-modules:
+      KVStore.API
+      KVStore.Client
+      KVStore.Cmdline
+      KVStore.Server
+      KVStore.Util.RandomAccessSet
+      KVStore.Util.RandomGen
+      KVStore.Util.Store
+
+      Proto.Kvstore
+  build-depends:
+      grapesy
+  build-depends:
+    , base16-bytestring    >= 1.0  && < 1.1
+    , bytestring           >= 0.10 && < 0.13
+    , containers           >= 0.6  && < 0.8
+    , optparse-applicative >= 0.16 && < 0.19
+    , proto-lens-runtime   >= 0.7  && < 0.8
+    , splitmix             >= 0.1  && < 0.2
+    , unordered-containers >= 0.2  && < 0.3
 
 Flag build-demo
   description: Build the demo
