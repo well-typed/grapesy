@@ -1,6 +1,8 @@
 module KVStore.Server (withKeyValueServer) where
 
 import Control.Concurrent (threadDelay)
+import Control.Exception
+import Debug.Trace (traceEventIO)
 
 import Network.GRPC.Common
 import Network.GRPC.Common.Compression qualified as Compr
@@ -16,6 +18,31 @@ import KVStore.Util.Store (Store)
 import KVStore.Util.Store qualified as Store
 
 {-------------------------------------------------------------------------------
+  Server proper
+-------------------------------------------------------------------------------}
+
+withKeyValueServer :: Cmdline -> (RunningServer -> IO ()) -> IO ()
+withKeyValueServer cmdline k = do
+    store <- Store.new
+    server <- mkGrpcServer params $ fromServices (services cmdline store)
+    forkServer config server k
+  where
+    config :: ServerConfig
+    config = ServerConfig {
+          serverInsecure = Just $ InsecureConfig Nothing defaultInsecurePort
+        , serverSecure   = Nothing
+        }
+
+    params :: ServerParams
+    params = def {
+          -- The Java benchmark does not use compression (unclear if the Java
+          -- implementation supports compression at all; the compression Interop
+          -- tests are also disabled for Java). For a fair comparison, we
+          -- therefore disable compression here also.
+          serverCompression = Compr.none
+        }
+
+{-------------------------------------------------------------------------------
   Service definition
 -------------------------------------------------------------------------------}
 
@@ -24,10 +51,10 @@ methodsKeyValueService ::
   -> Store
   -> Methods IO (ProtobufMethodsOf KeyValueService)
 methodsKeyValueService cmdline store =
-      Method (mkNonStreaming $ create   cmdline store)
-    $ Method (mkNonStreaming $ delete   cmdline store)
-    $ Method (mkNonStreaming $ retrieve cmdline store)
-    $ Method (mkNonStreaming $ update   cmdline store)
+      Method (mkNonStreaming $ markNonStreaming "CREATE"   $ create   cmdline store)
+    $ Method (mkNonStreaming $ markNonStreaming "DELETE"   $ delete   cmdline store)
+    $ Method (mkNonStreaming $ markNonStreaming "RETRIEVE" $ retrieve cmdline store)
+    $ Method (mkNonStreaming $ markNonStreaming "UPDATE"   $ update   cmdline store)
     $ NoMoreMethods
 
 services ::
@@ -86,26 +113,11 @@ readDelayMillis  = 10
 writeDelayMillis = 50
 
 {-------------------------------------------------------------------------------
-  Server proper
+  Debugging
 -------------------------------------------------------------------------------}
 
-withKeyValueServer :: Cmdline -> (RunningServer -> IO ()) -> IO ()
-withKeyValueServer cmdline k = do
-    store <- Store.new
-    server <- mkGrpcServer params $ fromServices (services cmdline store)
-    forkServer config server k
-  where
-    config :: ServerConfig
-    config = ServerConfig {
-          serverInsecure = Just $ InsecureConfig Nothing defaultInsecurePort
-        , serverSecure   = Nothing
-        }
-
-    params :: ServerParams
-    params = def {
-          -- The Java benchmark does not use compression (unclear if the Java
-          -- implementation supports compression at all; the compression Interop
-          -- tests are also disabled for Java). For a fair comparison, we
-          -- therefore disable compression here also.
-          serverCompression = Compr.none
-        }
+markNonStreaming :: String -> (a -> IO b) -> (a -> IO b)
+markNonStreaming label handler a =
+    bracket_ (traceEventIO $ "handler start " ++ label)
+             (traceEventIO $ "handler stop  " ++ label)
+             (handler a)

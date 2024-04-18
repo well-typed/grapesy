@@ -5,6 +5,7 @@ import Control.Monad
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.IORef
+import Debug.Trace (traceEventIO)
 import System.Timeout
 import Text.Printf
 
@@ -128,7 +129,7 @@ client statsVar = do
 
 -- | Create a random key and value
 doCreate :: RandomAccessSet ByteString -> Connection -> IO ()
-doCreate knownKeys conn = do
+doCreate knownKeys conn = markRequest "CREATE" $ do
     key   <- createRandomKey knownKeys
     value <- randomBytes meanValueSize
 
@@ -150,7 +151,7 @@ doCreate knownKeys conn = do
 
 -- | Retrieve the value of a random key
 doRetrieve :: RandomAccessSet ByteString -> Connection -> IO ()
-doRetrieve knownKeys conn = do
+doRetrieve knownKeys conn = markRequest "RETRIEVE" $ do
     key <- RandomAccessSet.getRandomKey knownKeys
 
     let handleGrpcException :: GrpcException -> IO ()
@@ -168,7 +169,7 @@ doRetrieve knownKeys conn = do
 
 -- | Update a random key with a random value
 doUpdate :: RandomAccessSet ByteString -> Connection -> IO ()
-doUpdate knownKeys conn = do
+doUpdate knownKeys conn = markRequest "UPDATE" $ do
     key   <- RandomAccessSet.getRandomKey knownKeys
     value <- randomBytes meanValueSize
 
@@ -192,7 +193,7 @@ doUpdate knownKeys conn = do
 
 -- | Delete the value of a random key
 doDelete :: RandomAccessSet ByteString -> Connection -> IO ()
-doDelete knownKeys conn = do
+doDelete knownKeys conn = markRequest "DELETE" $ do
     key <- RandomAccessSet.getRandomKey knownKeys
     res <- nonStreaming conn (rpc @Delete) (defMessage & #key .~ key)
     RandomAccessSet.remove knownKeys key
@@ -227,3 +228,12 @@ randomBytes mean = do
     let size :: Int
         size = round (fromIntegral mean * (-1 * log (1 - d)))
     RandomGen.getRandomBytes <$> RandomGen.nextBytes random (1 + size)
+
+{-------------------------------------------------------------------------------
+  Debugging
+-------------------------------------------------------------------------------}
+
+markRequest :: String -> IO a -> IO a
+markRequest label =
+    bracket_ (traceEventIO $ "client start " ++ label)
+             (traceEventIO $ "client stop "  ++ label)
