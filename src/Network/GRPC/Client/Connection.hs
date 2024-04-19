@@ -557,9 +557,8 @@ connectSecure connParams attempt validation sslKeyLog addr = do
                 case validation of
                   ValidateServer _   -> True
                   NoServerValidation -> False
-            , HTTP2.TLS.Client.settingsCAStore       = caStore
-            , HTTP2.TLS.Client.settingsKeyLogger     = keyLogger
-            , HTTP2.TLS.Client.settingsAddrInfoFlags = []
+            , HTTP2.TLS.Client.settingsCAStore   = caStore
+            , HTTP2.TLS.Client.settingsKeyLogger = keyLogger
             }
 
         clientConfig :: HTTP2.Client.ClientConfig

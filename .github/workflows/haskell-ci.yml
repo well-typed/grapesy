@@ -168,6 +168,11 @@ jobs:
           echo "package grapesy" >> cabal.project
           echo "    ghc-options: -Werror=missing-methods" >> cabal.project
           cat >> cabal.project <<EOF
+          source-repository-package
+            type:     git
+            location: https://github.com/kazu-yamamoto/http2-tls
+            tag:      2906adad547d6c7ed537f0b27dd1e9a413a25658
+
           package grapesy
             tests:       True
             benchmarks:  True
