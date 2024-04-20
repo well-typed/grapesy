@@ -37,8 +37,14 @@ import Control.Monad
 import Control.Monad.Catch (ExitCase(..))
 import Data.Bifunctor
 import Data.ByteString.Builder (Builder)
+import Data.ByteString.Lazy qualified as BS.Lazy
 import GHC.Stack
-import Network.HTTP2.Internal qualified as HTTP2
+
+-- Doesn't really matter if we import from .Server or .Client
+import Network.HTTP2.Server qualified as HTTP2 (
+    TrailersMaker
+  , NextTrailersMaker(..)
+  )
 
 import Network.GRPC.Common.StreamElem (StreamElem(..))
 import Network.GRPC.Common.StreamElem qualified as StreamElem
@@ -48,7 +54,6 @@ import Network.GRPC.Util.RedundantConstraint
 import Network.GRPC.Util.Session.API
 import Network.GRPC.Util.Thread
 import Network.GRPC.Util.Parser qualified as Parser
-import Data.ByteString.Lazy qualified as BS.Lazy
 
 {-------------------------------------------------------------------------------
   Definitions

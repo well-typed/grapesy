@@ -5,3 +5,13 @@ package grapesy
   benchmarks: True
   flags: +build-demo +build-stress-test +snappy
   ghc-options: -Werror
+
+source-repository-package
+  type: git
+  location: https://github.com/kazu-yamamoto/http2
+  tag: 52a9619ba95b67d469205cb0dea546ada8489baa
+
+source-repository-package
+  type: git
+  location: https://github.com/kazu-yamamoto/http-semantics
+  tag: f86208e715ab258ebbc9645f82d3727a91847a7d

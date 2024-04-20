@@ -168,6 +168,16 @@ jobs:
           echo "package grapesy" >> cabal.project
           echo "    ghc-options: -Werror=missing-methods" >> cabal.project
           cat >> cabal.project <<EOF
+          source-repository-package
+            type:     git
+            location: https://github.com/kazu-yamamoto/http2
+            tag:      52a9619ba95b67d469205cb0dea546ada8489baa
+
+          source-repository-package
+            type:     git
+            location: https://github.com/kazu-yamamoto/http-semantics
+            tag:      f86208e715ab258ebbc9645f82d3727a91847a7d
+
           package grapesy
             tests:       True
             benchmarks:  True

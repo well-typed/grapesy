@@ -18,9 +18,8 @@ import Data.ByteString.Lazy qualified as Lazy (ByteString)
 import Data.Kind
 import Network.HTTP.Types qualified as HTTP
 
--- We import from @.Internal@ to avoid biasing towards @.Server@ or @.Client@
--- (this is actually defined in a hidden module @Network.HTTP2.Arch.Types@).
-import Network.HTTP2.Internal qualified as HTTP2
+-- Doesn't really matter if we import this from .Client or .Server
+import Network.HTTP2.Client qualified as HTTP2 (Path)
 
 import Network.GRPC.Util.Parser
 
