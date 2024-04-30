@@ -18,7 +18,7 @@ import System.TimeManager qualified as TimeoutManager
   General auxiliary
 -------------------------------------------------------------------------------}
 
-fromHeaderTable :: HPACK.HeaderTable -> [HTTP.Header]
+fromHeaderTable :: HPACK.TokenHeaderTable -> [HTTP.Header]
 fromHeaderTable = map (first HPACK.tokenKey) . fst
 
 {-------------------------------------------------------------------------------
