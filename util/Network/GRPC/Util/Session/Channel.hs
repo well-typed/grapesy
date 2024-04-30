@@ -38,7 +38,12 @@ import Control.Monad.Catch (ExitCase(..))
 import Data.Bifunctor
 import Data.ByteString.Builder (Builder)
 import GHC.Stack
-import Network.HTTP2.Internal qualified as HTTP2
+
+-- Doesn't really matter if we import from .Client or .Server
+import Network.HTTP2.Client qualified as HTTP2 (
+    TrailersMaker
+  , NextTrailersMaker(..)
+  )
 
 import Network.GRPC.Common.StreamElem (StreamElem(..))
 import Network.GRPC.Common.StreamElem qualified as StreamElem
