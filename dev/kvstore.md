@@ -108,16 +108,26 @@ or with
 $ ghc-events show grapesy-kvstore.eventlog
 ```
 
-This magic incantiation (thanks Ben) shows the relative time between events:
+A useful tool for inspecting the eventlog is
+[ghc-events-util](https://github.com/edsko/ghc-events-util), which can be used
+to filter events and show the time intervals between events.
+
+### Adding foreign calls to the eventlog
+
+To trace the cost of foreign calls, it can be useful to use the
+[trace-foreign-calls](https://github.com/well-typed/trace-foreign-calls) plugin.
+See the corresponding `README.md` for detailed instructions, but briefly: first
+install the plugin into a fresh `cabal` store:
 
 ```bash
-$ ghc-events show grapesy-kvstore.eventlog \
-  | grep -i -e 'handler\|client\|foreign' \
-  | awk 'BEGIN{t0=0} {t=$1; printf "%13f  %13f   %s\n", ((t-t0)/1000/1000), (t/1000/1000), $0; t0=t; }' \
-  | less
- ```
+$ trace-foreign-calls$ cabal --store-dir=/tmp/cabal-plugin-store-grapesy install --lib trace-foreign-calls
+```
 
-(you may wish to tweak the `grep` of course).
+Then run with
+
+```bash
+grapesy$ cabal run --project-file cabal.project.plugin grapesy-kvstore -- +RTS -l
+```
 
 ### `perf` (CPU cycles/on CPU)
 
@@ -155,30 +165,3 @@ $ sudo sysctl kernel.perf_event_paranoid=-1
 Note 2: to figure out what is included under SYSTEM, can grep the ghc
 codebase for `CC_SYSTEM` / `CCS_SYSTEM`.
 
-### `perf` (wallclock/off CPU)
-
-The above @record@ command records CPU cycles; to record wallclock instead
-(useful for debugging blocking behaviour), you can use
-
-```bash
-$ perf sched record $(find . -name grapesy-kvstore -type f)
-```
-
-Notes:
-
-* You will need a version of `perf` with `sched` support (the default build on
-  Ubuntu does not; you will need to compile it yourself; see
-  https://medium.com/@manas.marwah/building-perf-tool-fc838f084f71 .
-
-* You may need to make some system changes to make this work; if getting
-
-  ```
-  event syntax error: 'sched:sched_switch'
-                       \___ can't access trace events
-
-  Error:	No permissions to read /sys/kernel/tracing//events/sched/sched_switch
-  Hint:	Try 'sudo mount -o remount,mode=755 /sys/kernel/tracing/'
-  ```
-
-  you can try that hint, but it may not work. Google for
-  "/sys/kernel/tracing/events permissions" on the linux-perf-users mailing list.
