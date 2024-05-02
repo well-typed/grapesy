@@ -196,7 +196,7 @@ library
     , http2-tls            >= 0.2.11 && < 0.3
     , lens                 >= 5.0    && < 5.3
     , mtl                  >= 2.2    && < 2.4
-    , network              >= 3.1    && < 3.2
+    , network              >= 3.1    && < 3.3
     , network-byte-order   >= 0.1    && < 0.2
     , network-run          >= 0.2.7  && < 0.3
     , pipes                >= 4.3    && < 4.4
@@ -211,7 +211,7 @@ library
     , unbounded-delays     >= 0.1.1  && < 0.2
     , unordered-containers >= 0.2    && < 0.3
     , utf8-string          >= 1.0    && < 1.1
-    , zlib                 >= 0.6    && < 0.7
+    , zlib                 >= 0.6    && < 0.8
 
   -- Snappy can be a bit tricky to install on some systems, so we make it an
   -- optional dependency. Snappy support can be explicitly disabled by clearing
@@ -304,9 +304,9 @@ test-suite test-grapesy
     , http-types           >= 0.12  && < 0.13
     , http2                >= 5.2.1 && < 5.3
     , mtl                  >= 2.2   && < 2.4
-    , network              >= 3.1   && < 3.2
+    , network              >= 3.1   && < 3.3
     , proto-lens-runtime   >= 0.7   && < 0.8
-    , QuickCheck           >= 2.14  && < 2.15
+    , QuickCheck           >= 2.14  && < 2.16
     , quickcheck-instances >= 0.3   && < 0.4
     , serialise            >= 0.2   && < 0.3
     , stm                  >= 2.5   && < 2.6
@@ -357,7 +357,7 @@ executable demo-client
     , bytestring           >= 0.10 && < 0.13
     , contra-tracer        >= 0.2  && < 0.3
     , exceptions           >= 0.10 && < 0.11
-    , network              >= 3.1  && < 3.2
+    , network              >= 3.1  && < 3.3
     , optparse-applicative >= 0.16 && < 0.19
     , pipes                >= 4.3  && < 4.4
     , pipes-safe           >= 2.3  && < 2.4
@@ -407,7 +407,7 @@ executable demo-server
     , contra-tracer        >= 0.2  && < 0.3
     , exceptions           >= 0.10 && < 0.11
     , mtl                  >= 2.2  && < 2.4
-    , network              >= 3.1  && < 3.2
+    , network              >= 3.1  && < 3.3
     , optparse-applicative >= 0.16 && < 0.19
     , proto-lens-runtime   >= 0.7  && < 0.8
     , text                 >= 1.2  && < 2.2
@@ -508,7 +508,7 @@ test-suite grapesy-interop
     , bytestring           >= 0.10 && < 0.13
     , exceptions           >= 0.10 && < 0.11
     , mtl                  >= 2.2  && < 2.4
-    , network              >= 3.1  && < 3.2
+    , network              >= 3.1  && < 3.3
     , optparse-applicative >= 0.16 && < 0.19
     , proto-lens-runtime   >= 0.7  && < 0.8
     , text                 >= 1.2  && < 2.2
