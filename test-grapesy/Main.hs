@@ -1,10 +1,17 @@
+{-# LANGUAGE CPP #-}
+
 module Main (main) where
 
 import Control.Concurrent
 import Control.Exception
+import Data.Maybe (fromMaybe)
 import GHC.Conc (setUncaughtExceptionHandler)
 import System.IO
 import Test.Tasty
+
+#if MIN_VERSION_base(4,18,0)
+import GHC.Conc.Sync (threadLabel)
+#endif
 
 import Test.Prop.Dialogue                     qualified as Dialogue
 import Test.Prop.IncrementalParsing           qualified as IncrementalParsing
@@ -34,10 +41,18 @@ main = do
 
 uncaughtExceptionHandler :: SomeException -> IO ()
 uncaughtExceptionHandler e = do
-    tid <- myThreadId
+    tid    <- myThreadId
+    mLabel :: Maybe String <-
+#if MIN_VERSION_base(4,18,0)
+      threadLabel tid
+#else
+      return $ Just "unknown label"
+#endif
     hPutStrLn stderr $ concat [
          "Uncaught exception in "
       , show tid
-      , ": "
+      , " ("
+      , fromMaybe "unlabelled" mLabel
+      , "): "
       , displayException e
       ]

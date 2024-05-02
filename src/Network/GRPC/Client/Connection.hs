@@ -48,6 +48,7 @@ import Network.GRPC.Client.Session
 import Network.GRPC.Common.Compression qualified as Compr
 import Network.GRPC.Common.Compression qualified as Compression
 import Network.GRPC.Spec
+import Network.GRPC.Util.GHC
 import Network.GRPC.Util.HTTP2.Stream (ServerDisconnected(..))
 import Network.GRPC.Util.Session qualified as Session
 import Network.GRPC.Util.Thread
@@ -299,7 +300,7 @@ withConnection connParams server k = do
     -- We don't use withAsync because we want the thread to terminate cleanly
     -- when we no longer need the connection (which we indicate by writing to
     -- connOutOfScope).
-    void $ forkIO $ stayConnectedThread
+    void $ forkLabelled "grapesy:stayConnected" $ stayConnectedThread
     k Connection {connParams, connMetaVar, connStateVar}
       `finally` putMVar connOutOfScope ()
 
@@ -353,7 +354,7 @@ startRPC Connection{connMetaVar, connParams, connStateVar} _ callParams = do
     -- the connection is closed. To prevent a memory leak by hanging on to the
     -- channel for the lifetime of the connection, the thread also terminates in
     -- the (normal) case that the channel is closed before the connection is.
-    _ <- forkIO $ do
+    _ <- forkLabelled "grapesy:monitorConnection" $ do
       status <- atomically $ do
           (Left <$> waitForNormalOrAbnormalThreadTermination
                       (Session.channelOutbound channel))

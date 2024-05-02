@@ -29,6 +29,7 @@ import Network.HTTP2.Internal qualified as HTTP2
 import Network.GRPC.Server.Call
 import Network.GRPC.Server.Context
 import Network.GRPC.Spec
+import Network.GRPC.Util.GHC
 import Network.GRPC.Util.HTTP2.Stream (ClientDisconnected(..))
 import Network.GRPC.Util.Session qualified as Session
 
@@ -147,7 +148,8 @@ runHandler call (RpcHandler k) = do
     -- http2 will kill the handler when the client disappears, but we want the
     -- handler to be able to terminate cleanly. We therefore run the handler in
     -- a separate thread, and wait for that thread to terminate.
-    handlerThread <- liftIO $ async $ XIO.runThrow handler
+    handlerThread <- liftIO $ asyncLabelled "grapesy:handler" $
+                       XIO.runThrow handler
     waitForHandler call handlerThread
   where
     -- The handler itself will run in a separate thread

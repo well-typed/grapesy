@@ -28,6 +28,8 @@ import Foreign (newStablePtr, freeStablePtr)
 import GHC.Stack
 import System.IO.Unsafe (unsafePerformIO)
 
+import Network.GRPC.Util.GHC
+
 {-------------------------------------------------------------------------------
   Debug thread IDs
 -------------------------------------------------------------------------------}
@@ -121,10 +123,12 @@ newThreadState = do
     debugId <- newDebugThreadId
     newTVarIO $ ThreadNotStarted debugId
 
-forkThread :: HasCallStack => TVar (ThreadState a) -> ThreadBody a -> IO ()
-forkThread state body =
+forkThread ::
+     HasCallStack
+  => ThreadLabel -> TVar (ThreadState a) -> ThreadBody a -> IO ()
+forkThread label state body =
     void $ mask_ $ forkIOWithUnmask $ \unmask ->
-      threadBody state $ body unmask
+      threadBody label state $ body unmask
 
 -- | Wrap the thread body
 --
@@ -138,10 +142,12 @@ forkThread state body =
 -- this function terminates immediately.
 threadBody :: forall a.
      HasCallStack
-  => TVar (ThreadState a)
+  => ThreadLabel
+  -> TVar (ThreadState a)
   -> ((a -> IO ()) -> DebugThreadId -> IO ())
   -> IO ()
-threadBody state body = do
+threadBody label state body = do
+    labelThisThread label
     threadId  <- myThreadId
     initState <- atomically $ readTVar state
 
@@ -188,8 +194,8 @@ threadBody state body = do
     atomically $ markDone res
   where
     unexpected :: String -> ThreadState a -> x
-    unexpected label st = error $ concat [
-          label
+    unexpected msg st = error $ concat [
+          msg
         , ": unexpected "
         , show (const () <$> st)
         ]

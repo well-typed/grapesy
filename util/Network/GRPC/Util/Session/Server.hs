@@ -73,43 +73,45 @@ setupResponseChannel sess
                    = XIO.unsafeTrustMe $ do
     channel <- initChannel
 
-    forkThread (channelInbound channel) $ \unmask markReady _debugId -> unmask $
-      linkOutboundToInbound ContinueWhenInboundClosed channel $ do
-        case inboundStart of
+    forkThread "grapesy:serverInbound" (channelInbound channel) $
+      \unmask markReady _debugId -> unmask $
+        linkOutboundToInbound ContinueWhenInboundClosed channel $ do
+          case inboundStart of
+            FlowStartRegular headers -> do
+              regular <- initFlowStateRegular headers
+              stream  <- serverInputStream (request conn)
+              markReady $ FlowStateRegular regular
+              Right <$> recvMessageLoop sess regular stream
+            FlowStartNoMessages trailers -> do
+              -- The client sent a request with an empty body
+              markReady $ FlowStateNoMessages trailers
+              return $ Left trailers
+              -- Thread terminates immediately
+
+    forkThread "grapesy:serverOutbound" (channelOutbound channel) $
+      \unmask markReady _debugId -> unmask $ do
+        outboundStart <- startOutbound
+        let responseInfo = buildResponseInfo sess outboundStart
+        case outboundStart of
           FlowStartRegular headers -> do
             regular <- initFlowStateRegular headers
-            stream  <- serverInputStream (request conn)
             markReady $ FlowStateRegular regular
-            Right <$> recvMessageLoop sess regular stream
+            let resp :: Server.Response
+                resp = setResponseTrailers sess channel
+                     $ Server.responseStreaming
+                             (responseStatus  responseInfo)
+                             (responseHeaders responseInfo)
+                     $ \write' flush' -> do
+                          stream <- serverOutputStream write' flush'
+                          sendMessageLoop sess regular stream
+            respond conn resp
           FlowStartNoMessages trailers -> do
-            -- The client sent a request with an empty body
             markReady $ FlowStateNoMessages trailers
-            return $ Left trailers
-            -- Thread terminates immediately
-
-    forkThread (channelOutbound channel) $ \unmask markReady _debugId -> unmask $ do
-      outboundStart <- startOutbound
-      let responseInfo = buildResponseInfo sess outboundStart
-      case outboundStart of
-        FlowStartRegular headers -> do
-          regular <- initFlowStateRegular headers
-          markReady $ FlowStateRegular regular
-          let resp :: Server.Response
-              resp = setResponseTrailers sess channel
-                   $ Server.responseStreaming
-                           (responseStatus  responseInfo)
-                           (responseHeaders responseInfo)
-                   $ \write' flush' -> do
-                        stream <- serverOutputStream write' flush'
-                        sendMessageLoop sess regular stream
-          respond conn resp
-        FlowStartNoMessages trailers -> do
-          markReady $ FlowStateNoMessages trailers
-          let resp :: Server.Response
-              resp = Server.responseNoBody
-                       (responseStatus  responseInfo)
-                       (responseHeaders responseInfo)
-          respond conn $ resp
+            let resp :: Server.Response
+                resp = Server.responseNoBody
+                         (responseStatus  responseInfo)
+                         (responseHeaders responseInfo)
+            respond conn $ resp
 
     return channel
 
