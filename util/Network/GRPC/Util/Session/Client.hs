@@ -139,7 +139,7 @@ setupRequestChannel sess
 
     forkRequest :: Channel sess -> Client.Request -> IO ()
     forkRequest channel req =
-        forkThread (channelInbound channel) $ \unmask markReady _debugId -> unmask $
+        forkThread "grapesy:clientInbound" (channelInbound channel) $ \unmask markReady _debugId -> unmask $
           linkOutboundToInbound (TerminateWhenInboundClosed terminateCall) channel $
             sendRequest req $ \resp -> do
               responseStatus <-
@@ -184,7 +184,7 @@ setupRequestChannel sess
       -> IO ()
       -> IO ()
     outboundThread channel regular unmask write' flush' =
-       threadBody (channelOutbound channel) $ \markReady _debugId -> do
+       threadBody "grapesy:clientOutbound" (channelOutbound channel) $ \markReady _debugId -> do
          markReady $ FlowStateRegular regular
          -- Initialize the output stream to initiate the request.
          -- It is important that we don't unmask exceptions prior to this point!

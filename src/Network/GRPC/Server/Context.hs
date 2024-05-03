@@ -82,7 +82,7 @@ instance Default ServerParams where
   def = ServerParams {
         serverCompression       = def
       , serverTopLevel          = defaultServerTopLevel
-      , serverExceptionToClient = return . Just . Text.pack . displayException
+      , serverExceptionToClient = defaultServerExceptionToClient
       , serverContentType       = Just ContentTypeDefault
       }
 
@@ -91,3 +91,13 @@ defaultServerTopLevel ::
   -> RequestHandler NeverThrows   ()
 defaultServerTopLevel h req resp =
     h req resp `XIO.catchError` (XIO.swallowIO . hPrint stderr)
+
+-- | Default implementation for 'serverExceptionToClient'
+--
+-- We unwrap the 'SomeException' wrapper so that we do not include the exception
+-- context in the output to the client (relevant for @ghc >= 9.10@ only).
+--
+-- See <https://github.com/ghc-proposals/ghc-proposals/blob/master/proposals/0330-exception-backtraces.rst>.
+defaultServerExceptionToClient :: SomeException -> IO (Maybe Text)
+defaultServerExceptionToClient (SomeException e) =
+    return $ Just (Text.pack $ displayException e)
