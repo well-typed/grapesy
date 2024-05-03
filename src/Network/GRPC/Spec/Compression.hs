@@ -27,6 +27,7 @@ import Codec.Compression.Zlib qualified as Deflate
 import Data.ByteString qualified as Strict (ByteString)
 import Data.ByteString.Lazy qualified as Lazy (ByteString)
 import Data.ByteString.UTF8 qualified as BS.Strict.UTF8
+import Data.Int (Int64)
 import Data.List.NonEmpty (NonEmpty(..))
 import Data.String
 
@@ -51,6 +52,12 @@ data Compression = Compression {
       -- TODO: <https://github.com/well-typed/grapesy/issues/57>.
       -- We need to deal with decompression failures.
     , decompress :: Lazy.ByteString -> Lazy.ByteString
+
+      -- | Uncompressed size threshold
+      --
+      -- Compression is only useful for uncompressed data sizes satisfying this
+      -- predicate.
+    , uncompressedSizeThreshold :: Int64 -> Bool
     }
 
 instance Show Compression where
@@ -116,9 +123,10 @@ compressionIsIdentity = (== Identity) . compressionId
 
 noCompression :: Compression
 noCompression = Compression {
-      compressionId = Identity
-    , compress      = id
-    , decompress    = id
+      compressionId             = Identity
+    , compress                  = id
+    , decompress                = id
+    , uncompressedSizeThreshold = const False
     }
 
 gzip :: Compression
@@ -126,6 +134,10 @@ gzip = Compression {
       compressionId = GZip
     , compress      = GZip.compress
     , decompress    = GZip.decompress
+
+      -- gzip only achieves a compression ratio of 8:7 for messages of at least
+      -- 27 bytes.
+    , uncompressedSizeThreshold = (>= 27)
     }
 
 -- | zlib deflate compression
@@ -138,6 +150,10 @@ deflate = Compression {
       compressionId = Deflate
     , compress      = Deflate.compress
     , decompress    = Deflate.decompress
+
+      -- zlib deflate only achieves a compression ratio of 8:7 for messages of
+      -- at least 13 bytes.
+    , uncompressedSizeThreshold = (>= 13)
     }
 
 #ifdef SNAPPY
@@ -147,5 +163,9 @@ snappy = Compression {
       compressionId = Snappy
     , compress      = Snappy.compress
     , decompress    = Snappy.decompress
+
+      -- snappy only achieves a compression ratio of 8:7 for messages of at
+      -- least 28 bytes.
+    , uncompressedSizeThreshold = (>= 28)
     }
 #endif

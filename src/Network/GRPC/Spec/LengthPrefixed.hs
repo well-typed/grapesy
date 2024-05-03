@@ -119,10 +119,13 @@ buildMsg build compr (envelope, x) = mconcat [
 
     shouldCompress :: Bool
     shouldCompress = and [
-          not $ compressionIsIdentity compr
+          uncompressedSizeThreshold compr uncompressedLength
         , outboundEnableCompression envelope
-        , BS.Lazy.length compressed < BS.Lazy.length uncompressed
+        , compressedLength < uncompressedLength
         ]
+      where
+        uncompressedLength = BS.Lazy.length uncompressed
+        compressedLength = BS.Lazy.length compressed
 
     prefix :: MessagePrefix
     prefix
