@@ -1,23 +1,28 @@
+{-# LANGUAGE OverloadedStrings #-}
 module Test.Stress.Server (server) where
 
+import Control.Monad
+import Data.ByteString.Lazy qualified as Lazy (ByteString)
+-- import Data.ByteString.Lazy qualified as BS.Lazy
+import Data.ByteString.Lazy.Char8 qualified as BS.Char8
+
 import Network.GRPC.Common
+import Network.GRPC.Common.Compression qualified as Compr
 import Network.GRPC.Server
-import Network.GRPC.Server.Binary qualified as Binary
 import Network.GRPC.Server.Run
 import Network.GRPC.Server.StreamType
 
-import Test.Stress.Cmdline
 import Test.Stress.Server.API
 
 {-------------------------------------------------------------------------------
   Top-level
 -------------------------------------------------------------------------------}
 
-server :: Cmdline -> IO ()
-server _cmdline =
-    runServerWithHandlers config def [
-        SomeRpcHandler (Proxy @ManyShortLived) $
-          streamingRpcHandler $ Binary.mkNonStreaming serverManyShortLived
+server :: IO ()
+server =
+    runServerWithHandlers config def { serverCompression = Compr.none } [
+        SomeRpcHandler (Proxy @ManyServerStreaming) $
+          streamingRpcHandler $ mkServerStreaming serverServerStreaming
       ]
   where
     config :: ServerConfig
@@ -26,9 +31,8 @@ server _cmdline =
         , serverSecure   = Nothing
         }
 
-{-------------------------------------------------------------------------------
-  Handlers
--------------------------------------------------------------------------------}
-
-serverManyShortLived :: Word -> IO Word
-serverManyShortLived = return . succ
+-- | Server streaming handler
+serverServerStreaming :: Lazy.ByteString -> (Lazy.ByteString -> IO ()) -> IO ()
+serverServerStreaming inp send = do
+    let n = read $ BS.Char8.unpack inp
+    replicateM_ n $ send "00000000"

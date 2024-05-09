@@ -1,13 +1,13 @@
 {-# OPTIONS_GHC -Wno-orphans #-}
 
 module Test.Stress.Server.API (
-    ManyShortLived
+    ManyServerStreaming
   ) where
 
 import Network.GRPC.Common
 import Network.GRPC.Common.Binary
 
-type ManyShortLived = BinaryRpc "stresstest" "manyshortlived"
+type ManyServerStreaming = BinaryRpc "stresstest" "manyserverstreaming"
 
 type instance RequestMetadata          (BinaryRpc "stresstest" meth) = NoMetadata
 type instance ResponseInitialMetadata  (BinaryRpc "stresstest" meth) = NoMetadata

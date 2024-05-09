@@ -439,6 +439,7 @@ executable test-stress
   build-depends:
       -- External dependencies
     , optparse-applicative >= 0.16 && < 0.19
+    , bytestring           >= 0.10 && < 0.13
 
   if !flag(build-stress-test)
     buildable:

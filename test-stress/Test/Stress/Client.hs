@@ -1,42 +1,22 @@
 module Test.Stress.Client (client) where
 
--- TODO: <https://github.com/well-typed/grapesy/issues/60>
---
--- We should stress test a scenario where there is many reconnections.
-
-import Control.Exception
-import Control.Monad
+import Data.ByteString.Lazy.Char8 qualified as BS.Char8
 
 import Network.GRPC.Client
-import Network.GRPC.Client.Binary qualified as Binary
 import Network.GRPC.Common
+import Network.GRPC.Common.StreamElem qualified as StreamElem
 
-import Test.Stress.Cmdline
 import Test.Stress.Server.API
 
 {-------------------------------------------------------------------------------
   Top-level
 -------------------------------------------------------------------------------}
 
-client :: Cmdline -> Test -> IO ()
-client _cmdline test =
-    case test of
-      ManyCalls n ->
-        withConnection params server $ \conn ->
-          forM_ [1 .. n] $ \i ->
-            singleNonStreaming conn i
-      ManyConnections n ->
-        forM_ [1 .. n] $ \i ->
-          withConnection params server $ \conn ->
-            singleNonStreaming conn i
-      ManyMessages _n _streamingType ->
-        -- TODO: <https://github.com/well-typed/grapesy/issues/60>
-        -- Need to implement the many-messages stress test
-        putStrLn "Not implemented"
+client :: IO ()
+client =
+    withConnection def server $ \conn ->
+      serverStreaming conn 3_000_000
   where
-    params :: ConnParams
-    params = def
-
     server :: Server
     server = ServerInsecure address
 
@@ -47,18 +27,21 @@ client _cmdline test =
         , addressAuthority = Nothing
         }
 
-{-------------------------------------------------------------------------------
-  Specific RPCs
--------------------------------------------------------------------------------}
-
--- | One non-streaming, round-trip call
-singleNonStreaming :: Connection -> Word -> IO ()
-singleNonStreaming conn n =
-    withRPC conn def (Proxy @ManyShortLived) $ \call -> do
-      Binary.sendFinalInput call n
-      m <- fst <$> Binary.recvFinalOutput @Word call
-      unless (m == succ n) $
-        throwIO . userError $ concat [
-            "Unexpected " ++ show m ++ "; "
-          , "expected " ++ show (succ n)
-          ]
+-- | Server streaming
+--
+-- Client tells the server how many messages to send. Server sends a sequence of
+-- numbers up to @numMessages@, with all even numbers replaced by the number 1.
+serverStreaming :: Connection -> Word -> IO ()
+serverStreaming conn numMessages =
+    withRPC conn def (Proxy @ManyServerStreaming) $ \call -> do
+      sendFinalInput call (BS.Char8.pack $ show numMessages)
+      recvAll call
+  where
+    recvAll :: Call ManyServerStreaming -> IO ()
+    recvAll call = do
+      received <- StreamElem.value <$> recvOutput call
+      case received of
+        Just _ ->
+          recvAll call
+        Nothing ->
+          return ()
