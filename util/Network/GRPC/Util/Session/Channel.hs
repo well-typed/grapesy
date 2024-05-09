@@ -259,6 +259,7 @@ send Channel{channelOutbound, channelSentFinal} msg =
           FlowStateRegular regular -> do
             StreamElem.whenDefinitelyFinal msg $ \_trailers ->
               writeTVar channelSentFinal $ Just callStack
+
             putTMVar (flowMsg regular) msg
           FlowStateNoMessages _ ->
             -- For outgoing messages, the caller decides to use Trailers-Only,

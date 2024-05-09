@@ -7,6 +7,9 @@ dist-newstyle
 *.eventlog.html
 *.hp
 *.prof
+*.aux
+*.ps
+*.svg
 perf.data
 perf.data.*
 strace.log

@@ -598,12 +598,19 @@ overrideRateLimits connParams clientConfig = clientConfig {
 
 openClientSocket :: HTTP2Settings -> AddrInfo -> IO Socket
 openClientSocket http2Settings =
-    Run.openClientSocketWithOptions socketOptions
+    Run.openClientSocketWithOpts socketOptions
   where
-    socketOptions :: [(SocketOption, Int)]
+    socketOptions :: [(SocketOption, SockOptValue)]
     socketOptions = concat [
-          [ (NoDelay, 1)
+          [ ( NoDelay
+            , SockOptValue @Int 1
+            )
           | http2TcpNoDelay http2Settings
+          ]
+        , [ ( Linger
+            , SockOptValue $ StructLinger { sl_onoff = 1, sl_linger = 0 }
+            )
+          | http2TcpAbortiveClose http2Settings
           ]
         ]
 

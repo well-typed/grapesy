@@ -101,8 +101,8 @@ only compr = chooseFirst (compr :| [noCompression])
 
 -- | Insist on the specified algorithm, /no matter what the peer offers/
 --
--- This is dangerous: if the peer does not supported the specified algorithm,
--- it will be unable to decompress any messages. Primarily used for testing.
+-- This is dangerous: if the peer does not support the specified algorithm, it
+-- will be unable to decompress any messages. Primarily used for testing.
 --
 -- See also 'only'.
 insist :: Compression -> Negotation
