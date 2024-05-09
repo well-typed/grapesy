@@ -431,6 +431,7 @@ executable test-stress
   other-modules:
       Test.Stress.Client
       Test.Stress.Cmdline
+      Test.Stress.Common
       Test.Stress.Server
       Test.Stress.Server.API
   build-depends:
@@ -439,6 +440,8 @@ executable test-stress
   build-depends:
       -- External dependencies
     , optparse-applicative >= 0.16 && < 0.19
+    , proto-lens           >= 0.7  && < 0.8
+    , bytestring           >= 0.10 && < 0.13
 
   if !flag(build-stress-test)
     buildable:

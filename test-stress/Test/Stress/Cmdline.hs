@@ -19,8 +19,11 @@ data Cmdline = Cmdline {
     }
 
 data Role =
-    Client Test
+    Client
+      Bool -- ^ Attempt to reconnect if the server disconnects
+      Test
   | Server
+      (Maybe Word) -- ^ Kill the server thread every @n@ microseconds
 
 data Test =
     ManyConnections Word
@@ -42,8 +45,8 @@ parseCmdline =
 
 parseRole :: Opt.Parser Role
 parseRole = Opt.subparser $ mconcat [
-      sub "client" "Client" (Client <$> parseTest)
-    , sub "server" "Server" (pure Server)
+      sub "client" "Client" (Client <$> parseReconnect <*> parseTest)
+    , sub "server" "Server" (Server <$> parseDisconnect)
     ]
 
 parseTest :: Opt.Parser Test
@@ -88,6 +91,24 @@ parseStreamingType = asum [
 
     -- 'NoStreaming' is tested by the many-connections and many-calls cases
     ]
+
+parseReconnect :: Opt.Parser Bool
+parseReconnect =
+    Opt.switch $ mconcat [
+          Opt.long "reconnect"
+        , Opt.help "Attempt to reconnect if the server disconnects"
+        ]
+
+parseDisconnect :: Opt.Parser (Maybe Word)
+parseDisconnect =
+    Opt.optional $
+      Opt.option Opt.auto $ mconcat [
+          Opt.long "disconnect-every"
+        , Opt.metavar "MICROSECONDS"
+        , Opt.help $
+            "Run the server on a separate thread and kill and resume the " ++
+            "server thread every MICROSECONDS"
+        ]
 
 {-------------------------------------------------------------------------------
   Internal auxiliary

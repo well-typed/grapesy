@@ -15,6 +15,6 @@ main :: IO ()
 main = do
     cmdline <- getCmdline
     case cmdRole cmdline of
-      Client test -> client cmdline test
-      Server      -> server cmdline
+      Client reconnect test -> client reconnect test
+      Server disconnectInterval -> server disconnectInterval
 

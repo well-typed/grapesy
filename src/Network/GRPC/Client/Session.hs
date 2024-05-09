@@ -19,7 +19,9 @@ import Network.HTTP.Types qualified as HTTP
 import Network.GRPC.Common
 import Network.GRPC.Common.Compression qualified as Compr
 import Network.GRPC.Spec
+import Network.GRPC.Util.HTTP2.Stream
 import Network.GRPC.Util.Session
+import Network.GRPC.Util.Session.Channel
 
 {-------------------------------------------------------------------------------
   Definition
