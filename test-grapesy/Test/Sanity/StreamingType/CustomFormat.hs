@@ -92,14 +92,14 @@ instance CalculatorFunction SumChat where
   type CalcOutput SumChat = Int
   calculatorMethod _ = "sumChat"
 
+type instance Input  (Calc fun) = CalcInput  fun
+type instance Output (Calc fun) = CalcOutput fun
+
 type instance RequestMetadata          (Calc fun) = NoMetadata
 type instance ResponseInitialMetadata  (Calc fun) = NoMetadata
 type instance ResponseTrailingMetadata (Calc fun) = NoMetadata
 
 instance CalculatorFunction fun => IsRPC (Calc fun) where
-  type Input  (Calc fun) = CalcInput  fun
-  type Output (Calc fun) = CalcOutput fun
-
   rpcContentType _ = defaultRpcContentType "cbor"
   rpcMessageType _ = "cbor"
   rpcServiceName _ = "calculator"

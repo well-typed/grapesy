@@ -28,6 +28,9 @@ import Network.GRPC.Util.Protobuf qualified as Protobuf
 -- This exists only as a type-level marker
 data Protobuf (serv :: Type) (meth :: Symbol)
 
+type instance Input  (Protobuf serv meth) = MethodInput  serv meth
+type instance Output (Protobuf serv meth) = MethodOutput serv meth
+
 instance ( HasMethodImpl      serv meth
          , Show (MethodInput  serv meth)
          , Show (MethodOutput serv meth)
@@ -37,9 +40,6 @@ instance ( HasMethodImpl      serv meth
          , Show (ResponseInitialMetadata (Protobuf serv meth))
          , Show (ResponseTrailingMetadata (Protobuf serv meth))
          ) => IsRPC (Protobuf serv meth) where
-  type Input  (Protobuf serv meth) = MethodInput  serv meth
-  type Output (Protobuf serv meth) = MethodOutput serv meth
-
   rpcContentType _ = defaultRpcContentType "proto"
   rpcServiceName _ = Text.pack $ concat [
                          symbolVal $ Proxy @(ServicePackage serv)

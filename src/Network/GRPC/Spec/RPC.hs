@@ -2,6 +2,8 @@
 
 module Network.GRPC.Spec.RPC (
     IsRPC(..)
+  , Input
+  , Output
   , SupportsServerRpc(..)
   , SupportsClientRpc(..)
   , defaultRpcContentType
@@ -19,6 +21,12 @@ import Network.GRPC.Spec.CustomMetadata.Typed
 {-------------------------------------------------------------------------------
   RPC call
 -------------------------------------------------------------------------------}
+
+-- | Messages from the client to the server
+type family Input (rpc :: k) :: Type
+
+-- | Messages from the server to the client
+type family Output (rpc :: k) :: Type
 
 -- | Abstract definition of an RPC
 --
@@ -41,12 +49,6 @@ class ( -- Debug constraints
       , Show (ResponseInitialMetadata rpc)
       , Show (ResponseTrailingMetadata rpc)
       ) => IsRPC (rpc :: k) where
-  -- | Messages from the client to the server
-  type Input rpc :: Type
-
-  -- | Messages from the server to the client
-  type Output rpc :: Type
-
   -- | Content-type
   --
   -- gRPC is agnostic to the message format; the spec defines the @Content-Type@

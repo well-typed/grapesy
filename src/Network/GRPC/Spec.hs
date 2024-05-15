@@ -8,6 +8,8 @@
 module Network.GRPC.Spec (
     -- * RPC
     IsRPC(..)
+  , Input
+  , Output
   , SupportsClientRpc(..)
   , SupportsServerRpc(..)
   , defaultRpcContentType

@@ -25,6 +25,9 @@ import Network.GRPC.Spec.RPC.StreamType
 -- permits).
 data BinaryRpc (serv :: Symbol) (meth :: Symbol)
 
+type instance Input  (BinaryRpc serv meth) = Lazy.ByteString
+type instance Output (BinaryRpc serv meth) = Lazy.ByteString
+
 instance ( KnownSymbol serv
          , KnownSymbol meth
 
@@ -33,9 +36,6 @@ instance ( KnownSymbol serv
          , Show (ResponseInitialMetadata (BinaryRpc serv meth))
          , Show (ResponseTrailingMetadata (BinaryRpc serv meth))
          ) => IsRPC (BinaryRpc serv meth) where
-  type Input  (BinaryRpc serv meth) = Lazy.ByteString
-  type Output (BinaryRpc serv meth) = Lazy.ByteString
-
   rpcContentType _ = defaultRpcContentType "binary"
   rpcServiceName _ = Text.pack $ symbolVal (Proxy @serv)
   rpcMethodName  _ = Text.pack $ symbolVal (Proxy @meth)
