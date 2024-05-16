@@ -29,5 +29,5 @@ runTest cmdline =
           callTimeout = Just $ Timeout Millisecond (TimeoutValue 1)
         }
 
-    req :: StreamingOutputCallRequest
+    req :: Proto StreamingOutputCallRequest
     req = mkStreamingOutputCallRequest [] (Just 27182)

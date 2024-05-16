@@ -50,7 +50,7 @@ constructResponseMetadata call = do
 -- Does nothing if @code@ is set to @0@ ('GrpcOk').
 --
 -- See <https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptions.md#status_code_and_message>
-echoStatus :: EchoStatus -> IO ()
+echoStatus :: Proto EchoStatus -> IO ()
 echoStatus status =
     case toGrpcStatus code of
       Just GrpcOk ->

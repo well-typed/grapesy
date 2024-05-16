@@ -31,14 +31,14 @@ runTest cmdline =
         verifySimpleResponse resp
   where
     -- Expect compressed, and /is/ compressed
-    compressed :: (OutboundEnvelope, SimpleRequest)
+    compressed :: (OutboundEnvelope, Proto SimpleRequest)
     compressed = (
           def { outboundEnableCompression = True }
         , mkSimpleRequest True
         )
 
     -- Expect uncompressed, and /is/ uncompressed
-    uncompressed :: (OutboundEnvelope, SimpleRequest)
+    uncompressed :: (OutboundEnvelope, Proto SimpleRequest)
     uncompressed = (
           def { outboundEnableCompression = False }
         , mkSimpleRequest False
@@ -54,7 +54,7 @@ checkServerSupportsCompressedRequest conn =
       expectInvalidArgument $ recvFinalOutput call
   where
     -- Expect compressed, but is /not/ actually compressed
-    featureProbe :: (OutboundEnvelope, SimpleRequest)
+    featureProbe :: (OutboundEnvelope, Proto SimpleRequest)
     featureProbe = (
           def { outboundEnableCompression = False }
         , mkSimpleRequest True

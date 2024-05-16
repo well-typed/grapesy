@@ -19,7 +19,7 @@ handle :: Call StreamingInputCall -> IO ()
 handle call = do
     sz <- loop 0
 
-    let response :: StreamingInputCallResponse
+    let response :: Proto StreamingInputCallResponse
         response = defMessage & #aggregatedPayloadSize .~ fromIntegral sz
 
     sendFinalOutput call (response, def)
@@ -33,7 +33,7 @@ handle call = do
           FinalElem   r _ -> handleRequest r >>= \sz -> return $ acc + sz
           NoMoreElems   _ -> return acc
 
-    handleRequest :: (InboundEnvelope, StreamingInputCallRequest) -> IO Int
+    handleRequest :: (InboundEnvelope, Proto StreamingInputCallRequest) -> IO Int
     handleRequest (envelope, request) = do
         checkInboundCompression expectCompressed envelope
         return $ BS.Strict.length (request ^. #payload ^. #body)

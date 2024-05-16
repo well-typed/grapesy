@@ -1,0 +1,153 @@
+syntax = "proto3";
+
+/*
+ * Definition that exercises most of the spec.
+ *
+ * Notes:
+ *
+ * - We combine all field labels with all field types.
+ *   https://protobuf.dev/programming-guides/proto3/#field-labels
+ *   https://protobuf.dev/programming-guides/proto3/#scalar
+ *
+ * - It is not possible to nest labels; we can't have a list of lists, a map
+ *   of optional values, etc.
+ *
+ * - Maps can only have (some) scalar types as keys. For our purposes it
+ *   suffices to test with _one_ scalar type.
+ *   https://protobuf.dev/programming-guides/proto3/#maps
+ *
+ * - The spec says that `oneof` is allowed to contain optional fields, but
+ *   `protoc` disagrees ("Fields in oneofs must not have labels (required /
+ *   optional / repeated)"). It also disallows maps ("Map fields are not allowed
+ *   in oneofs"), but that actually _is_ conform the spec, albeit a bit
+ *   implicitly.
+ *   https://protobuf.dev/programming-guides/proto3/#using-oneof
+ *
+ * - Groups are deprecated; we don't test them.
+ *   https://protobuf.dev/programming-guides/encoding/#groups
+ *
+ * - Only message types can be used as rpc inputs or outputs; not scalars or
+ *   enums.
+ */
+
+message ExampleMessage {
+  message NestedMessage {
+  }
+
+  double         defaultScalar01 = 101;
+  float          defaultScalar02 = 102;
+  int32          defaultScalar03 = 103;
+  int64          defaultScalar04 = 104;
+  uint32         defaultScalar05 = 105;
+  uint64         defaultScalar06 = 106;
+  sint32         defaultScalar07 = 107;
+  sint64         defaultScalar08 = 108;
+  fixed32        defaultScalar09 = 109;
+  fixed64        defaultScalar10 = 110;
+  sfixed32       defaultScalar11 = 111;
+  sfixed64       defaultScalar12 = 112;
+  bool           defaultScalar13 = 113;
+  string         defaultScalar14 = 114;
+  bytes          defaultScalar15 = 115;
+  AnotherMessage defaultAnother  = 116;
+  NestedMessage  defaultNested   = 117;
+  ExampleEnum    defaultEnum     = 118;
+
+  optional double         optionalScalar01 = 201;
+  optional float          optionalScalar02 = 202;
+  optional int32          optionalScalar03 = 203;
+  optional int64          optionalScalar04 = 204;
+  optional uint32         optionalScalar05 = 205;
+  optional uint64         optionalScalar06 = 206;
+  optional sint32         optionalScalar07 = 207;
+  optional sint64         optionalScalar08 = 208;
+  optional fixed32        optionalScalar09 = 209;
+  optional fixed64        optionalScalar10 = 210;
+  optional sfixed32       optionalScalar11 = 211;
+  optional sfixed64       optionalScalar12 = 212;
+  optional bool           optionalScalar13 = 213;
+  optional string         optionalScalar14 = 214;
+  optional bytes          optionalScalar15 = 215;
+  optional AnotherMessage optionalAnother  = 216;
+  optional NestedMessage  optionalNested   = 217;
+  optional ExampleEnum    optionalEnum     = 218;
+
+  repeated double         repeatedScalar01 = 301;
+  repeated float          repeatedScalar02 = 302;
+  repeated int32          repeatedScalar03 = 303;
+  repeated int64          repeatedScalar04 = 304;
+  repeated uint32         repeatedScalar05 = 305;
+  repeated uint64         repeatedScalar06 = 306;
+  repeated sint32         repeatedScalar07 = 307;
+  repeated sint64         repeatedScalar08 = 308;
+  repeated fixed32        repeatedScalar09 = 309;
+  repeated fixed64        repeatedScalar10 = 310;
+  repeated sfixed32       repeatedScalar11 = 311;
+  repeated sfixed64       repeatedScalar12 = 312;
+  repeated bool           repeatedScalar13 = 313;
+  repeated string         repeatedScalar14 = 314;
+  repeated bytes          repeatedScalar15 = 315;
+  repeated AnotherMessage repeatedAnother  = 316;
+  repeated NestedMessage  repeatedNested   = 317;
+  repeated ExampleEnum    repeatedEnum     = 318;
+
+  map <string, double>         mapScalar01 = 401;
+  map <string, float>          mapScalar02 = 402;
+  map <string, int32>          mapScalar03 = 403;
+  map <string, int64>          mapScalar04 = 404;
+  map <string, uint32>         mapScalar05 = 405;
+  map <string, uint64>         mapScalar06 = 406;
+  map <string, sint32>         mapScalar07 = 407;
+  map <string, sint64>         mapScalar08 = 408;
+  map <string, fixed32>        mapScalar09 = 409;
+  map <string, fixed64>        mapScalar10 = 410;
+  map <string, sfixed32>       mapScalar11 = 411;
+  map <string, sfixed64>       mapScalar12 = 412;
+  map <string, bool>           mapScalar13 = 413;
+  map <string, string>         mapScalar14 = 414;
+  map <string, bytes>          mapScalar15 = 415;
+  map <string, AnotherMessage> mapAnother  = 416;
+  map <string, NestedMessage>  mapNested   = 417;
+  map <string, ExampleEnum>    mapEnum     = 418;
+
+  oneof exampleOneOf {
+    double         oneofScalar01 = 501;
+    float          oneofScalar02 = 502;
+    int32          oneofScalar03 = 503;
+    int64          oneofScalar04 = 504;
+    uint32         oneofScalar05 = 505;
+    uint64         oneofScalar06 = 506;
+    sint32         oneofScalar07 = 507;
+    sint64         oneofScalar08 = 508;
+    fixed32        oneofScalar09 = 509;
+    fixed64        oneofScalar10 = 510;
+    sfixed32       oneofScalar11 = 511;
+    sfixed64       oneofScalar12 = 512;
+    bool           oneofScalar13 = 513;
+    string         oneofScalar14 = 514;
+    bytes          oneofScalar15 = 515;
+    AnotherMessage oneofAnother  = 516;
+    NestedMessage  oneofNested   = 517;
+    ExampleEnum    oneofEnum     = 518;
+  }
+}
+
+enum ExampleEnum {
+  ENUM_A = 0;
+  ENUM_B = 1;
+  ENUM_C = 2;
+}
+
+message AnotherMessage {
+}
+
+service ExampleService {
+  rpc AcceptAnother(AnotherMessage) returns (Empty);
+  rpc AcceptNested(ExampleMessage.NestedMessage) returns (Empty);
+
+  rpc ReturnAnother(Empty) returns (AnotherMessage);
+  rpc ReturnNested(Empty) returns (ExampleMessage.NestedMessage);
+}
+
+message Empty {
+}

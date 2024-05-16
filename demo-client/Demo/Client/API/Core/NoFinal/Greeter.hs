@@ -4,6 +4,7 @@ module Demo.Client.API.Core.NoFinal.Greeter (
 
 import Network.GRPC.Client
 import Network.GRPC.Common
+import Network.GRPC.Common.Protobuf
 
 import Demo.Common.API
 
@@ -11,7 +12,7 @@ import Demo.Common.API
   helloworld.Greeter
 -------------------------------------------------------------------------------}
 
-sayHello :: Connection -> HelloRequest -> IO ()
+sayHello :: Connection -> Proto HelloRequest -> IO ()
 sayHello conn n =
     withRPC conn def (Proxy @SayHello) $ \call -> do
       sendInput call $ StreamElem n

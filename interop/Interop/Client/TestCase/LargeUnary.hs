@@ -13,8 +13,8 @@ import Interop.Cmdline
 runTest :: Cmdline -> IO ()
 runTest cmdline =
     withConnection def (testServer cmdline) $ \conn -> do
-      resp :: SimpleResponse <- nonStreaming conn (rpc @UnaryCall) req
+      resp <- nonStreaming conn (rpc @UnaryCall) req
       verifySimpleResponse resp
   where
-    req :: SimpleRequest
+    req :: Proto SimpleRequest
     req = mkSimpleRequest False

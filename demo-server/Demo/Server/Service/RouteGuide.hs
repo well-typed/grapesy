@@ -25,7 +25,10 @@ import Demo.Server.Cmdline
   Top-level
 -------------------------------------------------------------------------------}
 
-handlers :: Cmdline -> [Feature] -> Methods IO (ProtobufMethodsOf RouteGuide)
+handlers ::
+     Cmdline
+  -> [Proto Feature]
+  -> Methods IO (ProtobufMethodsOf RouteGuide)
 handlers cmdline db
   | cmdTrailersOnlyShortcut cmdline
   =   Method    (mkNonStreaming    $ getFeature           db)
@@ -46,16 +49,19 @@ handlers cmdline db
   Handlers
 -------------------------------------------------------------------------------}
 
-getFeature :: [Feature] -> Point -> IO Feature
+getFeature :: [Proto Feature] -> Proto Point -> IO (Proto Feature)
 getFeature db p =
     return $ fromMaybe defMessage $ featureAt db p
 
-listFeatures :: [Feature] -> Rectangle -> (Feature -> IO ()) -> IO ()
+listFeatures :: [Proto Feature] -> Proto Rectangle -> (Proto Feature -> IO ()) -> IO ()
 listFeatures db r send =
     mapM_ send $
       filter (\f -> inRectangle r (f ^. #location)) db
 
-recordRoute :: [Feature] -> IO (StreamElem NoMetadata Point) -> IO RouteSummary
+recordRoute ::
+     [Proto Feature]
+  -> IO (StreamElem NoMetadata (Proto Point))
+  -> IO (Proto RouteSummary)
 recordRoute db recv = do
     start <- getCurrentTime
     ps    <- StreamElem.collect recv
@@ -63,9 +69,9 @@ recordRoute db recv = do
     return $ summary db (stop `diffUTCTime` start) ps
 
 routeChat ::
-     [Feature]
-  -> IO (StreamElem NoMetadata RouteNote)
-  -> (RouteNote -> IO ())
+     [Proto Feature]
+  -> IO (StreamElem NoMetadata (Proto RouteNote))
+  -> (Proto RouteNote -> IO ())
   -> IO ()
 routeChat _db recv send = do
     flip State.evalStateT Map.empty $
@@ -79,7 +85,7 @@ routeChat _db recv send = do
   See discussion in @demo-server.md@.
 -------------------------------------------------------------------------------}
 
-trailersOnlyShortcut :: [Feature] -> Call ListFeatures -> IO ()
+trailersOnlyShortcut :: [Proto Feature] -> Call ListFeatures -> IO ()
 trailersOnlyShortcut db call = do
     r <- recvFinalInput call
     let features = filter (\f -> inRectangle r (f ^. #location)) db

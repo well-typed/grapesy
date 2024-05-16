@@ -20,6 +20,6 @@ runTest cmdline =
           _resp <- recvNextOutput call
           return ()
   where
-    req :: StreamingOutputCallRequest
+    req :: Proto StreamingOutputCallRequest
     req = mkStreamingOutputCallRequest [(False, 31415)] (Just 27182)
 

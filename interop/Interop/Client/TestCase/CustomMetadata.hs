@@ -46,11 +46,11 @@ runTest cmdline = do
             }
         }
 
-    simpleRequest :: SimpleRequest
+    simpleRequest :: Proto SimpleRequest
     simpleRequest =
         mkSimpleRequest False
 
-    streamingRequest :: StreamingOutputCallRequest
+    streamingRequest :: Proto StreamingOutputCallRequest
     streamingRequest =
         mkStreamingOutputCallRequest [(False, 314159)] (Just 271828)
 

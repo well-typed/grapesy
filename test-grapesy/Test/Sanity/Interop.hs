@@ -24,7 +24,6 @@ import Network.GRPC.Server.Binary qualified as Server.Binary
 import Network.GRPC.Server.StreamType qualified as Server
 import Network.GRPC.Spec
 
-import Proto.Empty
 import Proto.Messages
 import Proto.Test
 
@@ -107,16 +106,16 @@ test_emptyUnary =
         config = def
       , client = simpleTestClient $ \conn ->
           Client.withRPC conn def (Proxy @EmptyCall) $ \call -> do
-            Client.sendFinalInput call (defMessage :: Empty)
+            Client.sendFinalInput call defMessage
             streamElem <- Client.recvOutputWithEnvelope call
             case StreamElem.value streamElem of
-              Nothing                      -> fail "Expected answer"
-              Just (envelope, _x :: Empty) -> verifyEnvelope envelope
+              Nothing             -> fail "Expected answer"
+              Just (envelope, _x) -> verifyEnvelope envelope
       , server = [
             Server.SomeRpcHandler (Proxy @EmptyCall) $
               Server.streamingRpcHandler $
-                Server.mkNonStreaming $ \(_ ::Empty) ->
-                  return (defMessage :: Empty)
+                Server.mkNonStreaming $ \_ ->
+                  return defMessage
           ]
       }
   where
@@ -182,10 +181,10 @@ test_serverCompressedStreaming =
 
               -- Payload matters for the test, because for messages that are too
               -- small no compression is used even when enabled.
-              payload :: Payload
+              payload :: Proto Payload
               payload = defMessage & #body .~ BS.Strict.pack (replicate size 0)
 
-              response :: StreamingOutputCallResponse
+              response :: Proto StreamingOutputCallResponse
               response = defMessage & #payload .~ payload
 
           Server.sendOutputWithEnvelope call $ StreamElem (envelope, response)
@@ -194,8 +193,8 @@ test_serverCompressedStreaming =
         Server.sendTrailers call NoMetadata
 
     verifyOutputs ::
-         ( Maybe (InboundEnvelope, StreamingOutputCallResponse)
-         , Maybe (InboundEnvelope, StreamingOutputCallResponse)
+         ( Maybe (InboundEnvelope, Proto StreamingOutputCallResponse)
+         , Maybe (InboundEnvelope, Proto StreamingOutputCallResponse)
          )
       -> IO ()
     verifyOutputs = \case

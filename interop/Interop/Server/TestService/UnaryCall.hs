@@ -44,7 +44,7 @@ handle call = do
                 request ^. #responseCompressed . #value
             }
 
-        response :: SimpleResponse
+        response :: Proto SimpleResponse
         response = defMessage & #payload .~ payload
 
     sendOutputWithEnvelope call $ StreamElem (outboundEnvelope, response)

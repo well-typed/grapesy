@@ -55,7 +55,7 @@ enableInitCompression = def {
 
 mkSimpleRequest ::
      Bool  -- ^ Should the server expect the message to be compressed?
-  -> SimpleRequest
+  -> Proto SimpleRequest
 mkSimpleRequest expectCompressed =
     defMessage
       & #expectCompressed .~ boolValue expectCompressed
@@ -65,7 +65,7 @@ mkSimpleRequest expectCompressed =
 mkStreamingInputCallRequest ::
      Bool  -- ^ Should the server expect the message to be compressed?
   -> Int   -- ^ Payload size
-  -> StreamingInputCallRequest
+  -> Proto StreamingInputCallRequest
 mkStreamingInputCallRequest expectCompressed size =
     defMessage
       & #expectCompressed .~ boolValue expectCompressed
@@ -74,7 +74,7 @@ mkStreamingInputCallRequest expectCompressed size =
 mkStreamingOutputCallRequest ::
      [(Bool, Int)] -- ^ Size and compression of each expected response
   -> Maybe Int     -- ^ Size of the payload, if any
-  -> StreamingOutputCallRequest
+  -> Proto StreamingOutputCallRequest
 mkStreamingOutputCallRequest expectedSizes payload =
     defMessage
       & #responseParameters .~ [
@@ -92,14 +92,14 @@ mkStreamingOutputCallRequest expectedSizes payload =
   Verify server outputs
 -------------------------------------------------------------------------------}
 
-verifySimpleResponse :: HasCallStack => SimpleResponse -> IO ()
+verifySimpleResponse :: HasCallStack => Proto SimpleResponse -> IO ()
 verifySimpleResponse resp = do
     assertEqual 314159 $ BS.Strict.length     (resp ^. #payload . #body)
     assertBool         $ BS.Strict.all (== 0) (resp ^. #payload . #body)
 
 verifyStreamingOutputCallResponse ::
      Int -- ^ Expected size
-  -> StreamingOutputCallResponse -> IO ()
+  -> Proto StreamingOutputCallResponse -> IO ()
 verifyStreamingOutputCallResponse expectedSize resp = do
     assertEqual expectedSize $ BS.Strict.length     (resp ^. #payload . #body)
     assertBool               $ BS.Strict.all (== 0) (resp ^. #payload . #body)

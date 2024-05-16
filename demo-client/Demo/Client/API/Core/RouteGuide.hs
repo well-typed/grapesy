@@ -4,6 +4,7 @@ module Demo.Client.API.Core.RouteGuide (
 
 import Network.GRPC.Client
 import Network.GRPC.Common
+import Network.GRPC.Common.Protobuf
 
 import Demo.Common.API
 import Demo.Common.Logging
@@ -12,7 +13,7 @@ import Demo.Common.Logging
   RouteGuide
 -------------------------------------------------------------------------------}
 
-listFeatures :: Connection -> Rectangle -> IO ()
+listFeatures :: Connection -> Proto Rectangle -> IO ()
 listFeatures conn r = do
     withRPC conn def (Proxy @ListFeatures) $ \call -> do
       sendFinalInput call r

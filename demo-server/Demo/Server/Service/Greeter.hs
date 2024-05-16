@@ -30,7 +30,7 @@ handlers =
   Individual handlers
 -------------------------------------------------------------------------------}
 
-sayHello :: HelloRequest -> IO HelloReply
+sayHello :: Proto HelloRequest -> IO (Proto HelloReply)
 sayHello req = return $ defMessage & #message .~ msg
   where
     msg :: Text
@@ -65,7 +65,7 @@ sayHelloBidiStream = mkRpcHandler $ \call -> do
 
     handle cancellation $ loop
   where
-    handleRequest :: Call SayHelloBidiStream -> HelloRequest -> IO ()
+    handleRequest :: Call SayHelloBidiStream -> Proto HelloRequest -> IO ()
     handleRequest call req =
         sendNextOutput call $ defMessage & #message .~ msg
       where

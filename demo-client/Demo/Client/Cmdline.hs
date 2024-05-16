@@ -66,14 +66,14 @@ deriving stock instance Show SomeMethod
 
 -- | Select method
 data SMethod :: Type -> Type where
-  SSayHello            :: HelloRequest           -> SMethod SayHello
-  SSayHelloStreamReply :: HelloRequest           -> SMethod SayHelloStreamReply
-  SSayHelloBidiStream  :: [DelayOr HelloRequest] -> SMethod SayHelloBidiStream
+  SSayHello            :: Proto HelloRequest             -> SMethod SayHello
+  SSayHelloStreamReply :: Proto HelloRequest             -> SMethod SayHelloStreamReply
+  SSayHelloBidiStream  :: [DelayOr (Proto HelloRequest)] -> SMethod SayHelloBidiStream
 
-  SGetFeature   :: Point               -> SMethod GetFeature
-  SListFeatures :: Rectangle           -> SMethod ListFeatures
-  SRecordRoute  :: [DelayOr Point]     -> SMethod RecordRoute
-  SRouteChat    :: [DelayOr RouteNote] -> SMethod RouteChat
+  SGetFeature   :: Proto Point                 -> SMethod GetFeature
+  SListFeatures :: Proto Rectangle             -> SMethod ListFeatures
+  SRecordRoute  :: [DelayOr (Proto Point)]     -> SMethod RecordRoute
+  SRouteChat    :: [DelayOr (Proto RouteNote)] -> SMethod RouteChat
 
   SPing :: Lazy.ByteString -> SMethod Ping
 
@@ -266,14 +266,14 @@ parseDelayOr p = asum [
         ])
     ]
 
-parseHelloRequest :: Opt.Parser HelloRequest
+parseHelloRequest :: Opt.Parser (Proto HelloRequest)
 parseHelloRequest =
     mkHelloRequest <$> Opt.option Opt.str (mconcat [
         Opt.long "name"
       , Opt.metavar "NAME"
       ])
   where
-    mkHelloRequest :: Text -> HelloRequest
+    mkHelloRequest :: Text -> Proto HelloRequest
     mkHelloRequest name = (defMessage & #name .~ name)
 
 parseLatitude :: String -> Opt.Parser Int32
@@ -288,36 +288,37 @@ parseLongitude prefix =
         Opt.long $ prefix ++ "longitude"
       ]
 
-parsePoint :: String -> Opt.Parser Point
+parsePoint :: String -> Opt.Parser (Proto Point)
 parsePoint prefix =
     mkPoint
       <$> parseLatitude  prefix
       <*> parseLongitude prefix
   where
-    mkPoint :: Int32 -> Int32 -> Point
+    mkPoint :: Int32 -> Int32 -> Proto Point
     mkPoint latitude longitude =
         defMessage
           & #latitude  .~ latitude
           & #longitude .~ longitude
 
-parseRectangle :: Opt.Parser Rectangle
+parseRectangle :: Opt.Parser (Proto Rectangle)
 parseRectangle =
     mkRectangle
       <$> parsePoint "lo-"
       <*> parsePoint "hi-"
   where
+    mkRectangle :: Proto Point -> Proto Point -> Proto Rectangle
     mkRectangle lo hi =
         defMessage
           & #lo .~ lo
           & #hi .~ hi
 
-parseRouteNote :: Opt.Parser RouteNote
+parseRouteNote :: Opt.Parser (Proto RouteNote)
 parseRouteNote =
     mkRouteNote
       <$> parsePoint ""
       <*> Opt.argument Opt.str (Opt.metavar "MSG")
   where
-    mkRouteNote :: Point -> Text -> RouteNote
+    mkRouteNote :: Proto Point -> Text -> Proto RouteNote
     mkRouteNote location message =
         defMessage
           & #location .~ location

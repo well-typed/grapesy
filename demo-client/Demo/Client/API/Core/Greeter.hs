@@ -9,6 +9,7 @@ import Control.Monad
 
 import Network.GRPC.Client
 import Network.GRPC.Common
+import Network.GRPC.Common.Protobuf
 
 import Demo.Client.Util.DelayOr
 import Demo.Common.API
@@ -18,7 +19,7 @@ import Demo.Common.Logging
   helloworld.Greeter
 -------------------------------------------------------------------------------}
 
-sayHelloStreamReply :: Connection -> HelloRequest -> IO ()
+sayHelloStreamReply :: Connection -> Proto HelloRequest -> IO ()
 sayHelloStreamReply conn name =
     withRPC conn def (Proxy @SayHelloStreamReply) $ \call -> do
       -- The server only sends a response once we send an input
@@ -34,7 +35,7 @@ sayHelloStreamReply conn name =
       finalMetadata <- recvAllOutputs call logMsg
       logMsg finalMetadata
 
-sayHelloBidiStream :: Connection -> [DelayOr HelloRequest] -> IO ()
+sayHelloBidiStream :: Connection -> [DelayOr (Proto HelloRequest)] -> IO ()
 sayHelloBidiStream conn names = handle cancelled $
     withRPC conn def (Proxy @SayHelloBidiStream) $ \call -> do
       forM_ names $ \mName -> do

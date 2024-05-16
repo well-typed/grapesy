@@ -6,6 +6,7 @@ import Data.Aeson
 
 import Network.GRPC.Common
 import Network.GRPC.Common.Compression qualified as Compression
+import Network.GRPC.Common.Protobuf
 import Network.GRPC.Server
 import Network.GRPC.Server.Protobuf
 import Network.GRPC.Server.Run
@@ -26,7 +27,7 @@ import Paths_grapesy
 
 services ::
      Cmdline
-  -> [Feature]
+  -> [Proto Feature]
   -> Services IO [
          ProtobufMethodsOf Greeter
        , ProtobufMethodsOf RouteGuide
@@ -58,7 +59,7 @@ main = do
       (serverParams cmdline)
       (fromServices $ services cmdline db)
 
-getRouteGuideDb :: IO [Feature]
+getRouteGuideDb :: IO [Proto Feature]
 getRouteGuideDb = do
     path <- getDataFileName "route_guide_db.json"
     mDb  <- decodeFileStrict path
