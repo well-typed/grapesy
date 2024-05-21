@@ -144,8 +144,8 @@ library
       Network.GRPC.Spec.Request
       Network.GRPC.Spec.Response
       Network.GRPC.Spec.RPC
-      Network.GRPC.Spec.RPC.Binary
       Network.GRPC.Spec.RPC.Protobuf
+      Network.GRPC.Spec.RPC.Raw
       Network.GRPC.Spec.RPC.StreamType
       Network.GRPC.Spec.RPC.Unknown
       Network.GRPC.Spec.Status

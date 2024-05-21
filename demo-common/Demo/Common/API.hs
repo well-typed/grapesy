@@ -92,8 +92,8 @@ type instance ResponseTrailingMetadata (Protobuf RouteGuide meth) = NoMetadata
   Ping
 -------------------------------------------------------------------------------}
 
-type Ping = BinaryRpc "Ping" "ping"
+type Ping = RawRpc "Ping" "ping"
 
-type instance RequestMetadata          (BinaryRpc "Ping" meth) = NoMetadata
-type instance ResponseInitialMetadata  (BinaryRpc "Ping" meth) = NoMetadata
-type instance ResponseTrailingMetadata (BinaryRpc "Ping" meth) = NoMetadata
+type instance RequestMetadata          (RawRpc "Ping" meth) = NoMetadata
+type instance ResponseInitialMetadata  (RawRpc "Ping" meth) = NoMetadata
+type instance ResponseTrailingMetadata (RawRpc "Ping" meth) = NoMetadata
