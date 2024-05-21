@@ -26,6 +26,9 @@ import Network.GRPC.Spec.RPC
 -- by the spec.
 data UnknownRpc (serv :: Maybe Symbol) (meth :: Maybe Symbol)
 
+type instance Input  (UnknownRpc serv meth) = Void
+type instance Output (UnknownRpc serv meth) = Void
+
 type instance RequestMetadata          (UnknownRpc serv meth) = NoMetadata
 type instance ResponseInitialMetadata  (UnknownRpc serv meth) = NoMetadata
 type instance ResponseTrailingMetadata (UnknownRpc serv meth) = NoMetadata
@@ -33,9 +36,6 @@ type instance ResponseTrailingMetadata (UnknownRpc serv meth) = NoMetadata
 instance ( MaybeKnown serv
          , MaybeKnown meth
          ) => IsRPC (UnknownRpc serv meth) where
-  type Input  (UnknownRpc serv meth) = Void
-  type Output (UnknownRpc serv meth) = Void
-
   rpcContentType = const "application/grpc"
   rpcServiceName = const $ Text.pack $ maybeSymbolVal (Proxy @serv)
   rpcMethodName  = const $ Text.pack $ maybeSymbolVal (Proxy @meth)

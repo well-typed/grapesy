@@ -16,7 +16,7 @@ import Control.Monad.Reader
 import Network.GRPC.Client
 import Network.GRPC.Common.StreamElem
 import Network.GRPC.Common.StreamType
-import Network.GRPC.Spec (IsRPC(..), NoMetadata)
+import Network.GRPC.Spec (Input, Output, NoMetadata)
 import Network.GRPC.Spec qualified as Spec
 import Network.GRPC.Client.StreamType hiding (CanCallRPC(..))
 

@@ -4,6 +4,8 @@
 module Network.GRPC.Common (
     -- * Abstraction over different serialization formats
     IsRPC(..)
+  , Input
+  , Output
   , SupportsClientRpc(..)
   , SupportsServerRpc(..)
 
