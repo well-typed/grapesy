@@ -40,7 +40,7 @@ dispatch _ _ (Delay d) =
     threadDelay $ round $ d * 1_000_000
 dispatch cmd conn (Exec method) =
     case method of
-      SomeMethod SGreeter (SSayHello name) ->
+      SomeMethod (SSayHello name) ->
         case cmdAPI cmd of
           ProtobufIO ->
             IO.Greeter.sayHello conn name
@@ -50,7 +50,7 @@ dispatch cmd conn (Exec method) =
             NoFinal.Greeter.sayHello conn name
           _otherwise ->
             unsupportedMode
-      SomeMethod SGreeter (SSayHelloStreamReply name) ->
+      SomeMethod (SSayHelloStreamReply name) ->
         case cmdAPI cmd of
           Core ->
             Core.Greeter.sayHelloStreamReply conn name
@@ -60,19 +60,19 @@ dispatch cmd conn (Exec method) =
             CanCallRPC.Greeter.sayHelloStreamReply conn name
           _otherwise ->
             unsupportedMode
-      SomeMethod SGreeter (SSayHelloBidiStream names) ->
+      SomeMethod (SSayHelloBidiStream names) ->
         case cmdAPI cmd of
           Core ->
             Core.Greeter.sayHelloBidiStream conn names
           _otherwise ->
             unsupportedMode
-      SomeMethod SRouteGuide (SGetFeature p) ->
+      SomeMethod (SGetFeature p) ->
         case cmdAPI cmd of
           ProtobufIO ->
             IO.RouteGuide.getFeature conn p
           _otherwise ->
             unsupportedMode
-      SomeMethod SRouteGuide (SListFeatures r) ->
+      SomeMethod (SListFeatures r) ->
         case cmdAPI cmd of
           ProtobufPipes ->
             Pipes.RouteGuide.listFeatures conn r
@@ -82,7 +82,7 @@ dispatch cmd conn (Exec method) =
             Core.RouteGuide.listFeatures conn r
           _otherwise ->
             unsupportedMode
-      SomeMethod SRouteGuide (SRecordRoute ps) ->
+      SomeMethod (SRecordRoute ps) ->
         case cmdAPI cmd of
           ProtobufPipes ->
             Pipes.RouteGuide.recordRoute conn $ yieldAll ps
@@ -90,7 +90,7 @@ dispatch cmd conn (Exec method) =
             IO.RouteGuide.recordRoute conn =<< execAll ps
           _otherwise ->
             unsupportedMode
-      SomeMethod SRouteGuide (SRouteChat notes) ->
+      SomeMethod (SRouteChat notes) ->
         case cmdAPI cmd of
           ProtobufPipes ->
             Pipes.RouteGuide.routeChat conn $ yieldAll notes
