@@ -1,3 +1,4 @@
+{-# LANGUAGE FunctionalDependencies #-}
 module Network.GRPC.Server.StreamType (
     -- * Construct 'RpcHandler' from streaming type specific handler
     StreamingRpcHandler(..)
@@ -11,6 +12,8 @@ module Network.GRPC.Server.StreamType (
   , Services(..)
   , fromMethods
   , fromServices
+    -- * Varargs API
+  , simpleMethods
   ) where
 
 import Control.Monad.IO.Class
@@ -74,7 +77,8 @@ instance StreamingRpcHandler BiDiStreamingHandler where
 
 -- | Declare handlers for a set of RPCs
 --
--- See also 'fromMethods'.
+-- See also 'simpleMethods' for an alternative API if you only need the 'Method'
+-- constructor.
 --
 -- == Example usage
 --
@@ -226,3 +230,50 @@ fromServices = concat . go
     go NoMoreServices = []
     go (Service s ss) = fromMethods s : go ss
 
+{-------------------------------------------------------------------------------
+  Varargs API
+-------------------------------------------------------------------------------}
+
+class SimpleMethods m (rpcs :: [k]) (rpcs' :: [k]) a | a -> m rpcs rpcs' where
+  simpleMethods' :: (Methods m rpcs -> Methods m rpcs') -> a
+
+instance SimpleMethods m '[] rpcs (Methods m rpcs) where
+  simpleMethods' f = f NoMoreMethods
+
+instance
+  ( -- Requirements inherited from the 'Method' constructor
+    StreamingRpcHandler h
+  , SupportsServerRpc rpc
+  , Default (ResponseInitialMetadata rpc)
+  , Default (ResponseTrailingMetadata rpc)
+  , h ~ HandlerFor (RpcStreamingType rpc)
+    -- Requirements for the vararg construction
+  , b ~ h m rpc
+  , SimpleMethods m rpcs rpcs' a
+  ) => SimpleMethods m (rpc ': rpcs) rpcs' (b -> a) where
+  simpleMethods' f h = simpleMethods' (f . Method h)
+
+-- | Alternative way to construct 'Methods'
+--
+-- == Example usage
+--
+-- Listing the handlers for the gRPC routeguide server using 'Methods' directly
+-- looks like this:
+--
+-- >   Method (mkNonStreaming    $ getFeature   db)
+-- > $ Method (mkServerStreaming $ listFeatures db)
+-- > $ Method (mkClientStreaming $ recordRoute  db)
+-- > $ Method (mkBiDiStreaming   $ routeChat    db)
+-- > $ NoMoreMethods
+--
+-- Since we only use 'Method' here, we can instead write this as
+--
+-- > simpleMethods
+-- >   (mkNonStreaming    $ getFeature   db)
+-- >   (mkServerStreaming $ listFeatures db)
+-- >   (mkClientStreaming $ recordRoute  db)
+-- >   (mkBiDiStreaming   $ routeChat    db)
+--
+-- Which API you prefer is mostly just a matter of taste.
+simpleMethods :: SimpleMethods m rpcs rpcs a => a
+simpleMethods = simpleMethods' id
