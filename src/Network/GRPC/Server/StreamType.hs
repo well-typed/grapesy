@@ -130,7 +130,7 @@ instance StreamingRpcHandler BiDiStreamingHandler where
 -- ghc will tell us
 --
 -- > _getFeature :: Point -> IO Feature
-data Methods (m :: Type -> Type) (rpcs :: [Type]) where
+data Methods (m :: Type -> Type) (rpcs :: [k]) where
   -- | All methods of the service handled
   NoMoreMethods :: Methods m '[]
 
@@ -197,7 +197,7 @@ data Methods (m :: Type -> Type) (rpcs :: [Type]) where
 -- >       Service Greeter.handlers
 -- >     $ Service (RouteGuide.handlers db)
 -- >     $ NoMoreServices
-data Services m (servs :: [[Type]]) where
+data Services m (servs :: [[k]]) where
   NoMoreServices :: Services m '[]
 
   Service ::
