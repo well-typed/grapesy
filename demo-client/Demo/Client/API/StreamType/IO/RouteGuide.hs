@@ -1,4 +1,4 @@
-module Demo.Client.API.Protobuf.IO.RouteGuide (
+module Demo.Client.API.StreamType.IO.RouteGuide (
     getFeature
   , listFeatures
   , recordRoute

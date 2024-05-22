@@ -15,13 +15,13 @@ import Network.GRPC.Common.Compression qualified as Compr
 import Demo.Client.Cmdline
 import Demo.Client.Util.DelayOr
 
-import Demo.Client.API.Core.Greeter                qualified as Core.Greeter
-import Demo.Client.API.Core.NoFinal.Greeter        qualified as NoFinal.Greeter
-import Demo.Client.API.Core.RouteGuide             qualified as Core.RouteGuide
-import Demo.Client.API.Protobuf.IO.Greeter         qualified as IO.Greeter
-import Demo.Client.API.Protobuf.IO.RouteGuide      qualified as IO.RouteGuide
-import Demo.Client.API.Protobuf.Pipes.RouteGuide   qualified as Pipes.RouteGuide
-import Demo.Client.API.Protobuf.CanCallRPC.Greeter qualified as CanCallRPC.Greeter
+import Demo.Client.API.Core.Greeter                  qualified as Core.Greeter
+import Demo.Client.API.Core.NoFinal.Greeter          qualified as NoFinal.Greeter
+import Demo.Client.API.Core.RouteGuide               qualified as Core.RouteGuide
+import Demo.Client.API.StreamType.IO.Greeter         qualified as IO.Greeter
+import Demo.Client.API.StreamType.IO.RouteGuide      qualified as IO.RouteGuide
+import Demo.Client.API.StreamType.MonadStack.Greeter qualified as CanCallRPC.Greeter
+import Demo.Client.API.StreamType.Pipes.RouteGuide   qualified as Pipes.RouteGuide
 
 {-------------------------------------------------------------------------------
   Application entry point
@@ -42,9 +42,9 @@ dispatch cmd conn (Exec method) =
     case method of
       SomeMethod (SSayHello name) ->
         case cmdAPI cmd of
-          ProtobufIO ->
+          StreamTypeIO ->
             IO.Greeter.sayHello conn name
-          ProtobufCanCallRPC ->
+          StreamTypeMonadStack ->
             CanCallRPC.Greeter.sayHello conn name
           CoreNoFinal ->
             NoFinal.Greeter.sayHello conn name
@@ -54,9 +54,9 @@ dispatch cmd conn (Exec method) =
         case cmdAPI cmd of
           Core ->
             Core.Greeter.sayHelloStreamReply conn name
-          ProtobufIO ->
+          StreamTypeIO ->
             IO.Greeter.sayHelloStreamReply conn name
-          ProtobufCanCallRPC ->
+          StreamTypeMonadStack ->
             CanCallRPC.Greeter.sayHelloStreamReply conn name
           _otherwise ->
             unsupportedMode
@@ -68,15 +68,15 @@ dispatch cmd conn (Exec method) =
             unsupportedMode
       SomeMethod (SGetFeature p) ->
         case cmdAPI cmd of
-          ProtobufIO ->
+          StreamTypeIO ->
             IO.RouteGuide.getFeature conn p
           _otherwise ->
             unsupportedMode
       SomeMethod (SListFeatures r) ->
         case cmdAPI cmd of
-          ProtobufPipes ->
+          StreamTypePipes ->
             Pipes.RouteGuide.listFeatures conn r
-          ProtobufIO ->
+          StreamTypeIO ->
             IO.RouteGuide.listFeatures conn r
           Core ->
             Core.RouteGuide.listFeatures conn r
@@ -84,17 +84,17 @@ dispatch cmd conn (Exec method) =
             unsupportedMode
       SomeMethod (SRecordRoute ps) ->
         case cmdAPI cmd of
-          ProtobufPipes ->
+          StreamTypePipes ->
             Pipes.RouteGuide.recordRoute conn $ yieldAll ps
-          ProtobufIO ->
+          StreamTypeIO ->
             IO.RouteGuide.recordRoute conn =<< execAll ps
           _otherwise ->
             unsupportedMode
       SomeMethod (SRouteChat notes) ->
         case cmdAPI cmd of
-          ProtobufPipes ->
+          StreamTypePipes ->
             Pipes.RouteGuide.routeChat conn $ yieldAll notes
-          ProtobufIO ->
+          StreamTypeIO ->
             IO.RouteGuide.routeChat conn =<< execAll notes
           _otherwise ->
             unsupportedMode

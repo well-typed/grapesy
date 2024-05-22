@@ -1,4 +1,4 @@
-module Demo.Client.API.Protobuf.IO.Greeter (
+module Demo.Client.API.StreamType.IO.Greeter (
     sayHello
   , sayHelloStreamReply
   ) where

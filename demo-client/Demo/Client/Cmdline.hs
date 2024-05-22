@@ -51,9 +51,9 @@ data Cmdline = Cmdline {
 
 -- | Which API to use?
 data API =
-    ProtobufIO
-  | ProtobufPipes
-  | ProtobufCanCallRPC
+    StreamTypeIO
+  | StreamTypePipes
+  | StreamTypeMonadStack
   | Core
   | CoreNoFinal
   deriving (Show)
@@ -194,17 +194,17 @@ parseCompression = asum [
 
 parseAPI :: Opt.Parser API
 parseAPI = asum [
-      Opt.flag' ProtobufIO $ mconcat [
-          Opt.long "protobuf-IO"
-        , Opt.help "Use the Protobuf IO API (if applicable)"
+      Opt.flag' StreamTypeIO $ mconcat [
+          Opt.long "streamtype-io"
+        , Opt.help "Use the StreamType.IO API (if applicable)"
         ]
-    , Opt.flag' ProtobufPipes $ mconcat [
-          Opt.long "protobuf-Pipe"
-        , Opt.help "Use the Protobuf Pipe API (if applicable)"
+    , Opt.flag' StreamTypePipes $ mconcat [
+          Opt.long "streamtype-pipes"
+        , Opt.help "Use the StreamType.Pipes API (if applicable)"
         ]
-    , Opt.flag' ProtobufCanCallRPC $ mconcat [
-          Opt.long "protobuf-CanCallRPC"
-        , Opt.help "Use the Protobuf CanCallRPC API (if applicable)"
+    , Opt.flag' StreamTypeMonadStack $ mconcat [
+          Opt.long "streamtype-monadstack"
+        , Opt.help "Use the StreamType API with a bespoke monad stack (if applicable)"
         ]
     , Opt.flag' Core $ mconcat [
           Opt.long "core"
@@ -214,7 +214,7 @@ parseAPI = asum [
           Opt.long "core-dont-mark-final"
         , Opt.help "Use the core API; don't mark the last message as final"
         ]
-    , pure ProtobufIO
+    , pure StreamTypeIO
     ]
 
 {-------------------------------------------------------------------------------

@@ -1,4 +1,4 @@
-module Demo.Client.API.Protobuf.Pipes.RouteGuide (
+module Demo.Client.API.StreamType.Pipes.RouteGuide (
     listFeatures
   , recordRoute
   , routeChat
