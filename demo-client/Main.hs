@@ -19,6 +19,7 @@ import Demo.Client.API.Core.Greeter                  qualified as Core.Greeter
 import Demo.Client.API.Core.NoFinal.Greeter          qualified as NoFinal.Greeter
 import Demo.Client.API.Core.RouteGuide               qualified as Core.RouteGuide
 import Demo.Client.API.StreamType.IO.Greeter         qualified as IO.Greeter
+import Demo.Client.API.StreamType.IO.Ping            qualified as IO.Ping
 import Demo.Client.API.StreamType.IO.RouteGuide      qualified as IO.RouteGuide
 import Demo.Client.API.StreamType.MonadStack.Greeter qualified as CanCallRPC.Greeter
 import Demo.Client.API.StreamType.Pipes.RouteGuide   qualified as Pipes.RouteGuide
@@ -96,6 +97,12 @@ dispatch cmd conn (Exec method) =
             Pipes.RouteGuide.routeChat conn $ yieldAll notes
           StreamTypeIO ->
             IO.RouteGuide.routeChat conn =<< execAll notes
+          _otherwise ->
+            unsupportedMode
+      SomeMethod (SPing msg) ->
+        case cmdAPI cmd of
+          StreamTypeIO ->
+            IO.Ping.ping conn msg
           _otherwise ->
             unsupportedMode
   where

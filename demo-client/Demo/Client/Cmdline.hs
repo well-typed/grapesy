@@ -16,6 +16,7 @@ module Demo.Client.Cmdline (
 
 import Prelude
 
+import Data.ByteString.Lazy qualified as Lazy (ByteString)
 import Data.Foldable (asum)
 import Data.Int
 import Data.Kind
@@ -73,6 +74,8 @@ data SMethod :: Type -> Type where
   SListFeatures :: Rectangle           -> SMethod ListFeatures
   SRecordRoute  :: [DelayOr Point]     -> SMethod RecordRoute
   SRouteChat    :: [DelayOr RouteNote] -> SMethod RouteChat
+
+  SPing :: Lazy.ByteString -> SMethod Ping
 
 deriving stock instance Show (SMethod rpc)
 
@@ -244,6 +247,9 @@ parseSomeMethod = Opt.subparser $ mconcat [
     , sub "routeChat" "routeguide.RouteGuide.RouteChat" $
         SomeMethod . SRouteChat <$>
           Opt.many (parseDelayOr $ parseRouteNote)
+    , sub "ping" "Ping.ping" $
+        SomeMethod . SPing <$>
+          Opt.argument Opt.str (Opt.metavar "MSG")
     ]
 
 {-------------------------------------------------------------------------------

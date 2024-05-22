@@ -333,6 +333,7 @@ executable demo-client
       Demo.Client.API.Core.NoFinal.Greeter
       Demo.Client.API.Core.RouteGuide
       Demo.Client.API.StreamType.IO.Greeter
+      Demo.Client.API.StreamType.IO.Ping
       Demo.Client.API.StreamType.IO.RouteGuide
       Demo.Client.API.StreamType.MonadStack.Greeter
       Demo.Client.API.StreamType.Pipes.RouteGuide
