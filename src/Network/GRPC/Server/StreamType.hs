@@ -16,6 +16,7 @@ module Network.GRPC.Server.StreamType (
 import Control.Monad.IO.Class
 import Data.Default
 import Data.Kind
+import Data.Proxy
 
 import Network.GRPC.Common.StreamType
 import Network.GRPC.Server
@@ -97,17 +98,16 @@ instance StreamingRpcHandler BiDiStreamingHandler where
 -- guide this definition:
 --
 -- > handlers :: [Feature] -> Methods IO (ProtobufMethodsOf RouteGuide)
--- > handlers db =
--- >      _methods
+-- > handlers db = _methods
 --
 -- This will reveal that we need four methods:
 --
 -- > _methods :: Methods IO '[
--- >    RPC RouteGuide "getFeature"
--- >  , RPC RouteGuide "listFeatures"
--- >  , RPC RouteGuide "recordRoute"
--- >  , RPC RouteGuide "routeChat"
--- >  ]
+-- >     Protobuf RouteGuide "getFeature"
+-- >   , Protobuf RouteGuide "listFeatures"
+-- >   , Protobuf RouteGuide "recordRoute"
+-- >   , Protobuf RouteGuide "routeChat"
+-- >   ]
 --
 -- We can use this to make a skeleton definition, with holes for each handler:
 --
@@ -121,7 +121,7 @@ instance StreamingRpcHandler BiDiStreamingHandler where
 --
 -- This will reveal types such as this:
 --
--- > _getFeature :: NonStreamingHandler IO (RPC RouteGuide "getFeature")
+-- > _getFeature :: NonStreamingHandler IO (Protobuf RouteGuide "getFeature")
 --
 -- Finally, if we then refine the skeleton to
 --
@@ -134,6 +134,12 @@ data Methods (m :: Type -> Type) (rpcs :: [Type]) where
   -- | All methods of the service handled
   NoMoreMethods :: Methods m '[]
 
+  -- | Define the next method of the service, inferring the streaming type
+  --
+  -- In the most common case (Protobuf), the streaming type can be inferred
+  -- from the method. In this case, it is convenient to use 'Method', as type
+  -- inference will tell you what kind of handler you need to define (see also
+  -- the example above).
   Method ::
        ( StreamingRpcHandler h
        , SupportsServerRpc rpc
@@ -145,12 +151,37 @@ data Methods (m :: Type -> Type) (rpcs :: [Type]) where
     -> Methods m rpcs
     -> Methods m (rpc ': rpcs)
 
+  -- | Like 'Method', but with a user-defined streaming type
+  --
+  -- This is useful for 'IsRPC' instances where the streaming type cannot be
+  -- inferred from the @rpc@ method.
+  MethodOfStreamingType ::
+       ( StreamingRpcHandler h
+       , SupportsServerRpc rpc
+       , Default (ResponseInitialMetadata rpc)
+       , Default (ResponseTrailingMetadata rpc)
+       , SupportsStreamingType rpc styp
+       , h ~ HandlerFor styp
+       )
+    => Proxy (styp :: StreamingType)
+    -> h m rpc
+    -> Methods m rpcs
+    -> Methods m (rpc ': rpcs)
+
+  -- | Define a method that uses uses the raw (core) API instead
+  --
+  -- This is useful when the communication pattern does not fall neatly into the
+  -- four streaming types (non-streaming, client-side streaming, server-side
+  -- streaming, or bidirectional streaming), or when you need access to lower
+  -- level features such as request or response metadata, compression options,
+  -- etc.
   RawMethod ::
        SupportsServerRpc rpc
     => RpcHandler m rpc
     -> Methods m rpcs
     -> Methods m (rpc ': rpcs)
 
+  -- | Declare that this particular @rpc@ method is not supported by this server
   UnsupportedMethod ::
        Methods m rpcs
     -> Methods m (rpc ': rpcs)
@@ -180,10 +211,11 @@ fromMethods :: forall m rpcs.
 fromMethods = go
   where
     go :: Methods m rpcs' -> [SomeRpcHandler m]
-    go NoMoreMethods          = []
-    go (Method h ms)          = someRpcHandler (streamingRpcHandler h) : go ms
-    go (RawMethod m ms)       = someRpcHandler m                       : go ms
-    go (UnsupportedMethod ms) =                                          go ms
+    go NoMoreMethods                  = []
+    go (Method h ms)                  = someRpcHandler (streamingRpcHandler h) : go ms
+    go (MethodOfStreamingType _ h ms) = someRpcHandler (streamingRpcHandler h) : go ms
+    go (RawMethod m ms)               = someRpcHandler m                       : go ms
+    go (UnsupportedMethod ms)         =                                          go ms
 
 fromServices :: forall m servs.
      MonadIO m

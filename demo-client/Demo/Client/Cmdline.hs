@@ -9,7 +9,6 @@ module Demo.Client.Cmdline (
     Cmdline(..)
   , API(..)
   , SomeMethod(..)
-  , SService(..)
   , SMethod(..)
     -- * Parser
   , getCmdline
@@ -17,12 +16,12 @@ module Demo.Client.Cmdline (
 
 import Prelude
 
+import Data.ByteString.Lazy qualified as Lazy (ByteString)
 import Data.Foldable (asum)
 import Data.Int
 import Data.Kind
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
-import GHC.TypeLits (Symbol)
 import Network.Socket (HostName, PortNumber)
 import Options.Applicative ((<**>))
 import Options.Applicative qualified as Opt
@@ -35,10 +34,8 @@ import Network.GRPC.Common.Protobuf
 
 import Paths_grapesy
 
-import Proto.Helloworld
-import Proto.RouteGuide
-
 import Demo.Client.Util.DelayOr
+import Demo.Common.API
 
 {-------------------------------------------------------------------------------
   Definition
@@ -55,37 +52,32 @@ data Cmdline = Cmdline {
 
 -- | Which API to use?
 data API =
-    ProtobufIO
-  | ProtobufPipes
-  | ProtobufCanCallRPC
+    StreamTypeIO
+  | StreamTypePipes
+  | StreamTypeMonadStack
   | Core
   | CoreNoFinal
   deriving (Show)
 
 data SomeMethod where
-  SomeMethod :: SService s -> SMethod s m -> SomeMethod
+  SomeMethod :: SMethod rpc -> SomeMethod
 
 deriving stock instance Show SomeMethod
 
--- | Select service
-data SService :: Type -> Type where
-  SGreeter    :: SService Greeter
-  SRouteGuide :: SService RouteGuide
-
-deriving stock instance Show (SService s)
-
 -- | Select method
-data SMethod :: Type -> Symbol -> Type where
-  SSayHello            :: HelloRequest           -> SMethod Greeter "sayHello"
-  SSayHelloStreamReply :: HelloRequest           -> SMethod Greeter "sayHelloStreamReply"
-  SSayHelloBidiStream  :: [DelayOr HelloRequest] -> SMethod Greeter "sayHelloBidiStream"
+data SMethod :: Type -> Type where
+  SSayHello            :: HelloRequest           -> SMethod SayHello
+  SSayHelloStreamReply :: HelloRequest           -> SMethod SayHelloStreamReply
+  SSayHelloBidiStream  :: [DelayOr HelloRequest] -> SMethod SayHelloBidiStream
 
-  SGetFeature   :: Point               -> SMethod RouteGuide "getFeature"
-  SListFeatures :: Rectangle           -> SMethod RouteGuide "listFeatures"
-  SRecordRoute  :: [DelayOr Point]     -> SMethod RouteGuide "recordRoute"
-  SRouteChat    :: [DelayOr RouteNote] -> SMethod RouteGuide "routeChat"
+  SGetFeature   :: Point               -> SMethod GetFeature
+  SListFeatures :: Rectangle           -> SMethod ListFeatures
+  SRecordRoute  :: [DelayOr Point]     -> SMethod RecordRoute
+  SRouteChat    :: [DelayOr RouteNote] -> SMethod RouteChat
 
-deriving stock instance Show (SMethod s m)
+  SPing :: Lazy.ByteString -> SMethod Ping
+
+deriving stock instance Show (SMethod rpc)
 
 {-------------------------------------------------------------------------------
   Top-level
@@ -205,17 +197,17 @@ parseCompression = asum [
 
 parseAPI :: Opt.Parser API
 parseAPI = asum [
-      Opt.flag' ProtobufIO $ mconcat [
-          Opt.long "protobuf-IO"
-        , Opt.help "Use the Protobuf IO API (if applicable)"
+      Opt.flag' StreamTypeIO $ mconcat [
+          Opt.long "streamtype-io"
+        , Opt.help "Use the StreamType.IO API (if applicable)"
         ]
-    , Opt.flag' ProtobufPipes $ mconcat [
-          Opt.long "protobuf-Pipe"
-        , Opt.help "Use the Protobuf Pipe API (if applicable)"
+    , Opt.flag' StreamTypePipes $ mconcat [
+          Opt.long "streamtype-pipes"
+        , Opt.help "Use the StreamType.Pipes API (if applicable)"
         ]
-    , Opt.flag' ProtobufCanCallRPC $ mconcat [
-          Opt.long "protobuf-CanCallRPC"
-        , Opt.help "Use the Protobuf CanCallRPC API (if applicable)"
+    , Opt.flag' StreamTypeMonadStack $ mconcat [
+          Opt.long "streamtype-monadstack"
+        , Opt.help "Use the StreamType API with a bespoke monad stack (if applicable)"
         ]
     , Opt.flag' Core $ mconcat [
           Opt.long "core"
@@ -225,7 +217,7 @@ parseAPI = asum [
           Opt.long "core-dont-mark-final"
         , Opt.help "Use the core API; don't mark the last message as final"
         ]
-    , pure ProtobufIO
+    , pure StreamTypeIO
     ]
 
 {-------------------------------------------------------------------------------
@@ -235,26 +227,29 @@ parseAPI = asum [
 parseSomeMethod :: Opt.Parser SomeMethod
 parseSomeMethod = Opt.subparser $ mconcat [
       sub "sayHello" "helloworld.Greeter.SayHello" $
-        SomeMethod SGreeter . SSayHello <$>
+        SomeMethod . SSayHello <$>
           parseHelloRequest
     , sub "sayHelloStreamReply" "helloworld.Greeter.SayHelloStreamReply" $
-        SomeMethod SGreeter . SSayHelloStreamReply <$>
+        SomeMethod . SSayHelloStreamReply <$>
           parseHelloRequest
     , sub "sayHelloBidiStream" "helloworld.Greeter.SayHelloBidiStream" $
-        SomeMethod SGreeter . SSayHelloBidiStream <$>
+        SomeMethod . SSayHelloBidiStream <$>
           Opt.many (parseDelayOr parseHelloRequest)
     , sub "getFeature" "routeguide.RouteGuide.GetFeature" $
-        SomeMethod SRouteGuide . SGetFeature <$>
+        SomeMethod . SGetFeature <$>
           parsePoint ""
     , sub "listFeatures" "routeguide.RouteGuide.ListFeatures" $
-        SomeMethod SRouteGuide . SListFeatures <$>
+        SomeMethod . SListFeatures <$>
           parseRectangle
     , sub "recordRoute" "routeguide.RouteGuide.RecordRoute" $
-        SomeMethod SRouteGuide . SRecordRoute <$>
+        SomeMethod . SRecordRoute <$>
           Opt.many (parseDelayOr $ parsePoint "")
     , sub "routeChat" "routeguide.RouteGuide.RouteChat" $
-        SomeMethod SRouteGuide . SRouteChat <$>
+        SomeMethod . SRouteChat <$>
           Opt.many (parseDelayOr $ parseRouteNote)
+    , sub "ping" "Ping.ping" $
+        SomeMethod . SPing <$>
+          Opt.argument Opt.str (Opt.metavar "MSG")
     ]
 
 {-------------------------------------------------------------------------------

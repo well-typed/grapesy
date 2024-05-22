@@ -1,5 +1,5 @@
 -- | Demonstration of using a custom monad stack
-module Demo.Client.API.Protobuf.CanCallRPC.Greeter (
+module Demo.Client.API.StreamType.MonadStack.Greeter (
     sayHello
   , sayHelloStreamReply
   ) where

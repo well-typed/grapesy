@@ -332,10 +332,11 @@ executable demo-client
       Demo.Client.API.Core.Greeter
       Demo.Client.API.Core.NoFinal.Greeter
       Demo.Client.API.Core.RouteGuide
-      Demo.Client.API.Protobuf.CanCallRPC.Greeter
-      Demo.Client.API.Protobuf.IO.Greeter
-      Demo.Client.API.Protobuf.IO.RouteGuide
-      Demo.Client.API.Protobuf.Pipes.RouteGuide
+      Demo.Client.API.StreamType.IO.Greeter
+      Demo.Client.API.StreamType.IO.Ping
+      Demo.Client.API.StreamType.IO.RouteGuide
+      Demo.Client.API.StreamType.MonadStack.Greeter
+      Demo.Client.API.StreamType.Pipes.RouteGuide
       Demo.Client.Cmdline
       Demo.Client.Util.DelayOr
 
@@ -385,6 +386,7 @@ executable demo-server
       Demo.Server.Aux.RouteGuide
       Demo.Server.Cmdline
       Demo.Server.Service.Greeter
+      Demo.Server.Service.Ping
       Demo.Server.Service.RouteGuide
 
       Demo.Common.API

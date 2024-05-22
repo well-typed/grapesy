@@ -16,6 +16,9 @@ module Demo.Common.API (
   , RecordRoute
   , RouteChat
 
+    -- * Ping
+  , Ping
+
     -- * Re-exports
   , module Proto.Helloworld
   , module Proto.RouteGuide
@@ -30,6 +33,7 @@ import Network.GRPC.Common.Protobuf
 
 import Proto.Helloworld
 import Proto.RouteGuide
+import Network.GRPC.Common.Binary
 
 {-------------------------------------------------------------------------------
   Greeter
@@ -83,3 +87,13 @@ type RouteChat    = Protobuf RouteGuide "routeChat"
 type instance RequestMetadata          (Protobuf RouteGuide meth) = NoMetadata
 type instance ResponseInitialMetadata  (Protobuf RouteGuide meth) = NoMetadata
 type instance ResponseTrailingMetadata (Protobuf RouteGuide meth) = NoMetadata
+
+{-------------------------------------------------------------------------------
+  Ping
+-------------------------------------------------------------------------------}
+
+type Ping = BinaryRpc "Ping" "ping"
+
+type instance RequestMetadata          (BinaryRpc "Ping" meth) = NoMetadata
+type instance ResponseInitialMetadata  (BinaryRpc "Ping" meth) = NoMetadata
+type instance ResponseTrailingMetadata (BinaryRpc "Ping" meth) = NoMetadata
