@@ -54,7 +54,7 @@ tests = testGroup "Test.Sanity.Interop" [
   even if the first failed with a gRPC exception
 -------------------------------------------------------------------------------}
 
-type Ping = BinaryRpc "test" "ping"
+type Ping = RawRpc "test" "ping"
 
 test_callAfterException :: IO ()
 test_callAfterException =
@@ -213,7 +213,7 @@ test_serverCompressedStreaming =
   Cancellation
 -------------------------------------------------------------------------------}
 
-type StreamNats = BinaryRpc "test" "nats"
+type StreamNats = RawRpc "test" "nats"
 
 test_cancellation_client :: IO ()
 test_cancellation_client =
@@ -285,6 +285,6 @@ type instance RequestMetadata          (Protobuf TestService meth) = NoMetadata
 type instance ResponseInitialMetadata  (Protobuf TestService meth) = NoMetadata
 type instance ResponseTrailingMetadata (Protobuf TestService meth) = NoMetadata
 
-type instance RequestMetadata          (BinaryRpc "test" meth) = NoMetadata
-type instance ResponseInitialMetadata  (BinaryRpc "test" meth) = NoMetadata
-type instance ResponseTrailingMetadata (BinaryRpc "test" meth) = NoMetadata
+type instance RequestMetadata          (RawRpc "test" meth) = NoMetadata
+type instance ResponseInitialMetadata  (RawRpc "test" meth) = NoMetadata
+type instance ResponseTrailingMetadata (RawRpc "test" meth) = NoMetadata

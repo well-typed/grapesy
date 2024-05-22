@@ -34,7 +34,7 @@ import Test.Util
   Endpoints
 -------------------------------------------------------------------------------}
 
-type TestProtocol meth = BinaryRpc "dialogue" meth
+type TestProtocol meth = RawRpc "dialogue" meth
 
 type instance RequestMetadata          (TestProtocol meth) = TestMetadata
 type instance ResponseInitialMetadata  (TestProtocol meth) = TestMetadata

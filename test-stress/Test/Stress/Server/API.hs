@@ -7,8 +7,8 @@ module Test.Stress.Server.API (
 import Network.GRPC.Common
 import Network.GRPC.Common.Binary
 
-type ManyShortLived = BinaryRpc "stresstest" "manyshortlived"
+type ManyShortLived = RawRpc "stresstest" "manyshortlived"
 
-type instance RequestMetadata          (BinaryRpc "stresstest" meth) = NoMetadata
-type instance ResponseInitialMetadata  (BinaryRpc "stresstest" meth) = NoMetadata
-type instance ResponseTrailingMetadata (BinaryRpc "stresstest" meth) = NoMetadata
+type instance RequestMetadata          (RawRpc "stresstest" meth) = NoMetadata
+type instance ResponseInitialMetadata  (RawRpc "stresstest" meth) = NoMetadata
+type instance ResponseTrailingMetadata (RawRpc "stresstest" meth) = NoMetadata

@@ -11,7 +11,7 @@ import Test.Tasty.HUnit
 import Network.GRPC.Client qualified as Client
 import Network.GRPC.Client.Binary qualified as Binary
 import Network.GRPC.Common
-import Network.GRPC.Common.Binary (BinaryRpc)
+import Network.GRPC.Common.Binary (RawRpc)
 import Network.GRPC.Common.Compression qualified as Compr
 import Network.GRPC.Server (SomeRpcHandler(..))
 import Network.GRPC.Server.Binary qualified as Binary
@@ -119,7 +119,7 @@ tests = testGroup "Test.Sanity.StreamingType.NonStreaming" [
   Binary (without Protobuf)
 -------------------------------------------------------------------------------}
 
-type BinaryIncrement = BinaryRpc "binary" "increment"
+type BinaryIncrement = RawRpc "binary" "increment"
 
 type instance RequestMetadata          BinaryIncrement = NoMetadata
 type instance ResponseInitialMetadata  BinaryIncrement = NoMetadata

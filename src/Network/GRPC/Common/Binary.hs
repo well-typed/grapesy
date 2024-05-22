@@ -2,7 +2,7 @@
 --
 -- Intended for unqualified import.
 module Network.GRPC.Common.Binary (
-    BinaryRpc
+    RawRpc
     -- * Encoding and decoding
   , encode
   , decodeOrThrow
