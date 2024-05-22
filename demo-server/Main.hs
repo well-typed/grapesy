@@ -13,10 +13,10 @@ import Network.GRPC.Server.StreamType
 
 import Demo.Server.Cmdline
 import Demo.Server.Service.Greeter    qualified as Greeter
+import Demo.Server.Service.Ping       qualified as Ping
 import Demo.Server.Service.RouteGuide qualified as RouteGuide
 
-import Proto.Helloworld
-import Proto.RouteGuide
+import Demo.Common.API
 
 import Paths_grapesy
 
@@ -27,10 +27,15 @@ import Paths_grapesy
 services ::
      Cmdline
   -> [Feature]
-  -> Services IO (ProtobufServices '[Greeter, RouteGuide])
+  -> Services IO [
+         ProtobufMethodsOf Greeter
+       , ProtobufMethodsOf RouteGuide
+       , '[Ping]
+       ]
 services cmdline db =
       Service Greeter.handlers
     $ Service (RouteGuide.handlers cmdline db)
+    $ Service Ping.handlers
     $ NoMoreServices
 
 {-------------------------------------------------------------------------------

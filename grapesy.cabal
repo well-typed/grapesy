@@ -386,6 +386,7 @@ executable demo-server
       Demo.Server.Aux.RouteGuide
       Demo.Server.Cmdline
       Demo.Server.Service.Greeter
+      Demo.Server.Service.Ping
       Demo.Server.Service.RouteGuide
 
       Demo.Common.API
