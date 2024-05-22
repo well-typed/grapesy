@@ -26,15 +26,21 @@ import Demo.Server.Cmdline
 -------------------------------------------------------------------------------}
 
 handlers :: Cmdline -> [Feature] -> Methods IO (ProtobufMethodsOf RouteGuide)
-handlers cmdline db =
-      Method (mkNonStreaming $ getFeature db)
-    $ ( if cmdTrailersOnlyShortcut cmdline
-          then RawMethod (mkRpcHandler $ trailersOnlyShortcut db)
-          else Method (mkServerStreaming $ listFeatures db)
-      )
-    $ Method (mkClientStreaming $ recordRoute db)
-    $ Method (mkBiDiStreaming $ routeChat db)
+handlers cmdline db
+  | cmdTrailersOnlyShortcut cmdline
+  =   Method    (mkNonStreaming    $ getFeature           db)
+    $ RawMethod (mkRpcHandler      $ trailersOnlyShortcut db)
+    $ Method    (mkClientStreaming $ recordRoute          db)
+    $ Method    (mkBiDiStreaming   $ routeChat            db)
     $ NoMoreMethods
+
+  -- demonstrate the use of 'simpleMethods'
+  | otherwise
+  = simpleMethods
+      (mkNonStreaming    $ getFeature   db)
+      (mkServerStreaming $ listFeatures db)
+      (mkClientStreaming $ recordRoute  db)
+      (mkBiDiStreaming   $ routeChat    db)
 
 {-------------------------------------------------------------------------------
   Handlers
