@@ -9,6 +9,5 @@ package grapesy
 -- ghc 9.10
 --
 
-allow-newer: pipes-safe:base
 allow-newer: proto-lens:base
 allow-newer: proto-lens-runtime:base

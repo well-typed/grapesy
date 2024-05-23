@@ -19,12 +19,6 @@ module Network.GRPC.Common.StreamType (
     StreamingType(..)
   , SupportsStreamingType
   , HasStreamingType(..)
-    -- * Handlers
-  , HandlerFor
-  , NonStreamingHandler(..)
-  , ClientStreamingHandler(..)
-  , ServerStreamingHandler(..)
-  , BiDiStreamingHandler(..)
   ) where
 
 import Network.GRPC.Spec

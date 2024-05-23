@@ -6,23 +6,22 @@ module Main (main) where
 import Control.Concurrent
 import Control.Exception
 import System.IO
-import System.Mem (performMajorGC)
 
 import Network.GRPC.Client
 import Network.GRPC.Common
 import Network.GRPC.Common.Compression qualified as Compr
 
 import Demo.Client.Cmdline
-import Demo.Client.Util.DelayOr
+import Demo.Client.Util.DelayOr qualified as DelayOr
 
 import Demo.Client.API.Core.Greeter                  qualified as Core.Greeter
 import Demo.Client.API.Core.NoFinal.Greeter          qualified as NoFinal.Greeter
 import Demo.Client.API.Core.RouteGuide               qualified as Core.RouteGuide
+import Demo.Client.API.StreamType.Conduit.RouteGuide qualified as Conduit.RouteGuide
 import Demo.Client.API.StreamType.IO.Greeter         qualified as IO.Greeter
 import Demo.Client.API.StreamType.IO.Ping            qualified as IO.Ping
 import Demo.Client.API.StreamType.IO.RouteGuide      qualified as IO.RouteGuide
 import Demo.Client.API.StreamType.MonadStack.Greeter qualified as CanCallRPC.Greeter
-import Demo.Client.API.StreamType.Pipes.RouteGuide   qualified as Pipes.RouteGuide
 
 {-------------------------------------------------------------------------------
   Application entry point
@@ -32,14 +31,11 @@ main :: IO ()
 main = do
     hSetBuffering stdout NoBuffering -- For easier debugging
     cmd <- getCmdline
-    withConnection (connParams cmd) (cmdServer cmd) $ \conn ->
-      mapM_ (dispatch cmd conn) $ cmdMethods cmd
-    performMajorGC
+    withConnection (connParams cmd) (cmdServer cmd) $
+      DelayOr.forM_ (cmdMethods cmd) . dispatch cmd
 
-dispatch :: Cmdline -> Connection -> DelayOr SomeMethod -> IO ()
-dispatch _ _ (Delay d) =
-    threadDelay $ round $ d * 1_000_000
-dispatch cmd conn (Exec method) =
+dispatch :: Cmdline -> Connection -> SomeMethod -> IO ()
+dispatch cmd conn method =
     case method of
       SomeMethod (SSayHello name) ->
         case cmdAPI cmd of
@@ -75,8 +71,8 @@ dispatch cmd conn (Exec method) =
             unsupportedMode
       SomeMethod (SListFeatures r) ->
         case cmdAPI cmd of
-          StreamTypePipes ->
-            Pipes.RouteGuide.listFeatures conn r
+          StreamTypeConduit ->
+            Conduit.RouteGuide.listFeatures conn r
           StreamTypeIO ->
             IO.RouteGuide.listFeatures conn r
           Core ->
@@ -85,18 +81,18 @@ dispatch cmd conn (Exec method) =
             unsupportedMode
       SomeMethod (SRecordRoute ps) ->
         case cmdAPI cmd of
-          StreamTypePipes ->
-            Pipes.RouteGuide.recordRoute conn $ yieldAll ps
+          StreamTypeConduit ->
+            Conduit.RouteGuide.recordRoute conn ps
           StreamTypeIO ->
-            IO.RouteGuide.recordRoute conn =<< execAll ps
+            IO.RouteGuide.recordRoute conn ps
           _otherwise ->
             unsupportedMode
       SomeMethod (SRouteChat notes) ->
         case cmdAPI cmd of
-          StreamTypePipes ->
-            Pipes.RouteGuide.routeChat conn $ yieldAll notes
+          StreamTypeConduit ->
+            Conduit.RouteGuide.routeChat conn notes
           StreamTypeIO ->
-            IO.RouteGuide.routeChat conn =<< execAll notes
+            IO.RouteGuide.routeChat conn notes
           _otherwise ->
             unsupportedMode
       SomeMethod (SPing msg) ->

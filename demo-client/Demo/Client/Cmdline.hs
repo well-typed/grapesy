@@ -34,7 +34,7 @@ import Network.GRPC.Common.Protobuf
 
 import Paths_grapesy
 
-import Demo.Client.Util.DelayOr
+import Demo.Client.Util.DelayOr (DelayOr(..))
 import Demo.Common.API
 
 {-------------------------------------------------------------------------------
@@ -53,7 +53,7 @@ data Cmdline = Cmdline {
 -- | Which API to use?
 data API =
     StreamTypeIO
-  | StreamTypePipes
+  | StreamTypeConduit
   | StreamTypeMonadStack
   | Core
   | CoreNoFinal
@@ -201,9 +201,9 @@ parseAPI = asum [
           Opt.long "streamtype-io"
         , Opt.help "Use the StreamType.IO API (if applicable)"
         ]
-    , Opt.flag' StreamTypePipes $ mconcat [
-          Opt.long "streamtype-pipes"
-        , Opt.help "Use the StreamType.Pipes API (if applicable)"
+    , Opt.flag' StreamTypeConduit $ mconcat [
+          Opt.long "streamtype-conduit"
+        , Opt.help "Use the StreamType.Conduit API (if applicable)"
         ]
     , Opt.flag' StreamTypeMonadStack $ mconcat [
           Opt.long "streamtype-monadstack"

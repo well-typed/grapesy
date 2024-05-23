@@ -13,9 +13,8 @@ import Network.GRPC.Client.Binary qualified as Binary
 import Network.GRPC.Common
 import Network.GRPC.Common.Binary (RawRpc)
 import Network.GRPC.Common.Compression qualified as Compr
-import Network.GRPC.Server (SomeRpcHandler(..))
-import Network.GRPC.Server.Binary qualified as Binary
-import Network.GRPC.Server.StreamType
+import Network.GRPC.Server.StreamType qualified as Server
+import Network.GRPC.Server.StreamType.Binary qualified as Binary
 import Network.GRPC.Spec (ContentType(ContentTypeOverride))
 
 import Test.Driver.ClientServer
@@ -134,8 +133,7 @@ test_increment config = testClientServer $ ClientServerTest {
           resp <- fst <$> Binary.recvFinalOutput @Word8 call
           assertEqual "" 2 $ resp
     , server = [
-          SomeRpcHandler (Proxy @BinaryIncrement) $ streamingRpcHandler $
-            Binary.mkNonStreaming $ \(n :: Word8) ->
-              return (succ n)
+         Server.fromMethod @BinaryIncrement $ Binary.mkNonStreaming $ \n ->
+           return (succ (n :: Word8))
         ]
     }

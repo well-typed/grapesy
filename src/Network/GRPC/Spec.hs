@@ -30,24 +30,22 @@ module Network.GRPC.Spec (
   , buildOutput
     -- * Streaming types
   , StreamingType(..)
+    -- ** Link RPCs to streaming types
   , SupportsStreamingType
   , HasStreamingType(..)
-    -- ** Handlers
-  , HandlerFor
-  , NonStreamingHandler(..)
-  , ClientStreamingHandler(..)
-  , ServerStreamingHandler(..)
-  , BiDiStreamingHandler(..)
-    -- ** Execution
-  , nonStreaming
-  , clientStreaming
-  , serverStreaming
-  , biDiStreaming
-    -- ** Construction
-  , mkNonStreaming
-  , mkClientStreaming
-  , mkServerStreaming
-  , mkBiDiStreaming
+    -- ** Handler type definition
+    -- These are not used directly in grapesy's public API.
+  , Send
+  , Recv
+  , Positive
+  , Negative(..)
+  , HandlerRole(..)
+  , Handler
+    -- ** Handler newtype wrappers
+  , ServerHandler'(..)
+  , ServerHandler
+  , ClientHandler'(..)
+  , ClientHandler
     -- * Compression
   , CompressionId(..)
   , Compression(..)

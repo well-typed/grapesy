@@ -3,16 +3,16 @@
 
 module Demo.Server.Service.RouteGuide (handlers) where
 
-import Control.Monad.State (StateT)
-import Control.Monad.Trans.Class (lift)
+import Control.Monad.IO.Class
+import Control.Monad.Trans.State (StateT, evalStateT)
 import Control.Monad.Trans.State qualified as State
 import Data.Map qualified as Map
 import Data.Maybe (fromMaybe)
 import Data.Time
 
 import Network.GRPC.Common
+import Network.GRPC.Common.NextElem qualified as NextElem
 import Network.GRPC.Common.Protobuf
-import Network.GRPC.Common.StreamElem qualified as StreamElem
 import Network.GRPC.Server
 import Network.GRPC.Server.Protobuf
 import Network.GRPC.Server.StreamType
@@ -53,31 +53,35 @@ getFeature :: [Proto Feature] -> Proto Point -> IO (Proto Feature)
 getFeature db p =
     return $ fromMaybe defMessage $ featureAt db p
 
-listFeatures :: [Proto Feature] -> Proto Rectangle -> (Proto Feature -> IO ()) -> IO ()
+listFeatures ::
+     [Proto Feature]
+  -> Proto Rectangle
+  -> (NextElem (Proto Feature) -> IO ())
+  -> IO ()
 listFeatures db r send =
-    mapM_ send $
-      filter (\f -> inRectangle r (f ^. #location)) db
+    NextElem.mapM_ send $ filter (\f -> inRectangle r (f ^. #location)) db
 
 recordRoute ::
      [Proto Feature]
-  -> IO (StreamElem NoMetadata (Proto Point))
+  -> IO (NextElem (Proto  Point))
   -> IO (Proto RouteSummary)
 recordRoute db recv = do
     start <- getCurrentTime
-    ps    <- StreamElem.collect recv
+    ps    <- NextElem.collect recv
     stop  <- getCurrentTime
     return $ summary db (stop `diffUTCTime` start) ps
 
 routeChat ::
      [Proto Feature]
-  -> IO (StreamElem NoMetadata (Proto RouteNote))
-  -> (Proto RouteNote -> IO ())
+  -> IO (NextElem (Proto RouteNote))
+  -> (NextElem (Proto RouteNote) -> IO ())
   -> IO ()
-routeChat _db recv send = do
-    flip State.evalStateT Map.empty $
-      StreamElem.mapM_ (lift recv) $ \n -> modifyM $ \acc -> do
-        mapM_ send $ reverse $ Map.findWithDefault [] (n ^. #location) acc
-        return $ Map.alter (Just . (n:) . fromMaybe []) (n ^. #location) acc
+routeChat _db recv send = flip evalStateT Map.empty $ do
+    NextElem.whileNext_ (liftIO recv) $ \n -> modifyM $ \acc -> do
+      let notes = Map.findWithDefault [] (n ^. #location) acc
+      mapM_ (send . NextElem) $ reverse notes
+      return $ Map.alter (Just . (n:) . fromMaybe []) (n ^. #location) acc
+    liftIO $ send NoNextElem
 
 {-------------------------------------------------------------------------------
   Trailers-Only shortcut

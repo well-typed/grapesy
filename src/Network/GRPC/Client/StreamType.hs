@@ -1,15 +1,23 @@
--- | Construct client handlers
+-- | Client handlers
 --
 -- This is an internal module only; see "Network.GRPC.Client.StreamType.IO"
 -- for the main public module.
 module Network.GRPC.Client.StreamType (
-    -- * Obtain handler for specific RPC call
-    ClientHandler(..)
+    -- * Handler type
+    ClientHandler' -- opaque
+  , ClientHandler
+    -- * Run client handlers (part of the public API)
+  , nonStreaming
+  , clientStreaming
+  , clientStreaming_
+  , serverStreaming
+  , biDiStreaming
+    -- * Obtain handler for a specific type
   , CanCallRPC(..)
   , rpc
+  , rpcWith
   ) where
 
-import Control.Concurrent.Async
 import Control.Monad.Catch
 import Control.Monad.IO.Class
 import Control.Monad.Reader
@@ -18,9 +26,113 @@ import Data.Proxy
 
 import Network.GRPC.Client.Call
 import Network.GRPC.Client.Connection
-import Network.GRPC.Common.StreamElem
+import Network.GRPC.Common
+import Network.GRPC.Common.NextElem qualified as NextElem
 import Network.GRPC.Common.StreamType
 import Network.GRPC.Spec
+
+{------------------------------------------------------------------------------
+  Constructing client handlers (used internally only)
+-------------------------------------------------------------------------------}
+
+mkNonStreaming :: forall rpc m.
+     SupportsStreamingType rpc NonStreaming
+  => (    Input rpc
+       -> m (Output rpc)
+     )
+  -> ClientHandler' NonStreaming m rpc
+mkNonStreaming h = ClientHandler $
+    h
+
+mkClientStreaming :: forall rpc m.
+     SupportsStreamingType rpc ClientStreaming
+  => ( forall r.
+          (    (NextElem (Input rpc) -> IO ())
+             -> m r
+          )
+       -> m (Output rpc, r)
+     )
+  -> ClientHandler' ClientStreaming m rpc
+mkClientStreaming h = ClientHandler $
+    Negative h
+
+mkServerStreaming :: forall rpc m.
+     (SupportsStreamingType rpc ServerStreaming, Functor m)
+  => ( forall r.
+            Input rpc
+         -> (    IO (NextElem (Output rpc))
+              -> m r
+            )
+         -> m r
+     )
+  -> ClientHandler' ServerStreaming m rpc
+mkServerStreaming h = ClientHandler $ \input ->
+    Negative $ \k -> ((),) <$> h input k
+
+mkBiDiStreaming :: forall rpc m.
+     (SupportsStreamingType rpc BiDiStreaming, Functor m)
+  => ( forall r.
+           (    (NextElem (Input rpc) -> IO ())
+             -> IO (NextElem (Output rpc))
+             -> m r
+           )
+        -> m r
+     )
+  -> ClientHandler' BiDiStreaming m rpc
+mkBiDiStreaming h = ClientHandler $
+    Negative $ \k -> fmap ((),) $ h (curry k)
+
+{-------------------------------------------------------------------------------
+  Running client handlers
+-------------------------------------------------------------------------------}
+
+-- | Execute non-streaming handler in any monad stack
+nonStreaming :: forall rpc m.
+     ClientHandler' NonStreaming m rpc
+  -> Input rpc
+  -> m (Output rpc)
+nonStreaming (ClientHandler h) = h
+
+-- | Generalization of 'clientStreaming_' with an additional result
+clientStreaming :: forall rpc m r.
+     ClientHandler' ClientStreaming m rpc
+  -> (  (NextElem (Input rpc) -> IO ())
+       -> m r
+     )
+  -> m (Output rpc, r)
+clientStreaming (ClientHandler h) k = runNegative h k
+
+-- | Execute client-side streaming handler in any monad stack
+clientStreaming_ :: forall rpc m.
+     Functor m
+  => ClientHandler' ClientStreaming m rpc
+  -> (    (NextElem (Input rpc) -> IO ())
+       -> m ()
+     )
+  -> m (Output rpc)
+clientStreaming_ h k = fst <$> clientStreaming h k
+
+-- | Execute server-side streaming handler in any monad stack
+serverStreaming :: forall rpc m r.
+     Functor m
+  => ClientHandler' ServerStreaming m rpc
+  -> Input rpc
+  -> (    IO (NextElem (Output rpc))
+       -> m r
+     )
+  -> m r
+serverStreaming (ClientHandler h) input k = snd <$> runNegative (h input) k
+
+-- | Execute bidirectional streaming handler in any monad stack
+biDiStreaming :: forall rpc m r.
+     Functor m
+  => ClientHandler' BiDiStreaming m rpc
+  -> (    (NextElem (Input rpc) -> IO ())
+       -> IO (NextElem (Output rpc))
+       -> m r
+     )
+  -> m r
+biDiStreaming (ClientHandler h) k = fmap snd $ runNegative h $ uncurry k
 
 {-------------------------------------------------------------------------------
   CanCallRPC
@@ -43,70 +155,101 @@ instance (MonadIO m, MonadMask m) => CanCallRPC (ReaderT Connection m) where
   Obtain handler for specific RPC call
 -------------------------------------------------------------------------------}
 
-class ClientHandler h where
-  rpcWith :: SupportsClientRpc rpc => CallParams rpc -> Proxy rpc -> h rpc
+class MkStreamingHandler m (styp :: StreamingType) where
+  mkStreamingHandler ::
+       ( SupportsClientRpc rpc
+       , SupportsStreamingType rpc styp
+       )
+    => CallParams rpc -> ClientHandler' styp m rpc
 
 -- | Construct RPC handler
 --
--- See 'nonStreaming' and friends for example usage.
+-- This has an ambiguous type, and is intended to be called using a type
+-- application indicating the @rpc@ method to call, such as
 --
--- If you want to use non-default 'CallParams', use 'rpcWith'.
-rpc :: forall rpc h.
-     ( ClientHandler h
+-- > rpc @Ping
+--
+-- provided that @Ping@ is some type with an 'IsRPC' instance. In some cases
+-- it may also be needed to provide a streaming type:
+--
+-- > rpc @Ping @NonStreaming
+--
+-- though in most cases the streamting ype should be clear from the context or
+-- from the choice of @rpc@.
+--
+-- See 'Network.GRPC.Client.StreamType.IO.nonStreaming' and co for examples.
+-- See also 'rpcWith'.
+rpc :: forall rpc styp m.
+     ( MkStreamingHandler m styp
      , SupportsClientRpc rpc
+     , SupportsStreamingType rpc styp
      , Default (RequestMetadata rpc)
      )
-  => h rpc
-rpc = rpcWith def (Proxy @rpc)
+  => ClientHandler' styp m rpc
+rpc = rpcWith def
 
-instance CanCallRPC m => ClientHandler (NonStreamingHandler m) where
-  rpcWith params proxy =
-    UnsafeNonStreamingHandler $ \input -> do
+-- | Generalization of 'rpc' with custom 'CallParams'
+rpcWith :: forall rpc styp m.
+     ( MkStreamingHandler m styp
+     , SupportsClientRpc rpc
+     , SupportsStreamingType rpc styp
+     )
+  => CallParams rpc -> ClientHandler' styp m rpc
+rpcWith = mkStreamingHandler
+
+instance CanCallRPC m => MkStreamingHandler m NonStreaming where
+  mkStreamingHandler :: forall rpc.
+       ( SupportsClientRpc rpc
+       , SupportsStreamingType rpc NonStreaming
+       )
+    => CallParams rpc -> ClientHandler' NonStreaming m rpc
+  mkStreamingHandler params = mkNonStreaming $ \input -> do
       conn <- getConnection
-      withRPC conn params proxy $ \call -> do
+      withRPC conn params (Proxy @rpc) $ \call -> do
         sendFinalInput call input
         (output, _trailers) <- recvFinalOutput call
         return output
 
-instance CanCallRPC m => ClientHandler (ClientStreamingHandler m) where
-  rpcWith params proxy =
-    UnsafeClientStreamingHandler $ \produceInput -> do
+instance CanCallRPC m => MkStreamingHandler m ClientStreaming where
+  mkStreamingHandler :: forall rpc.
+       ( SupportsClientRpc rpc
+       , SupportsStreamingType rpc ClientStreaming
+       )
+    => CallParams rpc -> ClientHandler' ClientStreaming m rpc
+  mkStreamingHandler params = mkClientStreaming $ \k -> do
       conn <- getConnection
-      withRPC conn params proxy $ \call -> do
-        sendAllInputs call produceInput
+      withRPC conn params (Proxy @rpc) $ \call -> do
+        r <- k (sendInput call . fromNextElem)
         (output, _trailers) <- recvFinalOutput call
-        return output
+        return (output, r)
 
-instance CanCallRPC m => ClientHandler (ServerStreamingHandler m) where
-  rpcWith params proxy =
-    UnsafeServerStreamingHandler $ \input processOutput -> do
+instance CanCallRPC m => MkStreamingHandler m ServerStreaming where
+  mkStreamingHandler :: forall rpc.
+       ( SupportsClientRpc rpc
+       , SupportsStreamingType rpc ServerStreaming
+       )
+    => CallParams rpc -> ClientHandler' ServerStreaming m rpc
+  mkStreamingHandler params = mkServerStreaming $ \input k -> do
       conn <- getConnection
-      withRPC conn params proxy $ \call -> do
+      withRPC conn params (Proxy @rpc) $ \call -> do
         sendFinalInput call input
-        _trailers <- recvAllOutputs call processOutput
-        return ()
+        k (recvNextOutputElem call)
 
--- | Bidirectional streaming
---
--- Unlike the other functions, we have not generalized this to an arbitrary
--- monad @m@, because it spawns a new thread.
-instance ClientHandler (BiDiStreamingHandler (ReaderT Connection IO)) where
-  rpcWith :: forall rpc.
-       SupportsClientRpc rpc
-    => CallParams rpc
-    -> Proxy rpc
-    -> BiDiStreamingHandler (ReaderT Connection IO) rpc
-  rpcWith params proxy =
-    UnsafeBiDiStreamingHandler $ \produceInput processOutput ->
-      ReaderT $ \conn -> do
+instance CanCallRPC m => MkStreamingHandler m BiDiStreaming where
+  mkStreamingHandler :: forall rpc.
+       ( SupportsClientRpc rpc
+       , SupportsStreamingType rpc BiDiStreaming
+       )
+    => CallParams rpc -> ClientHandler' BiDiStreaming m rpc
+  mkStreamingHandler params = mkBiDiStreaming $ \k -> do
+      conn <- getConnection
+      withRPC conn params (Proxy @rpc) $ \call ->
+        k (sendInput call . fromNextElem)
+          (recvNextOutputElem call)
 
-        let produceInput' :: IO (StreamElem NoMetadata (Input rpc))
-            produceInput' = flip runReaderT conn produceInput
+{-------------------------------------------------------------------------------
+  Internal: dealing with metadata
+-------------------------------------------------------------------------------}
 
-            processOutput' :: Output rpc -> IO ()
-            processOutput' = flip runReaderT conn . processOutput
-
-        withRPC conn params proxy $ \call -> do
-          withAsync (sendAllInputs call produceInput') $ \_threadId -> do
-            _trailers <- recvAllOutputs call processOutput'
-            return ()
+fromNextElem :: NextElem inp -> StreamElem NoMetadata inp
+fromNextElem = NextElem.toStreamElem NoMetadata

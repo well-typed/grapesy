@@ -27,6 +27,7 @@ module Network.GRPC.Server.Call (
     -- ** Low-level\/specialized API
   , initiateResponse
   , sendTrailersOnly
+  , recvNextInputElem
   , recvInputWithEnvelope
   , sendOutputWithEnvelope
   , getRequestHeaders
@@ -245,6 +246,41 @@ serverExceptionToClientError params err
 recvInput :: HasCallStack => Call rpc -> IO (StreamElem NoMetadata (Input rpc))
 recvInput = fmap (fmap snd) . recvInputWithEnvelope
 
+-- | Receive RPC input from the client, if one exists
+--
+-- When using `recvInput`, the final few messages can look like
+--
+-- > ..
+-- > StreamElem msg2
+-- > StreamElem msg1
+-- > FinalElem  msg0 ..
+--
+-- or like
+--
+-- > ..
+-- > StreamElem msg2
+-- > StreamElem msg1
+-- > StreamElem msg0
+-- > NoMoreElems ..
+--
+-- depending on whether the client indicates that @msg0@ is the last message
+-- when it sends it, or indicates end-of-stream only /after/ sending the last
+-- message.
+--
+-- Many applications do not need to distinguish between these two cases, but
+-- the API provided by `recvInput` makes it a bit awkward to treat them the
+-- same, especially since it is an error to call `recvInput` again after
+-- receiving either `FinalElem` or `NoMoreElems`. In this case, it may be more
+-- convenient to use `recvNextInputElem`, which will report both cases as
+--
+-- > ..
+-- > NextElem msg2
+-- > NextElem msg1
+-- > NextElem msg0
+-- > NoNextElem
+recvNextInputElem :: HasCallStack => Call rpc -> IO (NextElem (Input rpc))
+recvNextInputElem = fmap (fmap snd) . recvEither
+
 -- | Generalization of 'recvInput', providing additional meta-information
 --
 -- This can be used to get some information about how the message was sent, such
@@ -462,10 +498,10 @@ sendTrailers call = sendOutput call . NoMoreElems
 -- Throws 'ProtocolException' if there are no more inputs.
 recvNextInput :: forall rpc. HasCallStack => Call rpc -> IO (Input rpc)
 recvNextInput call@Call{} = do
-    mInp <- recvEither call
+    mInp <- recvNextInputElem call
     case mInp of
-      Nothing          -> err $ TooFewInputs @rpc
-      Just (_env, inp) -> return inp
+      NoNextElem   -> err $ TooFewInputs @rpc
+      NextElem inp -> return inp
   where
     err :: ProtocolException rpc -> IO a
     err = throwIO . ProtocolException
@@ -571,23 +607,23 @@ recvBoth Call{callChannel} =
 recvEither :: forall rpc.
      HasCallStack
   => Call rpc
-  -> IO (Maybe (InboundEnvelope, Input rpc))
+  -> IO (NextElem (InboundEnvelope, Input rpc))
 recvEither Call{callChannel} =
     flatten <$> Session.recvEither callChannel
   where
-    -- We use this only in 'recvNextInput', where we just care that we receive
+    -- We use this only in 'recvNextInputElem', where we just care that we receive
     -- a message.
     flatten ::
          Either
            RequestHeaders
            (Either NoMetadata (InboundEnvelope, Input rpc))
-      -> Maybe (InboundEnvelope, Input rpc)
+      -> NextElem (InboundEnvelope, Input rpc)
     flatten (Left _trailersOnly) =
-        Nothing
+        NoNextElem
     flatten (Right (Left NoMetadata)) =
-        Nothing
+        NoNextElem
     flatten (Right (Right msg)) =
-        Just msg
+        NextElem msg
 
 {-------------------------------------------------------------------------------
   Exceptions

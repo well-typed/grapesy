@@ -5,6 +5,7 @@ module Demo.Client.API.StreamType.IO.Greeter (
 
 import Network.GRPC.Client
 import Network.GRPC.Client.StreamType.IO
+import Network.GRPC.Common.NextElem qualified as NextElem
 import Network.GRPC.Common.Protobuf
 
 import Demo.Common.API
@@ -21,4 +22,5 @@ sayHello conn name = do
 
 sayHelloStreamReply :: Connection -> Proto HelloRequest -> IO ()
 sayHelloStreamReply conn name =
-    serverStreaming conn (rpc @SayHelloStreamReply) name logMsg
+    serverStreaming conn (rpc @SayHelloStreamReply) name $ \recv ->
+      NextElem.whileNext_ recv logMsg

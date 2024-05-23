@@ -172,7 +172,6 @@ jobs:
           echo "package grapesy" >> cabal.project
           echo "    ghc-options: -Werror=missing-methods" >> cabal.project
           cat >> cabal.project <<EOF
-          allow-newer: pipes-safe:base
           allow-newer: proto-lens:base
           allow-newer: proto-lens-runtime:base
 

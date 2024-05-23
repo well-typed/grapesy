@@ -15,7 +15,7 @@ module Network.GRPC.Server (
   , mkRpcHandlerNoInitialMetadata
 
     -- ** Hide @rpc@ type variable
-  , SomeRpcHandler(..)
+  , SomeRpcHandler -- opaque
   , someRpcHandler
 
     -- * Open (ongoing) call
@@ -29,6 +29,7 @@ module Network.GRPC.Server (
   , sendNextOutput
   , sendFinalOutput
   , sendTrailers
+  , recvNextInputElem
   , recvNextInput
   , recvFinalInput
   , recvEndOfInput

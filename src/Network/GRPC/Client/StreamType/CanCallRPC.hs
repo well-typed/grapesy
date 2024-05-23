@@ -3,13 +3,14 @@
 -- These functions are useful in a monad stack in which the 'Connection' object
 -- is implicitly available; you must provide an instance of 'CanCallRPC'.
 module Network.GRPC.Client.StreamType.CanCallRPC (
-    module Network.GRPC.Client.StreamType
-    -- * Execution
-  , Spec.nonStreaming
-  , Spec.clientStreaming
-  , Spec.serverStreaming
-  , Spec.biDiStreaming
+    CanCallRPC(..)
+    -- * Running client handlers
+  , nonStreaming
+  , clientStreaming
+  , clientStreaming_
+  , serverStreaming
+  , biDiStreaming
   ) where
 
 import Network.GRPC.Client.StreamType
-import Network.GRPC.Spec as Spec
+

@@ -1,182 +1,127 @@
-{-# OPTIONS_GHC -Wno-redundant-constraints #-}
-
 -- | Streaming types
+--
+-- TODO: Check haddocks
 module Network.GRPC.Spec.RPC.StreamType (
-    -- * Communication patterns
     StreamingType(..)
+    -- * Link RPCs to streaming types
   , SupportsStreamingType
   , HasStreamingType(..)
-    -- ** Handlers
-  , NonStreamingHandler(..)
-  , ClientStreamingHandler(..)
-  , ServerStreamingHandler(..)
-  , BiDiStreamingHandler(..)
-  , HandlerFor
-    -- ** Execution
-  , nonStreaming
-  , clientStreaming
-  , serverStreaming
-  , biDiStreaming
-    -- ** Constructors
-  , mkNonStreaming
-  , mkClientStreaming
-  , mkServerStreaming
-  , mkBiDiStreaming
+    -- * Handler type definition
+    -- These are not used directly in grapesy's public API.
+  , Send
+  , Recv
+  , Positive
+  , Negative(..)
+  , HandlerRole(..)
+  , Handler
+    -- * Handler newtype wrappers
+  , ServerHandler'(..)
+  , ServerHandler
+  , ClientHandler'(..)
+  , ClientHandler
   ) where
-
-import Data.Kind
 
 -- Borrow protolens 'StreamingType' (but this module is not Protobuf specific)
 import Data.ProtoLens.Service.Types (StreamingType(..))
 
-import Network.GRPC.Common.StreamElem
-import Network.GRPC.Spec.CustomMetadata.NoMetadata
+import Network.GRPC.Common.NextElem (NextElem)
 import Network.GRPC.Spec.RPC
-import Network.GRPC.Util.RedundantConstraint
 
 {-------------------------------------------------------------------------------
-  Communication patterns
+  Link RPCs to streaming types
 -------------------------------------------------------------------------------}
 
 -- | This RPC supports the given streaming type
 --
--- This is a weaker condition than 'HasStreamingType', which maps each RPC to
--- a /specific/ streaming type. Some (non-Protobuf) RPCs however may support
--- more than one streaming type.
+-- This is a weaker condition than 'HasStreamingType': some (non-Protobuf) RPCs
+-- may support more than one streaming type.
 class SupportsStreamingType rpc (styp :: StreamingType)
 
+-- | /The/ streaming type supported by this RPC
+
+-- This is a stronger condition than 'SupportsStreamingType': we associate the
+-- RPC with one /specific/ streaming type.
 class SupportsStreamingType rpc (RpcStreamingType rpc)
    => HasStreamingType rpc where
-  -- | Streaming type supported by this RPC
+  -- | The (single) streaming type supported by this RPC
   type RpcStreamingType rpc :: StreamingType
 
 {-------------------------------------------------------------------------------
-  Handler types
+  Internal: preliminaries
+
+  The @StreamType@ API does not support metadata, and we use 'NextElem' rather
+  than the more general 'StreamElem' to provide the user with a simpler
+  interface. This means that we cannot mark the final streaming element as final
+  as we send it, but must instead use 'NoMoreElems' (which will correspond to an
+  additional empty HTTP data frame); similarly, on the input side we cannot
+  detect that an element is final as we receive it. This does not matter in the
+  vast majority of cases; for the rare case where it does matter, user code can
+  simply use the core API instead of the streaming API.
+
+  NOTE: it /is/ important that we mark the final message as final for
+  /non-streaming/ cases; some servers get confused when this is not the case.
+  However, this is still fine: in the non-streaming case we /can/ use
+  'FinalElem' as this is something we take care of on behalf of the user.
 -------------------------------------------------------------------------------}
 
-newtype NonStreamingHandler m rpc = UnsafeNonStreamingHandler (
-         Input rpc
-      -> m (Output rpc)
-    )
+-- | Send a value
+type Send a = NextElem a -> IO ()
 
-newtype ClientStreamingHandler m rpc = UnsafeClientStreamingHandler (
-         m (StreamElem NoMetadata (Input rpc))
-      -> m (Output rpc)
-    )
-
-newtype ServerStreamingHandler m rpc = UnsafeServerStreamingHandler (
-         Input rpc
-      -> (Output rpc -> m ())
-      -> m ()
-    )
-
-newtype BiDiStreamingHandler m rpc = UnsafeBiDiStreamingHandler (
-         m (StreamElem NoMetadata (Input rpc))
-      -> (Output rpc -> m ())
-      -> m ()
-    )
-
--- | Match 'StreamingType' to handler type
+-- | Receive a value
 --
--- This is occassionally useful to improve type inference. Users are not
--- expected to need to use this in their own code.
-type family HandlerFor (typ :: StreamingType) :: (Type -> Type) -> Type -> Type where
-  HandlerFor NonStreaming    = NonStreamingHandler
-  HandlerFor ClientStreaming = ClientStreamingHandler
-  HandlerFor ServerStreaming = ServerStreamingHandler
-  HandlerFor BiDiStreaming   = BiDiStreamingHandler
+-- 'Nothing' indicates no more values. Calling this function again after
+-- receiving 'Nothing' is a bug.
+type Recv a = IO (NextElem a)
+
+-- | Positive use of @a@
+type Positive m a b = a -> m b
+
+-- | Negative use of @a@
+newtype Negative m a b = Negative {
+      runNegative :: forall r. (a -> m r) -> m (b, r)
+    }
 
 {-------------------------------------------------------------------------------
-  Destructors
+  Handler
 
-  These are just the record field accessors, but with an additional constraint
-  on them that ensures that the right type of handler is used with the right
-  type of RPC.
+  The handler definitions are carefully designed to make the duality between the
+  server and the client obvious.
 -------------------------------------------------------------------------------}
 
-nonStreaming :: forall rpc m.
-     SupportsStreamingType rpc NonStreaming
-  => NonStreamingHandler m rpc
-  -> Input rpc
-  -> m (Output rpc)
-nonStreaming (UnsafeNonStreamingHandler h) = h
-  where
-    _ = addConstraint @(SupportsStreamingType rpc NonStreaming)
+-- | Handler role
+data HandlerRole =
+    Server  -- ^ Deal with an incoming request
+  | Client  -- ^ Initiate an outgoing request
 
-clientStreaming :: forall rpc m.
-     SupportsStreamingType rpc ClientStreaming
-  => ClientStreamingHandler m rpc
-  -> m (StreamElem NoMetadata (Input rpc))
-  -> m (Output rpc)
-clientStreaming (UnsafeClientStreamingHandler h) = h
-  where
-    _ = addConstraint @(SupportsStreamingType rpc ClientStreaming)
+-- | Type of a handler
+type family Handler (r :: HandlerRole) (s :: StreamingType) m (rpc :: k) where
+  Handler Server NonStreaming    m rpc = Input rpc -> m (Output rpc)
+  Handler Client NonStreaming    m rpc = Input rpc -> m (Output rpc)
 
-serverStreaming :: forall rpc m.
-     SupportsStreamingType rpc ServerStreaming
-  => ServerStreamingHandler m rpc
-  -> Input rpc
-  -> (Output rpc -> m ())
-  -> m ()
-serverStreaming (UnsafeServerStreamingHandler h) = h
-  where
-    _ = addConstraint @(SupportsStreamingType rpc ServerStreaming)
+  Handler Server ClientStreaming m rpc = Positive m (Recv (Input rpc)) (Output rpc)
+  Handler Client ClientStreaming m rpc = Negative m (Send (Input rpc)) (Output rpc)
 
-biDiStreaming :: forall rpc m.
-     SupportsStreamingType rpc BiDiStreaming
-  => BiDiStreamingHandler m rpc
-  -> m (StreamElem NoMetadata (Input rpc))
-  -> (Output rpc -> m ())
-  -> m ()
-biDiStreaming (UnsafeBiDiStreamingHandler h) = h
-  where
-    _ = addConstraint @(SupportsStreamingType rpc BiDiStreaming)
+  Handler Server ServerStreaming m rpc = Input rpc -> Positive m (Send (Output rpc)) ()
+  Handler Client ServerStreaming m rpc = Input rpc -> Negative m (Recv (Output rpc)) ()
+
+  Handler Server BiDiStreaming   m rpc = Positive m (Recv (Input rpc), Send (Output rpc)) ()
+  Handler Client BiDiStreaming   m rpc = Negative m (Send (Input rpc), Recv (Output rpc)) ()
 
 {-------------------------------------------------------------------------------
-  Constructors
-
-  These are just the newtype constructors, but with an additional constraint,
-  similar to the destructors above.
+  Wrappers
 -------------------------------------------------------------------------------}
 
-mkNonStreaming :: forall m rpc.
-       SupportsStreamingType rpc NonStreaming
-    => (    Input rpc
-         -> m (Output rpc)
-       )
-    -> NonStreamingHandler m rpc
-mkNonStreaming = UnsafeNonStreamingHandler
-  where
-    _ = addConstraint @(SupportsStreamingType rpc NonStreaming)
+data ServerHandler' (styp :: StreamingType) m (rpc :: k) where
+  ServerHandler ::
+       SupportsStreamingType rpc styp
+    => Handler Server styp m rpc
+    -> ServerHandler' styp m rpc
 
-mkClientStreaming :: forall m rpc.
-       SupportsStreamingType rpc ClientStreaming
-    => (    m (StreamElem NoMetadata (Input rpc))
-         -> m (Output rpc)
-       )
-    -> ClientStreamingHandler m rpc
-mkClientStreaming = UnsafeClientStreamingHandler
-  where
-    _ = addConstraint @(SupportsStreamingType rpc ClientStreaming)
+data ClientHandler' (s :: StreamingType) m (rpc :: k) where
+  ClientHandler ::
+       SupportsStreamingType rpc styp
+    => Handler Client styp m rpc
+    -> ClientHandler' styp m rpc
 
-mkServerStreaming :: forall m rpc.
-       SupportsStreamingType rpc ServerStreaming
-    => (    Input rpc
-         -> (Output rpc -> m ())
-         -> m ()
-       )
-    -> ServerStreamingHandler m rpc
-mkServerStreaming = UnsafeServerStreamingHandler
-  where
-    _ = addConstraint @(SupportsStreamingType rpc ServerStreaming)
-
-mkBiDiStreaming :: forall m rpc.
-       SupportsStreamingType rpc BiDiStreaming
-    => (    m (StreamElem NoMetadata (Input rpc))
-         -> (Output rpc -> m ())
-         -> m ()
-       )
-    -> BiDiStreamingHandler m rpc
-mkBiDiStreaming = UnsafeBiDiStreamingHandler
-  where
-    _ = addConstraint @(SupportsStreamingType rpc BiDiStreaming)
+type ServerHandler m rpc = ServerHandler' (RpcStreamingType rpc) m rpc
+type ClientHandler m rpc = ClientHandler' (RpcStreamingType rpc) m rpc
