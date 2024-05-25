@@ -19,20 +19,20 @@ import Interop.Util.Exceptions
   BoolValue
 -------------------------------------------------------------------------------}
 
-boolValue :: Bool -> BoolValue
+boolValue :: Bool -> Proto BoolValue
 boolValue b = defMessage & #value .~ b
 
 {-------------------------------------------------------------------------------
   Payload
 -------------------------------------------------------------------------------}
 
-payloadOfZeroes :: Int -> Payload
+payloadOfZeroes :: Int -> Proto Payload
 payloadOfZeroes sz = defMessage & #body .~ BS.Strict.pack (replicate sz 0)
 
-payloadOfType :: Integral size => PayloadType -> size -> IO Payload
+payloadOfType :: Integral size => Proto PayloadType -> size -> IO (Proto Payload)
 payloadOfType type' size = do
     body <-
-      case type' of
+      case getProto type' of
         COMPRESSABLE ->
           return $ BS.Strict.pack (replicate (fromIntegral size) 0)
         PayloadType'Unrecognized x ->

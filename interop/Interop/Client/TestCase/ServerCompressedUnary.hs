@@ -30,7 +30,7 @@ runTest cmdline =
   where
     -- To keep the test simple, we disable /outbound/ compression
     -- (this test is testing /inbound/ compression)
-    request :: Bool -> (OutboundEnvelope, SimpleRequest)
+    request :: Bool -> (OutboundEnvelope, Proto SimpleRequest)
     request expectCompressed = (
           def { outboundEnableCompression = False }
         , mkSimpleRequest False
@@ -39,7 +39,7 @@ runTest cmdline =
 
 verifyResponse ::
      HasCallStack
-  => Bool -> Maybe (InboundEnvelope, SimpleResponse) -> IO ()
+  => Bool -> Maybe (InboundEnvelope, Proto SimpleResponse) -> IO ()
 verifyResponse _expectCompressed Nothing =
     assertFailure "Expected response"
 verifyResponse expectCompressed (Just (envelope, resp)) = do

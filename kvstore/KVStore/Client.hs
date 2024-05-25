@@ -133,7 +133,7 @@ doCreate knownKeys conn = markRequest "CREATE" $ do
     key   <- createRandomKey knownKeys
     value <- randomBytes meanValueSize
 
-    let req :: CreateRequest
+    let req :: Proto CreateRequest
         req = defMessage
                 & #key   .~ key
                 & #value .~ value
@@ -173,7 +173,7 @@ doUpdate knownKeys conn = markRequest "UPDATE" $ do
     key   <- RandomAccessSet.getRandomKey knownKeys
     value <- randomBytes meanValueSize
 
-    let req :: UpdateRequest
+    let req :: Proto UpdateRequest
         req = defMessage
                 & #key   .~ key
                 & #value .~ value

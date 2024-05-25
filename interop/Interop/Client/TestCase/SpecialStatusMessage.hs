@@ -21,11 +21,11 @@ runTest cmdline = do
         sendFinalInput call simpleRequest
         assertThrows verifyError $ recvFinalOutput call
   where
-    simpleRequest :: SimpleRequest
+    simpleRequest :: Proto SimpleRequest
     simpleRequest = defMessage & #responseStatus .~ echoStatus
 
     -- Spec mandates the use of code 2, which is 'GrpcUnknown'
-    echoStatus :: EchoStatus
+    echoStatus :: Proto EchoStatus
     echoStatus =
         defMessage
           & #code    .~ fromIntegral (fromGrpcStatus $ GrpcError GrpcUnknown)

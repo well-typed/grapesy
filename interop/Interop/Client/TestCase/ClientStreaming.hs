@@ -21,5 +21,5 @@ runTest cmdline =
         (resp, _metadata) <- recvFinalOutput call
         assertEqual 74922 $ resp ^. #aggregatedPayloadSize
   where
-    request :: Int -> StreamingInputCallRequest
+    request :: Int -> Proto StreamingInputCallRequest
     request sz = defMessage & #payload .~ payloadOfZeroes sz

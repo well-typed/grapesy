@@ -15,6 +15,8 @@ module Network.GRPC.Spec (
   , defaultRpcContentType
     -- ** Instances
   , Protobuf
+  , Proto(..)
+  , getProto
   , RawRpc
   , UnknownRpc
     -- ** Messages

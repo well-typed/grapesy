@@ -13,11 +13,14 @@
 ## Our own .proto files
 ##
 
-protoc \
-  --plugin=protoc-gen-haskell=`which proto-lens-protoc` \
-  --haskell_out=proto \
-  --proto_path=proto \
-  ping.proto
+for i in ping spec 
+do
+  protoc \
+    --plugin=protoc-gen-haskell=`which proto-lens-protoc` \
+    --haskell_out=proto \
+    --proto_path=proto \
+    $i.proto
+done
 
 ##
 ## From the gRPC repo

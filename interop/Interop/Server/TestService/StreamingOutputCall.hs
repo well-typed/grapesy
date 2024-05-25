@@ -26,9 +26,9 @@ handle call = do
 --
 -- Abstracted out because also used in the @fullDuplexCall@ test.
 handleRequest :: forall rpc.
-     (Output rpc ~ StreamingOutputCallResponse)
+     (Output rpc ~ Proto StreamingOutputCallResponse)
   => Call rpc
-  -> StreamingOutputCallRequest
+  -> Proto StreamingOutputCallRequest
   -> IO ()
 handleRequest call request =
     forM_ (request ^. #responseParameters) $ \responseParameters -> do
@@ -39,12 +39,12 @@ handleRequest call request =
           shouldCompress :: Bool
           shouldCompress = responseParameters ^. #compressed ^. #value
 
-      payload <- payloadOfType COMPRESSABLE size
+      payload <- payloadOfType (Proto COMPRESSABLE) size
 
       let envelope :: OutboundEnvelope
           envelope = def { outboundEnableCompression = shouldCompress }
 
-          response :: StreamingOutputCallResponse
+          response :: Proto StreamingOutputCallResponse
           response = defMessage & #payload .~ payload
 
       sendOutputWithEnvelope call $ StreamElem (envelope, response)

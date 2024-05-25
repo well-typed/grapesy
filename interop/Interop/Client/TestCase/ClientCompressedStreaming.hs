@@ -25,14 +25,14 @@ runTest cmdline =
         assertEqual 73086 $ resp ^. #aggregatedPayloadSize
   where
     -- Expect compressed, and /is/ compressed
-    compressed :: (OutboundEnvelope, StreamingInputCallRequest)
+    compressed :: (OutboundEnvelope, Proto StreamingInputCallRequest)
     compressed = (
           def { outboundEnableCompression = True }
         , mkStreamingInputCallRequest True 27182
         )
 
     -- Expect uncompressed, and /is/ uncompressed
-    uncompressed :: (OutboundEnvelope, StreamingInputCallRequest)
+    uncompressed :: (OutboundEnvelope, Proto StreamingInputCallRequest)
     uncompressed = (
           def { outboundEnableCompression = False }
         , mkStreamingInputCallRequest False 45904
@@ -53,7 +53,7 @@ checkServerSupportsCompressedRequest conn =
       expectInvalidArgument $ recvFinalOutput call
   where
     -- Expect compressed, but is /not/ actually compressed
-    featureProbe :: (OutboundEnvelope, StreamingInputCallRequest)
+    featureProbe :: (OutboundEnvelope, Proto StreamingInputCallRequest)
     featureProbe = (
           def { outboundEnableCompression = False }
         , mkStreamingInputCallRequest True 27182

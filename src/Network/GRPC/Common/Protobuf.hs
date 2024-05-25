@@ -1,6 +1,8 @@
 -- | Common functionality for working with Protobuf
 module Network.GRPC.Common.Protobuf (
     Protobuf
+  , Proto(..)
+  , getProto
 
     -- * Re-exports
     -- ** "Data.Function"
@@ -10,13 +12,14 @@ module Network.GRPC.Common.Protobuf (
   , (^.)
     -- ** "Data.ProtoLens"
   , HasField(..)
+  , FieldDefault(..)
   , defMessage
   ) where
 
 import Control.Lens ((.~), (^.))
 import Data.Function ((&))
-import Data.ProtoLens (defMessage)
 import Data.ProtoLens.Field (HasField(..))
 import Data.ProtoLens.Labels () -- provides instances for OverloadedLabels
+import Data.ProtoLens.Message (FieldDefault(..), defMessage)
 
-import Network.GRPC.Spec (Protobuf)
+import Network.GRPC.Spec

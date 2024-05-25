@@ -18,7 +18,7 @@ runTest cmdline =
     withConnection def (testServer cmdline) $ \conn ->
       withRPC conn def (Proxy @EmptyCall) $ \call -> do
         sendFinalInput call empty
-        streamElem :: StreamElem ProperTrailers (InboundEnvelope, Empty)
+        streamElem :: StreamElem ProperTrailers (InboundEnvelope, Proto Empty)
           <- recvOutputWithEnvelope call
 
         -- The test description asks us to also verify the size of the /outgoing/
@@ -33,5 +33,5 @@ runTest cmdline =
           Nothing ->
             assertFailure "Expected response"
   where
-    empty :: Empty
+    empty :: Proto Empty
     empty = defMessage

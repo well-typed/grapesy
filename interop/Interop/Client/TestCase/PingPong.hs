@@ -37,11 +37,13 @@ runTest cmdline =
 
     collectResponses ::
          Call FullDuplexCall
-      -> [StreamingOutputCallRequest]
-      -> IO [StreamingOutputCallResponse]
+      -> [Proto StreamingOutputCallRequest]
+      -> IO [Proto StreamingOutputCallResponse]
     collectResponses call = go
       where
-        go :: [StreamingOutputCallRequest] -> IO [StreamingOutputCallResponse]
+        go ::
+             [Proto StreamingOutputCallRequest]
+          -> IO [Proto StreamingOutputCallResponse]
         go []     = error "impossible"
         go [r]    = do sendFinalInput call r
                        (resp, _metadata) <- recvFinalOutput call

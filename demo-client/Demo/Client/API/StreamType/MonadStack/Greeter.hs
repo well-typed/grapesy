@@ -10,6 +10,7 @@ import Control.Monad.Trans.Reader
 
 import Network.GRPC.Client
 import Network.GRPC.Client.StreamType.CanCallRPC
+import Network.GRPC.Common.Protobuf
 
 import Demo.Common.API
 import Demo.Common.Logging qualified as Logging
@@ -52,12 +53,12 @@ runMyClient conn client =
   Implement the Greeter API using 'MyClient'
 -------------------------------------------------------------------------------}
 
-sayHello :: Connection -> HelloRequest -> IO ()
+sayHello :: Connection -> Proto HelloRequest -> IO ()
 sayHello conn name = runMyClient conn $ do
     reply <- nonStreaming (rpc @SayHello) name
     clientLogMsg reply
 
-sayHelloStreamReply :: Connection -> HelloRequest -> IO ()
+sayHelloStreamReply :: Connection -> Proto HelloRequest -> IO ()
 sayHelloStreamReply conn name = runMyClient conn $ do
     serverStreaming (rpc @SayHelloStreamReply) name $
       clientLogMsg

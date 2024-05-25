@@ -20,7 +20,7 @@ ping :: Cmdline -> IO ()
 ping cmdline =
     withConnection def (testServer cmdline) $ \conn ->
       forM_ [1..] $ \i -> do
-        let msgPing :: PingMessage
+        let msgPing :: Proto PingMessage
             msgPing = defMessage & #id .~ i
         msgPong <- nonStreaming conn (rpc @Ping) msgPing
         print msgPong

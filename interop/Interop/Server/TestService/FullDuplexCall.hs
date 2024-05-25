@@ -14,7 +14,7 @@ handle :: Call FullDuplexCall -> IO ()
 handle call = do
     trailers <- constructResponseMetadata call
 
-    let handleRequest :: StreamingOutputCallRequest -> IO ()
+    let handleRequest :: Proto StreamingOutputCallRequest -> IO ()
         handleRequest request = do
             StreamingOutputCall.handleRequest call request
             echoStatus (request ^. #responseStatus)

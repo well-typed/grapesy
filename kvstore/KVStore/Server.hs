@@ -47,7 +47,7 @@ withKeyValueServer cmdline k = do
 -------------------------------------------------------------------------------}
 
 methodsKeyValueService ::
-    Cmdline
+     Cmdline
   -> Store
   -> Methods IO (ProtobufMethodsOf KeyValueService)
 methodsKeyValueService cmdline store =
@@ -69,7 +69,7 @@ services cmdline store =
   Handlers
 -------------------------------------------------------------------------------}
 
-create :: Cmdline -> Store -> CreateRequest -> IO CreateResponse
+create :: Cmdline -> Store -> Proto CreateRequest -> IO (Proto CreateResponse)
 create cmdline store req = do
     simulateWork cmdline writeDelayMillis
     inserted <- Store.putIfAbsent store (req ^. #key) (req ^. #value)
@@ -77,7 +77,7 @@ create cmdline store req = do
       then return defMessage
       else throwGrpcError GrpcAlreadyExists
 
-update :: Cmdline -> Store -> UpdateRequest -> IO UpdateResponse
+update :: Cmdline -> Store -> Proto UpdateRequest -> IO (Proto UpdateResponse)
 update cmdline store req = do
     simulateWork cmdline writeDelayMillis
     replaced <- Store.replace store (req ^. #key) (req ^. #value)
@@ -85,7 +85,7 @@ update cmdline store req = do
       then return defMessage
       else throwGrpcError GrpcNotFound
 
-retrieve :: Cmdline -> Store -> RetrieveRequest -> IO RetrieveResponse
+retrieve :: Cmdline -> Store -> Proto RetrieveRequest -> IO (Proto RetrieveResponse)
 retrieve cmdline store req = do
     simulateWork cmdline readDelayMillis
     mValue <- Store.get store (req ^. #key)
@@ -93,7 +93,7 @@ retrieve cmdline store req = do
       Just value -> return $ defMessage & #value .~ value
       Nothing    -> throwGrpcError GrpcNotFound
 
-delete :: Cmdline -> Store -> DeleteRequest -> IO DeleteResponse
+delete :: Cmdline -> Store -> Proto DeleteRequest -> IO (Proto DeleteResponse)
 delete cmdline store req = do
     simulateWork cmdline writeDelayMillis
     Store.remove store (req ^. #key)
