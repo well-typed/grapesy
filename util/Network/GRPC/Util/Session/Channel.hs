@@ -261,18 +261,18 @@ send Channel{channelOutbound, channelSentFinal} msg =
 recv :: forall sess.
      HasCallStack
   => Channel sess
-  -> IO ( StreamElem
-            (Either (NoMessages (Inbound sess)) (Trailers (Inbound sess)))
-            (Message (Inbound sess))
+  -> IO ( Either
+            (NoMessages (Inbound sess))
+            (StreamElem (Trailers (Inbound sess)) (Message (Inbound sess)))
         )
 recv Channel{channelInbound, channelRecvFinal} =
     withThreadInterface channelInbound aux
   where
     aux ::
          FlowState (Inbound sess)
-      -> STM ( StreamElem
-                 (Either (NoMessages (Inbound sess)) (Trailers (Inbound sess)))
-                 (Message (Inbound sess))
+      -> STM ( Either
+                 (NoMessages (Inbound sess))
+                 (StreamElem (Trailers (Inbound sess)) (Message (Inbound sess)))
              )
     aux st = do
         -- By checking that we haven't received the final message yet, we know
@@ -297,10 +297,10 @@ recv Channel{channelInbound, channelRecvFinal} =
             -- atomically change from "there is a value" to "all values read".
             StreamElem.whenDefinitelyFinal msg $ \_trailers ->
               writeTVar channelRecvFinal $ Just callStack
-            return $ first Right msg
+            return $ Right msg
           FlowStateNoMessages trailers -> do
             writeTVar channelRecvFinal $ Just callStack
-            return $ NoMoreElems (Left trailers)
+            return $ Left trailers
 
 -- | Thrown by 'send'
 --

@@ -47,7 +47,6 @@ import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.XIO (XIO')
 import Control.Monad.XIO qualified as XIO
-import Data.Bifunctor
 import Data.Bitraversable
 import Data.Default
 import GHC.Stack
@@ -252,15 +251,17 @@ recvInput = fmap (fmap snd) . recvInputWithEnvelope
 -- as its compressed and uncompressed size.
 --
 -- Most applications will never need to use this function.
-recvInputWithEnvelope ::
+recvInputWithEnvelope :: forall rpc.
      HasCallStack
   => Call rpc
   -> IO (StreamElem NoMetadata (InboundEnvelope, Input rpc))
 recvInputWithEnvelope Call{callChannel} =
-    first ignoreTrailersOnly <$> Session.recv callChannel
+    either fromTrailersOnly id <$> Session.recv callChannel
   where
-    ignoreTrailersOnly :: Either RequestHeaders NoMetadata -> NoMetadata
-    ignoreTrailersOnly _ = NoMetadata
+    fromTrailersOnly ::
+         RequestHeaders
+      -> StreamElem NoMetadata (InboundEnvelope, Input rpc)
+    fromTrailersOnly _ = NoMoreElems NoMetadata
 
 -- | Send RPC output to the client
 --

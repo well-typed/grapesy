@@ -34,7 +34,6 @@ import Control.Concurrent.STM
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
-import Data.Bifunctor
 import Data.Bitraversable
 import Data.Default
 import Data.Maybe (isJust)
@@ -210,13 +209,18 @@ recvOutput call@Call{} = liftIO $
 -- Most applications will never need to use this function.
 --
 -- See also 'Network.GRPC.Server.recvInputWithEnvelope'.
-recvOutputWithEnvelope ::
+recvOutputWithEnvelope :: forall rpc m.
      (MonadIO m, HasCallStack)
   => Call rpc
   -> m (StreamElem ProperTrailers (InboundEnvelope, Output rpc))
 recvOutputWithEnvelope Call{callChannel} = liftIO $
-    first (either (fst . trailersOnlyToProperTrailers) id) <$>
+    either fromTrailersOnly id <$>
       Session.recv callChannel
+  where
+    fromTrailersOnly ::
+         TrailersOnly
+      -> StreamElem ProperTrailers (InboundEnvelope, Output rpc)
+    fromTrailersOnly = NoMoreElems . fst . trailersOnlyToProperTrailers
 
 -- | The initial metadata that was included in the response headers
 --
