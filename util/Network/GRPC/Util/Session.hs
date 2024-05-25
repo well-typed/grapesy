@@ -30,7 +30,9 @@ module Network.GRPC.Util.Session (
     -- ** Working with an open channel
   , getInboundHeaders
   , send
-  , recv
+  , recvBoth
+  , recvEither
+  , RecvFinal(..)
   , RecvAfterFinal(..)
   , SendAfterFinal(..)
     -- ** Closing

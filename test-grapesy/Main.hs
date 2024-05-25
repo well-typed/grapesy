@@ -16,6 +16,7 @@ import GHC.Conc.Sync (threadLabel)
 import Test.Prop.Dialogue                     qualified as Dialogue
 import Test.Prop.IncrementalParsing           qualified as IncrementalParsing
 import Test.Prop.Serialization                qualified as Serialization
+import Test.Sanity.EndOfStream                qualified as EndOfStream
 import Test.Sanity.Interop                    qualified as Interop
 import Test.Sanity.StreamingType.CustomFormat qualified as StreamingType.CustomFormat
 import Test.Sanity.StreamingType.NonStreaming qualified as StreamingType.NonStreaming
@@ -26,7 +27,8 @@ main = do
 
     defaultMain $ testGroup "grapesy" [
         testGroup "Sanity" [
-            testGroup "StreamingType" [
+            EndOfStream.tests
+          , testGroup "StreamingType" [
                 StreamingType.NonStreaming.tests
               , StreamingType.CustomFormat.tests
               ]

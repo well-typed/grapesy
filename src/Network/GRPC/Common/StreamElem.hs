@@ -37,8 +37,8 @@ data StreamElem b a =
     -- * We are dealing with a stream in which the final element is not marked.
     --
     --   In this case, the element may or may not be the final element; if it
-    --   is, the next value will be 'NoMore' (but waiting for the next value
-    --   might mean a blocking call).
+    --   is, the next value will be 'NoMoreElems' (but waiting for the next
+    --   value might mean a blocking call).
     --
     -- * We are dealing with a stream in which the final element /is/ marked.
     --

@@ -34,7 +34,6 @@ import Control.Concurrent.STM
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
-import Data.Bifunctor
 import Data.Bitraversable
 import Data.Default
 import Data.Maybe (isJust)
@@ -56,6 +55,15 @@ import Network.GRPC.Util.Thread qualified as Thread
 -------------------------------------------------------------------------------}
 
 -- | Scoped RPC call
+--
+-- Typical usage:
+--
+-- > withRPC conn def (Proxy @ListFeatures) $ \call -> do
+-- >   .. use 'call' to send and receive messages
+--
+-- for some previously established connection 'conn'
+-- (see 'Network.GRPC.Client.withConnection') and where @ListFeatures@ is some
+-- kind of RPC.
 --
 -- The call is setup in the background, and might not yet have been established
 -- when the body is run. If you want to be sure that the call has been setup,
@@ -127,7 +135,14 @@ withRPC conn callParams proxy k = fmap fst $
           readTVar $ Session.channelRecvFinal callChannel
         mTerminated <- atomically $
           Thread.hasThreadTerminated $ Session.channelInbound callChannel
-        let serverClosed = isJust mRecvFinal || isJust mTerminated
+        let serverClosed :: Bool
+            serverClosed = or [
+                case mRecvFinal of
+                  Session.RecvNotFinal          -> False
+                  Session.RecvWithoutTrailers _ -> True
+                  Session.RecvFinal _           -> True
+              , isJust mTerminated
+              ]
 
         unless serverClosed $
           throwM $ GrpcException {
@@ -181,16 +196,9 @@ recvOutput :: forall m rpc.
      (MonadIO m, HasCallStack)
   => Call rpc
   -> m (StreamElem (ResponseTrailingMetadata rpc) (Output rpc))
-recvOutput call@Call{} = liftIO $
-    recvOutputWithEnvelope call >>= bitraverse aux (return . snd)
-  where
-    aux :: ProperTrailers -> IO (ResponseTrailingMetadata rpc)
-    aux trailers =
-        case grpcClassifyTermination trailers of
-          Right terminatedNormally -> do
-            parseMetadata $ grpcTerminatedMetadata terminatedNormally
-          Left exception ->
-            throwM exception
+recvOutput call@Call{} = liftIO $ do
+    streamElem <- recvOutputWithEnvelope call
+    bitraverse (responseTrailingMetadata call) (return . snd) streamElem
 
 -- | Generalization of 'recvOutput', providing additional meta-information
 --
@@ -201,13 +209,11 @@ recvOutput call@Call{} = liftIO $
 -- Most applications will never need to use this function.
 --
 -- See also 'Network.GRPC.Server.recvInputWithEnvelope'.
-recvOutputWithEnvelope ::
+recvOutputWithEnvelope :: forall rpc m.
      (MonadIO m, HasCallStack)
   => Call rpc
   -> m (StreamElem ProperTrailers (InboundEnvelope, Output rpc))
-recvOutputWithEnvelope Call{callChannel} = liftIO $
-    first (either (fst . trailersOnlyToProperTrailers) id) <$>
-      Session.recv callChannel
+recvOutputWithEnvelope = recvBoth
 
 -- | The initial metadata that was included in the response headers
 --
@@ -292,16 +298,18 @@ sendEndOfInput call = sendInput call $ NoMoreElems NoMetadata
 
 -- | Receive the next output
 --
--- Throws 'ProtocolException' if there are no more outputs. Discards metadata.
+-- Throws 'ProtocolException' if there are no more outputs.
 recvNextOutput :: forall m rpc.
      (MonadIO m, HasCallStack)
   => Call rpc -> m (Output rpc)
 recvNextOutput call@Call{} = liftIO $ do
-    mOut <- recvOutput call
+    mOut <- recvEither call
     case mOut of
-      NoMoreElems     ts -> err $ TooFewOutputs @rpc ts
-      StreamElem out     -> return out
-      FinalElem  out _ts -> return out
+      Left trailers -> do
+        trailingMetadata <- responseTrailingMetadata call trailers
+        err $ TooFewOutputs @rpc trailingMetadata
+      Right (_env, out) ->
+        return out
   where
     err :: ProtocolException rpc -> IO a
     err = throwM . ProtocolException
@@ -391,3 +399,55 @@ recvAllOutputs call processOutput = loop
           FinalElem out trailers -> do
             processOutput out
             return trailers
+
+{-------------------------------------------------------------------------------
+  Internal auxiliary: deal with final message
+-------------------------------------------------------------------------------}
+
+recvBoth :: forall m rpc.
+     (HasCallStack, MonadIO m)
+  => Call rpc
+  -> m (StreamElem ProperTrailers (InboundEnvelope, Output rpc))
+recvBoth Call{callChannel} = liftIO $
+    flatten <$> Session.recvBoth callChannel
+  where
+    -- We lose type information here: Trailers-Only is no longer visible
+    flatten ::
+         Either
+           TrailersOnly
+           (StreamElem ProperTrailers (InboundEnvelope, Output rpc))
+      -> StreamElem ProperTrailers (InboundEnvelope, Output rpc)
+    flatten (Left trailersOnly) =
+        NoMoreElems $ fst $ trailersOnlyToProperTrailers trailersOnly
+    flatten (Right streamElem) =
+        streamElem
+
+recvEither :: forall m rpc.
+     (HasCallStack, MonadIO m)
+  => Call rpc
+  -> m (Either ProperTrailers (InboundEnvelope, Output rpc))
+recvEither Call{callChannel} = liftIO $
+    flatten <$> Session.recvEither callChannel
+  where
+    flatten ::
+         Either
+           TrailersOnly
+           (Either ProperTrailers (InboundEnvelope, Output rpc))
+      -> Either ProperTrailers (InboundEnvelope, Output rpc)
+    flatten (Left trailersOnly) =
+        Left $ fst $ trailersOnlyToProperTrailers trailersOnly
+    flatten (Right (Left properTrailers)) =
+        Left $ properTrailers
+    flatten (Right (Right msg)) =
+        Right $ msg
+
+responseTrailingMetadata ::
+     MonadIO m
+  => Call rpc
+  -> ProperTrailers -> m (ResponseTrailingMetadata rpc)
+responseTrailingMetadata Call{} trailers = liftIO $
+    case grpcClassifyTermination trailers of
+      Right terminatedNormally -> do
+        parseMetadata $ grpcTerminatedMetadata terminatedNormally
+      Left exception ->
+        throwM exception
