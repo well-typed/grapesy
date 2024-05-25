@@ -307,7 +307,7 @@ not being an error (strictly speaking this is not conform the gRPC spec).
 
 This test can also be run with `--core`, in which case it shows the received
 metadata. This is important, even though that metadata is empty, because it
-requires some special case to treat that metadata correctly in this case; see
+requires some special care to treat that metadata correctly in this case; see
 discussion in `Network.GRPC.Spec.Response`.
 
 ### `routeguide.RouteGuide.RecordRuite` (client-side streaming)

@@ -180,7 +180,7 @@ import Network.GRPC.Util.TLS qualified as Util.TLS
 -- followed by 'NoMoreElems'.
 --
 -- Of course, for a given RPC and its associated communication pattern we may
--- know whether it any given message was the last; in the example above of a
+-- know whether any given message was the last; in the example above of a
 -- non-streaming @grpc+proto@ RPC call, we only expect a single output. In this
 -- case the client can (and should) call 'recvOutput' again to wait for the
 -- trailers (which, amongst other things, will include the 'trailerGrpcStatus').

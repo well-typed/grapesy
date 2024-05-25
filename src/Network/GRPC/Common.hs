@@ -57,6 +57,10 @@ module Network.GRPC.Common (
   , SomeProtocolException(..)
   , UnexpectedMetadata(..)
 
+    -- ** User errors
+  , Session.SendAfterFinal(..)
+  , Session.RecvAfterFinal(..)
+
     -- * Convenience re-exports
   , Proxy(..)
   , Default(..)

@@ -88,14 +88,14 @@ data Channel sess = Channel {
       -- | Thread state of the thread sending messages to the peer
     , channelOutbound :: TVar (ThreadState (FlowState (Outbound sess)))
 
-      -- | 'CallStack' of the final call to 'send'
+      -- | Have we sent the final message?
       --
       -- The sole purpose of this 'TVar' is catching user mistakes: if there is
       -- another 'send' after the final message, we can throw an exception,
       -- rather than the message simply being lost or blockng indefinitely.
     , channelSentFinal :: TVar (Maybe CallStack)
 
-      -- | 'CallStack' of the final call to 'recv'
+      -- | Have we received the final message?
       --
       -- This is used to improve the user experience; see 'channelSentFinal'.
       -- It is also used when checking if a call should be considered

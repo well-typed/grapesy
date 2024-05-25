@@ -57,6 +57,15 @@ import Network.GRPC.Util.Thread qualified as Thread
 
 -- | Scoped RPC call
 --
+-- Typical usage:
+--
+-- > withRPC conn def (Proxy @ListFeatures) $ \call -> do
+-- >   .. use 'call' to send and receive messages
+--
+-- for some previously established connection 'conn'
+-- (see 'Network.GRPC.Client.withConnection') and where @ListFeatures@ is some
+-- kind of RPC.
+--
 -- The call is setup in the background, and might not yet have been established
 -- when the body is run. If you want to be sure that the call has been setup,
 -- you can call 'recvResponseMetadata'.
