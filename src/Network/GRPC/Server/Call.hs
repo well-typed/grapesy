@@ -255,13 +255,7 @@ recvInputWithEnvelope :: forall rpc.
      HasCallStack
   => Call rpc
   -> IO (StreamElem NoMetadata (InboundEnvelope, Input rpc))
-recvInputWithEnvelope Call{callChannel} =
-    either fromTrailersOnly id <$> Session.recv callChannel
-  where
-    fromTrailersOnly ::
-         RequestHeaders
-      -> StreamElem NoMetadata (InboundEnvelope, Input rpc)
-    fromTrailersOnly _ = NoMoreElems NoMetadata
+recvInputWithEnvelope = recvBoth
 
 -- | Send RPC output to the client
 --
@@ -468,11 +462,10 @@ sendTrailers call = sendOutput call . NoMoreElems
 -- Throws 'ProtocolException' if there are no more inputs.
 recvNextInput :: forall rpc. HasCallStack => Call rpc -> IO (Input rpc)
 recvNextInput call@Call{} = do
-    mInp <- recvInput call
+    mInp <- recvEither call
     case mInp of
-      NoMoreElems    NoMetadata -> err $ TooFewInputs @rpc
-      FinalElem  out NoMetadata -> return out
-      StreamElem out            -> return out
+      Nothing          -> err $ TooFewInputs @rpc
+      Just (_env, inp) -> return inp
   where
     err :: ProtocolException rpc -> IO a
     err = throwIO . ProtocolException
@@ -550,6 +543,51 @@ sendProperTrailers Call{callContext, callResponseKickoff, callChannel}
 -- This is internal API: the timeout is automatically imposed on the handler.
 getRequestTimeout :: Call rpc -> Maybe Timeout
 getRequestTimeout call = requestTimeout $ callRequestHeaders call
+
+{-------------------------------------------------------------------------------
+  Internal auxiliary: deal with final message
+
+  We get "trailers" (really headers) only in the Trailers-Only case.
+-------------------------------------------------------------------------------}
+
+recvBoth :: forall rpc.
+     HasCallStack
+  => Call rpc
+  -> IO (StreamElem NoMetadata (InboundEnvelope, Input rpc))
+recvBoth Call{callChannel} =
+    flatten <$> Session.recvBoth callChannel
+  where
+    -- We lose type information here: Trailers-Only is no longer visible
+    flatten ::
+         Either
+           RequestHeaders
+           (StreamElem NoMetadata (InboundEnvelope, Input rpc))
+      -> StreamElem NoMetadata (InboundEnvelope, Input rpc)
+    flatten (Left _trailersOnly) =
+        NoMoreElems NoMetadata
+    flatten (Right streamElem) =
+        streamElem
+
+recvEither :: forall rpc.
+     HasCallStack
+  => Call rpc
+  -> IO (Maybe (InboundEnvelope, Input rpc))
+recvEither Call{callChannel} =
+    flatten <$> Session.recvEither callChannel
+  where
+    -- We use this only in 'recvNextInput', where we just care that we receive
+    -- a message.
+    flatten ::
+         Either
+           RequestHeaders
+           (Either NoMetadata (InboundEnvelope, Input rpc))
+      -> Maybe (InboundEnvelope, Input rpc)
+    flatten (Left _trailersOnly) =
+        Nothing
+    flatten (Right (Left NoMetadata)) =
+        Nothing
+    flatten (Right (Right msg)) =
+        Just msg
 
 {-------------------------------------------------------------------------------
   Exceptions

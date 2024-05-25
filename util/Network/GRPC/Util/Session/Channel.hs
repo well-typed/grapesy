@@ -13,7 +13,9 @@ module Network.GRPC.Util.Session.Channel (
     -- * Working with an open channel
   , getInboundHeaders
   , send
-  , recv
+  , recvBoth
+  , recvEither
+  , RecvFinal(..)
   , RecvAfterFinal(..)
   , SendAfterFinal(..)
     -- * Closing
@@ -100,8 +102,18 @@ data Channel sess = Channel {
       -- This is used to improve the user experience; see 'channelSentFinal'.
       -- It is also used when checking if a call should be considered
       -- \"cancelled\"; see 'withRPC'.
-    , channelRecvFinal :: TVar (Maybe CallStack)
+    , channelRecvFinal :: TVar (RecvFinal (Inbound sess))
     }
+
+data RecvFinal flow =
+    -- | We have not yet delivered the final message to the clinet
+    RecvNotFinal
+
+    -- | We delivered the final message, but not yet the trailers
+  | RecvWithoutTrailers (Trailers flow)
+
+    -- | We delivered the final message and the trailers
+  | RecvFinal CallStack
 
 -- | Data flow state
 data FlowState flow =
@@ -182,7 +194,7 @@ initChannel = do
     channelInbound   <- newThreadState
     channelOutbound  <- newThreadState
     channelSentFinal <- newTVarIO Nothing
-    channelRecvFinal <- newTVarIO Nothing
+    channelRecvFinal <- newTVarIO RecvNotFinal
     return Channel{
         channelInbound
       , channelOutbound
@@ -256,24 +268,70 @@ send Channel{channelOutbound, channelSentFinal} msg =
 
 -- | Receive a message from the node's peer
 --
--- It is a bug to call 'recv' again after receiving the final message; Doing so
--- will result in a 'RecvAfterFinal' exception.
-recv :: forall sess.
+-- If the sender indicates that the message is final /when/ they send it, by
+-- sending the HTTP trailers in the same frame, then we will return the message
+-- and the trailers together. It is a bug to call 'recvBoth' again after this;
+-- doing so will result in a 'RecvAfterFinal' exception.
+--
+-- TODO: <https://github.com/well-typed/grapesy/issues/114>
+-- Although we provide this API, even /if/ the sender marks the message as
+-- final when they send it, we currently cannot propagate this.
+recvBoth :: forall sess.
      HasCallStack
   => Channel sess
   -> IO ( Either
             (NoMessages (Inbound sess))
             (StreamElem (Trailers (Inbound sess)) (Message (Inbound sess)))
         )
-recv Channel{channelInbound, channelRecvFinal} =
+recvBoth =
+    recv'
+      StreamElem
+      NoMoreElems
+      ((,Nothing) . uncurry FinalElem)
+
+-- | Variant on 'recvBoth' where trailers are always returned separately
+--
+-- Unlike in 'recvBoth', even if the sender indicates that the final message is
+-- final when they send it, we will store these trailers internally and return
+-- only that final message. The trailers are then returned on the /next/ call to
+-- 'recvEither'. Call 'recvEither' again /after/ receiving the trailers is a
+-- bug; doing so will result in a 'RecvAfterFinal' exception.
+recvEither ::
+     HasCallStack
+  => Channel sess
+  -> IO ( Either
+            (NoMessages (Inbound sess))
+            (Either (Trailers (Inbound sess)) (Message (Inbound sess)))
+        )
+recvEither =
+    recv'
+      Right
+      Left
+      (bimap Right Just)
+
+-- | Internal generalization of 'recvBoth' and 'recvEither'
+recv' :: forall sess b.
+     HasCallStack
+  => (Message    (Inbound sess) -> b)  -- ^ Message without trailers
+  -> (Trailers   (Inbound sess) -> b)  -- ^ Trailers without (final) message
+  -> (    (Message (Inbound sess), Trailers (Inbound sess))
+       -> (b, Maybe (Trailers (Inbound sess)))
+     )
+     -- ^ Message with trailers
+     --
+     -- In addition to the result, should also return the trailers to keep for
+     -- the next call to 'recv'' (if any).
+  -> Channel sess
+  -> IO (Either (NoMessages (Inbound sess)) b)
+recv' messageWithoutTrailers
+      trailersWithoutMessage
+      messageWithTrailers
+      Channel{channelInbound, channelRecvFinal} =
     withThreadInterface channelInbound aux
   where
     aux ::
          FlowState (Inbound sess)
-      -> STM ( Either
-                 (NoMessages (Inbound sess))
-                 (StreamElem (Trailers (Inbound sess)) (Message (Inbound sess)))
-             )
+      -> STM (Either (NoMessages (Inbound sess)) b)
     aux st = do
         -- By checking that we haven't received the final message yet, we know
         -- that this call to 'takeTMVar' will not block indefinitely: the thread
@@ -282,25 +340,31 @@ recv Channel{channelInbound, channelRecvFinal} =
         -- call to 'getThreadInterface' will be retried).
         readFinal <- readTVar channelRecvFinal
         case readFinal of
-          Just cs -> throwSTM $ RecvAfterFinal cs
-          Nothing -> do
-            -- We get the TMVar in the same transaction as reading from it
-            -- (below). This means that /if/ the thread running
-            -- 'recvMessageLoop' throws an exception and is killed, the
-            -- 'takeTMVar' below cannot block indefinitely (because the
-            -- transaction will be retried).
-            return ()
-        case st of
-          FlowStateRegular regular -> do
-            msg <- takeTMVar (flowMsg regular)
-            -- We update 'channelRecvFinal' in the same tx as the read, to
-            -- atomically change from "there is a value" to "all values read".
-            StreamElem.whenDefinitelyFinal msg $ \_trailers ->
-              writeTVar channelRecvFinal $ Just callStack
-            return $ Right msg
-          FlowStateNoMessages trailers -> do
-            writeTVar channelRecvFinal $ Just callStack
-            return $ Left trailers
+          RecvNotFinal ->
+            case st of
+              FlowStateRegular regular -> Right <$> do
+                streamElem <- takeTMVar (flowMsg regular)
+                -- We update 'channelRecvFinal' in the same tx as the read, to
+                -- atomically change "there is a value" to "all values read".
+                case streamElem of
+                  StreamElem msg ->
+                    return $ messageWithoutTrailers msg
+                  FinalElem msg trailers -> do
+                    let (b, mTrailers) = messageWithTrailers (msg, trailers)
+                    writeTVar channelRecvFinal $
+                      maybe (RecvFinal callStack) RecvWithoutTrailers mTrailers
+                    return $ b
+                  NoMoreElems trailers -> do
+                    writeTVar channelRecvFinal $ RecvFinal callStack
+                    return $ trailersWithoutMessage trailers
+              FlowStateNoMessages trailers -> do
+                writeTVar channelRecvFinal $ RecvFinal callStack
+                return $ Left trailers
+          RecvWithoutTrailers trailers -> do
+            writeTVar channelRecvFinal $ RecvFinal callStack
+            return $ Right $ trailersWithoutMessage trailers
+          RecvFinal cs ->
+            throwSTM $ RecvAfterFinal cs
 
 -- | Thrown by 'send'
 --

@@ -1,3 +1,5 @@
+{-# OPTIONS_GHC -Wno-orphans #-}
+
 module Test.Sanity.EndOfStream (tests) where
 
 import Control.Exception
