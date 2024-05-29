@@ -232,10 +232,11 @@ test_calculator_cbor = do
     biDiStreamingSumHandler = Server.streamingRpcHandler $
         Server.mkBiDiStreaming $ \recv send ->
           let
+            go :: Int -> IO ()
             go acc =
               recv >>= \case
                 NoMoreElems _ -> return ()
-                FinalElem n _ -> send (acc + n) >> go (acc + n)
+                FinalElem n _ -> send (acc + n)
                 StreamElem n  -> send (acc + n) >> go (acc + n)
           in
             go 0

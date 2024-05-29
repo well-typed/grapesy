@@ -33,14 +33,16 @@ import Network.GRPC.Util.HTTP2 (fromHeaderTable)
 
 data OutputStream = OutputStream {
       -- | Write a chunk to the stream
-      _writeChunk :: HasCallStack => Builder -> IO ()
+      --
+      -- The 'Bool' argument indicates if this is the final chunk.
+      _writeChunk :: HasCallStack => Bool -> Builder -> IO ()
 
       -- | Flush the stream (send frames to the peer)
     , _flush :: HasCallStack => IO ()
     }
 
 data InputStream = InputStream {
-      _getChunk    :: HasCallStack => IO Strict.ByteString
+      _getChunk    :: HasCallStack => IO (Strict.ByteString, Bool)
     , _getTrailers :: HasCallStack => IO [HTTP.Header]
     }
 
@@ -48,13 +50,13 @@ data InputStream = InputStream {
   Wrappers to get the proper CallStack
 -------------------------------------------------------------------------------}
 
-writeChunk :: HasCallStack => OutputStream -> Builder -> IO ()
+writeChunk :: HasCallStack => OutputStream -> Bool -> Builder -> IO ()
 writeChunk = _writeChunk
 
 flush :: HasCallStack => OutputStream -> IO ()
 flush = _flush
 
-getChunk :: HasCallStack => InputStream -> IO Strict.ByteString
+getChunk :: HasCallStack => InputStream -> IO (Strict.ByteString, Bool)
 getChunk = _getChunk
 
 getTrailers :: HasCallStack => InputStream -> IO [HTTP.Header]
@@ -67,11 +69,12 @@ getTrailers = _getTrailers
 serverInputStream :: Server.Request -> IO InputStream
 serverInputStream req = do
     return InputStream {
-        _getChunk    = wrapStreamExceptionsWith ClientDisconnected $
-                         Server.getRequestBodyChunk req
-      , _getTrailers = wrapStreamExceptionsWith ClientDisconnected $
-                         maybe [] fromHeaderTable <$>
-                           Server.getRequestTrailers req
+        _getChunk =
+           wrapStreamExceptionsWith ClientDisconnected $
+             Server.getRequestBodyChunk' req
+      , _getTrailers =
+           wrapStreamExceptionsWith ClientDisconnected $
+             maybe [] fromHeaderTable <$> Server.getRequestTrailers req
       }
 
 -- | Create output stream
@@ -115,10 +118,12 @@ serverOutputStream writeChunk' flush' = do
     --   case (see discussion above).
 
     let outputStream = OutputStream {
-            _writeChunk = \c -> wrapStreamExceptionsWith ClientDisconnected $
-                            writeChunk' c
-          , _flush      = wrapStreamExceptionsWith ClientDisconnected $
-                            flush'
+            _writeChunk = \_isFinal c ->
+               wrapStreamExceptionsWith ClientDisconnected $
+                 writeChunk' c
+          , _flush =
+               wrapStreamExceptionsWith ClientDisconnected $
+                 flush'
           }
 
     flush outputStream
@@ -131,31 +136,24 @@ serverOutputStream writeChunk' flush' = do
 clientInputStream :: Client.Response -> IO InputStream
 clientInputStream resp = do
     return InputStream {
-        _getChunk    = wrapStreamExceptionsWith ServerDisconnected $
-                         Client.getResponseBodyChunk resp
-      , _getTrailers = wrapStreamExceptionsWith ServerDisconnected $
-                         maybe [] fromHeaderTable <$>
-                           Client.getResponseTrailers resp
+        _getChunk =
+           wrapStreamExceptionsWith ServerDisconnected $
+             Client.getResponseBodyChunk' resp
+      , _getTrailers =
+           wrapStreamExceptionsWith ServerDisconnected $
+             maybe [] fromHeaderTable <$> Client.getResponseTrailers resp
       }
 
-clientOutputStream :: (Builder -> IO ()) -> IO () -> IO OutputStream
-clientOutputStream writeChunk' flush' = do
-    -- The http2 client implementation has an explicit check that means the
-    -- request is not initiated until /something/ has been written
-    -- <https://github.com/kazu-yamamoto/http2/commit/a76cdf3>; to workaround
-    -- this limitation we write an empty chunk. This results in an empty data
-    -- frame in the stream, but this does not matter: gRPC does not support
-    -- request headers, which means that, unlike in the server, we do not need
-    -- to give the empty case special treatment.
-    let outputStream = OutputStream {
-            _writeChunk = \c -> wrapStreamExceptionsWith ServerDisconnected $
-                            writeChunk' c
-          , _flush      = wrapStreamExceptionsWith ServerDisconnected $
-                            flush'
-          }
-
-    writeChunk outputStream mempty
-    return outputStream
+clientOutputStream :: (Bool -> Builder -> IO ()) -> IO () -> IO OutputStream
+clientOutputStream writeChunk' flush' =
+    return OutputStream {
+        _writeChunk = \isFinal c ->
+           wrapStreamExceptionsWith ServerDisconnected $
+             writeChunk' isFinal c
+      , _flush =
+           wrapStreamExceptionsWith ServerDisconnected $
+             flush'
+      }
 
 {-------------------------------------------------------------------------------
   Exceptions

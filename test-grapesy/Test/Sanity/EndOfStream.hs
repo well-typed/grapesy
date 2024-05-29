@@ -29,7 +29,8 @@ tests = testGroup "Test.Sanity.EndOfStream" [
         , testCase "recvTrailers"   test_recvTrailers
         ]
     , testGroup "server" [
-          testCase "recvEndOfInput" test_recvEndOfInput
+          testCase "recvInput"      test_recvInput
+        , testCase "recvEndOfInput" test_recvEndOfInput
         ]
     ]
 
@@ -154,6 +155,37 @@ serverStreamingHandler = Server.streamingRpcHandler $
 {-------------------------------------------------------------------------------
   Server tests
 -------------------------------------------------------------------------------}
+
+-- | Test that the final element is marked as 'FinalElem'
+--
+-- Verifies that <https://github.com/well-typed/grapesy/issues/114> is solved.
+--
+-- NOTE: There is no client equivalent for this test. On the client side, the
+-- server will send trailers, and so /cannot/ make the final data frame as
+-- end-of-stream.
+test_recvInput :: Assertion
+test_recvInput = testClientServer $ ClientServerTest {
+      config = def
+    , server = [Server.someRpcHandler handler]
+    , client = simpleTestClient $ \conn ->
+        Client.withRPC conn def (Proxy @Trivial) $ \call -> do
+          Client.sendFinalInput call BS.Lazy.empty
+          _resp <- Client.recvFinalOutput call
+          return ()
+    }
+  where
+    handler :: Server.RpcHandler IO Trivial
+    handler = Server.mkRpcHandler $ \call -> do
+        x <- Server.recvInput call
+
+        -- The purpose of this test:
+        case x of
+          FinalElem{} ->
+            return ()
+          _otherwise ->
+            assertFailure "Expected FinalElem"
+
+        Server.sendFinalOutput call (mempty, NoMetadata)
 
 -- | Test that 'recvEndOfInput' does /not/ throw an exception, even if the
 -- previous 'recvNextInput' /happened/ to give us the final input.

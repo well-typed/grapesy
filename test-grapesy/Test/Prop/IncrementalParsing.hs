@@ -1,7 +1,8 @@
 module Test.Prop.IncrementalParsing (tests) where
 
-import Control.Monad.Except
-import Control.Monad.State
+import Control.Monad
+import Control.Monad.Except (MonadError, Except, runExcept, throwError)
+import Control.Monad.State (MonadState, StateT, runStateT, state)
 import Data.ByteString qualified as BS.Strict
 import Data.ByteString qualified as Strict (ByteString)
 import Data.ByteString.Lazy qualified as BS.Lazy
@@ -24,10 +25,10 @@ tests = testGroup "Test.Prop.IncrementalParsing" [
       testProperty "parser" test_parser
     ]
 
-test_parser :: Input -> [ChunkSize] -> PhraseSize -> Property
-test_parser input splits phraseSize =
+test_parser :: MarkLast -> Input -> [ChunkSize] -> PhraseSize -> Property
+test_parser markLast input splits phraseSize =
       counterexample ("chunks: " ++ show chunks)
-    $ case processAll chunks processPhrase (parsePhrase phraseSize) of
+    $ case processAll markLast chunks phraseSize of
         Left err ->
           counterexample ("Unexpected failure " ++ show err) $ False
         Right unconsumed ->
@@ -64,20 +65,24 @@ runPure chunks =
     . flip runStateT chunks
     . unwrapPure
 
-getChunk :: Pure Strict.ByteString
-getChunk =
+getChunk :: MarkLast -> Pure (Strict.ByteString, Bool)
+getChunk (MarkLast markLast) =
     state $ \case
-      []   -> (BS.Strict.empty, [])
-      c:cs -> (c, cs)
+      []   -> ((BS.Strict.empty, True), [])
+      [c]  -> ((c, markLast), [])
+      c:cs -> ((c, False), cs)
 
 processAll ::
-     [Strict.ByteString]
-  -> (a -> Pure ())
-  -> Parser String a
+     MarkLast
+  -> [Strict.ByteString]
+  -> PhraseSize
   -> Either String Lazy.ByteString
-processAll chunks processOne p =
+processAll markLast chunks phraseSize =
     runPure chunks aux >>= verifyAllChunksConsumed
   where
+    p :: Parser String [Word8]
+    p = parsePhrase phraseSize
+
     -- 'processAll' does not assume that the monad @m@ in which it is executed
     -- has any way of reporting errors: if there is a parse failure during
     -- execution, this failure is returned as a value. For the specific case of
@@ -85,8 +90,8 @@ processAll chunks processOne p =
     -- throw errors), so we can reuse that also for any parse failures.
     aux :: Pure Lazy.ByteString
     aux =
-            Parser.processAll getChunk processOne p
-        >>= either throwError return
+            Parser.processAll (getChunk markLast) processPhrase processPhrase p
+        >>= throwParseErrors
 
     -- 'processAll' should run until all chunks are used
     verifyAllChunksConsumed ::
@@ -98,6 +103,28 @@ processAll chunks processOne p =
 
       | otherwise
       = Left "not all chunks consumed"
+
+    throwParseErrors :: Parser.ProcessResult String () -> Pure Lazy.ByteString
+    throwParseErrors (Parser.ProcessError err) =
+        throwError err
+    throwParseErrors (Parser.ProcessedWithFinal () bs) = do
+        unless canMarkFinal $ throwError "Unexpected ProcessedWithFinal"
+        return bs
+    throwParseErrors (Parser.ProcessedWithoutFinal bs) = do
+        when canMarkFinal $ throwError "Unexpected ProcessedWithoutFinal"
+        return bs
+
+    -- We can mark the final phrase as final if the final chunk is marked as
+    -- final, and when we get that chunk, it contains at least one phrase.
+    canMarkFinal :: Bool
+    canMarkFinal = and [
+          getMarkLast markLast
+        , case reverse chunks of
+            []   -> False
+            c:cs -> let left = sum (map BS.Strict.length cs)
+                         `mod` getPhraseSize phraseSize
+                    in (left + BS.Strict.length c) >= getPhraseSize phraseSize
+        ]
 
 {-------------------------------------------------------------------------------
   Test input
@@ -111,6 +138,8 @@ processAll chunks processOne p =
     ```
 
   * We split this input into non-empty chunks of varying sizes @[ChunkSize]@.
+    We sometimes mark the last chunk as being the last, and sometimes don't
+    (see <https://github.com/well-typed/grapesy/issues/114>).
 
   * We then choose a non-zero 'PhraseSize' @n@. The idea is that the parser
     splits the input into phrases of @n@ bytes
@@ -134,6 +163,7 @@ processAll chunks processOne p =
     (in 'processAll') that all input chunks are fed to the parser.
 -------------------------------------------------------------------------------}
 
+newtype MarkLast   = MarkLast   { getMarkLast   :: Bool    } deriving (Show)
 newtype Input      = Input      { getInputBytes :: [Word8] } deriving (Show)
 newtype ChunkSize  = ChunkSize  { getChunkSize  :: Int     } deriving (Show)
 newtype PhraseSize = PhraseSize { getPhraseSize :: Int     } deriving (Show)
@@ -179,6 +209,8 @@ processPhrase phrase =
   Arbitrary instances
 -------------------------------------------------------------------------------}
 
+deriving newtype instance Arbitrary MarkLast
+
 instance Arbitrary Input where
   arbitrary = sized $ \n -> do
                 len <- choose (0, n * 100)
@@ -187,3 +219,4 @@ instance Arbitrary Input where
 
 deriving via Positive Int instance Arbitrary ChunkSize
 deriving via Positive Int instance Arbitrary PhraseSize
+
