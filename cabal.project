@@ -4,3 +4,14 @@ package grapesy
   tests: True
   benchmarks: True
   flags: +build-demo +build-stress-test +snappy
+
+--
+-- ghc 9.10
+--
+
+allow-newer: cborg:base
+allow-newer: http2:containers
+allow-newer: pipes-safe:base
+allow-newer: proto-lens-runtime:base
+allow-newer: proto-lens:base
+allow-newer: serialise:base
