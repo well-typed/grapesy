@@ -84,8 +84,8 @@ data SecureConfig = SecureConfig {
       -- must match the certificate.
       --
       -- This doesn't need to match the common name (CN) in the TLS certificate.
-      -- For example, if the client connects to @localhost@, and the certificate
-      -- CN is also @localhost@, the server can still bind to @0.0.0.0@.
+      -- For example, if the client connects to @127.0.0.1@, and the certificate
+      -- CN is also @127.0.0.1@, the server can still bind to @0.0.0.0@.
       secureHost :: HostName
 
       -- | Port number

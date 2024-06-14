@@ -130,7 +130,7 @@ setupFailure respond failure = do
 --
 -- Testing out-of-spec errors can be bit awkward. One option is @curl@:
 --
--- > curl --verbose --http2 --http2-prior-knowledge http://localhost:50051/
+-- > curl --verbose --http2 --http2-prior-knowledge http://127.0.0.1:50051/
 failureResponse :: CallSetupFailure -> HTTP2.Response
 failureResponse (CallSetupInvalidResourceHeaders (InvalidMethod method)) =
     HTTP2.responseBuilder

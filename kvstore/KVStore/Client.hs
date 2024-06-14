@@ -118,7 +118,7 @@ client statsVar = do
 
     server :: Server
     server = ServerInsecure $ Address {
-         addressHost      = "localhost"
+         addressHost      = "127.0.0.1"
        , addressPort      = defaultInsecurePort
        , addressAuthority = Nothing
        }
