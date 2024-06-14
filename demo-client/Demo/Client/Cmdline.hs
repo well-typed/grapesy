@@ -114,7 +114,7 @@ parseServer defaultPub =
       <$> (Opt.option Opt.str $ mconcat [
               Opt.long "host"
             , Opt.showDefault
-            , Opt.value "localhost"
+            , Opt.value "127.0.0.1"
             ])
       <*> (Opt.optional $ Opt.option Opt.auto $ mconcat [
               Opt.long "port"

@@ -156,7 +156,7 @@ data TlsFail =
     -- self signed.
     TlsFailValidation
 
-    -- | Client uses the wrong address (127.0.0.1 instead of localhost)
+    -- | Client uses the wrong address (@localhost@ instead of @127.0.0.1@)
     --
     -- This too will result in a TLS failure (hostname mismatch). To ensure we
     -- get the TLS failure we expect, we /do/ add the server's certificate to
@@ -464,7 +464,7 @@ withTestServer cfg firstTestFailure handlerLock serverHandlers k = do
               Just _tlsSetup -> Server.ServerConfig {
                   serverInsecure = Nothing
                 , serverSecure   = Just $ Server.SecureConfig {
-                      secureHost       = "localhost"
+                      secureHost       = "127.0.0.1"
                     , securePort       = serverPort cfg
                     , securePubCert    = pubCert
                     , secureChainCerts = []
@@ -579,14 +579,14 @@ runTestClient cfg firstTestFailure port clientRun = do
             case useTLS cfg of
               Just tlsSetup -> Client.Address {
                   addressHost      = case tlsSetup of
-                                       TlsFail TlsFailHostname -> "127.0.0.1"
-                                       _otherwise              -> "localhost"
+                                       TlsFail TlsFailHostname -> "localhost"
+                                       _otherwise              -> "127.0.0.1"
                 , addressPort      = port
                 , addressAuthority = Nothing
                 }
 
               Nothing -> Client.Address {
-                  addressHost      = "localhost"
+                  addressHost      = "127.0.0.1"
                 , addressPort      = port
                 , addressAuthority = Nothing
                 }
