@@ -10,11 +10,12 @@ module Network.GRPC.Util.Parser (
   , consumeExactly
   , getExactly
     -- * Execution
+  , IsFinal
+  , Leftover
+  , ProcessResult(..)
   , processAll
-  , processAllIO
   ) where
 
-import Control.Exception
 import Control.Monad
 import Data.Bifunctor
 import Data.Binary (Get)
@@ -158,33 +159,74 @@ getExactly len get =
   Execution
 -------------------------------------------------------------------------------}
 
+type IsFinal  = Bool
+type Leftover = Lazy.ByteString
+
+data ProcessResult e b =
+    -- | Parse error during processing
+    ProcessError e
+
+    -- | Parsing succeeded (compare to 'ProcessedWithoutFinal')
+  | ProcessedWithFinal b Leftover
+
+    -- | Parsing succeeded, but we did not recognize the final message on time
+    --
+    -- There are two ways that parsing can terminate: the final few chunks may
+    -- look like this:
+    --
+    -- > chunk1       -- not marked final
+    -- > chunk2       -- not marked final
+    -- > chunk3       -- marked final
+    --
+    -- or like this:
+    --
+    -- > chunk1       -- not marked final
+    -- > chunk2       -- not marked final
+    -- > chunk3       -- not marked final
+    -- > empty chunk  -- marked final
+    --
+    -- In the former case, we know that we are processing the final message /as/
+    -- we are processing it ('ProcessedFinal'); in the latter case, we realize
+    -- this only after we receive the final empty chunk.
+  | ProcessedWithoutFinal Leftover
+
 -- | Process all incoming data
 --
 -- Returns any unprocessed data.
-processAll :: forall m e a.
+-- Also returns if we knew that the final result
+-- was in fact the final result when we received it (this may or may not be the
+-- case, depending on
+processAll :: forall m e a b.
      Monad m
-  => m Strict.ByteString  -- ^ Get next chunk (empty indicates end of input)
-  -> (a -> m ())          -- ^ Process single value
-  -> Parser e a           -- ^ Parser
-  -> m (Either e Lazy.ByteString)
-processAll getChunk processOne parser =
+  => m (Strict.ByteString, IsFinal)  -- ^ Get next chunk
+  -> (a -> m ())                     -- ^ Process value
+  -> (a -> m b)                      -- ^ Process final value
+  -> Parser e a                      -- ^ Parser
+  -> m (ProcessResult e b)
+processAll getChunk processOne processFinal parser =
     go $ runParser parser nil
   where
-    go :: Result e a -> m (Either e Lazy.ByteString)
-    go (Failed err)      = return $ Left err
-    go (Done result bs') = processOne result >> go (runParser parser bs')
-    go (NeedData parser' acc) = do
-        bs <- getChunk
-        if not (BS.Strict.null bs)
-          then go $ runParser parser' (snoc acc bs)
-          else return $ Right (toLazy acc)
+    go :: Result e a -> m (ProcessResult e b)
+    go (Failed err)            = return $ ProcessError err
+    go (Done a left)           = processOne a >> go (runParser parser left)
+    go (NeedData parser' left) = do
+        (bs, isFinal) <- getChunk
+        if not isFinal
+          then go         $ runParser parser' (left `snoc` bs)
+          else goFinal [] $ runParser parser' (left `snoc` bs)
 
--- | Wrapper around 'processAll' that throws errors as exceptions
-processAllIO :: forall e a.
-     Exception e
-  => IO Strict.ByteString
-  -> (a -> IO ())
-  -> Parser e a
-  -> IO Lazy.ByteString
-processAllIO getChunk processOne parser =
-    processAll getChunk processOne parser >>= either throwIO return
+    -- We have received the final chunk; extract all messages until we are done
+    goFinal :: [a] -> Result e a -> m (ProcessResult e b)
+    goFinal _   (Failed err)      = return $ ProcessError err
+    goFinal acc (Done a left)     = goFinal (a:acc) $ runParser parser left
+    goFinal acc (NeedData _ left) = do
+        mb <- processLastFew (reverse acc)
+        return $ case mb of
+                   Just b  -> ProcessedWithFinal b  $ toLazy left
+                   Nothing -> ProcessedWithoutFinal $ toLazy left
+
+    processLastFew :: [a] -> m (Maybe b)
+    processLastFew []     = return Nothing
+    processLastFew [a]    = Just <$> processFinal a
+    processLastFew (a:as) = processOne a >> processLastFew as
+

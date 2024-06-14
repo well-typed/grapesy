@@ -206,7 +206,12 @@ clientLocal clock call = \(LocalSteps steps) ->
             expect (tick, action) (== ResponseInitialMetadata expectedMetadata) $
               receivedMetadata
           Send (FinalElem a b) -> do
-            -- <https://github.com/well-typed/grapesy/issues/114>
+            -- On the client side, when the server sends the final message, we
+            -- will receive that final message in one HTTP data frame, and then
+            -- the trailers in another. This means that when we get the message,
+            -- we do not yet know if this is in fact the last.
+            -- (This is different on the server side, because gRPC does not
+            -- support trailers on the client side.)
             reactToServer tick $ Send (StreamElem a)
             reactToServer tick $ Send (NoMoreElems b)
           Send expectedElem -> do
@@ -401,10 +406,6 @@ serverLocal clock call = \(LocalSteps steps) -> do
         case action of
           Initiate _ ->
             error "serverLocal: unexpected ClientInitiateRequest"
-          Send (FinalElem a b) -> do
-            -- <https://github.com/well-typed/grapesy/issues/114>
-            reactToClient tick $ Send (StreamElem a)
-            reactToClient tick $ Send (NoMoreElems b)
           Send expectedElem -> do
             mInp <- liftIO $ try $ within timeoutReceive action $
                       Server.Binary.recvInput call

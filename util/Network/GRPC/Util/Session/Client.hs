@@ -109,7 +109,7 @@ setupRequestChannel sess
       FlowStartRegular headers -> do
         regular <- initFlowStateRegular headers
         let req :: Client.Request
-            req = Client.requestStreamingUnmask
+            req = Client.requestStreamingIface
                     (requestMethod  requestInfo)
                     (requestPath    requestInfo)
                     (requestHeaders requestInfo)
@@ -179,18 +179,20 @@ setupRequestChannel sess
     outboundThread ::
          Channel sess
       -> RegularFlowState (Outbound sess)
-      -> (forall x. IO x -> IO x)
-      -> (Builder -> IO ())
+      -> Client.OutBodyIface
       -> IO ()
-      -> IO ()
-    outboundThread channel regular unmask write' flush' =
-       threadBody "grapesy:clientOutbound" (channelOutbound channel) $ \markReady _debugId -> do
-         markReady $ FlowStateRegular regular
-         -- Initialize the output stream to initiate the request.
-         -- It is important that we don't unmask exceptions prior to this point!
-         -- See 'clientOutputStream' for details.
-         stream <- clientOutputStream write' flush'
-         unmask $ sendMessageLoop sess regular stream
+    outboundThread channel regular iface =
+        threadBody "grapesy:clientOutbound" (channelOutbound channel) $ \markReady _debugId -> do
+          markReady $ FlowStateRegular regular
+          stream <- clientOutputStream write' flush'
+          Client.outBodyUnmask iface $ sendMessageLoop sess regular stream
+     where
+       write' :: Bool -> Builder -> IO ()
+       write' False = Client.outBodyPush      iface
+       write' True  = Client.outBodyPushFinal iface
+
+       flush' :: IO ()
+       flush' = Client.outBodyFlush iface
 
 {-------------------------------------------------------------------------------
    Auxiliary http2

@@ -272,10 +272,6 @@ send Channel{channelOutbound, channelSentFinal} msg =
 -- sending the HTTP trailers in the same frame, then we will return the message
 -- and the trailers together. It is a bug to call 'recvBoth' again after this;
 -- doing so will result in a 'RecvAfterFinal' exception.
---
--- TODO: <https://github.com/well-typed/grapesy/issues/114>
--- Although we provide this API, even /if/ the sender marks the message as
--- final when they send it, we currently cannot propagate this.
 recvBoth :: forall sess.
      HasCallStack
   => Channel sess
@@ -551,22 +547,16 @@ sendMessageLoop sess st stream = do
 
         case msg of
           StreamElem x -> do
-            writeChunk stream $ build x
+            writeChunk stream False $ build x
             flush stream
             loop
           FinalElem x trailers -> do
-            -- We don't flush the last message, so that http2 can mark the
-            -- stream as END_STREAM (rather than having to send a separate
-            -- empty data frame).
-            writeChunk stream $ build x
+            writeChunk stream True $ build x
             return trailers
           NoMoreElems trailers -> do
             return trailers
 
 -- | Receive all messages sent by the node's peer
---
--- TODO: <https://github.com/well-typed/grapesy/issues/114>.
--- We are never marking the final element as final.
 recvMessageLoop :: forall sess.
      IsSession sess
   => sess
@@ -578,17 +568,44 @@ recvMessageLoop sess st stream =
   where
     go :: Parser String (Message (Inbound sess)) -> IO (Trailers (Inbound sess))
     go parser = do
-        leftover <- Parser.processAllIO
+        mProcessedFinal <- throwParseErrors =<< Parser.processAll
           (getChunk stream)
-          (atomically . putTMVar (flowMsg st) . StreamElem)
-          (first PeerSentMalformedMessage parser)
-        unless (BS.Lazy.null leftover) $
-          throwIO PeerSentIncompleteMessage
+          processOne
+          processFinal
+          parser
+        case mProcessedFinal of
+          Just trailers ->
+            return trailers
+          Nothing -> do
+            trailers <- processTrailers
+            atomically $ putTMVar (flowMsg st) $ NoMoreElems trailers
+            return trailers
 
-        trailers <- parseInboundTrailers sess =<<  getTrailers stream
-        atomically $ putTMVar (flowTerminated st) $ trailers
-        atomically $ putTMVar (flowMsg        st) $ NoMoreElems trailers
+    processOne :: Message (Inbound sess) -> IO ()
+    processOne msg = do
+        atomically $ putTMVar (flowMsg st) $ StreamElem msg
+
+    processFinal :: Message (Inbound sess) -> IO (Trailers (Inbound sess))
+    processFinal msg = do
+        trailers <- processTrailers
+        atomically $ putTMVar (flowMsg st) $ FinalElem msg trailers
         return trailers
+
+    processTrailers :: IO (Trailers (Inbound sess))
+    processTrailers = do
+        trailers <- parseInboundTrailers sess =<< getTrailers stream
+        atomically $ putTMVar (flowTerminated st) $ trailers
+        return trailers
+
+    throwParseErrors :: Parser.ProcessResult String b -> IO (Maybe b)
+    throwParseErrors (Parser.ProcessError err) =
+        throwIO $ PeerSentMalformedMessage err
+    throwParseErrors (Parser.ProcessedWithFinal b leftover) = do
+        unless (BS.Lazy.null leftover) $ throwIO PeerSentIncompleteMessage
+        return $ Just b
+    throwParseErrors (Parser.ProcessedWithoutFinal leftover) = do
+        unless (BS.Lazy.null leftover) $ throwIO PeerSentIncompleteMessage
+        return $ Nothing
 
 outboundTrailersMaker :: forall sess.
      IsSession sess
