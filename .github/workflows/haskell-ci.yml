@@ -8,9 +8,9 @@
 #
 # For more information, see https://github.com/haskell-CI/haskell-ci
 #
-# version: 0.19.20240514
+# version: 0.19.20240608
 #
-# REGENDATA ("0.19.20240514",["github","cabal.project.ci"])
+# REGENDATA ("0.19.20240608",["github","cabal.project.ci"])
 #
 name: Haskell-CI
 on:
@@ -172,12 +172,9 @@ jobs:
           echo "package grapesy" >> cabal.project
           echo "    ghc-options: -Werror=missing-methods" >> cabal.project
           cat >> cabal.project <<EOF
-          allow-newer: cborg:base
-          allow-newer: http2:containers
           allow-newer: pipes-safe:base
-          allow-newer: proto-lens-runtime:base
           allow-newer: proto-lens:base
-          allow-newer: serialise:base
+          allow-newer: proto-lens-runtime:base
 
           package grapesy
             tests:       True
