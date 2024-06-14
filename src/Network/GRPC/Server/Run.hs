@@ -311,12 +311,18 @@ runSecure cfg socketTMVar server = do
                 disableTimeout
             }
 
-    HTTP2.TLS.run
-      settings
-      (TLS.Credentials [cred])
-      (secureHost cfg)
-      (securePort cfg)
-      server
+    let showExceptions :: SomeException -> IO a
+        showExceptions e = do
+            putStrLn $ "Exception in runSecure: " ++ show e
+            throwIO e
+
+    handle showExceptions $
+      HTTP2.TLS.run
+        settings
+        (TLS.Credentials [cred])
+        (secureHost cfg)
+        (securePort cfg)
+        server
 
 data CouldNotLoadCredentials =
     -- | Failed to load server credentials

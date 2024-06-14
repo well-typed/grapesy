@@ -8,14 +8,13 @@
 #
 # For more information, see https://github.com/haskell-CI/haskell-ci
 #
-# version: 0.19.20240514
+# version: 0.19.20240608
 #
-# REGENDATA ("0.19.20240514",["github","cabal.project.ci"])
+# REGENDATA ("0.19.20240608",["github","cabal.project.ci"])
 #
 name: Haskell-CI
 on:
   - push
-  - pull_request
 jobs:
   linux:
     name: Haskell-CI - Linux - ${{ matrix.compiler }}
@@ -28,34 +27,9 @@ jobs:
     strategy:
       matrix:
         include:
-          - compiler: ghc-9.10.1
-            compilerKind: ghc
-            compilerVersion: 9.10.1
-            setup-method: ghcup
-            allow-failure: false
           - compiler: ghc-9.8.2
             compilerKind: ghc
             compilerVersion: 9.8.2
-            setup-method: ghcup
-            allow-failure: false
-          - compiler: ghc-9.6.4
-            compilerKind: ghc
-            compilerVersion: 9.6.4
-            setup-method: ghcup
-            allow-failure: false
-          - compiler: ghc-9.4.8
-            compilerKind: ghc
-            compilerVersion: 9.4.8
-            setup-method: ghcup
-            allow-failure: false
-          - compiler: ghc-9.2.8
-            compilerKind: ghc
-            compilerVersion: 9.2.8
-            setup-method: ghcup
-            allow-failure: false
-          - compiler: ghc-8.10.7
-            compilerKind: ghc
-            compilerVersion: 8.10.7
             setup-method: ghcup
             allow-failure: false
       fail-fast: false
@@ -180,10 +154,9 @@ jobs:
           allow-newer: serialise:base
 
           package grapesy
-            tests:       True
-            benchmarks:  True
-            flags:       +build-demo +build-stress-test +snappy
-            ghc-options: -Werror
+            tests:      True
+            benchmarks: True
+            flags:      +build-demo +build-stress-test +snappy
           EOF
           $HCPKG list --simple-output --names-only | perl -ne 'for (split /\s+/) { print "constraints: any.$_ installed\n" unless /^(grapesy)$/; }' >> cabal.project.local
           cat cabal.project
@@ -208,20 +181,8 @@ jobs:
       - name: build
         run: |
           $CABAL v2-build $ARG_COMPILER $ARG_TESTS $ARG_BENCH all --write-ghc-environment-files=always
-      - name: tests
-        run: |
-          $CABAL v2-test $ARG_COMPILER $ARG_TESTS $ARG_BENCH all --test-show-details=direct
-      - name: cabal check
-        run: |
-          cd ${PKGDIR_grapesy} || false
-          ${CABAL} -vnormal check
-      - name: haddock
-        run: |
-          $CABAL v2-haddock --disable-documentation --haddock-all $ARG_COMPILER --with-haddock $HADDOCK $ARG_TESTS $ARG_BENCH all
-      - name: unconstrained build
-        run: |
-          rm -f cabal.project.local
-          $CABAL v2-build $ARG_COMPILER --disable-tests --disable-benchmarks all
+      - name: Setup tmate session
+        uses: mxschmitt/action-tmate@v3
       - name: save cache
         uses: actions/cache/save@v4
         if: always()
