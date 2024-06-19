@@ -568,6 +568,7 @@ benchmark grapesy-kvstore
       KVStore.Client
       KVStore.Cmdline
       KVStore.Server
+      KVStore.Util.Profiling
       KVStore.Util.RandomAccessSet
       KVStore.Util.RandomGen
       KVStore.Util.Store
@@ -583,6 +584,10 @@ benchmark grapesy-kvstore
     , proto-lens-runtime   >= 0.7  && < 0.8
     , splitmix             >= 0.1  && < 0.2
     , unordered-containers >= 0.2  && < 0.3
+
+  if flag(strace)
+    cpp-options: -DSTRACE
+    build-depends: unix >= 2.7 && < 2.9
 
 Flag build-demo
   description: Build the demo
@@ -603,3 +608,8 @@ Flag snappy
   description: Enable snappy compression capabilities
   default: True
   manual: False
+
+Flag strace
+  description: Write events to /dev/null so that they show up in strace
+  default: False
+  manual: True

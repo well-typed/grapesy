@@ -2,7 +2,7 @@ import: cabal.project
 
 package *
   ghc-options:
-    -package-db=/tmp/cabal-plugin-store-grapesy/ghc-9.6.4/package.db
+    -package-db=/tmp/cabal-plugin-store-grapesy/ghc-9.10.1/package.db
     -fplugin-trustworthy
     -plugin-package=trace-foreign-calls
     -fplugin=Plugin.TraceForeignCalls
@@ -11,3 +11,6 @@ store-dir: /tmp/cabal-plugin-store-grapesy
 
 -- https://github.com/kazu-yamamoto/crypton/pull/32
 constraints: crypton >= 1.0.0
+
+-- https://github.com/well-typed/trace-foreign-calls/issues/13
+constraints: bitvec <1.1.5.0

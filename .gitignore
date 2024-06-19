@@ -9,3 +9,5 @@ cabal.project.local
 *.prof
 perf.data
 perf.data.*
+strace.log
+strace.log.*

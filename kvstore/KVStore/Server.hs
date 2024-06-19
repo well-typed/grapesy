@@ -2,7 +2,6 @@ module KVStore.Server (withKeyValueServer) where
 
 import Control.Concurrent (threadDelay)
 import Control.Exception
-import Debug.Trace (traceEventIO)
 
 import Network.GRPC.Common
 import Network.GRPC.Common.Compression qualified as Compr
@@ -14,6 +13,7 @@ import Network.GRPC.Server.StreamType
 
 import KVStore.API
 import KVStore.Cmdline
+import KVStore.Util.Profiling
 import KVStore.Util.Store (Store)
 import KVStore.Util.Store qualified as Store
 
@@ -118,6 +118,6 @@ writeDelayMillis = 50
 
 markNonStreaming :: String -> (a -> IO b) -> (a -> IO b)
 markNonStreaming label handler a =
-    bracket_ (traceEventIO $ "handler start " ++ label)
-             (traceEventIO $ "handler stop  " ++ label)
+    bracket_ (markEvent $ "HANDLER start " ++ label)
+             (markEvent $ "HANDLER stop  " ++ label)
              (handler a)
