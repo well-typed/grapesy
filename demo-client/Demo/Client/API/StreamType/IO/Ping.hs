@@ -8,4 +8,6 @@ import Network.GRPC.Client.StreamType.IO
 import Demo.Common.API
 
 ping :: Connection -> Lazy.ByteString -> IO ()
-ping conn msg = Lazy.putStrLn =<< nonStreaming conn (rpc @Ping) msg
+ping conn msg = do
+    pong <- nonStreaming conn (rpc @Ping) msg
+    Lazy.putStrLn pong

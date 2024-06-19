@@ -3,9 +3,8 @@
 module Test.Sanity.StreamingType.CustomFormat (tests) where
 
 import Codec.Serialise qualified as Cbor
-import Control.Monad
+import Control.Concurrent.Async (concurrently)
 import Data.Bifunctor
-import Data.IORef
 import Data.Kind
 import Data.List
 import Data.Proxy
@@ -14,14 +13,14 @@ import Data.Typeable
 import Test.Tasty
 import Test.Tasty.HUnit
 
+import Network.GRPC.Client (rpc)
 import Network.GRPC.Client qualified as Client
-import Network.GRPC.Client.StreamType.IO (rpc)
 import Network.GRPC.Client.StreamType.IO qualified as Client
 import Network.GRPC.Common
-import Network.GRPC.Common.StreamElem qualified as StreamElem
-import Network.GRPC.Server qualified as Server
+import Network.GRPC.Common.NextElem qualified as NextElem
+import Network.GRPC.Common.StreamType
+import Network.GRPC.Server.StreamType (ServerHandler')
 import Network.GRPC.Server.StreamType qualified as Server
-import Network.GRPC.Spec
 
 import Test.Driver.ClientServer
 
@@ -133,10 +132,10 @@ test_calculator_cbor = do
           clientStreamingSumCheck conn
           biDiStreamingSumCheck conn
       , server = [
-            Server.someRpcHandler nonStreamingSumHandler
-          , Server.someRpcHandler serverStreamingSumHandler
-          , Server.someRpcHandler clientStreamingSumHandler
-          , Server.someRpcHandler biDiStreamingSumHandler
+            Server.fromMethod nonStreamingSumHandler
+          , Server.fromMethod serverStreamingSumHandler
+          , Server.fromMethod clientStreamingSumHandler
+          , Server.fromMethod biDiStreamingSumHandler
           ]
       }
   where
@@ -160,83 +159,56 @@ test_calculator_cbor = do
     -- that it's accurate
     nonStreamingSumCheck :: Client.Connection -> IO ()
     nonStreamingSumCheck conn = do
-      resp <- Client.nonStreaming conn (rpc @(Calc SumQuick)) nums
-      assertEqual "" (sum nums) resp
+        resp <- Client.nonStreaming conn (rpc @(Calc SumQuick)) nums
+        assertEqual "" (sum nums) resp
 
     -- Return the sum of a list of numbers
-    nonStreamingSumHandler :: Server.RpcHandler IO (Calc SumQuick)
-    nonStreamingSumHandler = Server.streamingRpcHandler $
-        Server.mkNonStreaming $ \(ns :: [Int]) ->
-          return (sum ns)
+    nonStreamingSumHandler :: ServerHandler' NonStreaming IO (Calc SumQuick)
+    nonStreamingSumHandler = Server.mkNonStreaming $ return . sum
 
     -- Ask for the sum of nums with the server streaming intermediate
     -- results. Save the intermediate results, then make sure they are accurate.
     serverStreamingSumCheck :: Client.Connection -> IO ()
     serverStreamingSumCheck conn = do
-      receivedSumFromTo <- newIORef @[Int] []
-      Client.serverStreaming conn (rpc @(Calc SumFromTo)) (start, end) $ \n -> do
-        atomicModifyIORef' receivedSumFromTo $ \ns -> (n:ns, ())
-      resp <- readIORef receivedSumFromTo
-      assertEqual "" intermediateSums (reverse resp)
+        resp <- Client.serverStreaming conn (rpc @(Calc SumFromTo)) (start, end) $ \recv ->
+                  NextElem.collect recv
+        assertEqual "" intermediateSums resp
 
     -- Stream the intermediate sums while summing a whole range of numbers
-    serverStreamingSumHandler :: Server.RpcHandler IO (Calc SumFromTo)
-    serverStreamingSumHandler = Server.streamingRpcHandler $
-        Server.mkServerStreaming $ \((from, to) :: (Int, Int)) send ->
-          foldM_
-            (\acc n -> let next = acc + n in send next >> return next)
-            0
-            [from .. to]
+    serverStreamingSumHandler :: ServerHandler' ServerStreaming IO (Calc SumFromTo)
+    serverStreamingSumHandler = Server.mkServerStreaming $ \(from, to) send ->
+        NextElem.mapM_ send $ drop 1 (scanl (+) 0 [from .. to])
 
     -- Stream a list of numbers to the server and expect the sum of the numbers
     -- back
     clientStreamingSumCheck :: Client.Connection -> IO ()
     clientStreamingSumCheck conn = do
-      sendingNums <- newIORef @[Int] nums
-      resp <- Client.clientStreaming conn (rpc @(Calc SumListen)) $ do
-        atomicModifyIORef' sendingNums $
-          \case
-            []     -> ([], NoMoreElems NoMetadata)
-            [x]    -> ([], FinalElem x NoMetadata)
-            (x:xs) -> (xs, StreamElem x)
-      assertEqual "" (sum nums) resp
+        resp <- Client.clientStreaming_ conn (rpc @(Calc SumListen)) $ \send ->
+                  NextElem.mapM_ send nums
+        assertEqual "" (sum nums) resp
 
     -- Receive a stream of numbers, return the sum
-    clientStreamingSumHandler :: Server.RpcHandler IO (Calc SumListen)
-    clientStreamingSumHandler = Server.streamingRpcHandler $
-        Server.mkClientStreaming $ \recv -> do
-          sum <$> StreamElem.collect recv
+    clientStreamingSumHandler :: ServerHandler' ClientStreaming IO (Calc SumListen)
+    clientStreamingSumHandler = Server.mkClientStreaming $ \recv ->
+        sum <$> NextElem.collect recv
 
     -- Stream numbers, get back intermediate sums, make sure the intermediate
     -- sums we get back are accurate
     biDiStreamingSumCheck :: Client.Connection -> IO ()
     biDiStreamingSumCheck conn = do
-      sendingNums <- newIORef @[Int] nums
-      recvingNums <- newIORef @[Int] []
-      Client.biDiStreaming conn (rpc @(Calc SumChat))
-        ( do
-            atomicModifyIORef' sendingNums $
-              \case
-                []     -> ([], NoMoreElems NoMetadata)
-                [x]    -> ([], FinalElem x NoMetadata)
-                (x:xs) -> (xs, StreamElem x)
-        )
-        ( \acc ->
-            atomicModifyIORef' recvingNums ((,()) . (acc:))
-        )
-      recvdNums <- readIORef recvingNums
-      assertEqual "" intermediateSums (reverse recvdNums)
+        ((), recvdNums) <- Client.biDiStreaming conn (rpc @(Calc SumChat)) $ \send recv ->
+          concurrently
+            (NextElem.mapM_ send nums)
+            (NextElem.collect recv)
+        assertEqual "" intermediateSums recvdNums
 
     -- Receive numbers and stream the intermediate sums back
-    biDiStreamingSumHandler :: Server.RpcHandler IO (Calc SumChat)
-    biDiStreamingSumHandler = Server.streamingRpcHandler $
-        Server.mkBiDiStreaming $ \recv send ->
-          let
-            go :: Int -> IO ()
-            go acc =
-              recv >>= \case
-                NoMoreElems _ -> return ()
-                FinalElem n _ -> send (acc + n)
-                StreamElem n  -> send (acc + n) >> go (acc + n)
-          in
-            go 0
+    biDiStreamingSumHandler :: ServerHandler' BiDiStreaming IO (Calc SumChat)
+    biDiStreamingSumHandler = Server.mkBiDiStreaming $ \recv send ->
+        let
+          go acc =
+            recv >>= \case
+              NoNextElem -> send NoNextElem
+              NextElem n -> send (NextElem (acc + n)) >> go (acc + n)
+        in
+          go 0

@@ -254,8 +254,8 @@ or
 grpc-repo/examples/cpp/route_guide$ cmake/build/route_guide_server
 ```
 
-All methods except `getFeature` support the `--streamtype-pipes` option to use
-the [`pipes` interface](/src/Network/GRPC/Client/StreamType/Pipes.hs).
+All methods except `getFeature` support the `--streamtype-conduit` option to use
+the [`Conduit` interface](/src/Network/GRPC/Client/StreamType/Conduit.hs).
 
 ### `routeguide.RouteGuide.GetFeature` (non-streaming RPC)
 

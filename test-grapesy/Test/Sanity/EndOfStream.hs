@@ -9,7 +9,10 @@ import Data.ByteString.Lazy qualified as BS.Lazy
 import Network.GRPC.Client qualified as Client
 import Network.GRPC.Common
 import Network.GRPC.Common.Binary
+import Network.GRPC.Common.NextElem qualified as NextElem
+import Network.GRPC.Common.StreamType
 import Network.GRPC.Server qualified as Server
+import Network.GRPC.Server.StreamType (ServerHandler')
 import Network.GRPC.Server.StreamType qualified as Server
 
 import Test.Tasty
@@ -42,7 +45,7 @@ tests = testGroup "Test.Sanity.EndOfStream" [
 test_sendAfterFinal :: Assertion
 test_sendAfterFinal = testClientServer $ ClientServerTest {
         config = def
-      , server = [Server.someRpcHandler clientStreamingHandler]
+      , server = [Server.fromMethod clientStreamingHandler]
       , client = simpleTestClient $ \conn -> do
           Client.withRPC conn def (Proxy @Absorb) $ \call -> do
             replicateM_ 10 $ Client.sendNextInput call BS.Lazy.empty
@@ -65,7 +68,7 @@ test_sendAfterFinal = testClientServer $ ClientServerTest {
 test_recvAfterFinal :: Assertion
 test_recvAfterFinal = testClientServer $ ClientServerTest {
       config = def
-    , server = [Server.someRpcHandler serverStreamingHandler]
+    , server = [Server.fromMethod serverStreamingHandler]
     , client = simpleTestClient $ \conn ->
         Client.withRPC conn def (Proxy @Spam) $ \call -> do
           Client.sendFinalInput call BS.Lazy.empty
@@ -96,7 +99,7 @@ test_recvAfterFinal = testClientServer $ ClientServerTest {
 test_recvTrailers :: Assertion
 test_recvTrailers = testClientServer $ ClientServerTest {
       config = def
-    , server = [Server.someRpcHandler nonStreamingHandler]
+    , server = [Server.fromMethod nonStreamingHandler]
     , client = simpleTestClient $ \conn ->
         Client.withRPC conn def (Proxy @Trivial) $ \call -> do
           Client.sendFinalInput call BS.Lazy.empty
@@ -129,28 +132,18 @@ type Absorb = RawRpc "Test" "absorb"
 -- client with a bunch of 'mempty' messages
 type Spam = RawRpc "Test" "spam"
 
-nonStreamingHandler :: Server.RpcHandler IO Trivial
-nonStreamingHandler = Server.streamingRpcHandler $
-    Server.mkNonStreaming $ \_inp ->
-      return BS.Lazy.empty
+nonStreamingHandler :: ServerHandler' NonStreaming IO Trivial
+nonStreamingHandler = Server.mkNonStreaming $ \_inp ->
+    return BS.Lazy.empty
 
-clientStreamingHandler :: Server.RpcHandler IO Absorb
-clientStreamingHandler = Server.streamingRpcHandler $
-    Server.mkClientStreaming $ \recv -> do
-      let loop :: IO ()
-          loop = do
-            mElem <- recv
-            case mElem of
-              StreamElem{}  -> loop
-              FinalElem{}   -> return ()
-              NoMoreElems{} -> return ()
-      loop
-      return mempty
+clientStreamingHandler :: ServerHandler' ClientStreaming IO Absorb
+clientStreamingHandler = Server.mkClientStreaming $ \recv -> do
+    NextElem.whileNext_ recv $ \_ -> return ()
+    return mempty
 
-serverStreamingHandler :: Server.RpcHandler IO Spam
-serverStreamingHandler = Server.streamingRpcHandler $
-    Server.mkServerStreaming $ \_inp send ->
-      replicateM_ 10 $ send BS.Lazy.empty
+serverStreamingHandler :: ServerHandler' ServerStreaming IO Spam
+serverStreamingHandler = Server.mkServerStreaming $ \_inp send ->
+    NextElem.mapM_ send $ replicate 10 BS.Lazy.empty
 
 {-------------------------------------------------------------------------------
   Server tests

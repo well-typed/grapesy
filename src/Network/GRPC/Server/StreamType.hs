@@ -1,15 +1,21 @@
 {-# LANGUAGE FunctionalDependencies #-}
+
+-- | Server handlers
 module Network.GRPC.Server.StreamType (
-    -- * Construct 'RpcHandler' from streaming type specific handler
-    StreamingRpcHandler(..)
-    -- * Constructors
+    -- * Handler type
+    ServerHandler' -- opaque
+  , ServerHandler
+    -- * Construct server handler
   , mkNonStreaming
   , mkClientStreaming
   , mkServerStreaming
   , mkBiDiStreaming
+    -- * Construct server handler
+  , FromStreamingHandler(..)
     -- * Server API
   , Methods(..)
   , Services(..)
+  , fromMethod
   , fromMethods
   , fromServices
     -- * Varargs API
@@ -19,57 +25,134 @@ module Network.GRPC.Server.StreamType (
 import Control.Monad.IO.Class
 import Data.Default
 import Data.Kind
-import Data.Proxy
 
-import Network.GRPC.Common.StreamType
+import Network.GRPC.Common
+import Network.GRPC.Common.NextElem qualified as NextElem
 import Network.GRPC.Server
 import Network.GRPC.Spec
+
+{-------------------------------------------------------------------------------
+  Construct server handler
+
+  It may sometimes be useful to use explicit type applications with these
+  functions, which is why the @rpc@ type variable is always first.
+-------------------------------------------------------------------------------}
+
+mkNonStreaming :: forall rpc m.
+     SupportsStreamingType rpc NonStreaming
+  => (    Input rpc
+       -> m (Output rpc)
+     )
+  -> ServerHandler' NonStreaming m rpc
+mkNonStreaming = ServerHandler
+
+mkClientStreaming :: forall rpc m.
+     SupportsStreamingType rpc ClientStreaming
+  => (    IO (NextElem (Input rpc))
+       -> m (Output rpc)
+     )
+  -> ServerHandler' ClientStreaming m rpc
+mkClientStreaming = ServerHandler
+
+mkServerStreaming :: forall rpc m.
+     SupportsStreamingType rpc ServerStreaming
+  => (    Input rpc
+       -> (NextElem (Output rpc) -> IO ())
+       -> m ()
+     )
+  -> ServerHandler' ServerStreaming m rpc
+mkServerStreaming = ServerHandler
+
+mkBiDiStreaming :: forall rpc m.
+     SupportsStreamingType rpc BiDiStreaming
+  => (    IO (NextElem (Input rpc))
+       -> (NextElem (Output rpc) -> IO ())
+       -> m ()
+     )
+  -> ServerHandler' BiDiStreaming m rpc
+mkBiDiStreaming = ServerHandler . uncurry
+
+{-------------------------------------------------------------------------------
+  Run server handler (used internally only)
+-------------------------------------------------------------------------------}
+
+nonStreaming ::
+     ServerHandler' NonStreaming m rpc
+  -> Input rpc
+  -> m (Output rpc)
+nonStreaming (ServerHandler h) = h
+
+clientStreaming ::
+     ServerHandler' ClientStreaming m rpc
+  -> IO (NextElem (Input rpc))
+  -> m (Output rpc)
+clientStreaming (ServerHandler h) = h
+
+serverStreaming ::
+     ServerHandler' ServerStreaming m rpc
+  -> Input rpc
+  -> (NextElem (Output rpc) -> IO ())
+  -> m ()
+serverStreaming (ServerHandler h) = h
+
+biDiStreaming ::
+    ServerHandler' BiDiStreaming m rpc
+ -> IO (NextElem (Input rpc))
+ -> (NextElem (Output rpc) -> IO ())
+ -> m ()
+biDiStreaming (ServerHandler h) = curry h
 
 {-------------------------------------------------------------------------------
   Construct 'RpcHandler'
 -------------------------------------------------------------------------------}
 
-class StreamingRpcHandler (h :: (Type -> Type) -> k -> Type) where
+class FromStreamingHandler (styp :: StreamingType) where
   -- | Construct 'RpcHandler' from streaming type specific handler
   --
   -- Most applications will probably not need to call this function directly,
   -- instead relying on 'fromMethods'/'fromServices'. If however you want to
   -- construct a list of 'RpcHandler's manually, without a type-level
-  -- specification of the server's API, you can use 'streamingRpcHandler'.
-  streamingRpcHandler :: forall (rpc :: k) m.
+  -- specification of the server's API, you can use 'fromStreamingHandler'.
+  fromStreamingHandler :: forall k (rpc :: k) m.
         ( SupportsServerRpc rpc
         , Default (ResponseInitialMetadata rpc)
         , Default (ResponseTrailingMetadata rpc)
         , MonadIO m
         )
-     => h m rpc -> RpcHandler m rpc
+     => ServerHandler' styp m rpc -> RpcHandler m rpc
 
-instance StreamingRpcHandler NonStreamingHandler where
-  streamingRpcHandler (UnsafeNonStreamingHandler h) =
-    mkRpcHandler $ \call -> do
+instance FromStreamingHandler NonStreaming where
+  fromStreamingHandler h = mkRpcHandler $ \call -> do
       inp <- liftIO $ recvFinalInput call
-      out <- h inp
+      out <- nonStreaming h inp
       liftIO $ sendFinalOutput call (out, def)
 
-instance StreamingRpcHandler ClientStreamingHandler where
-  streamingRpcHandler (UnsafeClientStreamingHandler h) =
-    mkRpcHandler $ \call -> do
-      out <- h (liftIO $ recvInput call)
+instance FromStreamingHandler ClientStreaming where
+  fromStreamingHandler h = mkRpcHandler $ \call -> do
+      out <- clientStreaming h (liftIO $ recvNextInputElem call)
       liftIO $ sendFinalOutput call (out, def)
 
-instance StreamingRpcHandler ServerStreamingHandler where
-  streamingRpcHandler (UnsafeServerStreamingHandler h) =
-    mkRpcHandler $ \call -> do
+instance FromStreamingHandler ServerStreaming where
+  fromStreamingHandler h = mkRpcHandler $ \call -> do
       inp <- liftIO $ recvFinalInput call
-      h inp (liftIO . sendNextOutput call)
-      liftIO $ sendTrailers call def
+      serverStreaming h inp (liftIO . sendOutput call . fromNextElem call)
 
-instance StreamingRpcHandler BiDiStreamingHandler where
-  streamingRpcHandler (UnsafeBiDiStreamingHandler h) =
-    mkRpcHandler $ \call -> do
-      h (liftIO $ recvInput call)
-        (liftIO . sendNextOutput call)
-      liftIO $ sendTrailers call def
+instance FromStreamingHandler BiDiStreaming where
+  fromStreamingHandler h = mkRpcHandler $ \call -> do
+      biDiStreaming h
+        (liftIO $ recvNextInputElem call)
+        (liftIO . sendOutput call . fromNextElem call)
+
+{-------------------------------------------------------------------------------
+  Internal: dealing with metadata
+-------------------------------------------------------------------------------}
+
+fromNextElem ::
+     Default (ResponseTrailingMetadata rpc)
+  => proxy rpc
+  -> NextElem out
+  -> StreamElem (ResponseTrailingMetadata rpc) out
+fromNextElem _ = NextElem.toStreamElem def
 
 {-------------------------------------------------------------------------------
   Methods
@@ -145,30 +228,13 @@ data Methods (m :: Type -> Type) (rpcs :: [k]) where
   -- inference will tell you what kind of handler you need to define (see also
   -- the example above).
   Method ::
-       ( StreamingRpcHandler h
-       , SupportsServerRpc rpc
-       , Default (ResponseInitialMetadata rpc)
-       , Default (ResponseTrailingMetadata rpc)
-       , h ~ HandlerFor (RpcStreamingType rpc)
-       )
-    => h m rpc
-    -> Methods m rpcs
-    -> Methods m (rpc ': rpcs)
-
-  -- | Like 'Method', but with a user-defined streaming type
-  --
-  -- This is useful for 'IsRPC' instances where the streaming type cannot be
-  -- inferred from the @rpc@ method.
-  MethodOfStreamingType ::
-       ( StreamingRpcHandler h
-       , SupportsServerRpc rpc
+       ( SupportsServerRpc rpc
        , Default (ResponseInitialMetadata rpc)
        , Default (ResponseTrailingMetadata rpc)
        , SupportsStreamingType rpc styp
-       , h ~ HandlerFor styp
+       , FromStreamingHandler styp
        )
-    => Proxy (styp :: StreamingType)
-    -> h m rpc
+    => ServerHandler' styp m rpc
     -> Methods m rpcs
     -> Methods m (rpc ': rpcs)
 
@@ -209,17 +275,34 @@ data Services m (servs :: [[k]]) where
     -> Services m servs
     -> Services m (serv : servs)
 
+-- | Construct 'SomeRpcHandler' from a streaming handler
+--
+-- Most users will not need to call this function, but it can occassionally be
+-- useful when using the lower-level API. Depending on usage you may need to
+-- provide a type argument to fix the @rpc@, for example
+--
+-- > Server.fromMethod @EmptyCall $ ServerHandler $ \(_ ::Empty) ->
+-- >   return (defMessage :: Empty)
+fromMethod :: forall rpc styp m.
+     ( SupportsServerRpc rpc
+     , FromStreamingHandler styp
+     , Default (ResponseInitialMetadata rpc)
+     , Default (ResponseTrailingMetadata rpc)
+     , MonadIO m
+     )
+  => ServerHandler' styp m rpc -> SomeRpcHandler m
+fromMethod = someRpcHandler . fromStreamingHandler
+
 fromMethods :: forall m rpcs.
      MonadIO m
   => Methods m rpcs -> [SomeRpcHandler m]
 fromMethods = go
   where
     go :: Methods m rpcs' -> [SomeRpcHandler m]
-    go NoMoreMethods                  = []
-    go (Method h ms)                  = someRpcHandler (streamingRpcHandler h) : go ms
-    go (MethodOfStreamingType _ h ms) = someRpcHandler (streamingRpcHandler h) : go ms
-    go (RawMethod m ms)               = someRpcHandler m                       : go ms
-    go (UnsupportedMethod ms)         =                                          go ms
+    go NoMoreMethods          = []
+    go (Method m ms)          = fromMethod     m : go ms
+    go (RawMethod m ms)       = someRpcHandler m : go ms
+    go (UnsupportedMethod ms) =                    go ms
 
 fromServices :: forall m servs.
      MonadIO m
@@ -241,16 +324,16 @@ instance SimpleMethods m '[] rpcs (Methods m rpcs) where
   simpleMethods' f = f NoMoreMethods
 
 instance
-  ( -- Requirements inherited from the 'Method' constructor
-    StreamingRpcHandler h
-  , SupportsServerRpc rpc
-  , Default (ResponseInitialMetadata rpc)
-  , Default (ResponseTrailingMetadata rpc)
-  , h ~ HandlerFor (RpcStreamingType rpc)
-    -- Requirements for the vararg construction
-  , b ~ h m rpc
-  , SimpleMethods m rpcs rpcs' a
-  ) => SimpleMethods m (rpc ': rpcs) rpcs' (b -> a) where
+    ( -- Requirements inherited from the 'Method' constructor
+      SupportsServerRpc rpc
+    , Default (ResponseInitialMetadata rpc)
+    , Default (ResponseTrailingMetadata rpc)
+    , FromStreamingHandler (RpcStreamingType rpc)
+    , SupportsStreamingType rpc (RpcStreamingType rpc)
+      -- Requirements for the vararg construction
+    , b ~ ServerHandler' (RpcStreamingType rpc) m rpc
+    , SimpleMethods m rpcs rpcs' a
+    ) => SimpleMethods m (rpc : rpcs) rpcs' (b -> a) where
   simpleMethods' f h = simpleMethods' (f . Method h)
 
 -- | Alternative way to construct 'Methods'

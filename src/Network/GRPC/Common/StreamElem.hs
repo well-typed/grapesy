@@ -4,23 +4,24 @@
 --
 -- > import Network.GRPC.Common.StreamElem qualified as StreamElem
 --
--- "Network.GRPC.Common" (intended for unqualified import) exports 'StreamElem',
--- but none of the operations on 'StreamElem'.
+-- "Network.GRPC.Common" (intended for unqualified import) exports
+-- @StreamElem(..)@, but none of the operations on 'StreamElem'.
 module Network.GRPC.Common.StreamElem (
     StreamElem(..)
+    -- * API
   , value
   , whenDefinitelyFinal
-  , mapM_
-  , collect
   ) where
 
 import Prelude hiding (mapM_)
 
-import Control.Monad.State (StateT, execStateT, modify)
-import Control.Monad.Trans.Class
 import Data.Bifoldable
 import Data.Bifunctor
 import Data.Bitraversable
+
+{-------------------------------------------------------------------------------
+  Definition
+-------------------------------------------------------------------------------}
 
 -- | An element positioned in a stream
 data StreamElem b a =
@@ -76,6 +77,10 @@ instance Bitraversable StreamElem where
   bitraverse g _ (NoMoreElems   b) = NoMoreElems <$>         g b
   bitraverse _ f (StreamElem  a  ) = StreamElem  <$> f a
 
+{-------------------------------------------------------------------------------
+  API
+-------------------------------------------------------------------------------}
+
 -- | Value of the element, if one is present
 --
 -- Returns 'Nothing' in case of 'NoMoreElems'
@@ -99,24 +104,3 @@ whenDefinitelyFinal msg k =
       FinalElem   _ b -> k b
       NoMoreElems   b -> k b
 
--- | Map over all elements
-mapM_ :: forall m a b. Monad m => m (StreamElem b a) -> (a -> m ()) -> m ()
-mapM_ recv f = loop
-  where
-    loop :: m ()
-    loop = do
-        x <- recv
-        case x of
-          StreamElem a   -> f a >> loop
-          FinalElem  a _ -> f a
-          NoMoreElems  _ -> return ()
-
--- | Collect all elements
---
--- Returns the elements in the order they were received.
-collect :: forall m a b. Monad m => m (StreamElem b a) -> m [a]
-collect recv =
-    reverse <$> execStateT go []
-  where
-    go :: StateT [a] m ()
-    go = mapM_ (lift recv) $ modify . (:)

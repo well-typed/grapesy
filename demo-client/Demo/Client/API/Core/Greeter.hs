@@ -3,15 +3,14 @@ module Demo.Client.API.Core.Greeter (
   , sayHelloBidiStream
   ) where
 
-import Control.Concurrent
 import Control.Exception
-import Control.Monad
 
 import Network.GRPC.Client
 import Network.GRPC.Common
 import Network.GRPC.Common.Protobuf
 
-import Demo.Client.Util.DelayOr
+import Demo.Client.Util.DelayOr (DelayOr)
+import Demo.Client.Util.DelayOr qualified as DelayOr
 import Demo.Common.API
 import Demo.Common.Logging
 
@@ -38,13 +37,9 @@ sayHelloStreamReply conn name =
 sayHelloBidiStream :: Connection -> [DelayOr (Proto HelloRequest)] -> IO ()
 sayHelloBidiStream conn names = handle cancelled $
     withRPC conn def (Proxy @SayHelloBidiStream) $ \call -> do
-      forM_ names $ \mName -> do
-        case mName of
-          Delay n ->
-            threadDelay $ round (n * 1_000_000)
-          Exec name -> do
-            sendNextInput call name
-            print =<< recvNextOutput call
+      DelayOr.forM_ names $ \name -> do
+        sendNextInput call name
+        print =<< recvNextOutput call
   where
     cancelled :: GrpcException -> IO ()
     cancelled err

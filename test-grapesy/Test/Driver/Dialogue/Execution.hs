@@ -492,12 +492,12 @@ execGlobalSteps steps = do
     globalStepsVar <- newMVar (order steps)
     clock          <- TestClock.new
 
-    let handler ::
+    let handler :: forall (meth :: Symbol).
              SupportsServerRpc (TestProtocol meth)
           => Proxy (TestProtocol meth)
           -> Server.SomeRpcHandler IO
-        handler rpc = Server.SomeRpcHandler rpc $
-          Server.mkRpcHandler $ \call ->
+        handler _ = Server.someRpcHandler $
+          Server.mkRpcHandler @(TestProtocol meth) $ \call ->
             serverGlobal clock globalStepsVar call
 
     return ClientServerTest {

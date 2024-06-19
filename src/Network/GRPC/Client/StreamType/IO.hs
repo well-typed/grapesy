@@ -3,10 +3,9 @@
 -- See also "Network.GRPC.Common.StreamType" as well as
 -- "Network.GRPC.Client.StreamType.CanCallRPC".
 module Network.GRPC.Client.StreamType.IO (
-    module Network.GRPC.Client.StreamType
-    -- * Execution
-  , nonStreaming
+    nonStreaming
   , clientStreaming
+  , clientStreaming_
   , serverStreaming
   , biDiStreaming
   ) where
@@ -14,79 +13,115 @@ module Network.GRPC.Client.StreamType.IO (
 import Control.Monad.Reader
 
 import Network.GRPC.Client
-import Network.GRPC.Common.StreamElem
+import Network.GRPC.Client.StreamType.CanCallRPC qualified as CanCallRPC
+import Network.GRPC.Common
 import Network.GRPC.Common.StreamType
-import Network.GRPC.Spec (Input, Output, NoMetadata)
-import Network.GRPC.Spec qualified as Spec
-import Network.GRPC.Client.StreamType hiding (CanCallRPC(..))
+import Network.GRPC.Spec
 
 {-------------------------------------------------------------------------------
-  Execution
+  Run client handlers
+
+  We piggy-back on the definitions for a general monad stack with an instance of
+  'CanCallRPC', but /run/ in a 'ReaderT' monad stack which satisfies that
+  constraint. The caller can then just provide an explicit 'Connection'.
 -------------------------------------------------------------------------------}
 
 -- | Make a non-streaming RPC
 --
 -- Example usage:
 --
--- > features <-
--- >   nonStreaming conn (rpc @(Protobuf RouteGuide "getFeature")) point
--- > logMsg features
+-- > type GetFeature = Protobuf RouteGuide "getFeature"
+-- >
+-- > getFeature :: Connection -> Point -> IO ()
+-- > getFeature conn point = do
+-- >     features <- nonStreaming conn (rpc @GetFeature) point
+-- >     print features
 nonStreaming :: forall rpc m.
-     SupportsStreamingType rpc NonStreaming
-  => Connection
-  -> NonStreamingHandler (ReaderT Connection m) rpc
+     Connection
+  -> ClientHandler' NonStreaming (ReaderT Connection m) rpc
   -> Input rpc
   -> m (Output rpc)
-nonStreaming conn h input =
-    flip runReaderT conn $
-      Spec.nonStreaming h input
+nonStreaming conn h input = flip runReaderT conn $
+    CanCallRPC.nonStreaming h input
+
+-- | Generalization of 'clientStreaming_' with an additional result.
+clientStreaming :: forall rpc m r.
+     MonadIO m
+  => Connection
+  -> ClientHandler' ClientStreaming (ReaderT Connection m) rpc
+  -> (    (NextElem (Input rpc) -> m ())
+       -> m r
+     )
+  -> m (Output rpc, r)
+clientStreaming conn h k = flip runReaderT conn $
+    CanCallRPC.clientStreaming h $ \send -> lift $
+      k (liftIO . send)
 
 -- | Make a client-side streaming RPC
 --
 -- Example usage:
 --
--- > summary <-
--- >   clientStreaming conn (rpc @(Protobuf RouteGuide "recordRoute")) getPoint
-clientStreaming :: forall rpc m.
-     (SupportsStreamingType rpc ClientStreaming, Monad m)
+-- > type RecordRoute = Protobuf RouteGuide "recordRoute"
+-- >
+-- > recordRoute :: Connection -> [Point] -> IO ()
+-- > recordRoute conn points = do
+-- >     summary <- clientStreaming_ conn (rpc @RecordRoute) $ \send ->
+-- >                  forM_ points send
+-- >     print summary
+clientStreaming_ :: forall rpc m.
+     MonadIO m
   => Connection
-  -> ClientStreamingHandler (ReaderT Connection m) rpc
-  -> m (StreamElem NoMetadata (Input rpc))
+  -> ClientHandler' ClientStreaming (ReaderT Connection m) rpc
+  -> (   (NextElem (Input rpc) -> m ())
+       -> m ()
+     )
   -> m (Output rpc)
-clientStreaming conn h produceInput =
-    flip runReaderT conn $
-      Spec.clientStreaming h (lift produceInput)
+clientStreaming_ conn h k = fst <$> clientStreaming conn h k
 
 -- | Make a server-side streaming RPC
 --
 -- Example usage:
 --
--- > serverStreaming conn (rpc @(Protobuf RouteGuide "listFeatures")) rect $
--- >   logMsg
-serverStreaming :: forall rpc m.
-     (SupportsStreamingType rpc ServerStreaming, Monad m)
+-- > type ListFeatures = Protobuf RouteGuide "listFeatures"
+-- >
+-- > listFeatures :: Connection -> Rectangle -> IO ()
+-- > listFeatures conn rect =
+-- >     serverStreaming conn (rpc @ListFeatures) rect $ \recv ->
+-- >       whileJust_ recv print
+serverStreaming :: forall rpc m r.
+     MonadIO m
   => Connection
-  -> ServerStreamingHandler (ReaderT Connection m) rpc
+  -> ClientHandler' ServerStreaming (ReaderT Connection m) rpc
   -> Input rpc
-  -> (Output rpc -> m ())
-  -> m ()
-serverStreaming conn h input processOutput =
-    flip runReaderT conn $
-      Spec.serverStreaming h input (lift . processOutput)
+  -> (    m (NextElem (Output rpc))
+       -> m r
+     )
+  -> m r
+serverStreaming conn h input k = flip runReaderT conn $
+    CanCallRPC.serverStreaming h input $ \recv -> lift $
+      k (liftIO recv)
 
 -- | Make a bidirectional RPC
 --
 -- Example usage:
 --
--- > biDiStreaming conn (rpc @(Protobuf RouteGuide "routeChat")) getNote $
--- >   logMsg
-biDiStreaming :: forall rpc m.
-     (SupportsStreamingType rpc BiDiStreaming, Monad m)
+-- > type RouteChat = Protobuf RouteGuide "routeChat"
+-- >
+-- > routeChat :: Connection -> [RouteNote] -> IO ()
+-- > routeChat conn notes =
+-- >     biDiStreaming conn (rpc @RouteChat) $ \send recv ->
+-- >       forM_ notes $ \note -> do
+-- >         send note
+-- >         print =<< recv
+biDiStreaming :: forall rpc m r.
+     MonadIO m
   => Connection
-  -> BiDiStreamingHandler (ReaderT Connection m) rpc
-  -> m (StreamElem NoMetadata (Input rpc))
-  -> (Output rpc -> m ())
-  -> m ()
-biDiStreaming conn h produceInput processOutput =
-    flip runReaderT conn $
-      Spec.biDiStreaming h (lift produceInput) (lift . processOutput)
+  -> ClientHandler' BiDiStreaming (ReaderT Connection m) rpc
+  -> (    (NextElem (Input rpc) -> m ())
+       -> m (NextElem (Output rpc))
+       -> m r
+     )
+  -> m r
+biDiStreaming conn h k = flip runReaderT conn $
+    CanCallRPC.biDiStreaming h $ \send recv -> lift $
+      k (liftIO . send) (liftIO recv)

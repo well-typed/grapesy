@@ -58,6 +58,7 @@ module Network.GRPC.Client (
 
     -- ** Low-level\/specialized API
   , sendInputWithEnvelope
+  , recvNextOutputElem
   , recvOutputWithEnvelope
   , recvInitialResponse
 

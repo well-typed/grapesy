@@ -10,6 +10,7 @@ import Control.Monad.Trans.Reader
 
 import Network.GRPC.Client
 import Network.GRPC.Client.StreamType.CanCallRPC
+import Network.GRPC.Common.NextElem qualified as NextElem
 import Network.GRPC.Common.Protobuf
 
 import Demo.Common.API
@@ -60,5 +61,5 @@ sayHello conn name = runMyClient conn $ do
 
 sayHelloStreamReply :: Connection -> Proto HelloRequest -> IO ()
 sayHelloStreamReply conn name = runMyClient conn $ do
-    serverStreaming (rpc @SayHelloStreamReply) name $
-      clientLogMsg
+    serverStreaming (rpc @SayHelloStreamReply) name $ \recv ->
+      NextElem.whileNext_ (liftIO recv) clientLogMsg

@@ -26,6 +26,7 @@ module Network.GRPC.Client.Call (
 
     -- ** Low-level\/specialized API
   , sendInputWithEnvelope
+  , recvNextOutputElem
   , recvOutputWithEnvelope
   , recvInitialResponse
   ) where
@@ -200,6 +201,18 @@ recvOutput call@Call{} = liftIO $ do
     streamElem <- recvOutputWithEnvelope call
     bitraverse (responseTrailingMetadata call) (return . snd) streamElem
 
+-- | Receive an output from the peer, if one exists
+--
+-- If this is the final output, the /next/ call to 'recvNextOutputElem' will
+-- return 'NoNextElem'; see also 'Network.GRPC.Server.recvNextInputElem' for
+-- detailed discussion.
+recvNextOutputElem ::
+     (MonadIO m, HasCallStack)
+  => Call rpc -> m (NextElem (Output rpc))
+recvNextOutputElem =
+      fmap (either (const NoNextElem) (NextElem . snd))
+    . recvEither
+
 -- | Generalization of 'recvOutput', providing additional meta-information
 --
 -- This returns the full set of trailers, /even if those trailers indicate
@@ -357,8 +370,6 @@ recvTrailers call@Call{} = liftIO $ do
 
 {-------------------------------------------------------------------------------
   Repeated send/recv
-
-  These are primarily useful for implementing streaming clients.
 -------------------------------------------------------------------------------}
 
 -- | Send all inputs returned by the specified action

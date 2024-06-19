@@ -8,12 +8,14 @@ module Network.GRPC.Common (
   , Output
   , SupportsClientRpc(..)
   , SupportsServerRpc(..)
+  , defaultRpcContentType
 
     -- * Stream elements
     --
     -- We export only the main type here; for operations on 'StreamElem', see
     -- "Network.GRPC.Common.StreamElem" (intended for qualified import).
   , StreamElem(..)
+  , NextElem(..)
 
     -- * Custom metadata
     --
@@ -72,6 +74,7 @@ import Network.Socket (PortNumber)
 
 import Control.Exception
 
+import Network.GRPC.Common.NextElem (NextElem(..))
 import Network.GRPC.Common.StreamElem (StreamElem(..))
 import Network.GRPC.Spec
 import Network.GRPC.Util.Session qualified as Session

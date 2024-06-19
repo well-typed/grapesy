@@ -116,19 +116,15 @@ mkRpcHandlerNoInitialMetadata = RpcHandler
 
 -- | Wrapper around 'RpcHandler' that hides the type argument
 --
--- User code will only need to use this if there is no type level description of
--- the server's protocol available. If there is a Protobuf service description,
--- then 'Network.GRPC.Server.StreamType.fromServices' should be used.
+-- Construct using 'someRpcHandler'.
 data SomeRpcHandler m = forall rpc.
      SupportsServerRpc rpc
   => SomeRpcHandler (Proxy rpc) (RpcHandler m rpc)
 
--- | Convenience constructor for 'SomeRpcHandler'
---
--- This avoids the need to specify the proxy, but at the cost of less type
--- safety: the type of the RPC is now completely unspecified. You way wish to
--- 'use 'SomeRpcHandler' instead.
-someRpcHandler :: SupportsServerRpc rpc => RpcHandler m rpc -> SomeRpcHandler m
+-- | Constructor for 'SomeRpcHandler'
+someRpcHandler :: forall rpc m.
+     SupportsServerRpc rpc
+  => RpcHandler m rpc -> SomeRpcHandler m
 someRpcHandler = SomeRpcHandler Proxy
 
 {-------------------------------------------------------------------------------
