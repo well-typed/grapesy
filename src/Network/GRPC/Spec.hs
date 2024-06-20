@@ -30,6 +30,8 @@ module Network.GRPC.Spec (
   , buildOutput
     -- * Streaming types
   , StreamingType(..)
+  , SStreamingType(..)
+  , ValidStreamingType(..)
     -- ** Link RPCs to streaming types
   , SupportsStreamingType
   , HasStreamingType(..)

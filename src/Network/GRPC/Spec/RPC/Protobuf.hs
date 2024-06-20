@@ -89,10 +89,13 @@ instance ( IsRPC (Protobuf serv meth)
   rpcDeserializeInput _ = Protobuf.parseLazy
   rpcSerializeOutput  _ = Protobuf.buildLazy
 
-instance styp ~ MethodStreamingType serv meth
+instance ( styp ~ MethodStreamingType serv meth
+         , ValidStreamingType styp
+         )
       => SupportsStreamingType (Protobuf serv meth) styp
 
-instance HasStreamingType (Protobuf serv meth) where
+instance ValidStreamingType (MethodStreamingType serv meth)
+      => HasStreamingType (Protobuf serv meth) where
   type RpcStreamingType (Protobuf serv meth) = MethodStreamingType serv meth
 
 {-------------------------------------------------------------------------------

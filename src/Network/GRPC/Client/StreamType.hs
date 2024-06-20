@@ -181,8 +181,7 @@ class MkStreamingHandler (styp :: StreamingType) where
 -- See 'Network.GRPC.Client.StreamType.IO.nonStreaming' and co for examples.
 -- See also 'rpcWith'.
 rpc :: forall rpc styp m.
-     ( MkStreamingHandler styp
-     , CanCallRPC m
+     ( CanCallRPC m
      , SupportsClientRpc rpc
      , SupportsStreamingType rpc styp
      , Default (RequestMetadata rpc)
@@ -192,13 +191,17 @@ rpc = rpcWith def
 
 -- | Generalization of 'rpc' with custom 'CallParams'
 rpcWith :: forall rpc styp m.
-     ( MkStreamingHandler styp
-     , CanCallRPC m
+     ( CanCallRPC m
      , SupportsClientRpc rpc
      , SupportsStreamingType rpc styp
      )
   => CallParams rpc -> ClientHandler' styp m rpc
-rpcWith = mkStreamingHandler
+rpcWith =
+    case validStreamingType (Proxy @styp) of
+      SNonStreaming    -> mkStreamingHandler
+      SClientStreaming -> mkStreamingHandler
+      SServerStreaming -> mkStreamingHandler
+      SBiDiStreaming   -> mkStreamingHandler
 
 instance MkStreamingHandler NonStreaming where
   mkStreamingHandler :: forall rpc m.

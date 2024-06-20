@@ -63,4 +63,5 @@ instance ( IsRPC (RawRpc serv meth)
   rpcSerializeOutput  _ = id
 
 -- | For the raw protocol we do not check communication protocols
-instance SupportsStreamingType (RawRpc serv meth) styp
+instance ValidStreamingType styp
+      => SupportsStreamingType (RawRpc serv meth) styp
