@@ -155,9 +155,10 @@ instance (MonadIO m, MonadMask m) => CanCallRPC (ReaderT Connection m) where
   Obtain handler for specific RPC call
 -------------------------------------------------------------------------------}
 
-class MkStreamingHandler m (styp :: StreamingType) where
+class MkStreamingHandler (styp :: StreamingType) where
   mkStreamingHandler ::
-       ( SupportsClientRpc rpc
+       ( CanCallRPC m
+       , SupportsClientRpc rpc
        , SupportsStreamingType rpc styp
        )
     => CallParams rpc -> ClientHandler' styp m rpc
@@ -180,7 +181,7 @@ class MkStreamingHandler m (styp :: StreamingType) where
 -- See 'Network.GRPC.Client.StreamType.IO.nonStreaming' and co for examples.
 -- See also 'rpcWith'.
 rpc :: forall rpc styp m.
-     ( MkStreamingHandler m styp
+     ( CanCallRPC m
      , SupportsClientRpc rpc
      , SupportsStreamingType rpc styp
      , Default (RequestMetadata rpc)
@@ -190,16 +191,22 @@ rpc = rpcWith def
 
 -- | Generalization of 'rpc' with custom 'CallParams'
 rpcWith :: forall rpc styp m.
-     ( MkStreamingHandler m styp
+     ( CanCallRPC m
      , SupportsClientRpc rpc
      , SupportsStreamingType rpc styp
      )
   => CallParams rpc -> ClientHandler' styp m rpc
-rpcWith = mkStreamingHandler
+rpcWith =
+    case validStreamingType (Proxy @styp) of
+      SNonStreaming    -> mkStreamingHandler
+      SClientStreaming -> mkStreamingHandler
+      SServerStreaming -> mkStreamingHandler
+      SBiDiStreaming   -> mkStreamingHandler
 
-instance CanCallRPC m => MkStreamingHandler m NonStreaming where
-  mkStreamingHandler :: forall rpc.
-       ( SupportsClientRpc rpc
+instance MkStreamingHandler NonStreaming where
+  mkStreamingHandler :: forall rpc m.
+       ( CanCallRPC m
+       , SupportsClientRpc rpc
        , SupportsStreamingType rpc NonStreaming
        )
     => CallParams rpc -> ClientHandler' NonStreaming m rpc
@@ -210,9 +217,10 @@ instance CanCallRPC m => MkStreamingHandler m NonStreaming where
         (output, _trailers) <- recvFinalOutput call
         return output
 
-instance CanCallRPC m => MkStreamingHandler m ClientStreaming where
-  mkStreamingHandler :: forall rpc.
-       ( SupportsClientRpc rpc
+instance MkStreamingHandler ClientStreaming where
+  mkStreamingHandler :: forall rpc m.
+       ( CanCallRPC m
+       , SupportsClientRpc rpc
        , SupportsStreamingType rpc ClientStreaming
        )
     => CallParams rpc -> ClientHandler' ClientStreaming m rpc
@@ -223,9 +231,10 @@ instance CanCallRPC m => MkStreamingHandler m ClientStreaming where
         (output, _trailers) <- recvFinalOutput call
         return (output, r)
 
-instance CanCallRPC m => MkStreamingHandler m ServerStreaming where
-  mkStreamingHandler :: forall rpc.
-       ( SupportsClientRpc rpc
+instance MkStreamingHandler ServerStreaming where
+  mkStreamingHandler :: forall rpc m.
+       ( CanCallRPC m
+       , SupportsClientRpc rpc
        , SupportsStreamingType rpc ServerStreaming
        )
     => CallParams rpc -> ClientHandler' ServerStreaming m rpc
@@ -235,9 +244,10 @@ instance CanCallRPC m => MkStreamingHandler m ServerStreaming where
         sendFinalInput call input
         k (recvNextOutputElem call)
 
-instance CanCallRPC m => MkStreamingHandler m BiDiStreaming where
-  mkStreamingHandler :: forall rpc.
-       ( SupportsClientRpc rpc
+instance MkStreamingHandler BiDiStreaming where
+  mkStreamingHandler :: forall rpc m.
+       ( CanCallRPC m
+       , SupportsClientRpc rpc
        , SupportsStreamingType rpc BiDiStreaming
        )
     => CallParams rpc -> ClientHandler' BiDiStreaming m rpc

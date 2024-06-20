@@ -1,7 +1,11 @@
 {-# LANGUAGE CPP              #-}
 {-# LANGUAGE OverloadedLabels #-}
 
-module Demo.Server.Service.RouteGuide (handlers) where
+module Demo.Server.Service.RouteGuide (
+    Handler -- opaque
+  , runHandler
+  , handlers
+  ) where
 
 import Control.Monad.IO.Class
 import Control.Monad.Trans.State (StateT, evalStateT)
@@ -20,63 +24,82 @@ import Network.GRPC.Server.StreamType
 import Demo.Common.API
 import Demo.Server.Aux.RouteGuide
 import Demo.Server.Cmdline
+import Control.Monad.Trans.Reader
+
+{-------------------------------------------------------------------------------
+  Custom handler monad
+
+  This isn't really necessary, but demonstrates that we can.
+-------------------------------------------------------------------------------}
+
+newtype Handler a = Wrap {
+      unwrap :: ReaderT [Proto Feature] IO a
+    }
+  deriving newtype (
+      Functor
+    , Applicative
+    , Monad
+    , MonadIO
+    )
+
+runHandler :: [Proto Feature] -> Handler a -> IO a
+runHandler db = flip runReaderT db . unwrap
+
+asksDb :: ([Proto Feature] -> a) -> Handler a
+asksDb = Wrap . asks
 
 {-------------------------------------------------------------------------------
   Top-level
 -------------------------------------------------------------------------------}
 
-handlers ::
-     Cmdline
-  -> [Proto Feature]
-  -> Methods IO (ProtobufMethodsOf RouteGuide)
-handlers cmdline db
+handlers :: Cmdline -> Methods Handler (ProtobufMethodsOf RouteGuide)
+handlers cmdline
   | cmdTrailersOnlyShortcut cmdline
-  =   Method    (mkNonStreaming    $ getFeature           db)
-    $ RawMethod (mkRpcHandler      $ trailersOnlyShortcut db)
-    $ Method    (mkClientStreaming $ recordRoute          db)
-    $ Method    (mkBiDiStreaming   $ routeChat            db)
+  =   Method    (mkNonStreaming    getFeature          )
+    $ RawMethod (mkRpcHandler      trailersOnlyShortcut)
+    $ Method    (mkClientStreaming recordRoute         )
+    $ Method    (mkBiDiStreaming   routeChat           )
     $ NoMoreMethods
 
   -- demonstrate the use of 'simpleMethods'
   | otherwise
   = simpleMethods
-      (mkNonStreaming    $ getFeature   db)
-      (mkServerStreaming $ listFeatures db)
-      (mkClientStreaming $ recordRoute  db)
-      (mkBiDiStreaming   $ routeChat    db)
+      (mkNonStreaming    getFeature  )
+      (mkServerStreaming listFeatures)
+      (mkClientStreaming recordRoute )
+      (mkBiDiStreaming   routeChat   )
 
 {-------------------------------------------------------------------------------
   Handlers
 -------------------------------------------------------------------------------}
 
-getFeature :: [Proto Feature] -> Proto Point -> IO (Proto Feature)
-getFeature db p =
-    return $ fromMaybe defMessage $ featureAt db p
+getFeature :: Proto Point -> Handler (Proto Feature)
+getFeature p = asksDb $ fromMaybe defMessage . featureAt p
 
 listFeatures ::
-     [Proto Feature]
-  -> Proto Rectangle
+     Proto Rectangle
   -> (NextElem (Proto Feature) -> IO ())
-  -> IO ()
-listFeatures db r send =
-    NextElem.mapM_ send $ filter (\f -> inRectangle r (f ^. #location)) db
+  -> Handler ()
+listFeatures r send = do
+    ps <- asksDb $ filter (\f -> inRectangle r (f ^. #location))
+    liftIO $ NextElem.mapM_ send ps
 
 recordRoute ::
-     [Proto Feature]
-  -> IO (NextElem (Proto  Point))
-  -> IO (Proto RouteSummary)
-recordRoute db recv = do
-    start <- getCurrentTime
-    ps    <- NextElem.collect recv
-    stop  <- getCurrentTime
-    return $ summary db (stop `diffUTCTime` start) ps
+     IO (NextElem (Proto  Point))
+  -> Handler (Proto RouteSummary)
+recordRoute recv = do
+    mkSummary <- asksDb summary
+    liftIO $ do
+      start <- getCurrentTime
+      ps    <- NextElem.collect recv
+      stop  <- getCurrentTime
+      return $ mkSummary (stop `diffUTCTime` start) ps
 
 routeChat ::
-     [Proto Feature]
-  -> IO (NextElem (Proto RouteNote))
+     IO (NextElem (Proto RouteNote))
   -> (NextElem (Proto RouteNote) -> IO ())
-  -> IO ()
-routeChat _db recv send = flip evalStateT Map.empty $ do
+  -> Handler ()
+routeChat recv send = liftIO $ flip evalStateT Map.empty $ do
     NextElem.whileNext_ (liftIO recv) $ \n -> modifyM $ \acc -> do
       let notes = Map.findWithDefault [] (n ^. #location) acc
       mapM_ (send . NextElem) $ reverse notes
@@ -89,15 +112,16 @@ routeChat _db recv send = flip evalStateT Map.empty $ do
   See discussion in @demo-server.md@.
 -------------------------------------------------------------------------------}
 
-trailersOnlyShortcut :: [Proto Feature] -> Call ListFeatures -> IO ()
-trailersOnlyShortcut db call = do
-    r <- recvFinalInput call
-    let features = filter (\f -> inRectangle r (f ^. #location)) db
-    if null features then
-      sendTrailersOnly call def
-    else do
-      mapM_ (sendOutput call . StreamElem) features
-      sendTrailers call def
+trailersOnlyShortcut :: Call ListFeatures -> Handler ()
+trailersOnlyShortcut call = do
+    r <- liftIO $ recvFinalInput call
+    features <- asksDb $ filter (\f -> inRectangle r (f ^. #location))
+    liftIO $
+      if null features then
+        sendTrailersOnly call def
+      else do
+        mapM_ (sendOutput call . StreamElem) features
+        sendTrailers call def
 
 {-------------------------------------------------------------------------------
   Auxiliary

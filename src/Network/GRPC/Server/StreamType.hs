@@ -10,14 +10,15 @@ module Network.GRPC.Server.StreamType (
   , mkClientStreaming
   , mkServerStreaming
   , mkBiDiStreaming
-    -- * Construct server handler
-  , FromStreamingHandler(..)
     -- * Server API
   , Methods(..)
   , Services(..)
   , fromMethod
   , fromMethods
   , fromServices
+    -- ** Hoisting
+  , hoistMethods
+  , hoistServices
     -- * Varargs API
   , simpleMethods
   ) where
@@ -232,7 +233,6 @@ data Methods (m :: Type -> Type) (rpcs :: [k]) where
        , Default (ResponseInitialMetadata rpc)
        , Default (ResponseTrailingMetadata rpc)
        , SupportsStreamingType rpc styp
-       , FromStreamingHandler styp
        )
     => ServerHandler' styp m rpc
     -> Methods m rpcs
@@ -285,13 +285,18 @@ data Services m (servs :: [[k]]) where
 -- >   return (defMessage :: Empty)
 fromMethod :: forall rpc styp m.
      ( SupportsServerRpc rpc
-     , FromStreamingHandler styp
+     , ValidStreamingType styp
      , Default (ResponseInitialMetadata rpc)
      , Default (ResponseTrailingMetadata rpc)
      , MonadIO m
      )
   => ServerHandler' styp m rpc -> SomeRpcHandler m
-fromMethod = someRpcHandler . fromStreamingHandler
+fromMethod =
+    case validStreamingType (Proxy @styp) of
+      SNonStreaming    -> someRpcHandler . fromStreamingHandler
+      SClientStreaming -> someRpcHandler . fromStreamingHandler
+      SServerStreaming -> someRpcHandler . fromStreamingHandler
+      SBiDiStreaming   -> someRpcHandler . fromStreamingHandler
 
 fromMethods :: forall m rpcs.
      MonadIO m
@@ -314,6 +319,32 @@ fromServices = concat . go
     go (Service s ss) = fromMethods s : go ss
 
 {-------------------------------------------------------------------------------
+  Hoisting
+-------------------------------------------------------------------------------}
+
+hoistMethods :: forall m n rpcs.
+     (forall a. m a -> n a)
+  -> Methods m rpcs
+  -> Methods n rpcs
+hoistMethods f = go
+  where
+    go :: forall rpcs'. Methods m rpcs' -> Methods n rpcs'
+    go NoMoreMethods          = NoMoreMethods
+    go (Method          h ms) = Method (hoistServerHandler f h) (go ms)
+    go (RawMethod       h ms) = RawMethod (hoistRpcHandler f h) (go ms)
+    go (UnsupportedMethod ms) = UnsupportedMethod (go ms)
+
+hoistServices :: forall m n servs.
+     (forall a. m a -> n a)
+  -> Services m servs
+  -> Services n servs
+hoistServices f = go
+  where
+    go :: forall servs'. Services m servs' -> Services n servs'
+    go NoMoreServices = NoMoreServices
+    go (Service s ss) = Service (hoistMethods f s) (go ss)
+
+{-------------------------------------------------------------------------------
   Varargs API
 -------------------------------------------------------------------------------}
 
@@ -328,7 +359,6 @@ instance
       SupportsServerRpc rpc
     , Default (ResponseInitialMetadata rpc)
     , Default (ResponseTrailingMetadata rpc)
-    , FromStreamingHandler (RpcStreamingType rpc)
     , SupportsStreamingType rpc (RpcStreamingType rpc)
       -- Requirements for the vararg construction
     , b ~ ServerHandler' (RpcStreamingType rpc) m rpc

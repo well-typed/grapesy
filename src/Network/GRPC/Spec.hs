@@ -30,6 +30,8 @@ module Network.GRPC.Spec (
   , buildOutput
     -- * Streaming types
   , StreamingType(..)
+  , SStreamingType(..)
+  , ValidStreamingType(..)
     -- ** Link RPCs to streaming types
   , SupportsStreamingType
   , HasStreamingType(..)
@@ -46,6 +48,7 @@ module Network.GRPC.Spec (
   , ServerHandler
   , ClientHandler'(..)
   , ClientHandler
+  , hoistServerHandler
     -- * Compression
   , CompressionId(..)
   , Compression(..)

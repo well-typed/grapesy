@@ -19,11 +19,18 @@ module Network.GRPC.Spec.RPC.StreamType (
   , ServerHandler
   , ClientHandler'(..)
   , ClientHandler
+    -- * Singleton
+  , SStreamingType(..)
+  , ValidStreamingType(..)
+    -- * Hoisting
+  , hoistServerHandler
   ) where
 
 -- Borrow protolens 'StreamingType' (but this module is not Protobuf specific)
 import Data.ProtoLens.Service.Types (StreamingType(..))
 
+import Data.Kind
+import Data.Proxy
 import Network.GRPC.Common.NextElem (NextElem)
 import Network.GRPC.Spec.RPC
 
@@ -35,7 +42,8 @@ import Network.GRPC.Spec.RPC
 --
 -- This is a weaker condition than 'HasStreamingType': some (non-Protobuf) RPCs
 -- may support more than one streaming type.
-class SupportsStreamingType rpc (styp :: StreamingType)
+class ValidStreamingType styp
+   => SupportsStreamingType rpc (styp :: StreamingType)
 
 -- | /The/ streaming type supported by this RPC
 
@@ -125,3 +133,60 @@ data ClientHandler' (s :: StreamingType) m (rpc :: k) where
 
 type ServerHandler m rpc = ServerHandler' (RpcStreamingType rpc) m rpc
 type ClientHandler m rpc = ClientHandler' (RpcStreamingType rpc) m rpc
+
+{-------------------------------------------------------------------------------
+  Singleton
+-------------------------------------------------------------------------------}
+
+data SStreamingType :: StreamingType -> Type where
+  SNonStreaming    :: SStreamingType NonStreaming
+  SClientStreaming :: SStreamingType ClientStreaming
+  SServerStreaming :: SStreamingType ServerStreaming
+  SBiDiStreaming   :: SStreamingType BiDiStreaming
+
+class ValidStreamingType (styp :: StreamingType) where
+  -- | Obtain singleton
+  validStreamingType :: Proxy styp -> SStreamingType styp
+
+instance ValidStreamingType NonStreaming    where validStreamingType _ = SNonStreaming
+instance ValidStreamingType ClientStreaming where validStreamingType _ = SClientStreaming
+instance ValidStreamingType ServerStreaming where validStreamingType _ = SServerStreaming
+instance ValidStreamingType BiDiStreaming   where validStreamingType _ = SBiDiStreaming
+
+{-------------------------------------------------------------------------------
+  Hoisting
+-------------------------------------------------------------------------------}
+
+class HoistServerHandler styp where
+  hoistServerHandler' ::
+       (forall a. m a -> n a)
+    -> ServerHandler' styp m rpc
+    -> ServerHandler' styp n rpc
+
+instance HoistServerHandler NonStreaming where
+  hoistServerHandler' f (ServerHandler h) = ServerHandler $ \inp ->
+      f $ h inp
+
+instance HoistServerHandler ClientStreaming where
+  hoistServerHandler' f (ServerHandler h) = ServerHandler $ \recv ->
+      f $ h recv
+
+instance HoistServerHandler ServerStreaming where
+  hoistServerHandler' f (ServerHandler h) = ServerHandler $ \inp send ->
+      f $ h inp send
+
+instance HoistServerHandler BiDiStreaming where
+  hoistServerHandler' f (ServerHandler h) = ServerHandler $ \(recv, send) ->
+      f $ h (recv, send)
+
+hoistServerHandler :: forall styp m n rpc.
+     ValidStreamingType styp
+  => (forall a. m a -> n a)
+  -> ServerHandler' styp m rpc
+  -> ServerHandler' styp n rpc
+hoistServerHandler f =
+    case validStreamingType (Proxy @styp) of
+      SNonStreaming    -> hoistServerHandler' f
+      SClientStreaming -> hoistServerHandler' f
+      SServerStreaming -> hoistServerHandler' f
+      SBiDiStreaming   -> hoistServerHandler' f
