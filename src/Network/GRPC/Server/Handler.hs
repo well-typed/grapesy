@@ -3,12 +3,14 @@
 -- Intended for unqualified import.
 module Network.GRPC.Server.Handler (
     RpcHandler(..)
+  , hoistRpcHandler
     -- * Construction
   , mkRpcHandler
   , mkRpcHandlerNoInitialMetadata
     -- * Hide type argument
   , SomeRpcHandler(..)
   , someRpcHandler
+  , hoistSomeRpcHandler
     -- * Execution
   , runHandler
   ) where
@@ -22,6 +24,7 @@ import Control.Monad.IO.Class
 import Control.Monad.XIO (XIO, XIO', NeverThrows)
 import Control.Monad.XIO qualified as XIO
 import Data.Default
+import Data.Kind
 import Data.Proxy
 import GHC.Stack
 import Network.HTTP2.Internal qualified as HTTP2
@@ -71,10 +74,21 @@ import Network.GRPC.Util.Session qualified as Session
 -- terminates early (that is, before sending the final output and trailers), a
 -- 'Network.GRPC.Server.HandlerTerminated' exception will be raised and sent to
 -- the client as 'GrpcException' with 'GrpcUnknown' error code.
-data RpcHandler m rpc = RpcHandler {
+data RpcHandler (m :: Type -> Type) (rpc :: k) = RpcHandler {
       -- | Handler proper
       runRpcHandler :: Call rpc -> m ()
     }
+
+-- | Hoist an 'RpcHandler' to a different monad
+--
+-- We do not make 'RpcHandler' an instance of @MFunctor@ (from the @mmorph@
+-- package) because @RpcHandler m@ is not a monad; this means that even though
+-- the types line up, the concepts do not.
+hoistRpcHandler ::
+     (forall a. m a -> n a)
+  -> RpcHandler m rpc
+  -> RpcHandler n rpc
+hoistRpcHandler f (RpcHandler h) = RpcHandler (f . h)
 
 {-------------------------------------------------------------------------------
   Construction
@@ -126,6 +140,13 @@ someRpcHandler :: forall rpc m.
      SupportsServerRpc rpc
   => RpcHandler m rpc -> SomeRpcHandler m
 someRpcHandler = SomeRpcHandler Proxy
+
+hoistSomeRpcHandler ::
+     (forall a. m a -> n a)
+  -> SomeRpcHandler m
+  -> SomeRpcHandler n
+hoistSomeRpcHandler f (SomeRpcHandler p h) =
+    SomeRpcHandler p (hoistRpcHandler f h)
 
 {-------------------------------------------------------------------------------
   Execution

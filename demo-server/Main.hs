@@ -35,9 +35,12 @@ services ::
        ]
 services cmdline db =
       Service Greeter.handlers
-    $ Service (RouteGuide.handlers cmdline db)
+    $ Service (hoistMethods runHandler $ RouteGuide.handlers cmdline)
     $ Service Ping.handlers
     $ NoMoreServices
+  where
+    runHandler :: RouteGuide.Handler a -> IO a
+    runHandler = RouteGuide.runHandler db
 
 {-------------------------------------------------------------------------------
   Application

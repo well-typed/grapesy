@@ -23,8 +23,8 @@ import Network.GRPC.Common.Protobuf
   Pure functions that implement that basic Route Guide functionality
 -------------------------------------------------------------------------------}
 
-featureAt :: [Proto Feature] -> Proto Point -> Maybe (Proto Feature)
-featureAt db p = listToMaybe $ filter (\f -> f ^. #location == p) db
+featureAt :: Proto Point -> [Proto Feature] -> Maybe (Proto Feature)
+featureAt p db = listToMaybe $ filter (\f -> f ^. #location == p) db
 
 inRectangle :: Proto Rectangle -> Proto Point -> Bool
 inRectangle r p = and [

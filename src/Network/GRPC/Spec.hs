@@ -48,6 +48,7 @@ module Network.GRPC.Spec (
   , ServerHandler
   , ClientHandler'(..)
   , ClientHandler
+  , hoistServerHandler
     -- * Compression
   , CompressionId(..)
   , Compression(..)

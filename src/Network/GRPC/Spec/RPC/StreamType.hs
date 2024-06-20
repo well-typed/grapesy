@@ -22,6 +22,8 @@ module Network.GRPC.Spec.RPC.StreamType (
     -- * Singleton
   , SStreamingType(..)
   , ValidStreamingType(..)
+    -- * Hoisting
+  , hoistServerHandler
   ) where
 
 -- Borrow protolens 'StreamingType' (but this module is not Protobuf specific)
@@ -150,3 +152,41 @@ instance ValidStreamingType NonStreaming    where validStreamingType _ = SNonStr
 instance ValidStreamingType ClientStreaming where validStreamingType _ = SClientStreaming
 instance ValidStreamingType ServerStreaming where validStreamingType _ = SServerStreaming
 instance ValidStreamingType BiDiStreaming   where validStreamingType _ = SBiDiStreaming
+
+{-------------------------------------------------------------------------------
+  Hoisting
+-------------------------------------------------------------------------------}
+
+class HoistServerHandler styp where
+  hoistServerHandler' ::
+       (forall a. m a -> n a)
+    -> ServerHandler' styp m rpc
+    -> ServerHandler' styp n rpc
+
+instance HoistServerHandler NonStreaming where
+  hoistServerHandler' f (ServerHandler h) = ServerHandler $ \inp ->
+      f $ h inp
+
+instance HoistServerHandler ClientStreaming where
+  hoistServerHandler' f (ServerHandler h) = ServerHandler $ \recv ->
+      f $ h recv
+
+instance HoistServerHandler ServerStreaming where
+  hoistServerHandler' f (ServerHandler h) = ServerHandler $ \inp send ->
+      f $ h inp send
+
+instance HoistServerHandler BiDiStreaming where
+  hoistServerHandler' f (ServerHandler h) = ServerHandler $ \(recv, send) ->
+      f $ h (recv, send)
+
+hoistServerHandler :: forall styp m n rpc.
+     ValidStreamingType styp
+  => (forall a. m a -> n a)
+  -> ServerHandler' styp m rpc
+  -> ServerHandler' styp n rpc
+hoistServerHandler f =
+    case validStreamingType (Proxy @styp) of
+      SNonStreaming    -> hoistServerHandler' f
+      SClientStreaming -> hoistServerHandler' f
+      SServerStreaming -> hoistServerHandler' f
+      SBiDiStreaming   -> hoistServerHandler' f

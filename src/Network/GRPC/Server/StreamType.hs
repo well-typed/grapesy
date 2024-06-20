@@ -16,6 +16,9 @@ module Network.GRPC.Server.StreamType (
   , fromMethod
   , fromMethods
   , fromServices
+    -- ** Hoisting
+  , hoistMethods
+  , hoistServices
     -- * Varargs API
   , simpleMethods
   ) where
@@ -314,6 +317,32 @@ fromServices = concat . go
     go :: Services m servs' -> [[SomeRpcHandler m]]
     go NoMoreServices = []
     go (Service s ss) = fromMethods s : go ss
+
+{-------------------------------------------------------------------------------
+  Hoisting
+-------------------------------------------------------------------------------}
+
+hoistMethods :: forall m n rpcs.
+     (forall a. m a -> n a)
+  -> Methods m rpcs
+  -> Methods n rpcs
+hoistMethods f = go
+  where
+    go :: forall rpcs'. Methods m rpcs' -> Methods n rpcs'
+    go NoMoreMethods          = NoMoreMethods
+    go (Method          h ms) = Method (hoistServerHandler f h) (go ms)
+    go (RawMethod       h ms) = RawMethod (hoistRpcHandler f h) (go ms)
+    go (UnsupportedMethod ms) = UnsupportedMethod (go ms)
+
+hoistServices :: forall m n servs.
+     (forall a. m a -> n a)
+  -> Services m servs
+  -> Services n servs
+hoistServices f = go
+  where
+    go :: forall servs'. Services m servs' -> Services n servs'
+    go NoMoreServices = NoMoreServices
+    go (Service s ss) = Service (hoistMethods f s) (go ss)
 
 {-------------------------------------------------------------------------------
   Varargs API

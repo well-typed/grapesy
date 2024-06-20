@@ -13,10 +13,12 @@ module Network.GRPC.Server (
   , RpcHandler -- opaque
   , mkRpcHandler
   , mkRpcHandlerNoInitialMetadata
+  , hoistRpcHandler
 
     -- ** Hide @rpc@ type variable
   , SomeRpcHandler -- opaque
   , someRpcHandler
+  , hoistSomeRpcHandler
 
     -- * Open (ongoing) call
   , recvInput
