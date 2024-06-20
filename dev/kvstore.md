@@ -25,7 +25,7 @@ We should also measure the performance when we disable the simulated workload
 (which would then measure the actual RPC overhead more directly):
 
 ```bash
-$ cabal run grapesy-kvstore -- --disable-work-simulation
+$ cabal run grapesy-kvstore -- --no-work-simulation
 ```
 
 The Java reference does roughly 4700 RPCs/sec.
@@ -50,14 +50,14 @@ recent version of `cabal`.)
 Run with
 
 ```bash
-$ cabal run grapesy-kvstore -- +RTS -pj
+$ cabal run grapesy-kvstore -- --no-work-simulation +RTS -pj
 ```
 
 Then load the resulting `grapesy-kvstore.prof` into Speedscope (and select
 the "Left Heavy" view). Alternatively, run
 
 ```bash
-$ cabal run grapesy-kvstore -- +RTS -p
+$ cabal run grapesy-kvstore -- --no-work-simulation +RTS -p
 ```
 
 to generate a human-readable profile instead.
@@ -67,7 +67,7 @@ to generate a human-readable profile instead.
 For memory profiling, run with
 
 ```bash
-$ cabal run grapesy-kvstore -- +RTS -hy -l-agu
+$ cabal run grapesy-kvstore -- --no-work-simulation +RTS -hy -l-agu
 ```
 
 and then process the eventlog with
@@ -93,7 +93,7 @@ and then capture the loopback device.
 The KVStore implementation issues some eventlog events; run with
 
 ```bash
-$ cabal run grapesy-kvstore -- +RTS -l
+$ cabal run grapesy-kvstore -- --no-work-simulation +RTS -l
 ```
 
 then inspect the eventlog, for example with Threadscope
@@ -126,7 +126,8 @@ $ trace-foreign-calls$ cabal --store-dir=/tmp/cabal-plugin-store-grapesy install
 Then run with
 
 ```bash
-grapesy$ cabal run --project-file cabal.project.plugin grapesy-kvstore -- +RTS -l
+grapesy$ cabal run --project-file cabal.project.plugin \
+  grapesy-kvstore -- --no-work-simulation +RTS -l
 ```
 
 ### `perf` (CPU cycles/on CPU)
@@ -138,13 +139,13 @@ https://www.well-typed.com/blog/2020/04/dwarf-1/):
 
 ```
 package *
-  debug-info: 2
+  debug-info: 3
 ```
 
 Then create a profile with
 
 ```bash
-$ perf record $(find . -name grapesy-kvstore -type f)
+$ perf record $(find . -name grapesy-kvstore -type f) --no-work-simulation
 ```
 
 You can then inspect the profile with
@@ -165,3 +166,43 @@ $ sudo sysctl kernel.perf_event_paranoid=-1
 Note 2: to figure out what is included under SYSTEM, can grep the ghc
 codebase for `CC_SYSTEM` / `CCS_SYSTEM`.
 
+### `strace`
+
+To debug performance with strace, it is useful to enable the `strace` cabal
+flag:
+
+```
+package grapesy
+  flags: +strace
+```
+
+This causes user eventlog events (emitted by `traceEventIO`) to also be written
+to `/dev/null`, causing them to show up in an `strace` log. Run with
+
+```bash
+grapesy$ strace -f -o strace.log -r \
+  $(find . -name grapesy-kvstore -type f) --no-work-simulation
+```
+
+The `-f` parameter (`--follow-forks`) is needed to see the events from both the
+server and the client; alternatively, you could use `-ff` (shorthand for
+`--follow-forks --output-separately`) to write them to separate files.
+
+Another useful `strace` parameter is `-e`, for filtering events, for example:
+
+```
+grapesy$ strace -f -o strace.log -r -e write \
+  $(find . -name grapesy-kvstore -type f) --no-work-simulation
+```
+
+This will show blocks such as
+
+```
+991445      0.000533 write(15, "CLIENT start CREATE\n", 20) = 20
+991449      0.004599 write(15, "HANDLER start CREATE\n", 21) = 21
+991449      0.000043 write(15, "HANDLER stop  CREATE\n", 21) = 21
+991445      0.041041 write(15, "CLIENT stop CREATE\n", 19) = 19
+```
+
+where we can see that the communication from the client to the handler took
+46ms, and communication back to the client another 41ms.

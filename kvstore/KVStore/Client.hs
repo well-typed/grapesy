@@ -5,7 +5,6 @@ import Control.Monad
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.IORef
-import Debug.Trace (traceEventIO)
 import System.Timeout
 import Text.Printf
 
@@ -16,6 +15,7 @@ import Network.GRPC.Common.Protobuf
 
 import KVStore.API
 import KVStore.Cmdline
+import KVStore.Util.Profiling
 import KVStore.Util.RandomAccessSet (RandomAccessSet)
 import KVStore.Util.RandomAccessSet qualified as RandomAccessSet
 import KVStore.Util.RandomGen qualified as RandomGen
@@ -235,5 +235,5 @@ randomBytes mean = do
 
 markRequest :: String -> IO a -> IO a
 markRequest label =
-    bracket_ (traceEventIO $ "client start " ++ label)
-             (traceEventIO $ "client stop "  ++ label)
+    bracket_ (markEvent $ "CLIENT start " ++ label)
+             (markEvent $ "CLIENT stop "  ++ label)
