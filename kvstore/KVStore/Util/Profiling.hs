@@ -9,14 +9,27 @@
 -- events to user events.
 module KVStore.Util.Profiling (
     markEvent
+  , markNonStreaming
   ) where
 
-#ifdef STRACE
-
-import Control.Monad
 import Debug.Trace (traceEventIO)
+import Control.Exception (bracket_)
+import Network.GRPC.Common.StreamType
+import Network.GRPC.Common
+import Network.GRPC.Server.StreamType (ServerHandler')
+import Network.GRPC.Server.StreamType qualified as Server
+
+#ifdef STRACE
+import Control.Monad
 import System.IO.Unsafe (unsafePerformIO)
 import System.Posix
+#endif
+
+{-------------------------------------------------------------------------------
+  markEvent
+-------------------------------------------------------------------------------}
+
+#ifdef STRACE
 
 devNull :: Fd
 {-# NOINLINE devNull #-}
@@ -40,9 +53,21 @@ markEvent str' = do
 
 #else
 
-import Debug.Trace (traceEventIO)
-
 markEvent :: String -> IO ()
 markEvent = traceEventIO
 
 #endif
+
+{-------------------------------------------------------------------------------
+  Derived
+-------------------------------------------------------------------------------}
+
+markNonStreaming ::
+     SupportsStreamingType rpc NonStreaming
+  => String
+  -> (Input rpc -> IO (Output rpc))
+  -> ServerHandler' NonStreaming IO rpc
+markNonStreaming label handler = Server.mkNonStreaming $ \inp ->
+    bracket_ (markEvent $ "HANDLER start " ++ label)
+             (markEvent $ "HANDLER stop  " ++ label)
+             (handler inp)
