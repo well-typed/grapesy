@@ -15,7 +15,7 @@ module KVStore.Util.Store (
   ) where
 
 import Control.Concurrent
-import Data.ByteString (ByteString)
+import Data.Hashable (Hashable)
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
 
@@ -23,29 +23,29 @@ import Data.HashMap.Strict qualified as HashMap
   Definition
 -------------------------------------------------------------------------------}
 
-newtype Store = Wrap {
-      unwrap :: MVar (HashMap ByteString ByteString)
+newtype Store a b = Wrap {
+      unwrap :: MVar (HashMap a b)
     }
 
 {-------------------------------------------------------------------------------
   API
 -------------------------------------------------------------------------------}
 
-new :: IO Store
+new :: IO (Store a b)
 new = Wrap <$> newMVar HashMap.empty
 
 -- | Get value associated with the key, if it exists
-get :: Store -> ByteString -> IO (Maybe ByteString)
+get :: Hashable a => Store a b -> a -> IO (Maybe b)
 get store key = withStore store $ HashMap.lookup key
 
 -- | Remove an key from the map
-remove :: Store -> ByteString -> IO ()
+remove :: Hashable a => Store a b -> a -> IO ()
 remove store key = modifyStore_ store $ HashMap.delete key
 
 -- | Put a new key/value pair into the var
 --
 -- Returns 'True' on success, or 'False' if they key was already present.
-putIfAbsent :: Store -> ByteString -> ByteString -> IO Bool
+putIfAbsent :: Hashable a => Store a b -> a -> b -> IO Bool
 putIfAbsent store key value =
     modifyStore store $ \hm ->
       case HashMap.lookup key hm of
@@ -56,7 +56,7 @@ putIfAbsent store key value =
 --
 -- Returns 'True' if the value was successfully replaced, or 'False' if the key
 -- was not present.
-replace :: Store -> ByteString -> ByteString -> IO Bool
+replace :: Hashable a => Store a b -> a -> b -> IO Bool
 replace store key newValue =
     modifyStore store $ \hm ->
       case HashMap.lookup key hm of
@@ -67,25 +67,12 @@ replace store key newValue =
   Internal: wrap pure operations
 -------------------------------------------------------------------------------}
 
-withStore ::
-     Store
-  -> (HashMap ByteString ByteString -> a)
-  -> IO a
+withStore :: Store a b -> (HashMap a b -> r) -> IO r
 withStore store f = withMVar (unwrap store) $ return . f
 
-modifyStore ::
-     Store
-  -> (     HashMap ByteString ByteString
-       -> (HashMap ByteString ByteString, a)
-     )
-  -> IO a
+modifyStore :: Store a b -> (HashMap a b -> (HashMap a b, r)) -> IO r
 modifyStore store f = modifyMVar (unwrap store) $ return . f
 
-modifyStore_ ::
-     Store
-  -> (    HashMap ByteString ByteString
-       -> HashMap ByteString ByteString
-     )
-  -> IO ()
+modifyStore_ :: Store a b -> (HashMap a b -> HashMap a b) -> IO ()
 modifyStore_ store f = modifyMVar_ (unwrap store) $ return . f
 

@@ -16,6 +16,7 @@ data Cmdline = Cmdline {
       cmdMode         :: Mode
     , cmdDuration     :: Int
     , cmdSimulateWork :: Bool
+    , cmdJSON         :: Bool
     }
 
 data Mode =
@@ -51,9 +52,13 @@ parseCmdline =
             , Opt.metavar "SEC"
             ])
       <*> (Opt.flag True False $ mconcat [
-               Opt.long "no-work-simulation"
-             , Opt.help "Disable work simulation (just run as quickly as possible)"
-             ])
+              Opt.long "no-work-simulation"
+            , Opt.help "Disable work simulation (just run as quickly as possible)"
+            ])
+      <*> (Opt.switch $ mconcat [
+              Opt.long "json"
+            , Opt.help "Use JSON instead of Protobuf"
+            ])
 
 parseMode :: Parser Mode
 parseMode = asum [

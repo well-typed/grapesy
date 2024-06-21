@@ -9,11 +9,11 @@ import System.Timeout
 import Text.Printf
 
 import Network.GRPC.Client
-import Network.GRPC.Client.StreamType.IO
 import Network.GRPC.Common
-import Network.GRPC.Common.Protobuf
 
 import KVStore.API
+import KVStore.API.JSON qualified as JSON
+import KVStore.API.Protobuf qualified as Protobuf
 import KVStore.Cmdline
 import KVStore.Util.Profiling
 import KVStore.Util.RandomAccessSet (RandomAccessSet)
@@ -30,7 +30,7 @@ import KVStore.Util.RandomGen qualified as RandomGen
 runKeyValueClient :: Cmdline -> IO ()
 runKeyValueClient cmdline@Cmdline{cmdDuration} = do
     statsVar <- newIORef zeroStats
-    void $ timeout (cmdDuration * 1_000_000) $ client statsVar
+    void $ timeout (cmdDuration * 1_000_000) $ client cmdline statsVar
     putStr . showStats cmdline =<< readIORef statsVar
 
 {-------------------------------------------------------------------------------
@@ -88,30 +88,36 @@ showStats Cmdline{cmdDuration} stats = unlines [
 -- Caller should create an 'IORef' initialized to 0, then call 'client' in
 -- separate thread, and kill the thread after some amount of time. The number
 -- of RPC calls made can then be read off from the 'IORef'.
-client :: IORef Stats -> IO ()
-client statsVar = do
+client :: Cmdline -> IORef Stats -> IO ()
+client Cmdline{cmdJSON} statsVar = do
     knownKeys <- RandomAccessSet.new
     random    <- RandomGen.new
 
-    withConnection params server $ \conn -> forever $ do
-       -- Pick a random CRUD action to take
-       command <- RandomGen.nextInt random 4
+    withConnection params server $ \conn -> do
+      let kvstore :: KVStore
+          kvstore
+            | cmdJSON   = JSON.client     conn
+            | otherwise = Protobuf.client conn
 
-       if command == 0 then do
-         doCreate knownKeys conn
-         modifyIORef' statsVar incNumCreate
-       else do
-         -- If we don't know about any keys, retry with a new random action
-         noKnownKeys <- RandomAccessSet.isEmpty knownKeys
-         unless noKnownKeys $ do
-           case command of
-             1 -> do doRetrieve knownKeys conn
-                     modifyIORef' statsVar incNumRetrieve
-             2 -> do doUpdate knownKeys conn
-                     modifyIORef' statsVar incNumUpdate
-             3 -> do doDelete knownKeys conn
-                     modifyIORef' statsVar incNumDelete
-             _ -> error "impossible"
+      forever $ do
+        -- Pick a random CRUD action to take
+        command <- RandomGen.nextInt random 4
+
+        if command == 0 then do
+          doCreate kvstore knownKeys
+          modifyIORef' statsVar incNumCreate
+        else do
+          -- If we don't know about any keys, retry with a new random action
+          noKnownKeys <- RandomAccessSet.isEmpty knownKeys
+          unless noKnownKeys $ do
+            case command of
+              1 -> do doRetrieve kvstore knownKeys
+                      modifyIORef' statsVar incNumRetrieve
+              2 -> do doUpdate kvstore knownKeys
+                      modifyIORef' statsVar incNumUpdate
+              3 -> do doDelete kvstore knownKeys
+                      modifyIORef' statsVar incNumDelete
+              _ -> error "impossible"
   where
     params :: ConnParams
     params = def
@@ -128,15 +134,10 @@ client statsVar = do
 -------------------------------------------------------------------------------}
 
 -- | Create a random key and value
-doCreate :: RandomAccessSet ByteString -> Connection -> IO ()
-doCreate knownKeys conn = markRequest "CREATE" $ do
+doCreate :: KVStore -> RandomAccessSet Key -> IO ()
+doCreate kvstore knownKeys = markRequest "CREATE" $ do
     key   <- createRandomKey knownKeys
-    value <- randomBytes meanValueSize
-
-    let req :: Proto CreateRequest
-        req = defMessage
-                & #key   .~ key
-                & #value .~ value
+    value <- Value <$> randomBytes meanValueSize
 
     let handleGrpcException :: GrpcException -> IO ()
         handleGrpcException e =
@@ -144,14 +145,12 @@ doCreate knownKeys conn = markRequest "CREATE" $ do
               then putStrLn "Key already existed"
               else throwIO e
 
-    handle handleGrpcException $ do
-      res <- nonStreaming conn (rpc @Create) req
-      unless (res == defMessage) $
-        error "Invalid response"
+    handle handleGrpcException $
+      create kvstore (key, value)
 
 -- | Retrieve the value of a random key
-doRetrieve :: RandomAccessSet ByteString -> Connection -> IO ()
-doRetrieve knownKeys conn = markRequest "RETRIEVE" $ do
+doRetrieve :: KVStore -> RandomAccessSet Key -> IO ()
+doRetrieve kvstore knownKeys = markRequest "RETRIEVE" $ do
     key <- RandomAccessSet.getRandomKey knownKeys
 
     let handleGrpcException :: GrpcException -> IO ()
@@ -163,20 +162,15 @@ doRetrieve knownKeys conn = markRequest "RETRIEVE" $ do
               throwIO e
 
     handle handleGrpcException $ do
-      res <- nonStreaming conn (rpc @Retrieve) (defMessage & #key .~ key)
-      when (BS.length (res ^. #value) < 1) $
+      Value res <- retrieve kvstore key
+      when (BS.length res < 1) $
         error "Invalid response"
 
 -- | Update a random key with a random value
-doUpdate :: RandomAccessSet ByteString -> Connection -> IO ()
-doUpdate knownKeys conn = markRequest "UPDATE" $ do
+doUpdate :: KVStore -> RandomAccessSet Key -> IO ()
+doUpdate kvstore knownKeys = markRequest "UPDATE" $ do
     key   <- RandomAccessSet.getRandomKey knownKeys
-    value <- randomBytes meanValueSize
-
-    let req :: Proto UpdateRequest
-        req = defMessage
-                & #key   .~ key
-                & #value .~ value
+    value <- Value <$> randomBytes meanValueSize
 
     let handleGrpcException :: GrpcException -> IO ()
         handleGrpcException e =
@@ -186,19 +180,15 @@ doUpdate knownKeys conn = markRequest "UPDATE" $ do
             else
               throwIO e
 
-    handle handleGrpcException $ do
-      res <- nonStreaming conn (rpc @Update) req
-      unless (res == defMessage) $
-        error "Invalid response"
+    handle handleGrpcException $
+      update kvstore (key, value)
 
 -- | Delete the value of a random key
-doDelete :: RandomAccessSet ByteString -> Connection -> IO ()
-doDelete knownKeys conn = markRequest "DELETE" $ do
+doDelete :: KVStore -> RandomAccessSet Key -> IO ()
+doDelete kvstore knownKeys = markRequest "DELETE" $ do
     key <- RandomAccessSet.getRandomKey knownKeys
-    res <- nonStreaming conn (rpc @Delete) (defMessage & #key .~ key)
+    delete kvstore key
     RandomAccessSet.remove knownKeys key
-    unless (res == defMessage) $
-      error "Invalid response"
 
 {-------------------------------------------------------------------------------
   Creating random keys and values
@@ -209,12 +199,12 @@ meanKeySize   = 64
 meanValueSize = 65536
 
 -- | Create and add a key to the set of known keys
-createRandomKey :: RandomAccessSet ByteString -> IO ByteString
+createRandomKey :: RandomAccessSet Key -> IO Key
 createRandomKey knownKeys = loop
   where
-    loop :: IO ByteString
+    loop :: IO Key
     loop = do
-      key   <- randomBytes meanKeySize
+      key   <- Key <$> randomBytes meanKeySize
       added <- RandomAccessSet.add knownKeys key
       if added
         then return key

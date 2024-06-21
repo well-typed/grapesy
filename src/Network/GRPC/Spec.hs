@@ -14,10 +14,18 @@ module Network.GRPC.Spec (
   , SupportsServerRpc(..)
   , defaultRpcContentType
     -- ** Instances
+    -- *** Protobuf
   , Protobuf
   , Proto(..)
   , getProto
+    -- *** JSON
+  , JsonRpc
+  , JsonObject(..)
+  , Required(..)
+  , Optional(..)
+    -- *** Raw
   , RawRpc
+    -- *** Unknown
   , UnknownRpc
     -- ** Messages
     -- *** Parsing
@@ -180,6 +188,7 @@ import Network.GRPC.Spec.PseudoHeaders
 import Network.GRPC.Spec.Request
 import Network.GRPC.Spec.Response
 import Network.GRPC.Spec.RPC
+import Network.GRPC.Spec.RPC.JSON
 import Network.GRPC.Spec.RPC.Protobuf
 import Network.GRPC.Spec.RPC.Raw
 import Network.GRPC.Spec.RPC.StreamType
