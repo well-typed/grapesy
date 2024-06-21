@@ -100,9 +100,9 @@ type instance ResponseTrailingMetadata (Calc fun) = NoMetadata
 
 instance CalculatorFunction fun => IsRPC (Calc fun) where
   rpcContentType _ = defaultRpcContentType "cbor"
-  rpcMessageType _ = "cbor"
   rpcServiceName _ = "calculator"
   rpcMethodName  _ = calculatorMethod (Proxy @fun)
+  rpcMessageType _ = Nothing
 
 instance CalculatorFunction fun => SupportsClientRpc (Calc fun) where
   rpcSerializeInput    _ = Cbor.serialise @(CalcInput  fun)

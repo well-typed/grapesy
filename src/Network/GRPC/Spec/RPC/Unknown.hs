@@ -36,10 +36,10 @@ type instance ResponseTrailingMetadata (UnknownRpc serv meth) = NoMetadata
 instance ( MaybeKnown serv
          , MaybeKnown meth
          ) => IsRPC (UnknownRpc serv meth) where
-  rpcContentType = const "application/grpc"
+  rpcContentType = const $ "application/grpc"
   rpcServiceName = const $ Text.pack $ maybeSymbolVal (Proxy @serv)
   rpcMethodName  = const $ Text.pack $ maybeSymbolVal (Proxy @meth)
-  rpcMessageType = const "Void"
+  rpcMessageType = const $ Nothing
 
 instance ( MaybeKnown serv
          , MaybeKnown meth

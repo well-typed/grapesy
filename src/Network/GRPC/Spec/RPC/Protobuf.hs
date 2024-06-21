@@ -65,7 +65,7 @@ instance ( HasMethodImpl      serv meth
                        , symbolVal $ Proxy @(ServiceName serv)
                        ]
   rpcMethodName  _ = Text.pack . symbolVal $ Proxy @(MethodName  serv meth)
-  rpcMessageType _ = messageName  $ Proxy @(MethodInput serv meth)
+  rpcMessageType _ = Just . messageName  $ Proxy @(MethodInput serv meth)
 
 instance ( IsRPC (Protobuf serv meth)
          , HasMethodImpl serv meth

@@ -9,12 +9,20 @@
 -- * @Message-Accept-Encoding@
 -- * @Custom-Metadata@ (see "Network.GRPC.Spec.CustomMetadata")
 --
+-- We also define 'MessageType' here, which is currently only used for request
+-- headers, but at least morally speaking seems to apply the response just the
+-- same.
+--
 -- Intended for unqualified import.
 module Network.GRPC.Spec.Common (
     -- * Content type
     ContentType(..)
   , buildContentType
   , parseContentType
+    -- * Message type
+  , MessageType(..)
+  , buildMessageType
+  , parseMessageType
     -- * Message encoding
   , buildMessageEncoding
   , buildMessageAcceptEncoding
@@ -22,6 +30,7 @@ module Network.GRPC.Spec.Common (
   , parseMessageAcceptEncoding
   ) where
 
+import Control.Exception
 import Control.Monad
 import Control.Monad.Except
 import Data.ByteString qualified as BS.Strict
@@ -32,10 +41,12 @@ import Data.Foldable (toList)
 import Data.List (intersperse)
 import Data.List.NonEmpty (NonEmpty(..))
 import Data.Proxy
+import Data.Text (Text)
 import Data.Typeable
 import Network.HTTP.Types qualified as HTTP
 
 import Network.GRPC.Spec.Compression
+import Network.GRPC.Spec.PercentEncoding qualified as PercentEncoding
 import Network.GRPC.Spec.RPC
 import Network.GRPC.Spec.RPC.Unknown
 import Network.GRPC.Util.ByteString
@@ -51,8 +62,9 @@ import Network.GRPC.Util.ByteString
 data ContentType =
     -- | The default content type for this RPC
     --
-    -- This corresponds to @application/grpc+format@, where @format@ is given
-    -- by 'serializationFormat'
+    -- This is given by 'rpcContentType', and is typically
+    -- @application/grpc+format@, where @format@ is @proto@, @json@, .. (see
+    -- also 'defaultRpcContentType').
     ContentTypeDefault
 
     -- | Override the content type
@@ -138,6 +150,67 @@ parseContentType proxy (name, hdr) = do
          , "application/grpc+{other_format}"
          , "\" also accepted."
          ]
+
+{-------------------------------------------------------------------------------
+  > Message-Type → "grpc-message-type" {type name for message schema}
+-------------------------------------------------------------------------------}
+
+-- | Message type
+data MessageType =
+    -- | Default message type for this RPC
+    --
+    -- This is given by 'rpcMessageType'. For the specific case Protobuf this
+    -- is the fully qualified proto message name (and we currently omit the
+    -- @grpc-message-type@ header altogether for JSON).
+    MessageTypeDefault
+
+    -- | Override the message type
+  | MessageTypeOverride Text
+  deriving stock (Show, Eq)
+
+instance Default MessageType where
+  def = MessageTypeDefault
+
+buildMessageType ::
+     IsRPC rpc
+  => Proxy rpc
+  -> MessageType
+  -> Maybe HTTP.Header
+buildMessageType proxy messageType =
+    case messageType of
+      MessageTypeDefault    -> mkHeader <$> defaultMessageType
+      MessageTypeOverride x -> Just $ mkHeader x
+  where
+    defaultMessageType :: Maybe Text
+    defaultMessageType = rpcMessageType proxy
+
+    mkHeader :: Text -> HTTP.Header
+    mkHeader = ("grpc-message-type",) . PercentEncoding.encode
+
+-- | Parse message type
+--
+-- We do not need the @grpc-message-type@ header in order to know the message
+-- type, because the /path/ determines the service and method, and that in turn
+-- determines the message type. Therefore, if the value is not what we expect,
+-- we merely record this fact ('MessageTypeOverride') but don't otherwise do
+-- anything differently.
+parseMessageType :: forall m rpc.
+     (MonadError String m, IsRPC rpc)
+  => Proxy rpc
+  -> HTTP.Header
+  -> m MessageType
+parseMessageType proxy (_name, hdr) = do
+    case PercentEncoding.decode hdr of
+      Left  err   -> throwError (displayException err)
+      Right given -> return $
+        case rpcMessageType proxy of
+          Nothing ->
+            -- We expected no message type at all, but did get one
+            MessageTypeOverride given
+          Just expected ->
+            if expected == given
+              then MessageTypeDefault
+              else MessageTypeOverride given
 
 {-------------------------------------------------------------------------------
   > Message-Encoding → "grpc-encoding" Content-Coding

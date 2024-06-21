@@ -153,8 +153,9 @@ module Network.GRPC.Spec (
   , ParseMetadata(..)
   , StaticMetadata(..)
   , buildMetadataIO
-    -- * Content type
+    -- * Common types
   , ContentType(..)
+  , MessageType(..)
     -- * OpenTelemetry
   , TraceContext(..)
   , TraceId(..)

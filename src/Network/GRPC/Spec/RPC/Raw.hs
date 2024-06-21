@@ -40,7 +40,7 @@ instance ( KnownSymbol serv
   rpcContentType _ = defaultRpcContentType "grapesy-raw"
   rpcServiceName _ = Text.pack $ symbolVal (Proxy @serv)
   rpcMethodName  _ = Text.pack $ symbolVal (Proxy @meth)
-  rpcMessageType _ = "bytestring"
+  rpcMessageType _ = Nothing
 
 instance ( IsRPC (RawRpc serv meth)
 

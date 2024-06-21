@@ -9,7 +9,6 @@ module Network.GRPC.Spec.Request (
     -- * Inputs (message sent to the peer)
     RequestHeaders_(..)
   , RequestHeaders
-  , IsFinal(..)
     -- * Serialization
   , buildRequestHeaders
   , parseRequestHeaders
@@ -26,21 +25,18 @@ import Data.List (intercalate)
 import Data.List.NonEmpty (NonEmpty)
 import Data.Maybe (catMaybes)
 import Data.Proxy
-import GHC.Stack
 import Network.HTTP.Types qualified as HTTP
+import Text.Read (readMaybe)
 
 import Network.GRPC.Spec.Common
 import Network.GRPC.Spec.Compression (CompressionId)
 import Network.GRPC.Spec.CustomMetadata.Map
 import Network.GRPC.Spec.CustomMetadata.Raw
-import Network.GRPC.Spec.PercentEncoding qualified as PercentEncoding
 import Network.GRPC.Spec.RPC
 import Network.GRPC.Spec.Timeout
 import Network.GRPC.Spec.TraceContext
 import Network.GRPC.Util.HKD (HKD, Undecorated, DecoratedWith)
 import Network.GRPC.Util.HKD qualified as HKD
-
-import Text.Read (readMaybe)
 
 {-------------------------------------------------------------------------------
   Inputs (message sent to the peer)
@@ -75,13 +71,13 @@ data RequestHeaders_ f = RequestHeaders {
 
       -- | Should we include the @Message-Type@ header?
       --
-      -- To be conform to the gRPC spec, the @Message-Type@ /should/ be
-      -- included, but @grapesy@ will not insist that the header is present for
-      -- incoming requests. We do not need the header in order to know the
-      -- message type, because the /path/ determines the service and method, and
-      -- that in turn determines the message type. If it /is/ present, however,
-      -- we verify that it has the valeu we expect.
-    , requestMessageType :: HKD f Bool
+      -- Set to 'Nothing' to omit the message-type header altogether.
+      --
+      -- We do not need the header in order to know the message type, because
+      -- the /path/ determines the service and method, and that in turn
+      -- determines the message type. If it /is/ present, however, we verify
+      -- that it has the valeu we expect.
+    , requestMessageType :: HKD f (Maybe MessageType)
 
       -- | User agent
     , requestUserAgent :: HKD f (Maybe Strict.ByteString)
@@ -129,10 +125,6 @@ instance HKD.Traversable RequestHeaders_ where
         <*> requestTraceContext        x
         <*> requestPreviousRpcAttempts x
 
--- | Mark a input sent as final
-data IsFinal = Final | NotFinal
-  deriving stock (Show, Eq)
-
 {-------------------------------------------------------------------------------
   Construction
 -------------------------------------------------------------------------------}
@@ -143,7 +135,7 @@ data IsFinal = Final | NotFinal
 -- >   Call-Definition
 -- >   *Custom-Metadata
 buildRequestHeaders ::
-     (IsRPC rpc, HasCallStack)
+     IsRPC rpc
   => Proxy rpc -> RequestHeaders -> [HTTP.Header]
 buildRequestHeaders proxy callParams@RequestHeaders{requestMetadata} = concat [
       callDefinition proxy callParams
@@ -178,13 +170,13 @@ buildRequestHeaders proxy callParams@RequestHeaders{requestMetadata} = concat [
 -- the reserved headers here /at all/, as they are automatically added by
 -- `http2`.
 callDefinition :: forall rpc.
-     (IsRPC rpc, HasCallStack)
+     IsRPC rpc
   => Proxy rpc -> RequestHeaders -> [HTTP.Header]
 callDefinition proxy = \hdrs -> catMaybes [
       hdrTimeout <$> requestTimeout hdrs
     , guard (requestIncludeTE hdrs) $> buildTe
     , buildContentType proxy <$> requestContentType hdrs
-    , guard (requestMessageType hdrs) $> buildMessageType
+    , join $ buildMessageType proxy <$> requestMessageType hdrs
     , buildMessageEncoding <$> requestCompression hdrs
     , buildMessageAcceptEncoding <$> requestAcceptCompression hdrs
     , buildUserAgent <$> requestUserAgent hdrs
@@ -198,13 +190,6 @@ callDefinition proxy = \hdrs -> catMaybes [
     -- > TE → "te" "trailers" # Used to detect incompatible proxies
     buildTe :: HTTP.Header
     buildTe  = ("te", "trailers")
-
-    -- > Message-Type → "grpc-message-type" {type name for message schema}
-    buildMessageType :: HTTP.Header
-    buildMessageType = (
-          "grpc-message-type"
-        , PercentEncoding.encode $ rpcMessageType proxy
-        )
 
     -- > User-Agent → "user-agent" {structured user-agent string}
     --
@@ -298,11 +283,9 @@ parseRequestHeaders proxy =
 
       | name == "grpc-message-type"
       = modify $ \x -> x {
-            requestMessageType = do
-              let expected = PercentEncoding.encode (rpcMessageType proxy)
+            requestMessageType = fmap Just $
               httpError HTTP.badRequest400 $
-                expectHeaderValue hdr [expected]
-              return True
+                parseMessageType proxy hdr
           }
 
       | name == "te"
@@ -337,11 +320,17 @@ parseRequestHeaders proxy =
         , requestCompression         = return Nothing
         , requestAcceptCompression   = return Nothing
         , requestContentType         = return Nothing
-        , requestMessageType         = return False
         , requestIncludeTE           = return False
         , requestUserAgent           = return Nothing
         , requestTraceContext        = return Nothing
         , requestPreviousRpcAttempts = return Nothing
+        , requestMessageType         =
+            -- If the default is that this header should be absent, then /start/
+            -- with 'MessageTypeDefault'; if it happens to present, parse it as
+            -- an override.
+            case rpcMessageType proxy of
+              Nothing -> return $ Just MessageTypeDefault
+              Just _  -> return $ Nothing
         }
 
     httpError ::

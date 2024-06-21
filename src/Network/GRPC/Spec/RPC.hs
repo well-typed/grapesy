@@ -62,10 +62,6 @@ class ( -- Debug constraints
   -- 'defaultRpcContentType' can be used in the case that the format (such as
   -- @proto@) is known.
   --
-  -- See <https://grpc.io/blog/grpc-with-json/> for a discussion of gRPC with
-  -- JSON. TODO: We don't currently support this, but it should just be an
-  -- alternative 'RPC' instance.
-  --
   -- Note on terminology: throughout this codebase we avoid the terms "encoding"
   -- and "decoding", which can be ambiguous. Instead we use
   -- \"serialize\"\/\"deserialize\" and \"compress\"\/\"decompress\".
@@ -81,10 +77,11 @@ class ( -- Debug constraints
   -- For Protobuf, this is /just/ the method name (no qualifier required).
   rpcMethodName :: HasCallStack => Proxy rpc -> Text
 
-  -- | Message type
+  -- | Message type, if specified
   --
+  -- This is used to set the (optional) @grpc-message-type@ header.
   -- For Protobuf, this is the fully qualified message type.
-  rpcMessageType :: HasCallStack => Proxy rpc -> Text
+  rpcMessageType :: HasCallStack => Proxy rpc -> Maybe Text
 
 defaultRpcContentType :: Strict.ByteString -> Strict.ByteString
 defaultRpcContentType format = "application/grpc+" <> format
