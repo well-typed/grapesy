@@ -297,7 +297,9 @@ instance Arbitrary (Awkward RequestHeaders) where
       requestCompression         <- awkward
       requestAcceptCompression   <- awkward
       requestContentType         <- awkward
-      requestMessageType         <- arbitrary
+      -- Don't generate 'Nothing' for requestMessageType, as this would be
+      -- parsed as 'Just MessageTypeDefault'.
+      requestMessageType         <- Just <$> awkward
       requestUserAgent           <- awkward
       requestIncludeTE           <- arbitrary
       requestTraceContext        <- awkward
@@ -320,7 +322,7 @@ instance Arbitrary (Awkward RequestHeaders) where
       , shrinkAwkward (\x -> h'{requestCompression         = x}) requestCompression         h
       , shrinkAwkward (\x -> h'{requestAcceptCompression   = x}) requestAcceptCompression   h
       , shrinkAwkward (\x -> h'{requestContentType         = x}) requestContentType         h
-      , shrinkRegular (\x -> h'{requestMessageType         = x}) requestMessageType         h
+      , shrinkAwkward (\x -> h'{requestMessageType         = x}) requestMessageType         h
       , shrinkAwkward (\x -> h'{requestUserAgent           = x}) requestUserAgent           h
       , shrinkRegular (\x -> h'{requestIncludeTE           = x}) requestIncludeTE           h
       , shrinkAwkward (\x -> h'{requestTraceContext        = x}) requestTraceContext        h
@@ -445,6 +447,23 @@ instance Arbitrary (Awkward ContentType) where
               , format' <- mapMaybe (validFormat . getAwkward) $ shrink (Awkward format)
               ]
             ]
+
+instance Arbitrary (Awkward MessageType) where
+  arbitrary = Awkward <$>
+      oneof [
+          pure $ MessageTypeDefault
+        , MessageTypeOverride <$> awkward
+        ]
+
+  shrink (Awkward mt) = Awkward <$>
+      case mt of
+        MessageTypeDefault    -> []
+        MessageTypeOverride x -> concat [
+            [MessageTypeDefault]
+          , [ MessageTypeOverride x'
+            | x' <- shrink x
+            ]
+          ]
 
 instance Arbitrary (Awkward TraceContext) where
   arbitrary = Awkward <$> do

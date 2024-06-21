@@ -75,7 +75,14 @@ data DecodeException =
     -- | Hex-decoding was fine, but encoded string was not valid UTF8
   | InvalidUtf8 Text.UnicodeException
   deriving stock (Show)
-  deriving anyclass (Exception)
+
+instance Exception DecodeException where
+  displayException (InvalidHexDigit w) =
+      "invalid hex digit '" ++ show w ++ "'"
+  displayException MissingHexDigits =
+      "'%' not followed by two hex digits"
+  displayException (InvalidUtf8 err) =
+      displayException err
 
 decode :: Strict.ByteString -> Either DecodeException Text
 decode =

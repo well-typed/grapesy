@@ -398,7 +398,7 @@ startRPC Connection{connMetaVar, connParams, connStateVar} _ callParams = do
         , requestContentType =
             connContentType connParams
         , requestMessageType =
-            True
+            Just MessageTypeDefault
         , requestUserAgent = Just $
             mconcat [
                 "grpc-haskell-grapesy/"
