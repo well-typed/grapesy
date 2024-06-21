@@ -95,7 +95,7 @@ client statsVar = do
 
     withConnection params server $ \conn -> forever $ do
        -- Pick a random CRUD action to take
-       command <- RandomGen.nextInt random 4
+       command <- pure 0 -- RandomGen.nextInt random 4
 
        if command == 0 then do
          doCreate knownKeys conn
@@ -226,7 +226,7 @@ randomBytes mean = do
     random <- RandomGen.new
     d      <- RandomGen.nextDouble random
     let size :: Int
-        size = round (fromIntegral mean * (-1 * log (1 - d)))
+        size = 2 --round (fromIntegral mean * (-1 * log (1 - d)))
     RandomGen.getRandomBytes <$> RandomGen.nextBytes random (1 + size)
 
 {-------------------------------------------------------------------------------
