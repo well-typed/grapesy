@@ -614,7 +614,7 @@ overridePingRateLimit connParams clientConfig = clientConfig {
 
 runTCPClient :: Address -> (Socket -> IO a) -> IO a
 runTCPClient Address{addressHost, addressPort} =
-    Run.runTCPClient addressHost (show addressPort)
+    Run.runTCPClientWithSocketOptions [(NoDelay, 1)] addressHost (show addressPort)
 
 -- | Write-buffer size
 --

@@ -352,7 +352,7 @@ disableTimeout =
 
 openServerSocket :: TMVar Socket -> AddrInfo -> IO Socket
 openServerSocket socketTMVar addr = do
-    sock <- Run.openServerSocket addr
+    sock <- Run.openServerSocketWithOptions [(NoDelay, 1)] addr
     atomically $ putTMVar socketTMVar sock
     return sock
 
