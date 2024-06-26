@@ -5,10 +5,10 @@ module Test.Sanity.StreamingType.CustomFormat (tests) where
 import Codec.Serialise qualified as Cbor
 import Control.Concurrent.Async (concurrently)
 import Data.Bifunctor
+import Data.ByteString qualified as Strict (ByteString)
 import Data.Kind
 import Data.List
 import Data.Proxy
-import Data.Text (Text)
 import Data.Typeable
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -65,7 +65,7 @@ class ( Typeable fun
   type family CalcInput  (fun :: Function) :: Type
   type family CalcOutput (fun :: Function) :: Type
 
-  calculatorMethod :: Proxy fun -> Text
+  calculatorMethod :: Proxy fun -> Strict.ByteString
 
 instance SupportsStreamingType (Calc SumQuick)  NonStreaming
 instance CalculatorFunction SumQuick where

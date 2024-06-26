@@ -19,9 +19,11 @@ import Control.Monad.XIO (XIO', XIO)
 import Control.Monad.XIO qualified as XIO
 import Data.Bifunctor
 import Data.ByteString.Builder qualified as Builder
+import Data.ByteString.Char8 qualified as BS.Char8
 import Data.ByteString.UTF8 qualified as BS.UTF8
 import Data.Maybe (fromMaybe)
 import Data.Proxy
+import Data.Text qualified as Text
 import Network.HTTP.Types qualified as HTTP
 import Network.HTTP2.Server qualified as HTTP2
 
@@ -158,7 +160,7 @@ failureResponse (CallSetupUnimplementedMethod proxy path) =
 grpcUnimplemented :: Path -> GrpcException
 grpcUnimplemented path = GrpcException {
       grpcError         = GrpcUnimplemented
-    , grpcErrorMessage  = Just $ mconcat [
+    , grpcErrorMessage  = Just . Text.pack . BS.Char8.unpack $ mconcat [
                                 "Method "
                               , pathService path
                               , "."

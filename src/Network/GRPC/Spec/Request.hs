@@ -283,9 +283,8 @@ parseRequestHeaders proxy =
 
       | name == "grpc-message-type"
       = modify $ \x -> x {
-            requestMessageType = fmap Just $
-              httpError HTTP.badRequest400 $
-                parseMessageType proxy hdr
+            requestMessageType = return . Just $
+              parseMessageType proxy hdr
           }
 
       | name == "te"

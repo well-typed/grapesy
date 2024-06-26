@@ -2,9 +2,9 @@
 
 module Network.GRPC.Spec.RPC.Raw (RawRpc) where
 
+import Data.ByteString.Char8 qualified as BS.Char8
 import Data.ByteString.Lazy qualified as Lazy (ByteString)
 import Data.Proxy
-import Data.Text qualified as Text
 import GHC.TypeLits
 
 import Network.GRPC.Spec.CustomMetadata.Typed
@@ -38,8 +38,8 @@ instance ( KnownSymbol serv
          , Show (ResponseTrailingMetadata (RawRpc serv meth))
          ) => IsRPC (RawRpc serv meth) where
   rpcContentType _ = defaultRpcContentType "grapesy-raw"
-  rpcServiceName _ = Text.pack $ symbolVal (Proxy @serv)
-  rpcMethodName  _ = Text.pack $ symbolVal (Proxy @meth)
+  rpcServiceName _ = BS.Char8.pack $ symbolVal (Proxy @serv)
+  rpcMethodName  _ = BS.Char8.pack $ symbolVal (Proxy @meth)
   rpcMessageType _ = Nothing
 
 instance ( IsRPC (RawRpc serv meth)

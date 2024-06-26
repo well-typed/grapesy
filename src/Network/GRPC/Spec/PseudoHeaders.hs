@@ -28,10 +28,8 @@ import Data.ByteString qualified as BS.Strict
 import Data.ByteString qualified as Strict (ByteString)
 import Data.Hashable
 import Data.Proxy
-import Data.Text (Text)
 import Network.Socket (HostName, PortNumber)
 
-import Network.GRPC.Spec.PercentEncoding qualified as PercentEncoding
 import Network.GRPC.Spec.RPC
 import Network.GRPC.Util.ByteString
 
@@ -130,8 +128,8 @@ data Address = Address {
 --
 -- We don't support these non-standard paths at all.
 data Path = Path {
-      pathService :: Text
-    , pathMethod  :: Text
+      pathService :: Strict.ByteString
+    , pathMethod  :: Strict.ByteString
     }
   deriving stock (Show, Eq)
 
@@ -155,9 +153,9 @@ buildResourceHeaders ResourceHeaders{resourcePath, resourceMethod} =
         rawMethod = case resourceMethod of Post -> "POST"
       , rawPath   = mconcat [
                         "/"
-                      , PercentEncoding.encode $ pathService resourcePath
+                      , pathService resourcePath
                       , "/"
-                      , PercentEncoding.encode $ pathMethod resourcePath
+                      , pathMethod resourcePath
                       ]
       }
 
@@ -181,10 +179,8 @@ parseResourceHeaders RawResourceHeaders{rawMethod, rawPath} = do
 
     resourcePath <-
       case BS.Strict.split (ascii '/') rawPath of
-        ["", service, method]
-            | Right service' <- PercentEncoding.decode service
-            , Right method'  <- PercentEncoding.decode method  ->
-          return $ Path service' method'
+        ["", service, method] ->
+          return $ Path service method
         _otherwise ->
           throwError $ InvalidPath rawPath
 
