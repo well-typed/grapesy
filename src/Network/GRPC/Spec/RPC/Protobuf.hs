@@ -11,6 +11,7 @@ module Network.GRPC.Spec.RPC.Protobuf (
 
 import Control.Lens hiding (lens)
 import Data.ByteString qualified as Strict (ByteString)
+import Data.ByteString.Char8 qualified as BS.Char8
 import Data.Int
 import Data.Kind
 import Data.Map (Map)
@@ -59,13 +60,15 @@ instance ( HasMethodImpl      serv meth
          , Show (ResponseTrailingMetadata (Protobuf serv meth))
          ) => IsRPC (Protobuf serv meth) where
   rpcContentType _ = defaultRpcContentType "proto"
-  rpcServiceName _ = Text.pack $ concat [
+  rpcServiceName _ = BS.Char8.pack $ concat [
                          symbolVal $ Proxy @(ServicePackage serv)
                        , "."
                        , symbolVal $ Proxy @(ServiceName serv)
                        ]
-  rpcMethodName  _ = Text.pack . symbolVal $ Proxy @(MethodName  serv meth)
-  rpcMessageType _ = Just . messageName  $ Proxy @(MethodInput serv meth)
+  rpcMethodName  _ = BS.Char8.pack . symbolVal $
+                       Proxy @(MethodName  serv meth)
+  rpcMessageType _ = Just . BS.Char8.pack . Text.unpack . messageName $
+                       Proxy @(MethodInput serv meth)
 
 instance ( IsRPC (Protobuf serv meth)
          , HasMethodImpl serv meth

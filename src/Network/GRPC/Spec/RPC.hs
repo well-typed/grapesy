@@ -12,7 +12,6 @@ module Network.GRPC.Spec.RPC (
 import Data.ByteString qualified as Strict (ByteString)
 import Data.ByteString.Lazy qualified as Lazy
 import Data.Kind
-import Data.Text (Text)
 import Data.Typeable
 import GHC.Stack
 
@@ -32,11 +31,11 @@ type family Output (rpc :: k) :: Type
 --
 -- Note on encoding: the gRPC specification does not say anything about text
 -- encoding issues for paths (service names and method names) or message types.
--- We allow them to be arbitrary 'Text' here, and then use the gRPC defined
--- percent encoding (which it mandates for status messages).
---
--- TODO: We need to check interop with existing libraries to see if they all
--- agree on this.
+-- The Protobuf compiler (by far the most common instantation of gRPC) does not
+-- allow for non-ASCII character at all ("nterpreting non ascii codepoint").
+-- We therefore punt on the encoding issue here, and use bytestrings. /If/
+-- applications want to use non-ASCII characters, they can choose their own
+-- encoding.
 class ( -- Debug constraints
         --
         -- For debugging it is useful when we have 'Show' instances in scope.
@@ -70,18 +69,18 @@ class ( -- Debug constraints
   -- | Service name
   --
   -- For Protobuf, this is the fully qualified service name.
-  rpcServiceName :: HasCallStack => Proxy rpc -> Text
+  rpcServiceName :: HasCallStack => Proxy rpc -> Strict.ByteString
 
   -- | Method name
   --
   -- For Protobuf, this is /just/ the method name (no qualifier required).
-  rpcMethodName :: HasCallStack => Proxy rpc -> Text
+  rpcMethodName :: HasCallStack => Proxy rpc -> Strict.ByteString
 
   -- | Message type, if specified
   --
   -- This is used to set the (optional) @grpc-message-type@ header.
   -- For Protobuf, this is the fully qualified message type.
-  rpcMessageType :: HasCallStack => Proxy rpc -> Maybe Text
+  rpcMessageType :: HasCallStack => Proxy rpc -> Maybe Strict.ByteString
 
 defaultRpcContentType :: Strict.ByteString -> Strict.ByteString
 defaultRpcContentType format = "application/grpc+" <> format

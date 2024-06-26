@@ -12,10 +12,10 @@ module Network.GRPC.Spec.RPC.JSON (
 import Data.Aeson (ToJSON(..), FromJSON(..), (.=), (.:), (.:?))
 import Data.Aeson qualified as Aeson
 import Data.Aeson.Types qualified as Aeson
+import Data.ByteString.Char8 qualified as BS.Char8
 import Data.Kind
 import Data.Proxy
 import Data.String
-import Data.Text qualified as Text
 import GHC.TypeLits
 
 import Network.GRPC.Spec.CustomMetadata.Typed
@@ -67,8 +67,8 @@ instance ( KnownSymbol serv
          , Show (ResponseTrailingMetadata (JsonRpc serv meth))
          ) => IsRPC (JsonRpc serv meth) where
   rpcContentType _ = defaultRpcContentType "json"
-  rpcServiceName _ = Text.pack $ symbolVal (Proxy @serv)
-  rpcMethodName  _ = Text.pack $ symbolVal (Proxy @meth)
+  rpcServiceName _ = BS.Char8.pack $ symbolVal (Proxy @serv)
+  rpcMethodName  _ = BS.Char8.pack $ symbolVal (Proxy @meth)
   rpcMessageType _ = Nothing
 
 instance ( IsRPC (JsonRpc serv meth)

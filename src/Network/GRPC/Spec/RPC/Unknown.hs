@@ -2,7 +2,7 @@
 
 module Network.GRPC.Spec.RPC.Unknown (UnknownRpc) where
 
-import Data.Text qualified as Text
+import Data.ByteString.Char8 qualified as BS.Char8
 import Data.Typeable
 import Data.Void
 import GHC.Stack
@@ -37,8 +37,8 @@ instance ( MaybeKnown serv
          , MaybeKnown meth
          ) => IsRPC (UnknownRpc serv meth) where
   rpcContentType = const $ "application/grpc"
-  rpcServiceName = const $ Text.pack $ maybeSymbolVal (Proxy @serv)
-  rpcMethodName  = const $ Text.pack $ maybeSymbolVal (Proxy @meth)
+  rpcServiceName = const $ BS.Char8.pack $ maybeSymbolVal (Proxy @serv)
+  rpcMethodName  = const $ BS.Char8.pack $ maybeSymbolVal (Proxy @meth)
   rpcMessageType = const $ Nothing
 
 instance ( MaybeKnown serv

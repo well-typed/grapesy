@@ -30,7 +30,6 @@ module Network.GRPC.Spec.Common (
   , parseMessageAcceptEncoding
   ) where
 
-import Control.Exception
 import Control.Monad
 import Control.Monad.Except
 import Data.ByteString qualified as BS.Strict
@@ -41,12 +40,10 @@ import Data.Foldable (toList)
 import Data.List (intersperse)
 import Data.List.NonEmpty (NonEmpty(..))
 import Data.Proxy
-import Data.Text (Text)
 import Data.Typeable
 import Network.HTTP.Types qualified as HTTP
 
 import Network.GRPC.Spec.Compression
-import Network.GRPC.Spec.PercentEncoding qualified as PercentEncoding
 import Network.GRPC.Spec.RPC
 import Network.GRPC.Spec.RPC.Unknown
 import Network.GRPC.Util.ByteString
@@ -165,7 +162,7 @@ data MessageType =
     MessageTypeDefault
 
     -- | Override the message type
-  | MessageTypeOverride Text
+  | MessageTypeOverride Strict.ByteString
   deriving stock (Show, Eq)
 
 instance Default MessageType where
@@ -181,11 +178,11 @@ buildMessageType proxy messageType =
       MessageTypeDefault    -> mkHeader <$> defaultMessageType
       MessageTypeOverride x -> Just $ mkHeader x
   where
-    defaultMessageType :: Maybe Text
+    defaultMessageType :: Maybe Strict.ByteString
     defaultMessageType = rpcMessageType proxy
 
-    mkHeader :: Text -> HTTP.Header
-    mkHeader = ("grpc-message-type",) . PercentEncoding.encode
+    mkHeader :: Strict.ByteString -> HTTP.Header
+    mkHeader = ("grpc-message-type",)
 
 -- | Parse message type
 --
@@ -194,23 +191,20 @@ buildMessageType proxy messageType =
 -- determines the message type. Therefore, if the value is not what we expect,
 -- we merely record this fact ('MessageTypeOverride') but don't otherwise do
 -- anything differently.
-parseMessageType :: forall m rpc.
-     (MonadError String m, IsRPC rpc)
+parseMessageType :: forall rpc.
+     IsRPC rpc
   => Proxy rpc
   -> HTTP.Header
-  -> m MessageType
-parseMessageType proxy (_name, hdr) = do
-    case PercentEncoding.decode hdr of
-      Left  err   -> throwError (displayException err)
-      Right given -> return $
-        case rpcMessageType proxy of
-          Nothing ->
-            -- We expected no message type at all, but did get one
-            MessageTypeOverride given
-          Just expected ->
-            if expected == given
-              then MessageTypeDefault
-              else MessageTypeOverride given
+  -> MessageType
+parseMessageType proxy (_name, given) =
+    case rpcMessageType proxy of
+      Nothing ->
+        -- We expected no message type at all, but did get one
+        MessageTypeOverride given
+      Just expected ->
+        if expected == given
+          then MessageTypeDefault
+          else MessageTypeOverride given
 
 {-------------------------------------------------------------------------------
   > Message-Encoding → "grpc-encoding" Content-Coding
