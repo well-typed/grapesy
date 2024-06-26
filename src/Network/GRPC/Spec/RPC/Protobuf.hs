@@ -147,10 +147,9 @@ newtype Proto msg = Proto msg
     )
 
 -- | Field accessor for 'Proto'
---
--- /Must/ be defined separately, otherwise ghc won't let us define a
--- 'GHC.HasField' instance.
 getProto :: Proto msg -> msg
+-- Implementation note: This /must/ be defined separately from the 'Proto'
+-- newtype, otherwise ghc won't let us define a 'GHC.HasField' instance.
 getProto (Proto msg) = msg
 
 instance Message msg => Message (Proto msg) where

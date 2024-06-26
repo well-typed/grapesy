@@ -1,6 +1,4 @@
 -- | Streaming types
---
--- TODO: Check haddocks
 module Network.GRPC.Spec.RPC.StreamType (
     StreamingType(..)
     -- * Link RPCs to streaming types
@@ -119,25 +117,31 @@ type family Handler (r :: HandlerRole) (s :: StreamingType) m (rpc :: k) where
   Wrappers
 -------------------------------------------------------------------------------}
 
+-- | Wrapper around @Handler Server@ to avoid ambiguous types
 data ServerHandler' (styp :: StreamingType) m (rpc :: k) where
   ServerHandler ::
        SupportsStreamingType rpc styp
     => Handler Server styp m rpc
     -> ServerHandler' styp m rpc
 
+-- | Wrapper around @Handler Client@ to avoid ambiguous types
 data ClientHandler' (s :: StreamingType) m (rpc :: k) where
   ClientHandler ::
        SupportsStreamingType rpc styp
     => Handler Client styp m rpc
     -> ClientHandler' styp m rpc
 
+-- | Alias for 'ServerHandler'' with the streaming type determined by the @rpc@
 type ServerHandler m rpc = ServerHandler' (RpcStreamingType rpc) m rpc
+
+-- | Alias for 'ClientHandler'' with the streaming type determined by the @rpc@
 type ClientHandler m rpc = ClientHandler' (RpcStreamingType rpc) m rpc
 
 {-------------------------------------------------------------------------------
   Singleton
 -------------------------------------------------------------------------------}
 
+-- | Singleton for 'StreamingType'
 data SStreamingType :: StreamingType -> Type where
   SNonStreaming    :: SStreamingType NonStreaming
   SClientStreaming :: SStreamingType ClientStreaming

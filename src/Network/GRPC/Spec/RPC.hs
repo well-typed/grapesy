@@ -82,6 +82,10 @@ class ( -- Debug constraints
   -- For Protobuf, this is the fully qualified message type.
   rpcMessageType :: HasCallStack => Proxy rpc -> Maybe Strict.ByteString
 
+-- | Default content type string
+--
+-- This is equal to @"application/grpc+format@ for some @format@ such as
+-- @proto@ or @json@. See also 'rpcContentType'.
 defaultRpcContentType :: Strict.ByteString -> Strict.ByteString
 defaultRpcContentType format = "application/grpc+" <> format
 
