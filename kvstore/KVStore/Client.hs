@@ -145,6 +145,7 @@ client Cmdline{cmdJSON} statsVar = do
 -- | Create a random key and value
 doCreate :: KVStore -> RandomAccessSet Key -> IO ()
 doCreate kvstore knownKeys = markRequest "CREATE" $ do
+    hPutStrLn stderr "doing create"
     key   <- createRandomKey knownKeys
     value <- Value <$> randomBytes meanValueSize
 
@@ -156,6 +157,7 @@ doCreate kvstore knownKeys = markRequest "CREATE" $ do
 
     handle handleGrpcException $
       create kvstore (key, value)
+    hPutStrLn stderr "create done"
 
 -- | Retrieve the value of a random key
 doRetrieve :: KVStore -> RandomAccessSet Key -> IO ()
