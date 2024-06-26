@@ -107,6 +107,14 @@ instance ValidStreamingType styp
   Support for constructing JSON objects
 -------------------------------------------------------------------------------}
 
+-- | Convenient way to construct JSON values
+--
+-- Example:
+--
+-- > type instance Input Create =
+-- >   JsonObject '[ '("key"   , Required Key)
+-- >               , '("value" , Required Value)
+-- >               ]
 data JsonObject :: [(Symbol, Type)] -> Type where
   JsonObject :: JsonObject '[]
   (:*) :: forall f x fs. x -> JsonObject fs -> JsonObject ('(f, x) : fs)
@@ -121,8 +129,19 @@ instance (Show x, Show (JsonObject fs))
       . showString " :* "
       . showsPrec 6 xs
 
-newtype Required a = Required { getRequired :: a       } deriving (Show)
-newtype Optional a = Optional { getOptional :: Maybe a } deriving (Show)
+-- | Required field
+newtype Required a = Required {
+     getRequired :: a
+   }
+ deriving (Show)
+
+-- | Optional field
+--
+-- 'Maybe' will be represented by the /absence/ of the field in the object.
+newtype Optional a = Optional {
+      getOptional :: Maybe a
+    }
+  deriving (Show)
 
 infixr 5 :*
 
