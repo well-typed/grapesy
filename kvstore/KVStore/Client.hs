@@ -19,6 +19,8 @@ import KVStore.Util.Profiling
 import KVStore.Util.RandomAccessSet (RandomAccessSet)
 import KVStore.Util.RandomAccessSet qualified as RandomAccessSet
 import KVStore.Util.RandomGen qualified as RandomGen
+import System.IO (hPutStrLn, stderr)
+import Control.Concurrent.Async (mapConcurrently_)
 
 {-------------------------------------------------------------------------------
   Top-level
@@ -98,6 +100,13 @@ client Cmdline{cmdJSON} statsVar = do
           kvstore
             | cmdJSON   = JSON.client     conn
             | otherwise = Protobuf.client conn
+
+      mapConcurrently_
+        ( \_ -> do
+            doCreate kvstore knownKeys
+            modifyIORef' statsVar incNumCreate
+        )
+        [0 .. 100]
 
       forever $ do
         -- Pick a random CRUD action to take

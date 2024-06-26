@@ -10,6 +10,7 @@ import Network.GRPC.Server.Run (waitServer)
 import KVStore.Client
 import KVStore.Cmdline
 import KVStore.Server
+import System.IO (hSetBuffering, BufferMode (..), stderr)
 
 {-------------------------------------------------------------------------------
   Main application
@@ -17,6 +18,7 @@ import KVStore.Server
 
 main :: IO ()
 main = do
+    hSetBuffering stderr LineBuffering
     cmdline <- getCmdline
     case cmdMode cmdline of
       Client ->

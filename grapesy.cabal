@@ -200,7 +200,7 @@ library
     , exceptions           >= 0.10   && < 0.11
     , hashable             >= 1.3    && < 1.5
     , http-types           >= 0.12   && < 0.13
-    , http2                >= 5.2.4  && < 5.3
+    , http2                >= 5.2.6  && < 5.3
     , http2-tls            >= 0.3    && < 0.4
     , lens                 >= 5.0    && < 5.4
     , mtl                  >= 2.2    && < 2.4
@@ -342,7 +342,7 @@ test-suite test-grapesy
     , containers           >= 0.6   && < 0.8
     , exceptions           >= 0.10  && < 0.11
     , http-types           >= 0.12  && < 0.13
-    , http2                >= 5.2.4 && < 5.3
+    , http2                >= 5.2.6 && < 5.3
     , mtl                  >= 2.2   && < 2.4
     , network              >= 3.1   && < 3.3
     , proto-lens-runtime   >= 0.7   && < 0.8
@@ -582,6 +582,7 @@ benchmark grapesy-kvstore
   build-depends:
       grapesy
   build-depends:
+    , async
     , aeson                >= 1.5  && < 2.3
     , base16-bytestring    >= 1.0  && < 1.1
     , base64-bytestring    >= 1.2  && < 1.3
