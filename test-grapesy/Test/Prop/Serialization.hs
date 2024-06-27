@@ -297,9 +297,7 @@ instance Arbitrary (Awkward RequestHeaders) where
       requestCompression         <- awkward
       requestAcceptCompression   <- awkward
       requestContentType         <- awkward
-      -- Don't generate 'Nothing' for requestMessageType, as this would be
-      -- parsed as 'Just MessageTypeDefault'.
-      requestMessageType         <- Just <$> awkward
+      requestMessageType         <- awkward
       requestUserAgent           <- awkward
       requestIncludeTE           <- arbitrary
       requestTraceContext        <- awkward
@@ -426,11 +424,6 @@ instance Arbitrary (Awkward CompressionId) where
           ]
 
 instance Arbitrary (Awkward ContentType) where
-  -- We don't generate
-  --
-  -- > ContentTypeOverride "application/grpc"
-  --
-  -- as this would be parsed as @ContentTypeDefault@
   arbitrary = Awkward <$>
       oneof [
           pure $ ContentTypeDefault
@@ -452,7 +445,7 @@ instance Arbitrary (Awkward MessageType) where
   arbitrary = Awkward <$>
       oneof [
           pure $ MessageTypeDefault
-        , MessageTypeOverride <$> awkward
+        , MessageTypeOverride <$> awkward `suchThat` validMessageType
         ]
 
   shrink (Awkward mt) = Awkward <$>
@@ -462,6 +455,7 @@ instance Arbitrary (Awkward MessageType) where
             [MessageTypeDefault]
           , [ MessageTypeOverride x'
             | x' <- shrink x
+            , validMessageType x'
             ]
           ]
 
@@ -563,11 +557,16 @@ validCompressionId cid =
 validFormat :: Strict.ByteString -> Maybe Strict.ByteString
 validFormat format =
     case BS.Strict.Char8.filter (not . forbiddenChar) format of
-      ""   -> Nothing
-      cid' -> Just cid'
+      ""     -> Nothing
+      "grpc" -> Nothing -- Would be parsed as @ContentTypeDefault@
+      cid'   -> Just cid'
   where
     forbiddenChar :: Char -> Bool
     forbiddenChar c = or [
           isSpace c
         , c `elem` [';']
         ]
+
+validMessageType :: Strict.ByteString -> Bool
+validMessageType "Void" = False -- Would be parsed as @MessageTypeDefault@
+validMessageType _      = True
