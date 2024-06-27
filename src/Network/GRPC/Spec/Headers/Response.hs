@@ -5,7 +5,7 @@
 -- Intended for qualified import.
 --
 -- > import Network.GRPC.Spec.Response qualified as Resp
-module Network.GRPC.Spec.Response (
+module Network.GRPC.Spec.Headers.Response (
     -- * Headers
     ResponseHeaders_(..)
   , ResponseHeaders
@@ -49,11 +49,11 @@ import GHC.Stack
 import Network.HTTP.Types qualified as HTTP
 import Text.Read (readMaybe)
 
-import Network.GRPC.Spec.Common
 import Network.GRPC.Spec.Compression (CompressionId)
 import Network.GRPC.Spec.CustomMetadata.Map
 import Network.GRPC.Spec.CustomMetadata.Raw
 import Network.GRPC.Spec.CustomMetadata.Typed
+import Network.GRPC.Spec.Headers.Common
 import Network.GRPC.Spec.OrcaLoadReport
 import Network.GRPC.Spec.PercentEncoding qualified as PercentEncoding
 import Network.GRPC.Spec.RPC

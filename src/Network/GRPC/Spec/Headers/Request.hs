@@ -5,7 +5,7 @@
 -- Intended for qualified import.
 --
 -- > import Network.GRPC.Spec.Request qualified as Req
-module Network.GRPC.Spec.Request (
+module Network.GRPC.Spec.Headers.Request (
     -- * Inputs (message sent to the peer)
     RequestHeaders_(..)
   , RequestHeaders
@@ -28,10 +28,10 @@ import Data.Proxy
 import Network.HTTP.Types qualified as HTTP
 import Text.Read (readMaybe)
 
-import Network.GRPC.Spec.Common
 import Network.GRPC.Spec.Compression (CompressionId)
 import Network.GRPC.Spec.CustomMetadata.Map
 import Network.GRPC.Spec.CustomMetadata.Raw
+import Network.GRPC.Spec.Headers.Common
 import Network.GRPC.Spec.RPC
 import Network.GRPC.Spec.Timeout
 import Network.GRPC.Spec.TraceContext

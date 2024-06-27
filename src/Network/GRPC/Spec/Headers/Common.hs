@@ -14,7 +14,7 @@
 -- same.
 --
 -- Intended for unqualified import.
-module Network.GRPC.Spec.Common (
+module Network.GRPC.Spec.Headers.Common (
     -- * Content type
     ContentType(..)
   , buildContentType

@@ -134,18 +134,18 @@ library
       Network.GRPC.Server.Session
       Network.GRPC.Spec.Base64
       Network.GRPC.Spec.Call
-      Network.GRPC.Spec.Common
       Network.GRPC.Spec.Compression
       Network.GRPC.Spec.CustomMetadata.Map
       Network.GRPC.Spec.CustomMetadata.NoMetadata
       Network.GRPC.Spec.CustomMetadata.Raw
       Network.GRPC.Spec.CustomMetadata.Typed
+      Network.GRPC.Spec.Headers.Common
+      Network.GRPC.Spec.Headers.PseudoHeaders
+      Network.GRPC.Spec.Headers.Request
+      Network.GRPC.Spec.Headers.Response
       Network.GRPC.Spec.LengthPrefixed
       Network.GRPC.Spec.OrcaLoadReport
       Network.GRPC.Spec.PercentEncoding
-      Network.GRPC.Spec.PseudoHeaders
-      Network.GRPC.Spec.Request
-      Network.GRPC.Spec.Response
       Network.GRPC.Spec.RPC
       Network.GRPC.Spec.RPC.JSON
       Network.GRPC.Spec.RPC.Protobuf
