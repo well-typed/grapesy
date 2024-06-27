@@ -39,7 +39,7 @@ instance ( MaybeKnown serv
   rpcContentType = const $ "application/grpc"
   rpcServiceName = const $ BS.Char8.pack $ maybeSymbolVal (Proxy @serv)
   rpcMethodName  = const $ BS.Char8.pack $ maybeSymbolVal (Proxy @meth)
-  rpcMessageType = const $ Nothing
+  rpcMessageType = const $ Just "Void"
 
 instance ( MaybeKnown serv
          , MaybeKnown meth

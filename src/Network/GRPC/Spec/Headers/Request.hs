@@ -5,7 +5,7 @@
 -- Intended for qualified import.
 --
 -- > import Network.GRPC.Spec.Request qualified as Req
-module Network.GRPC.Spec.Request (
+module Network.GRPC.Spec.Headers.Request (
     -- * Inputs (message sent to the peer)
     RequestHeaders_(..)
   , RequestHeaders
@@ -17,6 +17,7 @@ module Network.GRPC.Spec.Request (
 import Control.Monad
 import Control.Monad.Except (MonadError(throwError))
 import Control.Monad.State (State, execState, modify)
+import Data.Bifunctor
 import Data.ByteString qualified as Strict (ByteString)
 import Data.ByteString.Char8 qualified as BS.Strict.C8
 import Data.ByteString.UTF8 qualified as BS.Strict.UTF8
@@ -25,13 +26,14 @@ import Data.List (intercalate)
 import Data.List.NonEmpty (NonEmpty)
 import Data.Maybe (catMaybes)
 import Data.Proxy
+import GHC.Generics (Generic)
 import Network.HTTP.Types qualified as HTTP
 import Text.Read (readMaybe)
 
-import Network.GRPC.Spec.Common
 import Network.GRPC.Spec.Compression (CompressionId)
 import Network.GRPC.Spec.CustomMetadata.Map
 import Network.GRPC.Spec.CustomMetadata.Raw
+import Network.GRPC.Spec.Headers.Common
 import Network.GRPC.Spec.RPC
 import Network.GRPC.Spec.Timeout
 import Network.GRPC.Spec.TraceContext
@@ -108,8 +110,9 @@ data RequestHeaders_ f = RequestHeaders {
 
 type RequestHeaders = RequestHeaders_ Undecorated
 
-deriving stock instance Show RequestHeaders
-deriving stock instance Eq   RequestHeaders
+deriving stock instance Show    RequestHeaders
+deriving stock instance Eq      RequestHeaders
+deriving stock instance Generic RequestHeaders
 
 instance HKD.Traversable RequestHeaders_ where
   sequence x =
@@ -237,7 +240,7 @@ parseRequestHeaders :: forall rpc m.
 parseRequestHeaders proxy =
       HKD.sequence
     . flip execState uninitRequestHeaders
-    . mapM_ parseHeader
+    . mapM_ (parseHeader . second trim)
   where
     parseHeader :: HTTP.Header -> State (RequestHeaders_ (DecoratedWith m)) ()
     parseHeader hdr@(name, value)

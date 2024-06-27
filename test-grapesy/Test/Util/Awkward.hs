@@ -10,7 +10,8 @@ module Test.Util.Awkward (
 import Control.Monad
 import Data.ByteString qualified as BS.Strict
 import Data.ByteString qualified as Strict (ByteString)
-import Data.Char (ord, chr)
+import Data.ByteString.Char8 qualified as Strict.BS.Char8
+import Data.Char (ord, chr, isSpace)
 import Data.List.NonEmpty (NonEmpty)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -97,7 +98,7 @@ instance ( Arbitrary (Awkward k)
 instance Arbitrary (Awkward Strict.ByteString) where
   arbitrary = sized $ \sz -> Awkward <$> do
       n <- choose (0, sz)
-      BS.Strict.pack <$> replicateM n genChar
+      trimByteString . BS.Strict.pack <$> replicateM n genChar
     where
       -- Generate commas with relatively high probability, so that the tests
       -- for duplicate headers have enough material to work with.
@@ -108,7 +109,7 @@ instance Arbitrary (Awkward Strict.ByteString) where
           ]
 
   shrink =
-        map (Awkward . BS.Strict.pack)
+        map (Awkward . trimByteString . BS.Strict.pack)
       . shrinkList shrinkChar
       . BS.Strict.unpack . getAwkward
     where
@@ -117,12 +118,12 @@ instance Arbitrary (Awkward Strict.ByteString) where
       shrinkChar = map (fromIntegral . ord) . shrink . (chr . fromIntegral)
 
 instance {-# OVERLAPPING #-} Arbitrary (Awkward String) where
-  arbitrary = Awkward <$> arbitrary
-  shrink    = map Awkward . shrink . getAwkward
+  arbitrary = Awkward . trim <$> arbitrary
+  shrink    = map (Awkward . trim) . shrink . getAwkward
 
 instance Arbitrary (Awkward Text) where
-  arbitrary = Awkward . Text.pack . getAwkward <$> arbitrary
-  shrink    = map (Awkward . Text.pack) . shrink . (Text.unpack . getAwkward)
+  arbitrary = Awkward . Text.pack . trim . getAwkward <$> arbitrary
+  shrink    = map (Awkward . Text.pack . trim) . shrink . (Text.unpack . getAwkward)
 
 instance Arbitrary (Awkward Int) where
   arbitrary = Awkward <$> arbitrary
@@ -131,3 +132,23 @@ instance Arbitrary (Awkward Int) where
 instance Arbitrary (Awkward Double) where
   arbitrary = Awkward <$> arbitrary
   shrink    = map Awkward . shrink . getAwkward
+
+{-------------------------------------------------------------------------------
+  Trimming
+
+  Generate only trimmed strings; if we generate a value that has leading or
+  trailing whitespace, we might not be able to parse that value, as parsing may
+  trim the value.
+-------------------------------------------------------------------------------}
+
+trim :: String -> String
+trim =
+      dropWhile isSpace
+    . reverse
+    . dropWhile isSpace
+    . reverse
+
+trimByteString :: Strict.ByteString -> Strict.ByteString
+trimByteString =
+      Strict.BS.Char8.dropWhile    isSpace
+    . Strict.BS.Char8.dropWhileEnd isSpace

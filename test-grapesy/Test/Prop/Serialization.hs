@@ -18,8 +18,14 @@ import Data.Char (isSpace)
 import Data.Function (on)
 import Data.List (nubBy, uncons, intersperse)
 import Data.Maybe (mapMaybe)
+import Data.Text.Lazy qualified as Text.Lazy
+import Data.TreeDiff (ToExpr, ediff, ansiWlEditExpr)
 import Data.Void (Void)
 import Network.HTTP.Types qualified as HTTP
+import Prettyprinter (Doc)
+import Prettyprinter qualified as PP
+import Prettyprinter.Render.Terminal (AnsiStyle)
+import Prettyprinter.Render.Terminal qualified as PP.Ansi
 import Test.Tasty hiding (Timeout)
 import Test.Tasty.QuickCheck
 
@@ -29,6 +35,7 @@ import Network.GRPC.Common.Protobuf
 import Network.GRPC.Spec
 
 import Test.Util.Awkward
+import Test.Util.Orphans ()
 
 tests :: TestTree
 tests = testGroup "Test.Prop.Serialization" [
@@ -86,6 +93,28 @@ tests = testGroup "Test.Prop.Serialization" [
               (showIntermediate .*. labelDups)
               (introduceDups dups . buildTrailersOnly unknown)
               (                     parseTrailersOnly unknown)
+        ]
+    , testGroup "Padding" [
+          testProperty "RequestHeaders" $ \padding ->
+            roundtripWith
+              (showIntermediate .*. labelPadding)
+              (introducePadding padding . buildRequestHeaders unknown)
+              (                           parseRequestHeaders unknown)
+        , testProperty "ResponseHeaders" $ \padding ->
+            roundtripWith
+              (showIntermediate .*. labelPadding)
+              (introducePadding padding . buildResponseHeaders unknown)
+              (                           parseResponseHeaders unknown)
+        , testProperty "ProperTrailers" $ \padding ->
+            roundtripWith
+              (showIntermediate .*. labelPadding)
+              (introducePadding padding . buildProperTrailers)
+              (                           parseProperTrailers unknown)
+        , testProperty "TrailersOnly" $ \padding ->
+            roundtripWith
+              (showIntermediate .*. labelPadding)
+              (introducePadding padding . buildTrailersOnly unknown)
+              (                           parseTrailersOnly unknown)
         ]
     ]
   where
@@ -232,21 +261,29 @@ labelDups (_a, headers) =
 -------------------------------------------------------------------------------}
 
 roundtrip :: forall e a b.
-     (Eq a, Eq e, Show a, Show b, Show e)
+     (Eq a, ToExpr a, Show b, Show e)
   => (a -> b)             -- ^ There
   -> (b -> Except e a)    -- ^ and back again
   -> Awkward a -> Property
 roundtrip = roundtripWith showIntermediate
 
 roundtripWith :: forall e a b.
-     (Eq a, Eq e, Show a, Show e)
+     (Eq a, ToExpr a, Show e)
   => ((a, b) -> Property -> Property) -- ^ Statistics, metadata, ..
   -> (a -> b)             -- ^ There
   -> (b -> Except e a)    -- ^ and back again
   -> Awkward a -> Property
 roundtripWith modProp there back (Awkward a) =
     modProp (a, b) $
-       runExcept (back b) === Right a
+      let ma' = runExcept (back b)
+      in case ma' of
+           Left err ->
+                 counterexample (show err) False
+           Right a'
+             | a == a' ->
+                 property True
+             | otherwise ->
+                 counterexample (renderDoc $ ansiWlEditExpr $ ediff a a') False
    where
      b :: b
      b = there a
@@ -259,6 +296,74 @@ showIntermediate (_, b) = counterexample (show b)
   -> ((a, b) -> Property -> Property)
   -> ((a, b) -> Property -> Property)
 (.*.) f g (a, b) = f (a, b) . g (a, b)
+
+{-------------------------------------------------------------------------------
+  Padding
+-------------------------------------------------------------------------------}
+
+newtype Padding = Padding {
+      getPadding :: Strict.ByteString
+    }
+  deriving Show
+
+instance Arbitrary Padding where
+  arbitrary = do
+      n <- choose (0, 5)
+      Padding . BS.Strict.Char8.pack <$> replicateM n (elements " \t")
+  shrink =
+        map (Padding . BS.Strict.pack)
+      . shrinkList (const []) -- only remove elements from the list
+      . BS.Strict.unpack
+      . getPadding
+
+newtype PaddingPerHeader = PaddingPerHeader {
+      -- | Left and right padding for each header
+      getPaddingPerHeader :: [(Padding, Padding)]
+    }
+  deriving stock (Show)
+
+instance Arbitrary PaddingPerHeader where
+  arbitrary = sized $ \sz -> do
+      n      <- choose (0, sz)
+      PaddingPerHeader <$> replicateM n genPadding
+    where
+      -- Most of the time, no padding
+      genPadding :: Gen (Padding, Padding)
+      genPadding = frequency [
+          (7, (,) <$> pure (Padding "") <*> pure (Padding ""))
+        , (1, (,) <$> arbitrary         <*> pure (Padding ""))
+        , (1, (,) <$> pure (Padding "") <*> arbitrary)
+        , (1, (,) <$> arbitrary         <*> arbitrary)
+        ]
+
+
+  shrink =
+        map PaddingPerHeader
+      . shrinkList shrink
+      . getPaddingPerHeader
+
+introducePadding :: PaddingPerHeader -> [HTTP.Header] -> [HTTP.Header]
+introducePadding = \(PaddingPerHeader padding) ->
+    flip evalState padding . mapM go
+  where
+    go :: HTTP.Header -> State [(Padding, Padding)] HTTP.Header
+    go (name, value) = state $ \case
+      [] ->
+        ((name, value), [])
+      (l, r) : padding' ->
+        ((name, getPadding l <> value <> getPadding r), padding')
+
+labelPadding :: (a, [HTTP.Header]) -> Property -> Property
+labelPadding (_a, headers) =
+    tabulate "has padding" [
+        show $ any (hasPadding . snd) headers
+      ]
+  where
+    hasPadding :: Strict.ByteString -> Bool
+    hasPadding bs = or [
+          not . BS.Strict.null $ BS.Strict.Char8.takeWhile    isSpace bs
+        , not . BS.Strict.null $ BS.Strict.Char8.takeWhileEnd isSpace bs
+        ]
 
 {-------------------------------------------------------------------------------
   Arbitrary instances
@@ -297,9 +402,7 @@ instance Arbitrary (Awkward RequestHeaders) where
       requestCompression         <- awkward
       requestAcceptCompression   <- awkward
       requestContentType         <- awkward
-      -- Don't generate 'Nothing' for requestMessageType, as this would be
-      -- parsed as 'Just MessageTypeDefault'.
-      requestMessageType         <- Just <$> awkward
+      requestMessageType         <- awkward
       requestUserAgent           <- awkward
       requestIncludeTE           <- arbitrary
       requestTraceContext        <- awkward
@@ -426,11 +529,6 @@ instance Arbitrary (Awkward CompressionId) where
           ]
 
 instance Arbitrary (Awkward ContentType) where
-  -- We don't generate
-  --
-  -- > ContentTypeOverride "application/grpc"
-  --
-  -- as this would be parsed as @ContentTypeDefault@
   arbitrary = Awkward <$>
       oneof [
           pure $ ContentTypeDefault
@@ -452,7 +550,7 @@ instance Arbitrary (Awkward MessageType) where
   arbitrary = Awkward <$>
       oneof [
           pure $ MessageTypeDefault
-        , MessageTypeOverride <$> awkward
+        , MessageTypeOverride <$> awkward `suchThat` validMessageType
         ]
 
   shrink (Awkward mt) = Awkward <$>
@@ -462,6 +560,7 @@ instance Arbitrary (Awkward MessageType) where
             [MessageTypeDefault]
           , [ MessageTypeOverride x'
             | x' <- shrink x
+            , validMessageType x'
             ]
           ]
 
@@ -545,7 +644,7 @@ instance Arbitrary (Awkward OrcaLoadReport) where
           & #applicationUtilization .~ applicationUtilization
 
 {-------------------------------------------------------------------------------
-  Auxiliary
+  Generating valid values
 -------------------------------------------------------------------------------}
 
 validCompressionId :: String -> Maybe String
@@ -563,11 +662,31 @@ validCompressionId cid =
 validFormat :: Strict.ByteString -> Maybe Strict.ByteString
 validFormat format =
     case BS.Strict.Char8.filter (not . forbiddenChar) format of
-      ""   -> Nothing
-      cid' -> Just cid'
+      ""     -> Nothing
+      "grpc" -> Nothing -- Would be parsed as @ContentTypeDefault@
+      cid'   -> Just cid'
   where
     forbiddenChar :: Char -> Bool
     forbiddenChar c = or [
           isSpace c
         , c `elem` [';']
         ]
+
+validMessageType :: Strict.ByteString -> Bool
+validMessageType "Void" = False -- Would be parsed as @MessageTypeDefault@
+validMessageType _      = True
+
+{-------------------------------------------------------------------------------
+  Auxiliary
+-------------------------------------------------------------------------------}
+
+renderDoc :: Doc AnsiStyle -> String
+renderDoc =
+      Text.Lazy.unpack
+    . PP.Ansi.renderLazy
+    . resetTerminal
+    . PP.layoutPretty PP.defaultLayoutOptions
+  where
+    -- Reset the vivid red from tasty
+    resetTerminal :: PP.SimpleDocStream AnsiStyle -> PP.SimpleDocStream AnsiStyle
+    resetTerminal = PP.SAnnPush $ PP.Ansi.color PP.Ansi.Black

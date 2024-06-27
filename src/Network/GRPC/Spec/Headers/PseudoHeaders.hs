@@ -3,7 +3,7 @@
 -- | Part of the gRPC spec that maps to HTTP2 pseudo-headers
 --
 -- Intended for unqualified import.
-module Network.GRPC.Spec.PseudoHeaders (
+module Network.GRPC.Spec.Headers.PseudoHeaders (
     -- * Definition
     ServerHeaders(..)
   , ResourceHeaders(..)

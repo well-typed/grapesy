@@ -176,17 +176,17 @@ module Network.GRPC.Spec (
   ) where
 
 import Network.GRPC.Spec.Call
-import Network.GRPC.Spec.Common
 import Network.GRPC.Spec.Compression
 import Network.GRPC.Spec.CustomMetadata.Map
 import Network.GRPC.Spec.CustomMetadata.NoMetadata
 import Network.GRPC.Spec.CustomMetadata.Raw
 import Network.GRPC.Spec.CustomMetadata.Typed
+import Network.GRPC.Spec.Headers.Common
+import Network.GRPC.Spec.Headers.PseudoHeaders
+import Network.GRPC.Spec.Headers.Request
+import Network.GRPC.Spec.Headers.Response
 import Network.GRPC.Spec.LengthPrefixed
 import Network.GRPC.Spec.OrcaLoadReport
-import Network.GRPC.Spec.PseudoHeaders
-import Network.GRPC.Spec.Request
-import Network.GRPC.Spec.Response
 import Network.GRPC.Spec.RPC
 import Network.GRPC.Spec.RPC.JSON
 import Network.GRPC.Spec.RPC.Protobuf

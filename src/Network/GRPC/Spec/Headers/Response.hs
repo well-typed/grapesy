@@ -5,7 +5,7 @@
 -- Intended for qualified import.
 --
 -- > import Network.GRPC.Spec.Response qualified as Resp
-module Network.GRPC.Spec.Response (
+module Network.GRPC.Spec.Headers.Response (
     -- * Headers
     ResponseHeaders_(..)
   , ResponseHeaders
@@ -38,6 +38,7 @@ module Network.GRPC.Spec.Response (
 import Control.Exception
 import Control.Monad.Except
 import Control.Monad.State
+import Data.Bifunctor
 import Data.ByteString qualified as BS.Strict
 import Data.ByteString qualified as Strict (ByteString)
 import Data.ByteString.Char8 qualified as BS.Strict.C8
@@ -45,15 +46,16 @@ import Data.CaseInsensitive qualified as CI
 import Data.List.NonEmpty (NonEmpty)
 import Data.Proxy
 import Data.Text (Text)
+import GHC.Generics (Generic)
 import GHC.Stack
 import Network.HTTP.Types qualified as HTTP
 import Text.Read (readMaybe)
 
-import Network.GRPC.Spec.Common
 import Network.GRPC.Spec.Compression (CompressionId)
 import Network.GRPC.Spec.CustomMetadata.Map
 import Network.GRPC.Spec.CustomMetadata.Raw
 import Network.GRPC.Spec.CustomMetadata.Typed
+import Network.GRPC.Spec.Headers.Common
 import Network.GRPC.Spec.OrcaLoadReport
 import Network.GRPC.Spec.PercentEncoding qualified as PercentEncoding
 import Network.GRPC.Spec.RPC
@@ -88,8 +90,9 @@ data ResponseHeaders_ f = ResponseHeaders {
 
 type ResponseHeaders = ResponseHeaders_ Undecorated
 
-deriving stock instance Show ResponseHeaders
-deriving stock instance Eq   ResponseHeaders
+deriving stock instance Show    ResponseHeaders
+deriving stock instance Eq      ResponseHeaders
+deriving stock instance Generic ResponseHeaders
 
 instance HKD.Traversable ResponseHeaders_ where
   sequence x =
@@ -134,8 +137,9 @@ data ProperTrailers_ f = ProperTrailers {
 
 type ProperTrailers = ProperTrailers_ Undecorated
 
-deriving stock instance Show ProperTrailers
-deriving stock instance Eq   ProperTrailers
+deriving stock instance Show    ProperTrailers
+deriving stock instance Eq      ProperTrailers
+deriving stock instance Generic ProperTrailers
 
 instance HKD.Traversable ProperTrailers_ where
   sequence x =
@@ -160,6 +164,7 @@ data TrailersOnly_ f = TrailersOnly {
     }
 
 type TrailersOnly = TrailersOnly_ Undecorated
+deriving stock instance Generic TrailersOnly
 
 deriving stock instance Show TrailersOnly
 deriving stock instance Eq   TrailersOnly
@@ -206,7 +211,7 @@ trailersOnlyToProperTrailers TrailersOnly{
 data Pushback =
     RetryAfter Word
   | DoNotRetry
-  deriving (Show, Eq)
+  deriving (Show, Eq, Generic)
 
 buildPushback :: Pushback -> Strict.ByteString
 buildPushback (RetryAfter n) = BS.Strict.C8.pack $ show n
@@ -319,10 +324,6 @@ grpcExceptionToTrailers GrpcException{
   fewer errors. Perhaps have an @Invalid@ constructor or something, so that we
   can mark incoming headers that were not valid, but still give them to the
   user, but then throw an error if we try to /send/ those.
-
-  TODO: Related to the above, the spec says: "Implementations MUST accept padded
-  and un-padded values and should emit un-padded values." We don't currently do
-  this for incoming headers.
 -------------------------------------------------------------------------------}
 
 -- | Build response headers
@@ -357,7 +358,7 @@ parseResponseHeaders :: forall rpc m.
 parseResponseHeaders proxy =
       HKD.sequence
     . flip execState uninitResponseHeaders
-    . mapM_ parseHeader
+    . mapM_ (parseHeader . second trim)
   where
     -- HTTP2 header names are always lowercase, and must be ASCII.
     -- <https://datatracker.ietf.org/doc/html/rfc7540#section-8.1.2>
@@ -511,7 +512,7 @@ parseTrailersOnly :: forall m rpc.
 parseTrailersOnly proxy =
       HKD.sequence
     . flip execState uninitTrailersOnly
-    . mapM_ parseHeader
+    . mapM_ (parseHeader . second trim)
   where
     parseHeader :: HTTP.Header -> State (TrailersOnly_ (DecoratedWith m)) ()
     parseHeader hdr@(name, value)

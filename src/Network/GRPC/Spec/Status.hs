@@ -7,6 +7,7 @@ module Network.GRPC.Spec.Status (
   ) where
 
 import Control.Exception
+import GHC.Generics (Generic)
 
 {-------------------------------------------------------------------------------
   gRPC status
@@ -18,7 +19,7 @@ import Control.Exception
 data GrpcStatus =
     GrpcOk
   | GrpcError GrpcError
-  deriving stock (Show, Eq)
+  deriving stock (Show, Eq, Generic)
 
 -- | gRPC error code
 --
@@ -166,7 +167,7 @@ data GrpcError =
     -- The request does not have valid authentication credentials for the
     -- operation.
   | GrpcUnauthenticated
-  deriving stock (Show, Eq)
+  deriving stock (Show, Eq, Generic)
   deriving anyclass (Exception)
 
 fromGrpcStatus :: GrpcStatus -> Word
