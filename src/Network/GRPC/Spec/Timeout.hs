@@ -18,6 +18,7 @@ import Data.ByteString qualified as BS.Strict
 import Data.ByteString qualified as Strict (ByteString)
 import Data.ByteString.Char8 qualified as BS.Strict.C8
 import Data.Char (isDigit)
+import GHC.Generics (Generic)
 import GHC.Show
 
 {-------------------------------------------------------------------------------
@@ -25,13 +26,14 @@ import GHC.Show
 -------------------------------------------------------------------------------}
 
 data Timeout = Timeout TimeoutUnit TimeoutValue
-  deriving stock (Show, Eq)
+  deriving stock (Show, Eq, Generic)
 
 -- | Positive integer with ASCII representation of at most 8 digits
 newtype TimeoutValue = UnsafeTimeoutValue {
       getTimeoutValue :: Word
     }
   deriving newtype (Eq)
+  deriving stock (Generic)
 
 -- | 'Show' instance relies on the 'TimeoutValue' pattern synonym
 instance Show TimeoutValue where
@@ -58,7 +60,7 @@ data TimeoutUnit =
   | Millisecond
   | Microsecond
   | Nanosecond
-  deriving stock (Show, Eq)
+  deriving stock (Show, Eq, Generic)
 
 {-------------------------------------------------------------------------------
   Translation

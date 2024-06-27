@@ -28,6 +28,8 @@ module Network.GRPC.Spec.Headers.Common (
   , buildMessageAcceptEncoding
   , parseMessageEncoding
   , parseMessageAcceptEncoding
+    -- * Utilities
+  , trim
   ) where
 
 import Control.Monad
@@ -41,6 +43,8 @@ import Data.List (intersperse)
 import Data.List.NonEmpty (NonEmpty(..))
 import Data.Proxy
 import Data.Typeable
+import Data.Word
+import GHC.Generics (Generic)
 import Network.HTTP.Types qualified as HTTP
 
 import Network.GRPC.Spec.Compression
@@ -71,7 +75,7 @@ data ContentType =
     -- of the Content-Type header; the gRPC spec however disallows most of what
     -- is technically allowed by this RPC.
   | ContentTypeOverride Strict.ByteString
-  deriving stock (Show, Eq)
+  deriving stock (Show, Eq, Generic)
 
 instance Default ContentType where
   def = ContentTypeDefault
@@ -163,7 +167,7 @@ data MessageType =
 
     -- | Override the message type
   | MessageTypeOverride Strict.ByteString
-  deriving stock (Show, Eq)
+  deriving stock (Show, Eq, Generic)
 
 instance Default MessageType where
   def = MessageTypeDefault
@@ -257,3 +261,20 @@ expectAtLeastOne []       = throwError $ concat [
                                 "Expected at least one "
                               , show (typeRep (Proxy @a))
                               ]
+{-------------------------------------------------------------------------------
+  Utilities
+-------------------------------------------------------------------------------}
+
+-- | Trim leading or trailing whitespace
+--
+-- We only allow for space and tab, based on
+-- <https://www.rfc-editor.org/rfc/rfc9110.html#name-whitespace>.
+trim :: Strict.ByteString -> Strict.ByteString
+trim = ltrim . rtrim
+  where
+    ltrim, rtrim :: Strict.ByteString -> Strict.ByteString
+    ltrim = BS.Strict.dropWhile    isSpace
+    rtrim = BS.Strict.dropWhileEnd isSpace
+
+    isSpace :: Word8 -> Bool
+    isSpace x = x == 32 || x == 9

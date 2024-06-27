@@ -14,6 +14,7 @@ import Data.ByteString qualified as Strict (ByteString)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
+import GHC.Generics (Generic)
 
 import Network.GRPC.Spec.CustomMetadata.Raw
 
@@ -35,7 +36,7 @@ import Network.GRPC.Spec.CustomMetadata.Raw
 newtype CustomMetadataMap = CustomMetadataMap {
       getCustomMetadataMap :: Map HeaderName Strict.ByteString
     }
-  deriving stock (Show, Eq)
+  deriving stock (Show, Eq, Generic)
 
 {-------------------------------------------------------------------------------
   Dealing with duplicates

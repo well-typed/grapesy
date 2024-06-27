@@ -30,6 +30,7 @@ import Data.ByteString.UTF8 qualified as BS.Strict.UTF8
 import Data.Int (Int64)
 import Data.List.NonEmpty (NonEmpty(..))
 import Data.String
+import GHC.Generics (Generic)
 
 #ifdef SNAPPY
 import Codec.Compression.SnappyC.Framed qualified as Snappy
@@ -92,7 +93,7 @@ data CompressionId =
   | Deflate
   | Snappy
   | Custom String
-  deriving stock (Eq, Ord)
+  deriving stock (Eq, Ord, Generic)
 
 serializeCompressionId :: CompressionId -> Strict.ByteString
 serializeCompressionId Identity   = "identity"

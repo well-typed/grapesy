@@ -26,6 +26,7 @@ import Data.Default
 import Data.Maybe (maybeToList)
 import Data.String
 import Data.Word
+import GHC.Generics (Generic)
 
 {-------------------------------------------------------------------------------
   Definition
@@ -67,7 +68,7 @@ data TraceContext = TraceContext {
     , traceContextSpanId   :: Maybe SpanId
     , traceContextOptions  :: Maybe TraceOptions
     }
-  deriving stock (Show, Eq)
+  deriving stock (Show, Eq, Generic)
 
 instance Default TraceContext where
   def = TraceContext {
@@ -82,7 +83,7 @@ instance Default TraceContext where
 newtype TraceId = TraceId {
       getTraceId :: Strict.ByteString
     }
-  deriving stock (Eq)
+  deriving stock (Eq, Generic)
 
 -- | Span ID
 --
@@ -90,7 +91,7 @@ newtype TraceId = TraceId {
 newtype SpanId = SpanId {
       getSpanId :: Strict.ByteString
     }
-  deriving stock (Eq)
+  deriving stock (Eq, Generic)
 
 -- | Tracing options
 --
@@ -108,7 +109,7 @@ data TraceOptions = TraceOptions {
       -- unset, the caller did not record trace data out-of-band.
       traceOptionsSampled :: Bool
     }
-  deriving stock (Show, Eq)
+  deriving stock (Show, Eq, Generic)
 
 {-------------------------------------------------------------------------------
   Show instances for IDs
