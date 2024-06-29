@@ -45,30 +45,32 @@ init initCompr = Meta {
 -- | Update 'Meta' given response headers
 --
 -- Returns the updated 'Meta'.
-update :: MonadThrow m => Compr.Negotation -> ResponseHeaders -> Meta -> m Meta
+update :: MonadThrow m => Compr.Negotation -> ResponseHeaders' -> Meta -> m Meta
 update compr hdrs meta =
-         Meta
-           <$> updateCompression
-                 compr
-                 (responseAcceptCompression hdrs)
-                 (outboundCompression meta)
+    Meta
+      <$> updateCompression
+            compr
+            (responseAcceptCompression hdrs)
+            (outboundCompression meta)
 
 -- Update choice of compression, if necessary
 --
--- We have three possibilities:
+-- We have four possibilities:
 --
 -- a. We chose from the list of server reported supported algorithms
 -- b. The server didn't report which algorithms are supported
 -- c. Compression algorithms have already been set
+-- d. We could not parse the list of compression algorithms sent by the server
 updateCompression :: forall m.
      MonadThrow m
   => Compr.Negotation
-  -> Maybe (NonEmpty CompressionId)
+  -> Either InvalidHeaders (Maybe (NonEmpty CompressionId))
   -> Maybe Compression -> m (Maybe Compression)
-updateCompression negotation accepted = go
+updateCompression negotation (Right accepted) = go
   where
     go :: Maybe Compression -> m (Maybe Compression)
     go Nothing      = case Compr.choose negotation <$> accepted of
                         Just compr -> return $ Just compr  -- (a)
                         Nothing    -> return Nothing       -- (b)
     go (Just compr) = return $ Just compr                  -- (c)
+updateCompression _ (Left _invalid) = return               -- (d)

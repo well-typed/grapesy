@@ -140,6 +140,7 @@ library
       Network.GRPC.Spec.CustomMetadata.Raw
       Network.GRPC.Spec.CustomMetadata.Typed
       Network.GRPC.Spec.Headers.Common
+      Network.GRPC.Spec.Headers.Invalid
       Network.GRPC.Spec.Headers.PseudoHeaders
       Network.GRPC.Spec.Headers.Request
       Network.GRPC.Spec.Headers.Response

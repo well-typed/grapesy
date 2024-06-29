@@ -9,11 +9,15 @@ module Network.GRPC.Spec.Headers.Response (
     -- * Headers
     ResponseHeaders_(..)
   , ResponseHeaders
+  , ResponseHeaders'
   , ProperTrailers_(..)
   , ProperTrailers
+  , ProperTrailers'
   , TrailersOnly_(..)
   , TrailersOnly
+  , TrailersOnly'
   , Pushback(..)
+  , simpleProperTrailers
   , trailersOnlyToProperTrailers
   , properTrailersToTrailersOnly
     -- * gRPC termination
@@ -30,8 +34,11 @@ module Network.GRPC.Spec.Headers.Response (
   , buildPushback
     -- ** Parsing
   , parseResponseHeaders
+  , parseResponseHeaders'
   , parseProperTrailers
+  , parseProperTrailers'
   , parseTrailersOnly
+  , parseTrailersOnly'
   , parsePushback
   ) where
 
@@ -47,7 +54,6 @@ import Data.List.NonEmpty (NonEmpty)
 import Data.Proxy
 import Data.Text (Text)
 import GHC.Generics (Generic)
-import GHC.Stack
 import Network.HTTP.Types qualified as HTTP
 import Text.Read (readMaybe)
 
@@ -56,6 +62,7 @@ import Network.GRPC.Spec.CustomMetadata.Map
 import Network.GRPC.Spec.CustomMetadata.Raw
 import Network.GRPC.Spec.CustomMetadata.Typed
 import Network.GRPC.Spec.Headers.Common
+import Network.GRPC.Spec.Headers.Invalid
 import Network.GRPC.Spec.OrcaLoadReport
 import Network.GRPC.Spec.PercentEncoding qualified as PercentEncoding
 import Network.GRPC.Spec.RPC
@@ -76,31 +83,46 @@ data ResponseHeaders_ f = ResponseHeaders {
       -- | Compression accepted for inbound messages
     , responseAcceptCompression :: HKD f (Maybe (NonEmpty CompressionId))
 
-      -- | Initial response metadata
-      --
-      -- The response can include additional metadata in the trailers; see
-      -- 'properTrailersMetadata'.
-    , responseMetadata :: HKD f CustomMetadataMap
-
       -- | Content-type
       --
       -- Set to 'Nothing' to omit the content-type header altogether.
     , responseContentType :: HKD f (Maybe ContentType)
+
+      -- | Initial response metadata
+      --
+      -- The response can include additional metadata in the trailers; see
+      -- 'properTrailersMetadata'.
+    , responseMetadata :: CustomMetadataMap
+
+      -- | Unrecognized headers
+    , responseUnrecognized :: HKD f ()
     }
 
+-- | Response headers (without allowing for invalid headers)
+--
+-- See 'RequestHeaders' for an explanation of @Undecorated@.
 type ResponseHeaders = ResponseHeaders_ Undecorated
+
+-- | Response headers allowing for invalid headers
+--
+-- See 'RequestHeaders'' for an explanation of @DecoratedWith@.
+type ResponseHeaders' = ResponseHeaders_ (DecoratedWith (Either InvalidHeaders))
 
 deriving stock instance Show    ResponseHeaders
 deriving stock instance Eq      ResponseHeaders
 deriving stock instance Generic ResponseHeaders
+
+deriving stock instance Show ResponseHeaders'
+deriving stock instance Eq   ResponseHeaders'
 
 instance HKD.Traversable ResponseHeaders_ where
   sequence x =
       ResponseHeaders
         <$> responseCompression       x
         <*> responseAcceptCompression x
-        <*> responseMetadata          x
         <*> responseContentType       x
+        <*> pure (responseMetadata    x)
+        <*> responseUnrecognized      x
 
 -- | Information sent by the peer after the final output
 --
@@ -118,11 +140,6 @@ data ProperTrailers_ f = ProperTrailers {
       -- NOTE: in @grapesy@ this message is only used in error cases.
     , properTrailersGrpcMessage :: HKD f (Maybe Text)
 
-      -- | Trailing metadata
-      --
-      -- See also 'responseMetadata' for the initial metadata.
-    , properTrailersMetadata :: HKD f CustomMetadataMap
-
       -- | Server pushback
       --
       -- This is part of automatic retries.
@@ -133,22 +150,54 @@ data ProperTrailers_ f = ProperTrailers {
       --
       -- See <https://github.com/grpc/proposal/blob/master/A51-custom-backend-metrics.md>
     , properTrailersOrcaLoadReport :: HKD f (Maybe OrcaLoadReport)
+
+      -- | Trailing metadata
+      --
+      -- See also 'responseMetadata' for the initial metadata.
+    , properTrailersMetadata :: CustomMetadataMap
+
+      -- | Unrecognized trailers
+    , properTrailersUnrecognized :: HKD f ()
     }
 
+-- | Default constructor for 'ProperTrailers'
+simpleProperTrailers :: forall f.
+     HKD.ValidDecoration Applicative f
+  => HKD f GrpcStatus
+  -> HKD f (Maybe Text)
+  -> CustomMetadataMap
+  -> ProperTrailers_ f
+simpleProperTrailers status msg metadata = ProperTrailers {
+      properTrailersGrpcStatus     = status
+    , properTrailersGrpcMessage    = msg
+    , properTrailersPushback       = HKD.pure (Proxy @f) (Nothing :: Maybe Pushback)
+    , properTrailersOrcaLoadReport = HKD.pure (Proxy @f) (Nothing :: Maybe OrcaLoadReport)
+    , properTrailersMetadata       = metadata
+    , properTrailersUnrecognized   = HKD.pure (Proxy @f) ()
+    }
+
+-- | Trailers sent after the response (without allowing for invalid trailers)
 type ProperTrailers = ProperTrailers_ Undecorated
+
+-- | Trailers sent after the response, allowing for invalid trailers
+type ProperTrailers' = ProperTrailers_ (DecoratedWith (Either InvalidHeaders))
 
 deriving stock instance Show    ProperTrailers
 deriving stock instance Eq      ProperTrailers
 deriving stock instance Generic ProperTrailers
+
+deriving stock instance Show ProperTrailers'
+deriving stock instance Eq   ProperTrailers'
 
 instance HKD.Traversable ProperTrailers_ where
   sequence x =
       ProperTrailers
         <$> properTrailersGrpcStatus     x
         <*> properTrailersGrpcMessage    x
-        <*> properTrailersMetadata       x
         <*> properTrailersPushback       x
         <*> properTrailersOrcaLoadReport x
+        <*> pure (properTrailersMetadata x)
+        <*> properTrailersUnrecognized   x
 
 -- | Trailers sent in the gRPC Trailers-Only case
 --
@@ -163,11 +212,18 @@ data TrailersOnly_ f = TrailersOnly {
     , trailersOnlyProper :: ProperTrailers_ f
     }
 
+-- | Trailers for the Trailers-Only case (without allowing for invalid trailers)
 type TrailersOnly = TrailersOnly_ Undecorated
+
+-- | Trailers for the Trailers-Only case, allowing for invalid headers
+type TrailersOnly' = TrailersOnly_ (DecoratedWith (Either InvalidHeaders))
+
+deriving stock instance Show    TrailersOnly
+deriving stock instance Eq      TrailersOnly
 deriving stock instance Generic TrailersOnly
 
-deriving stock instance Show TrailersOnly
-deriving stock instance Eq   TrailersOnly
+deriving stock instance Show TrailersOnly'
+deriving stock instance Eq   TrailersOnly'
 
 instance HKD.Traversable TrailersOnly_ where
   sequence x =
@@ -177,8 +233,8 @@ instance HKD.Traversable TrailersOnly_ where
 
 -- | 'ProperTrailers' is a subset of 'TrailersOnly'
 properTrailersToTrailersOnly ::
-     (ProperTrailers, Maybe ContentType)
-  -> TrailersOnly
+     (ProperTrailers_ f, HKD f (Maybe ContentType))
+  -> TrailersOnly_ f
 properTrailersToTrailersOnly (proper, ct) = TrailersOnly {
       trailersOnlyProper      = proper
     , trailersOnlyContentType = ct
@@ -186,8 +242,8 @@ properTrailersToTrailersOnly (proper, ct) = TrailersOnly {
 
 -- | 'TrailersOnly' is a superset of 'ProperTrailers'
 trailersOnlyToProperTrailers ::
-      TrailersOnly
-   -> (ProperTrailers, Maybe ContentType)
+      TrailersOnly_ f
+   -> (ProperTrailers_ f, HKD f (Maybe ContentType))
 trailersOnlyToProperTrailers TrailersOnly{
                                  trailersOnlyProper
                                , trailersOnlyContentType
@@ -279,7 +335,7 @@ data GrpcNormalTermination = GrpcNormalTermination {
 -- non-error cases, simply indicating that the server considers the
 -- conversation over. To distinguish, we look at 'trailerGrpcStatus'.
 grpcClassifyTermination ::
-     ProperTrailers
+     ProperTrailers'
   -> Either GrpcException GrpcNormalTermination
 grpcClassifyTermination ProperTrailers {
                               properTrailersGrpcStatus
@@ -287,12 +343,19 @@ grpcClassifyTermination ProperTrailers {
                             , properTrailersMetadata
                             } =
     case properTrailersGrpcStatus of
-      GrpcOk -> Right GrpcNormalTermination {
+      Right GrpcOk -> Right GrpcNormalTermination {
           grpcTerminatedMetadata = customMetadataMapToList properTrailersMetadata
         }
-      GrpcError err -> Left GrpcException{
+      Right (GrpcError err) -> Left GrpcException{
           grpcError         = err
-        , grpcErrorMessage  = properTrailersGrpcMessage
+        , grpcErrorMessage  = case properTrailersGrpcMessage of
+                                Right msg -> msg
+                                Left  _   -> Just "Invalid grpc-message"
+        , grpcErrorMetadata = customMetadataMapToList properTrailersMetadata
+        }
+      Left _invalidStatus -> Left GrpcException {
+          grpcError         = GrpcUnknown
+        , grpcErrorMessage  = Just "Invalid grpc-status"
         , grpcErrorMetadata = customMetadataMapToList properTrailersMetadata
         }
 
@@ -302,13 +365,11 @@ grpcExceptionToTrailers GrpcException{
                             grpcError
                           , grpcErrorMessage
                           , grpcErrorMetadata
-                          } = ProperTrailers{
-      properTrailersGrpcStatus     = GrpcError grpcError
-    , properTrailersGrpcMessage    = grpcErrorMessage
-    , properTrailersMetadata       = customMetadataMapFromList grpcErrorMetadata
-    , properTrailersPushback       = Nothing
-    , properTrailersOrcaLoadReport = Nothing
-    }
+                          } =
+    simpleProperTrailers
+      (GrpcError grpcError)
+      grpcErrorMessage
+      (customMetadataMapFromList grpcErrorMetadata)
 
 {-------------------------------------------------------------------------------
   > Response-Headers →
@@ -319,11 +380,6 @@ grpcExceptionToTrailers GrpcException{
   >   *Custom-Metadata
 
   We do not deal with @HTTP-Status@ here; @http2@ deals this separately.
-
-  TODO: We should attempt to be more lenient in our parsing here, and throw
-  fewer errors. Perhaps have an @Invalid@ constructor or something, so that we
-  can mark incoming headers that were not valid, but still give them to the
-  user, but then throw an error if we try to /send/ those.
 -------------------------------------------------------------------------------}
 
 -- | Build response headers
@@ -353,16 +409,20 @@ buildResponseHeaders proxy
 
 -- | Parse response headers
 parseResponseHeaders :: forall rpc m.
-     (IsRPC rpc, MonadError String m)
+     (IsRPC rpc, MonadError InvalidHeaders m)
   => Proxy rpc -> [HTTP.Header] -> m ResponseHeaders
-parseResponseHeaders proxy =
-      HKD.sequence
-    . flip execState uninitResponseHeaders
+parseResponseHeaders proxy = HKD.sequenceThrow . parseResponseHeaders' proxy
+
+parseResponseHeaders' :: forall rpc.
+     IsRPC rpc
+  => Proxy rpc -> [HTTP.Header] -> ResponseHeaders'
+parseResponseHeaders' proxy =
+      flip execState uninitResponseHeaders
     . mapM_ (parseHeader . second trim)
   where
     -- HTTP2 header names are always lowercase, and must be ASCII.
     -- <https://datatracker.ietf.org/doc/html/rfc7540#section-8.1.2>
-    parseHeader :: HTTP.Header -> State (ResponseHeaders_ (DecoratedWith m)) ()
+    parseHeader :: HTTP.Header -> State ResponseHeaders' ()
     parseHeader hdr@(name, _value)
       | name == "content-type"
       = modify $ \x -> x {
@@ -383,18 +443,26 @@ parseResponseHeaders proxy =
       = return () -- ignore the HTTP trailer header
 
       | otherwise
-      = modify $ \x -> x {
-            responseMetadata = do
-              md <- parseCustomMetadata hdr
-              customMetadataMapInsert md <$> responseMetadata x
-          }
+      = modify $ \x ->
+          case parseCustomMetadata hdr of
+            Left invalid -> x{
+                responseUnrecognized = Left $ mconcat [
+                    invalid
+                  , otherInvalid $ responseUnrecognized x
+                  ]
+              }
+            Right md -> x{
+                responseMetadata =
+                  customMetadataMapInsert md $ responseMetadata x
+              }
 
-    uninitResponseHeaders :: ResponseHeaders_ (DecoratedWith m)
+    uninitResponseHeaders :: ResponseHeaders'
     uninitResponseHeaders = ResponseHeaders {
           responseCompression       = return Nothing
         , responseAcceptCompression = return Nothing
-        , responseMetadata          = return mempty
         , responseContentType       = return Nothing
+        , responseMetadata          = mempty
+        , responseUnrecognized      = return ()
         }
 
 {-------------------------------------------------------------------------------
@@ -490,31 +558,50 @@ buildTrailersOnly proxy TrailersOnly{
 -- This means that Trailers-Only is a superset of the Trailers; we make use of
 -- this here, and error out if we get an unexpected @Content-Type@ override.
 parseProperTrailers :: forall rpc m.
-     (IsRPC rpc, MonadError String m, HasCallStack)
+     (IsRPC rpc, MonadError InvalidHeaders m)
   => Proxy rpc -> [HTTP.Header] -> m ProperTrailers
-parseProperTrailers proxy hdrs = do
-    trailersOnly <- parseTrailersOnly proxy hdrs
-    case trailersOnlyToProperTrailers trailersOnly of
-      (properTrailers, Nothing) ->
-        return properTrailers
-      (_, Just ct) ->
-        throwError $ concat [
-            "parseProperTrailers: unexpected "
-          , show ct
-          , " at "
-          , prettyCallStack callStack
-          ]
+parseProperTrailers proxy = HKD.sequenceThrow . parseProperTrailers' proxy
 
--- | Parse trailers in the gRPC @Trailers-Only@ case
+parseProperTrailers' :: forall rpc.
+     IsRPC rpc
+  => Proxy rpc -> [HTTP.Header] -> ProperTrailers'
+parseProperTrailers' proxy hdrs =
+    case trailersOnlyToProperTrailers trailersOnly of
+      (properTrailers, Right Nothing) ->
+         properTrailers
+      (properTrailers, Right (Just _ct)) ->
+         properTrailers {
+             properTrailersUnrecognized = Left $ mconcat [
+                 unexpectedHeader "content-type"
+               , otherInvalid $ properTrailersUnrecognized properTrailers
+               ]
+           }
+      (properTrailers, Left invalid) ->
+         -- The @content-type@ header is present, /and/ invalid!
+         properTrailers {
+           properTrailersUnrecognized = Left $ mconcat [
+               unexpectedHeader "content-type"
+             , invalid
+             , otherInvalid $ properTrailersUnrecognized properTrailers
+             ]
+         }
+  where
+    trailersOnly :: TrailersOnly'
+    trailersOnly = parseTrailersOnly' proxy hdrs
+
 parseTrailersOnly :: forall m rpc.
-     (IsRPC rpc, MonadError String m)
+     (IsRPC rpc, MonadError InvalidHeaders m)
   => Proxy rpc -> [HTTP.Header] -> m TrailersOnly
-parseTrailersOnly proxy =
-      HKD.sequence
-    . flip execState uninitTrailersOnly
+parseTrailersOnly proxy = HKD.sequenceThrow . parseTrailersOnly' proxy
+
+parseTrailersOnly' :: forall rpc.
+     IsRPC rpc
+  => Proxy rpc -> [HTTP.Header] -> TrailersOnly'
+parseTrailersOnly' proxy =
+      flip execState uninitTrailersOnly
     . mapM_ (parseHeader . second trim)
   where
-    parseHeader :: HTTP.Header -> State (TrailersOnly_ (DecoratedWith m)) ()
+    parseHeader :: HTTP.Header -> State TrailersOnly' ()
     parseHeader hdr@(name, value)
       | name == "content-type"
       = modify $ \x -> x {
@@ -523,7 +610,7 @@ parseTrailersOnly proxy =
 
       | name == "grpc-status"
       = modify $ liftProperTrailers $ \x -> x{
-            properTrailersGrpcStatus =
+            properTrailersGrpcStatus = throwInvalidHeader hdr $
               case toGrpcStatus =<< readMaybe (BS.Strict.C8.unpack value) of
                 Nothing -> throwError $ "Invalid status: " ++ show value
                 Just v  -> return v
@@ -531,7 +618,7 @@ parseTrailersOnly proxy =
 
       | name == "grpc-message"
       = modify $ liftProperTrailers $ \x -> x{
-            properTrailersGrpcMessage =
+            properTrailersGrpcMessage = throwInvalidHeader hdr $
               case PercentEncoding.decode value of
                 Left  err -> throwError $ show err
                 Right msg -> return (Just msg)
@@ -545,7 +632,7 @@ parseTrailersOnly proxy =
 
       | name == "endpoint-load-metrics-bin"
       = modify $ liftProperTrailers $ \x -> x{
-            properTrailersOrcaLoadReport = do
+            properTrailersOrcaLoadReport = throwInvalidHeader hdr $ do
               value' <- parseBinaryValue value
               case Protobuf.parseStrict value' of
                 Left  err    -> throwError err
@@ -553,22 +640,26 @@ parseTrailersOnly proxy =
           }
 
       | otherwise
-      = modify $ liftProperTrailers $ \x -> x{
-            properTrailersMetadata = do
-              md <- parseCustomMetadata hdr
-              customMetadataMapInsert md <$> properTrailersMetadata x
-          }
+      = modify $ liftProperTrailers $ \x ->
+          case parseCustomMetadata hdr of
+            Left invalid -> x{
+                properTrailersUnrecognized = Left $ mconcat [
+                    invalid
+                  , otherInvalid $ properTrailersUnrecognized x
+                  ]
+              }
+            Right md -> x{
+                properTrailersMetadata =
+                  customMetadataMapInsert md $ properTrailersMetadata x
+              }
 
-    uninitTrailersOnly :: TrailersOnly_ (DecoratedWith m)
+    uninitTrailersOnly :: TrailersOnly'
     uninitTrailersOnly = TrailersOnly {
           trailersOnlyContentType = return Nothing
-        , trailersOnlyProper      = ProperTrailers {
-              properTrailersGrpcStatus     = throwError "missing: grpc-status"
-            , properTrailersGrpcMessage    = return Nothing
-            , properTrailersMetadata       = return mempty
-            , properTrailersPushback       = return Nothing
-            , properTrailersOrcaLoadReport = return Nothing
-            }
+        , trailersOnlyProper      = simpleProperTrailers
+                                      (throwError $ missingHeader "grpc-status")
+                                      (return Nothing)
+                                      mempty
         }
 
     liftProperTrailers ::
@@ -577,3 +668,11 @@ parseTrailersOnly proxy =
     liftProperTrailers f trailersOnly = trailersOnly{
           trailersOnlyProper = f (trailersOnlyProper trailersOnly)
         }
+
+{-------------------------------------------------------------------------------
+  Internal auxiliary
+-------------------------------------------------------------------------------}
+
+otherInvalid :: Either InvalidHeaders () -> InvalidHeaders
+otherInvalid = either id (\() -> mempty)
+

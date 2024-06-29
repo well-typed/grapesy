@@ -336,7 +336,7 @@ startRPC Connection{connMetaVar, connParams, connStateVar} _ callParams = do
           }
 
     let serverClosedConnection ::
-             Either TrailersOnly ProperTrailers
+             Either TrailersOnly' ProperTrailers'
           -> SomeException
         serverClosedConnection =
               either toException toException
@@ -378,7 +378,7 @@ startRPC Connection{connMetaVar, connParams, connStateVar} _ callParams = do
     currentMeta :: IO Meta
     currentMeta = readMVar connMetaVar
 
-    updateMeta :: ResponseHeaders -> IO ()
+    updateMeta :: ResponseHeaders' -> IO ()
     updateMeta hdrs =
         modifyMVar_ connMetaVar $ Meta.update (connCompression connParams) hdrs
 

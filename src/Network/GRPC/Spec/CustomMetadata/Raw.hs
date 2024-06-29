@@ -44,6 +44,7 @@ import GHC.Stack
 import Network.HTTP.Types qualified as HTTP
 
 import Network.GRPC.Spec.Base64
+import Network.GRPC.Spec.Headers.Invalid
 import Network.GRPC.Util.ByteString (strip, ascii)
 
 {-------------------------------------------------------------------------------
@@ -328,8 +329,10 @@ buildCustomMetadata (CustomMetadata name value) =
       UnsafeBinaryHeader _ -> (buildHeaderName name, buildBinaryValue value)
       UnsafeAsciiHeader  _ -> (buildHeaderName name, buildAsciiValue  value)
 
-parseCustomMetadata :: MonadError String m => HTTP.Header -> m CustomMetadata
-parseCustomMetadata (name, value) = do
+parseCustomMetadata ::
+     MonadError InvalidHeaders m
+  => HTTP.Header -> m CustomMetadata
+parseCustomMetadata hdr@(name, value) = throwInvalidHeader hdr $ do
     name'     <- parseHeaderName name
     value'    <- case name' of
                    UnsafeAsciiHeader  _ -> parseAsciiValue  value

@@ -10,8 +10,7 @@ module Network.GRPC.Spec.Headers.Request (
     RequestHeaders_(..)
   , RequestHeaders
   , RequestHeaders'
-  , InvalidRequestHeaders(..)
-  , prettyInvalidRequestHeaders
+  , InvalidRequestHeaders
     -- * Serialization
   , buildRequestHeaders
   , parseRequestHeaders
@@ -23,9 +22,7 @@ import Control.Monad.Except (MonadError(throwError))
 import Control.Monad.State (State, execState, modify)
 import Data.Bifunctor
 import Data.ByteString qualified as Strict (ByteString)
-import Data.ByteString.Builder qualified as ByteString (Builder)
 import Data.ByteString.Char8 qualified as BS.Strict.C8
-import Data.CaseInsensitive qualified as CI
 import Data.Functor (($>))
 import Data.List (intercalate)
 import Data.List.NonEmpty (NonEmpty)
@@ -39,13 +36,12 @@ import Network.GRPC.Spec.Compression (CompressionId)
 import Network.GRPC.Spec.CustomMetadata.Map
 import Network.GRPC.Spec.CustomMetadata.Raw
 import Network.GRPC.Spec.Headers.Common
+import Network.GRPC.Spec.Headers.Invalid
 import Network.GRPC.Spec.RPC
 import Network.GRPC.Spec.Timeout
 import Network.GRPC.Spec.TraceContext
 import Network.GRPC.Util.HKD (HKD, Undecorated, DecoratedWith)
 import Network.GRPC.Util.HKD qualified as HKD
-import Data.ByteString.Builder qualified as Builder
-import Data.ByteString.UTF8 qualified as BS.UTF8
 
 {-------------------------------------------------------------------------------
   Inputs (message sent to the peer)
@@ -123,7 +119,7 @@ data RequestHeaders_ f = RequestHeaders {
     , requestUnrecognized :: HKD f ()
     }
 
--- | Request headers without allowing for invalid headers
+-- | Request headers (without allowing for invalid headers)
 --
 -- NOTE: The HKD type
 --
@@ -144,7 +140,8 @@ type RequestHeaders = RequestHeaders_ Undecorated
 -- > Either InvalidRequestHeaders a
 --
 -- (i.e., either valid or invalid).
-type RequestHeaders' = RequestHeaders_ (DecoratedWith (Either InvalidRequestHeaders))
+type RequestHeaders' =
+       RequestHeaders_ (DecoratedWith (Either InvalidRequestHeaders))
 
 deriving stock instance Show    RequestHeaders
 deriving stock instance Eq      RequestHeaders
@@ -275,31 +272,10 @@ callDefinition proxy = \hdrs -> catMaybes [
   Invalid headers
 -------------------------------------------------------------------------------}
 
-data InvalidRequestHeaders = InvalidRequestHeaders {
-      -- | Invalid headers, each with an error message
-      --
-      -- TODO: Justify the list
-      invalidRequestHeaders :: [(HTTP.Header, String)]
-
-      -- | The HTTP status we should return
-    , invalidRequestHeaderStatus :: HTTP.Status
-    }
-  deriving (Show, Eq)
-
-prettyInvalidRequestHeaders :: InvalidRequestHeaders -> ByteString.Builder
-prettyInvalidRequestHeaders = mconcat . map go . invalidRequestHeaders
-  where
-    go :: (HTTP.Header, String) -> ByteString.Builder
-    go ((name, value), err) =
-        mconcat [
-            "Invalid header '"
-          , Builder.byteString (CI.original name)
-          , "' with value '"
-          , Builder.byteString value
-          , "': "
-          , Builder.byteString $ BS.UTF8.fromString err
-          , "\n"
-          ]
+-- | Invalid request headers
+--
+-- For certain types of failures the gRPC spec mandates a specific HTTP status.
+type InvalidRequestHeaders = (HTTP.Status, InvalidHeaders)
 
 {-------------------------------------------------------------------------------
   Parsing
@@ -309,10 +285,7 @@ parseRequestHeaders :: forall rpc m.
      (IsRPC rpc, MonadError InvalidRequestHeaders m)
   => Proxy rpc
   -> [HTTP.Header] -> m RequestHeaders
-parseRequestHeaders proxy =
-      either throwError return
-    . HKD.sequence
-    . parseRequestHeaders' proxy
+parseRequestHeaders proxy = HKD.sequenceThrow . parseRequestHeaders' proxy
 
 -- | Parse request headers
 --
@@ -343,14 +316,14 @@ parseRequestHeaders' proxy =
       | name == "grpc-encoding"
       = modify $ \x -> x {
             requestCompression = fmap Just $
-               httpError hdr HTTP.badRequest400 $
+               first (HTTP.badRequest400,) $
                  parseMessageEncoding hdr
           }
 
       | name == "grpc-accept-encoding"
       = modify $ \x -> x {
             requestAcceptCompression = fmap Just $
-               httpError hdr HTTP.badRequest400 $
+               first (HTTP.badRequest400,) $
                  parseMessageAcceptEncoding hdr
           }
 
@@ -364,7 +337,7 @@ parseRequestHeaders' proxy =
       | name == "content-type"
       = modify $ \x -> x {
             requestContentType = fmap Just $
-              httpError hdr HTTP.unsupportedMediaType415 $
+              first (HTTP.unsupportedMediaType415,) $
                 parseContentType proxy hdr
           }
 
@@ -377,7 +350,7 @@ parseRequestHeaders' proxy =
       | name == "te"
       = modify $ \x -> x {
             requestIncludeTE = do
-              httpError hdr HTTP.badRequest400 $
+              first (HTTP.badRequest400,) $
                 expectHeaderValue hdr ["trailers"]
               return True
           }
@@ -395,23 +368,14 @@ parseRequestHeaders' proxy =
       | otherwise
       = modify $ \x ->
           case parseCustomMetadata hdr of
-            Left err -> x {
+            Left invalid -> x {
                 requestUnrecognized = Left $
-                    case requestUnrecognized x of
-                      Left invalid -> invalid {
-                          invalidRequestHeaders =
-                              (hdr, err)
-                            : invalidRequestHeaders invalid
-                        }
-                      Right () -> InvalidRequestHeaders {
-                          invalidRequestHeaders      = [(hdr, err)]
-                        , invalidRequestHeaderStatus = HTTP.badRequest400
-                        }
+                  case requestUnrecognized x of
+                    Left (status, invalid') -> (status, invalid <> invalid')
+                    Right ()                -> (HTTP.badRequest400, invalid)
               }
             Right md -> x {
-                requestMetadata =
-                    customMetadataMapInsert md
-                  $ requestMetadata x
+                requestMetadata = customMetadataMapInsert md $ requestMetadata x
               }
 
     uninitRequestHeaders :: RequestHeaders'
@@ -431,7 +395,7 @@ parseRequestHeaders' proxy =
             case rpcMessageType proxy of
               Nothing -> return $ Just MessageTypeDefault
               Just _  -> return $ Nothing
-        , requestMetadata            = customMetadataMapFromList []
+        , requestMetadata            = mempty
         , requestUnrecognized        = return ()
         }
 
@@ -439,28 +403,23 @@ parseRequestHeaders' proxy =
          MonadError InvalidRequestHeaders m'
       => HTTP.Header -> HTTP.Status -> Either String a -> m' a
     httpError _   _      (Right a)  = return a
-    httpError hdr status (Left err) = throwError
-        InvalidRequestHeaders {
-            invalidRequestHeaders      = [(hdr, err)]
-          , invalidRequestHeaderStatus = status
-          }
+    httpError hdr status (Left err) = throwError (status, invalidHeader hdr err)
 
 {-------------------------------------------------------------------------------
   Internal auxiliary
 -------------------------------------------------------------------------------}
 
 expectHeaderValue ::
-     MonadError String m
+     MonadError InvalidHeaders m
   => HTTP.Header -> [Strict.ByteString] -> m ()
-expectHeaderValue (name, actual) expected =
-    unless (actual `elem` expected) $ throwError $ concat [
-        "Unexpected value \""
-      , BS.Strict.C8.unpack actual
-      , "\" for header"
-      , show name -- Show instance adds quotes
-      , ". Expected "
-      , intercalate " or " $
-          map (\e -> "\"" ++ BS.Strict.C8.unpack e ++ "\"") expected
-      , "."
-      ]
-
+expectHeaderValue hdr@(_name, actual) expected =
+    unless (actual `elem` expected) $
+      throwError $ invalidHeader hdr err
+  where
+    err :: String
+    err = concat [
+          "Expected "
+        , intercalate " or " $
+            map (\e -> "\"" ++ BS.Strict.C8.unpack e ++ "\"") expected
+        , "."
+        ]
