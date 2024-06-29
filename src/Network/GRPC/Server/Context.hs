@@ -76,6 +76,13 @@ data ServerParams = ServerParams {
       -- Set to 'Nothing' to omit the content-type header completely
       -- (this is not conform the gRPC spec).
     , serverContentType :: Maybe ContentType
+
+      -- | Verify that all request headers can be parsed
+      --
+      -- When enabled, we verify at the start of each request that all request
+      -- headers are valid. By default we do /not/ do this, throwing an error
+      -- only in scenarios where we really cannot continue.
+    , serverVerifyHeaders :: Bool
     }
 
 instance Default ServerParams where
@@ -84,6 +91,7 @@ instance Default ServerParams where
       , serverTopLevel          = defaultServerTopLevel
       , serverExceptionToClient = defaultServerExceptionToClient
       , serverContentType       = Just ContentTypeDefault
+      , serverVerifyHeaders     = False
       }
 
 defaultServerTopLevel ::

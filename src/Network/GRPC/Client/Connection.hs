@@ -412,6 +412,8 @@ startRPC Connection{connMetaVar, connParams, connStateVar} _ callParams = do
             Nothing
         , requestPreviousRpcAttempts =
             Nothing
+        , requestUnrecognized =
+            ()
         }
 
     callSession :: ClientSession rpc

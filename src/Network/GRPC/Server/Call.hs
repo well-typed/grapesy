@@ -35,7 +35,6 @@ module Network.GRPC.Server.Call (
     -- ** Internal API
   , sendProperTrailers
   , serverExceptionToClientError
-  , getRequestTimeout
 
     -- * Exceptions
   , HandlerTerminated(..)
@@ -61,6 +60,7 @@ import Network.GRPC.Server.Session
 import Network.GRPC.Spec
 import Network.GRPC.Util.Session qualified as Session
 import Network.GRPC.Util.Session.Server qualified as Server
+import Data.List.NonEmpty (NonEmpty)
 
 {-------------------------------------------------------------------------------
   Definition
@@ -78,7 +78,7 @@ data Call rpc = SupportsServerRpc rpc => Call {
     , callChannel :: Session.Channel (ServerSession rpc)
 
       -- | Request headers
-    , callRequestHeaders :: RequestHeaders
+    , callRequestHeaders :: RequestHeaders'
 
       -- | Response metadata
       --
@@ -138,7 +138,7 @@ setupCall conn callContext@ServerContext{serverParams} = do
     flowStart :: Session.FlowStart (ServerInbound rpc) <-
       XIO.unsafeTrustMe $ Session.determineFlowStart callSession req
 
-    let callRequestHeaders :: RequestHeaders
+    let callRequestHeaders :: RequestHeaders'
         callRequestHeaders =
             case flowStart of
               Session.FlowStartRegular    headers  -> inbHeaders headers
@@ -148,12 +148,9 @@ setupCall conn callContext@ServerContext{serverParams} = do
     -- (i.e., in the case that the /server/ responds with messages, rather than
     -- make use the Trailers-Only case). However, the kickoff might not be known
     -- until the server has received various messages from the client. To
-    -- simplify control flow, therefore, we do compression negotation early,
-    -- to avoid having to deal with compression negotation failure later.
-    cOut :: Compression <-
-      case requestAcceptCompression callRequestHeaders of
-         Nothing   -> return noCompression
-         Just cids -> return $ Compr.choose compr cids
+    -- simplify control flow, therefore, we do compression negotation early.
+    let cOut = getOutboundCompression callSession $
+                 requestAcceptCompression callRequestHeaders
 
     callChannel :: Session.Channel (ServerSession rpc) <-
       XIO.neverThrows $ Session.setupResponseChannel
@@ -218,6 +215,22 @@ setupCall conn callContext@ServerContext{serverParams} = do
           KickoffTrailersOnly _cs trailers ->
             return $ Session.FlowStartNoMessages trailers
 
+-- | Determine compression to be used for messages to the peer
+--
+-- In the case that we fail to parse the @grpc-accept-encoding@ header, we
+-- simply use no compression.
+getOutboundCompression ::
+     ServerSession rpc
+  -> Either InvalidRequestHeaders (Maybe (NonEmpty CompressionId))
+  -> Compression
+getOutboundCompression session = \case
+    Left _invalidHeader -> noCompression
+    Right Nothing       -> noCompression
+    Right (Just cids)   -> Compr.choose serverCompression cids
+  where
+    ServerSession{serverSessionContext} = session
+    ServerContext{serverParams} = serverSessionContext
+    ServerParams{serverCompression} = serverParams
 
 -- | Turn exception raised in server handler to error to be sent to the client
 serverExceptionToClientError :: ServerParams -> SomeException -> IO ProperTrailers
@@ -368,6 +381,11 @@ sendGrpcException call = sendProperTrailers call . grpcExceptionToTrailers
 -- The request metadata is included in the client's request headers when they
 -- first make the request, and is therefore available immediately to the handler
 -- (even if the first /message/ from the client may not yet have been sent).
+--
+-- NOTE: If the client sends custom metadata that we cannot parse (perhaps it
+-- uses a reserved name, or the binary encoding is invalid, etc.), they will not
+-- be included here. If you want access to these headers, use
+-- 'getRequestHeaders' and then extract 'requestUnrecognized'.
 getRequestMetadata :: Call rpc -> IO (RequestMetadata rpc)
 getRequestMetadata Call{callRequestHeaders} =
     parseMetadata . customMetadataMapToList $
@@ -457,8 +475,12 @@ sendTrailersOnly Call{callContext, callResponseKickoff} metadata = do
             }
         }
 
--- | Get full request headers
-getRequestHeaders :: Call rpc -> IO RequestHeaders
+-- | Get full request headers, including any potential invalid headers
+--
+-- NOTE: When 'serverVerifyHeaders' is enabled the caller can be sure that the
+-- 'RequestHeaders'' do not contain any errors, even though unfortunately this
+-- is not visible from the type.
+getRequestHeaders :: Call rpc -> IO RequestHeaders'
 getRequestHeaders Call{callRequestHeaders} =
     return callRequestHeaders
 
@@ -574,12 +596,6 @@ sendProperTrailers Call{callContext, callResponseKickoff, callChannel}
   where
     ServerContext{serverParams} = callContext
 
--- | Get the timeout
---
--- This is internal API: the timeout is automatically imposed on the handler.
-getRequestTimeout :: Call rpc -> Maybe Timeout
-getRequestTimeout call = requestTimeout $ callRequestHeaders call
-
 {-------------------------------------------------------------------------------
   Internal auxiliary: deal with final message
 
@@ -596,7 +612,7 @@ recvBoth Call{callChannel} =
     -- We lose type information here: Trailers-Only is no longer visible
     flatten ::
          Either
-           RequestHeaders
+           RequestHeaders'
            (StreamElem NoMetadata (InboundEnvelope, Input rpc))
       -> StreamElem NoMetadata (InboundEnvelope, Input rpc)
     flatten (Left _trailersOnly) =
@@ -615,7 +631,7 @@ recvEither Call{callChannel} =
     -- a message.
     flatten ::
          Either
-           RequestHeaders
+           RequestHeaders'
            (Either NoMetadata (InboundEnvelope, Input rpc))
       -> NextElem (InboundEnvelope, Input rpc)
     flatten (Left _trailersOnly) =

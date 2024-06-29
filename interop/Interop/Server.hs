@@ -94,7 +94,8 @@ withInteropServer cmdline k = do
 
     serverParams :: ServerParams
     serverParams = def {
-          serverTopLevel = swallowExceptions
+          serverTopLevel      = swallowExceptions
+        , serverVerifyHeaders = True
         }
 
     -- Don't show handler exceptions on stderr

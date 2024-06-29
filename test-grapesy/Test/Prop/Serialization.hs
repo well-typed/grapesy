@@ -398,7 +398,6 @@ instance Arbitrary (Awkward CustomMetadataMap) where
 instance Arbitrary (Awkward RequestHeaders) where
   arbitrary = Awkward <$> do
       requestTimeout             <- awkward
-      requestMetadata            <- awkward
       requestCompression         <- awkward
       requestAcceptCompression   <- awkward
       requestContentType         <- awkward
@@ -407,9 +406,9 @@ instance Arbitrary (Awkward RequestHeaders) where
       requestIncludeTE           <- arbitrary
       requestTraceContext        <- awkward
       requestPreviousRpcAttempts <- awkward
+      requestMetadata            <- awkward
       return $ RequestHeaders{
           requestTimeout
-        , requestMetadata
         , requestCompression
         , requestAcceptCompression
         , requestContentType
@@ -418,10 +417,11 @@ instance Arbitrary (Awkward RequestHeaders) where
         , requestIncludeTE
         , requestTraceContext
         , requestPreviousRpcAttempts
+        , requestMetadata
+        , requestUnrecognized = ()
         }
   shrink h@(Awkward h') = concat [
         shrinkAwkward (\x -> h'{requestTimeout             = x}) requestTimeout             h
-      , shrinkAwkward (\x -> h'{requestMetadata            = x}) requestMetadata            h
       , shrinkAwkward (\x -> h'{requestCompression         = x}) requestCompression         h
       , shrinkAwkward (\x -> h'{requestAcceptCompression   = x}) requestAcceptCompression   h
       , shrinkAwkward (\x -> h'{requestContentType         = x}) requestContentType         h
@@ -430,6 +430,7 @@ instance Arbitrary (Awkward RequestHeaders) where
       , shrinkRegular (\x -> h'{requestIncludeTE           = x}) requestIncludeTE           h
       , shrinkAwkward (\x -> h'{requestTraceContext        = x}) requestTraceContext        h
       , shrinkAwkward (\x -> h'{requestPreviousRpcAttempts = x}) requestPreviousRpcAttempts h
+      , shrinkAwkward (\x -> h'{requestMetadata            = x}) requestMetadata            h
       ]
 
 instance Arbitrary (Awkward ResponseHeaders) where

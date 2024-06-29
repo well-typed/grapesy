@@ -28,7 +28,7 @@ import Network.HTTP.Types qualified as HTTP
 import Network.HTTP2.Server qualified as HTTP2
 
 import Network.GRPC.Server.Call
-import Network.GRPC.Server.Context (ServerContext)
+import Network.GRPC.Server.Context (ServerContext (..), ServerParams (..))
 import Network.GRPC.Server.Handler
 import Network.GRPC.Server.HandlerMap (HandlerMap)
 import Network.GRPC.Server.HandlerMap qualified as HandlerMap
@@ -36,6 +36,7 @@ import Network.GRPC.Server.RequestHandler.API
 import Network.GRPC.Server.Session (CallSetupFailure(..))
 import Network.GRPC.Spec
 import Network.GRPC.Util.GHC
+import Network.GRPC.Util.HKD qualified as HKD
 import Network.GRPC.Util.Session.Server
 
 {-------------------------------------------------------------------------------
@@ -49,12 +50,15 @@ requestHandler ::
   -> RequestHandler SomeException ()
 requestHandler handlers ctxt request respond = do
     labelThisThread "grapesy:requestHandler"
+
     SomeRpcHandler (_ :: Proxy rpc) handler <-
       findHandler handlers request      `XIO.catchError` setupFailure respond
-    call :: Call rpc <- do
+    call :: Call rpc <-
       setupCall connectionToClient ctxt `XIO.catchError` setupFailure respond
+    mTimeout :: Maybe Timeout <-
+      verifyHeaders ctxt call           `XIO.catchError` setupFailure respond
 
-    imposeTimeout (getRequestTimeout call) $
+    imposeTimeout mTimeout $
       runHandler call handler
   where
     connectionToClient :: ConnectionToClient
@@ -97,6 +101,28 @@ findHandler handlers req = do
           rawPath   = fromMaybe "" $ HTTP2.requestPath   req
         , rawMethod = fromMaybe "" $ HTTP2.requestMethod req
         }
+
+-- | Verify request headers (if enabled)
+--
+-- In strict mode we verify /all/ headers; otherwise, we only verify those
+-- headers we need to setup the call.
+verifyHeaders ::
+     ServerContext
+  -> Call rpc
+  -> XIO' CallSetupFailure (Maybe Timeout)
+verifyHeaders ctxt call = do
+    requestHeaders' <- XIO.unsafeTrustMe $ getRequestHeaders call
+    if serverVerifyHeaders then
+      case HKD.sequence requestHeaders' of
+        Left  err            -> throwError $ CallSetupInvalidRequestHeaders err
+        Right requestHeaders -> return $ requestTimeout requestHeaders
+    else
+      case requestTimeout requestHeaders' of
+        Left  err      -> throwError $ CallSetupInvalidRequestHeaders err
+        Right mTimeout -> return mTimeout
+  where
+    ServerContext{serverParams} = ctxt
+    ServerParams{serverVerifyHeaders} = serverParams
 
 -- | Call setup failure
 --
@@ -145,8 +171,9 @@ failureResponse (CallSetupInvalidResourceHeaders (InvalidMethod method)) =
 failureResponse (CallSetupInvalidResourceHeaders (InvalidPath path)) =
     HTTP2.responseBuilder HTTP.badRequest400 [] . Builder.byteString $
       "Invalid path " <> path
-failureResponse (CallSetupInvalidRequestHeaders status err) =
-    HTTP2.responseBuilder status [] $ Builder.byteString err
+failureResponse (CallSetupInvalidRequestHeaders err) =
+    HTTP2.responseBuilder (invalidRequestHeaderStatus err) [] $
+      prettyInvalidRequestHeaders err
 failureResponse (CallSetupUnsupportedCompression cid) =
     HTTP2.responseBuilder HTTP.badRequest400 [] . Builder.byteString $
       "Unsupported compression: " <> BS.UTF8.fromString (show cid)

@@ -8,7 +8,6 @@ module Network.GRPC.Server.Session (
   ) where
 
 import Control.Exception
-import Data.ByteString qualified as Strict (ByteString)
 import Data.Proxy
 import Network.HTTP.Types qualified as HTTP
 
@@ -34,7 +33,7 @@ data ServerOutbound rpc
 
 instance IsRPC rpc => DataFlow (ServerInbound rpc) where
   data Headers (ServerInbound rpc) = InboundHeaders {
-        inbHeaders     :: RequestHeaders
+        inbHeaders     :: RequestHeaders'
       , inbCompression :: Compression
       }
     deriving (Show)
@@ -43,7 +42,7 @@ instance IsRPC rpc => DataFlow (ServerInbound rpc) where
   type Trailers (ServerInbound rpc) = NoMetadata
 
   -- See discussion of 'TrailersOnly' in 'ClientOutbound'
-  type NoMessages (ServerInbound rpc) = RequestHeaders
+  type NoMessages (ServerInbound rpc) = RequestHeaders'
 
 instance IsRPC rpc => DataFlow (ServerOutbound rpc) where
   data Headers (ServerOutbound rpc) = OutboundHeaders {
@@ -68,38 +67,20 @@ instance SupportsServerRpc rpc => IsSession (ServerSession rpc) where
 
 instance SupportsServerRpc rpc => AcceptSession (ServerSession rpc) where
   parseRequestRegular session headers = do
-      requestHeaders :: RequestHeaders <-
-        case parseRequestHeaders (Proxy @rpc) headers of
-          Left (httpStatus, err) ->
-            throwIO $ CallSetupInvalidRequestHeaders httpStatus err
-          Right hdrs ->
-            return hdrs
-
-      let cInId :: Maybe CompressionId
-          cInId = requestCompression requestHeaders
-      cIn :: Compression <-
-        case cInId of
-          Nothing  -> return noCompression
-          Just cid ->
-            case Compr.getSupported serverCompression cid of
-              Nothing    -> throwIO $ CallSetupUnsupportedCompression cid
-              Just compr -> return compr
-
+      cIn <- getInboundCompression session $ requestCompression requestHeaders
       return InboundHeaders {
           inbHeaders     = requestHeaders
         , inbCompression = cIn
         }
     where
-      ServerSession{serverSessionContext} = session
-      ServerContext{serverParams} = serverSessionContext
-      ServerParams{serverCompression} = serverParams
+      requestHeaders :: RequestHeaders'
+      requestHeaders = parseRequestHeaders' (Proxy @rpc) headers
 
   parseRequestNoMessages _ headers =
-      case parseRequestHeaders (Proxy @rpc) headers of
-        Left (httpStatus, err) ->
-           throwIO $ CallSetupInvalidRequestHeaders httpStatus err
-        Right hdrs ->
-          return hdrs
+      return requestHeaders
+    where
+      requestHeaders :: RequestHeaders'
+      requestHeaders = parseRequestHeaders' (Proxy @rpc) headers
 
   buildResponseInfo _ start = ResponseInfo {
         responseStatus  = HTTP.ok200
@@ -111,6 +92,23 @@ instance SupportsServerRpc rpc => AcceptSession (ServerSession rpc) where
               buildTrailersOnly (Proxy @rpc) trailers
       , responseBody = Nothing
       }
+
+-- | Determine compression used for messages from the peer
+getInboundCompression ::
+     ServerSession rpc
+  -> Either InvalidRequestHeaders (Maybe CompressionId)
+  -> IO Compression
+getInboundCompression session = \case
+    Left  err        -> throwIO $ CallSetupInvalidRequestHeaders err
+    Right Nothing    -> return noCompression
+    Right (Just cid) ->
+      case Compr.getSupported serverCompression cid of
+        Just compr -> return compr
+        Nothing    -> throwIO $ CallSetupUnsupportedCompression cid
+  where
+    ServerSession{serverSessionContext} = session
+    ServerContext{serverParams} = serverSessionContext
+    ServerParams{serverCompression} = serverParams
 
 {-------------------------------------------------------------------------------
   Exceptions
@@ -126,7 +124,7 @@ data CallSetupFailure =
     -- 'CallSetupInvalidResourceHeaders' refers to an invalid method (anything
     -- other than POST) or an invalid path; 'CallSetupInvalidRequestHeaders'
     -- means we could not parse the HTTP headers according to the gRPC spec.
-  | CallSetupInvalidRequestHeaders HTTP.Status Strict.ByteString
+  | CallSetupInvalidRequestHeaders InvalidRequestHeaders
 
     -- | Client chose unsupported compression algorithm
     --
@@ -134,7 +132,7 @@ data CallSetupFailure =
     -- compression algorithm unless they have evidence that the server supports
     -- it. The server cannot process such a request, as it has no way of
     -- decompression messages sent by the client.
-  | CallSetupUnsupportedCompression Compr.CompressionId
+  | CallSetupUnsupportedCompression CompressionId
 
     -- | No registered handler for the specified path
     --

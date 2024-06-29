@@ -60,6 +60,8 @@ module Network.GRPC.Spec (
     -- * Compression
   , CompressionId(..)
   , Compression(..)
+  , serializeCompressionId
+  , deserializeCompressionId
     -- ** Compression algorithms
   , noCompression
   , gzip
@@ -71,6 +73,9 @@ module Network.GRPC.Spec (
     -- * Requests
   , RequestHeaders_(..)
   , RequestHeaders
+  , RequestHeaders'
+  , InvalidRequestHeaders(..)
+  , prettyInvalidRequestHeaders
     -- ** Parameters
   , CallParams(..)
     -- ** Pseudo-headers
@@ -90,6 +95,7 @@ module Network.GRPC.Spec (
     -- ** Headers
   , buildRequestHeaders
   , parseRequestHeaders
+  , parseRequestHeaders'
     -- ** Timeouts
   , Timeout(..)
   , TimeoutValue(..)
