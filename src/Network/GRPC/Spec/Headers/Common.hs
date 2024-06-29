@@ -42,12 +42,12 @@ import Data.Foldable (toList)
 import Data.List (intersperse)
 import Data.List.NonEmpty (NonEmpty(..))
 import Data.Proxy
-import Data.Typeable
 import Data.Word
 import GHC.Generics (Generic)
 import Network.HTTP.Types qualified as HTTP
 
 import Network.GRPC.Spec.Compression
+import Network.GRPC.Spec.Headers.Invalid
 import Network.GRPC.Spec.RPC
 import Network.GRPC.Spec.RPC.Unknown
 import Network.GRPC.Util.ByteString
@@ -96,25 +96,25 @@ buildContentType proxy contentType = (
     defaultContentType = rpcContentType proxy
 
 parseContentType :: forall m rpc.
-     (MonadError String m, IsRPC rpc)
+     (MonadError InvalidHeaders m, IsRPC rpc)
   => Proxy rpc
   -> HTTP.Header
   -> m ContentType
-parseContentType proxy (name, hdr) = do
-    if hdr == rpcContentType proxy then
+parseContentType proxy hdr@(_name, value) = do
+    if value == rpcContentType proxy then
       return ContentTypeDefault
     else do
       -- Headers must be ASCII, justifying the use of BS.Strict.C8.
       -- See <https://www.rfc-editor.org/rfc/rfc7230#section-3.2.4>.
       -- The gRPC spec does not allow for quoted strings.
       withoutPrefix <-
-        case BS.Strict.C8.stripPrefix "application/grpc" hdr of
-          Nothing -> err "missing \"application/grpc\" prefix"
+        case BS.Strict.C8.stripPrefix "application/grpc" value of
+          Nothing        -> err "Missing \"application/grpc\" prefix."
           Just remainder -> return remainder
 
       -- The gRPC spec does not allow for any parameters.
       when (';' `BS.Strict.C8.elem` withoutPrefix) $
-        err "unexpected parameter"
+        err "Unexpected parameter."
 
       -- Check format
       --
@@ -123,34 +123,28 @@ parseContentType proxy (name, hdr) = do
       -- @application/grpc+octet-stream@. We therefore ignore @format@ here.
       if BS.Strict.C8.null withoutPrefix then
         -- Accept "application/grpc"
-        return $ ContentTypeOverride hdr
+        return $ ContentTypeOverride value
       else
         case BS.Strict.C8.stripPrefix "+" withoutPrefix of
           Just _format ->
             -- Accept "application/grpc+<format>"
-            return $ ContentTypeOverride hdr
+            return $ ContentTypeOverride value
           Nothing ->
-            err "invalid subtype"
+            err "Invalid subtype."
   where
     err :: String -> m a
-    err reason =
-       throwError $ concat [
-           "Unexpected value \""
-         , BS.Strict.C8.unpack hdr
-         , "\" for header "
-         , show name
-         , ": "
-         , reason
-         , ". Expected \""
-         , BS.Strict.C8.unpack $
-             rpcContentType (Proxy @(UnknownRpc Nothing Nothing))
-         , "\" or \""
-         , BS.Strict.C8.unpack $
-             rpcContentType proxy
-         , "\", with \""
-         , "application/grpc+{other_format}"
-         , "\" also accepted."
-         ]
+    err reason = throwError $ invalidHeader hdr $ concat [
+          reason
+        , " Expected \""
+        , BS.Strict.C8.unpack $
+            rpcContentType (Proxy @(UnknownRpc Nothing Nothing))
+        , "\" or \""
+        , BS.Strict.C8.unpack $
+            rpcContentType proxy
+        , "\", with \""
+        , "application/grpc+{other_format}"
+        , "\" also accepted."
+        ]
 
 {-------------------------------------------------------------------------------
   > Message-Type → "grpc-message-type" {type name for message schema}
@@ -222,7 +216,7 @@ buildMessageEncoding compr = (
     )
 
 parseMessageEncoding ::
-     MonadError String m
+     MonadError InvalidHeaders m
   => HTTP.Header
   -> m CompressionId
 parseMessageEncoding (_name, value) =
@@ -239,28 +233,21 @@ buildMessageAcceptEncoding compr = (
     , mconcat . intersperse "," . map serializeCompressionId $ toList compr
     )
 
-parseMessageAcceptEncoding ::
-     MonadError String m
+parseMessageAcceptEncoding :: forall m.
+     MonadError InvalidHeaders m
   => HTTP.Header
   -> m (NonEmpty CompressionId)
-parseMessageAcceptEncoding (_name, value) =
-      expectAtLeastOne
+parseMessageAcceptEncoding hdr@(_name, value) =
+      atLeastOne
     . map (deserializeCompressionId . strip)
     . BS.Strict.splitWith (== ascii ',')
     $ value
+  where
+    atLeastOne :: forall a. [a] -> m (NonEmpty a)
+    atLeastOne (x : xs) = return (x :| xs)
+    atLeastOne []       = throwError $ invalidHeader hdr $
+                            "Expected at least one compresion ID"
 
-{-------------------------------------------------------------------------------
-  Internal auxiliary
--------------------------------------------------------------------------------}
-
-expectAtLeastOne :: forall m a.
-     (MonadError String m, Typeable a)
-  => [a] -> m (NonEmpty a)
-expectAtLeastOne (x : xs) = return (x :| xs)
-expectAtLeastOne []       = throwError $ concat [
-                                "Expected at least one "
-                              , show (typeRep (Proxy @a))
-                              ]
 {-------------------------------------------------------------------------------
   Utilities
 -------------------------------------------------------------------------------}

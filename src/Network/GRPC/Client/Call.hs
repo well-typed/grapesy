@@ -215,9 +215,9 @@ recvNextOutputElem =
 
 -- | Generalization of 'recvOutput', providing additional meta-information
 --
--- This returns the full set of trailers, /even if those trailers indicate
--- a gRPC failure/. Put another way, gRPC failures are returned as values here,
--- rather than throwing an exception.
+-- This returns the full set of trailers, /even if those trailers indicate a
+-- gRPC failure, or if any trailers fail to parse/. Put another way, gRPC
+-- failures are returned as values here, rather than throwing an exception.
 --
 -- Most applications will never need to use this function.
 --
@@ -225,7 +225,7 @@ recvNextOutputElem =
 recvOutputWithEnvelope :: forall rpc m.
      (MonadIO m, HasCallStack)
   => Call rpc
-  -> m (StreamElem ProperTrailers (InboundEnvelope, Output rpc))
+  -> m (StreamElem ProperTrailers' (InboundEnvelope, Output rpc))
 recvOutputWithEnvelope = recvBoth
 
 -- | The initial metadata that was included in the response headers
@@ -252,7 +252,7 @@ recvResponseInitialMetadata :: forall rpc. Call rpc -> IO (ResponseMetadata rpc)
 recvResponseInitialMetadata call@Call{} =
     recvInitialResponse call >>= aux
   where
-    aux :: Either TrailersOnly ResponseHeaders -> IO (ResponseMetadata rpc)
+    aux :: Either TrailersOnly' ResponseHeaders' -> IO (ResponseMetadata rpc)
     aux (Left trailers) =
         case grpcClassifyTermination properTrailers of
           Left exception ->
@@ -275,7 +275,7 @@ recvResponseInitialMetadata call@Call{} =
 -- Most applications will never need to use this function.
 recvInitialResponse ::
      Call rpc
-  -> IO (Either TrailersOnly ResponseHeaders)
+  -> IO (Either TrailersOnly' ResponseHeaders')
 recvInitialResponse Call{callChannel} =
     fmap inbHeaders <$> Session.getInboundHeaders callChannel
 
@@ -418,16 +418,16 @@ recvAllOutputs call processOutput = loop
 recvBoth :: forall m rpc.
      (HasCallStack, MonadIO m)
   => Call rpc
-  -> m (StreamElem ProperTrailers (InboundEnvelope, Output rpc))
+  -> m (StreamElem ProperTrailers' (InboundEnvelope, Output rpc))
 recvBoth Call{callChannel} = liftIO $
     flatten <$> Session.recvBoth callChannel
   where
     -- We lose type information here: Trailers-Only is no longer visible
     flatten ::
          Either
-           TrailersOnly
-           (StreamElem ProperTrailers (InboundEnvelope, Output rpc))
-      -> StreamElem ProperTrailers (InboundEnvelope, Output rpc)
+           TrailersOnly'
+           (StreamElem ProperTrailers' (InboundEnvelope, Output rpc))
+      -> StreamElem ProperTrailers' (InboundEnvelope, Output rpc)
     flatten (Left trailersOnly) =
         NoMoreElems $ fst $ trailersOnlyToProperTrailers trailersOnly
     flatten (Right streamElem) =
@@ -436,15 +436,15 @@ recvBoth Call{callChannel} = liftIO $
 recvEither :: forall m rpc.
      (HasCallStack, MonadIO m)
   => Call rpc
-  -> m (Either ProperTrailers (InboundEnvelope, Output rpc))
+  -> m (Either ProperTrailers' (InboundEnvelope, Output rpc))
 recvEither Call{callChannel} = liftIO $
     flatten <$> Session.recvEither callChannel
   where
     flatten ::
          Either
-           TrailersOnly
-           (Either ProperTrailers (InboundEnvelope, Output rpc))
-      -> Either ProperTrailers (InboundEnvelope, Output rpc)
+           TrailersOnly'
+           (Either ProperTrailers' (InboundEnvelope, Output rpc))
+      -> Either ProperTrailers' (InboundEnvelope, Output rpc)
     flatten (Left trailersOnly) =
         Left $ fst $ trailersOnlyToProperTrailers trailersOnly
     flatten (Right (Left properTrailers)) =
@@ -455,7 +455,7 @@ recvEither Call{callChannel} = liftIO $
 responseTrailingMetadata ::
      MonadIO m
   => Call rpc
-  -> ProperTrailers -> m (ResponseTrailingMetadata rpc)
+  -> ProperTrailers' -> m (ResponseTrailingMetadata rpc)
 responseTrailingMetadata Call{} trailers = liftIO $
     case grpcClassifyTermination trailers of
       Right terminatedNormally -> do

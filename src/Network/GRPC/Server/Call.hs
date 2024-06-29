@@ -205,10 +205,12 @@ setupCall conn callContext@ServerContext{serverParams} = do
                       Just $ Compr.compressionId cOut
                   , responseAcceptCompression =
                       Just $ Compr.offer compr
-                  , responseMetadata =
-                      customMetadataMapFromList responseMetadata
                   , responseContentType =
                       serverContentType serverParams
+                  , responseMetadata =
+                      customMetadataMapFromList responseMetadata
+                  , responseUnrecognized =
+                      ()
                   }
               , outCompression = cOut
               }
@@ -237,16 +239,9 @@ serverExceptionToClientError :: ServerParams -> SomeException -> IO ProperTraile
 serverExceptionToClientError params err
     | Just (err' :: GrpcException) <- fromException err =
         return $ grpcExceptionToTrailers err'
-
     | otherwise = do
         mMsg <- serverExceptionToClient params err
-        return $  ProperTrailers {
-            properTrailersGrpcStatus     = GrpcError GrpcUnknown
-          , properTrailersGrpcMessage    = mMsg
-          , properTrailersMetadata       = mempty
-          , properTrailersPushback       = Nothing
-          , properTrailersOrcaLoadReport = Nothing
-          }
+        return $ simpleProperTrailers (GrpcError GrpcUnknown) mMsg mempty
 
 {-------------------------------------------------------------------------------
   Open (ongoing) call
@@ -346,13 +341,7 @@ sendOutputWithEnvelope call@Call{callChannel} msg = do
     mkTrailers :: ResponseTrailingMetadata rpc -> IO ProperTrailers
     mkTrailers metadata = do
         metadata' <- customMetadataMapFromList <$> buildMetadataIO metadata
-        return ProperTrailers {
-            properTrailersGrpcStatus     = GrpcOk
-          , properTrailersGrpcMessage    = Nothing
-          , properTrailersMetadata       = metadata'
-          , properTrailersPushback       = Nothing
-          , properTrailersOrcaLoadReport = Nothing
-          }
+        return $ simpleProperTrailers GrpcOk Nothing metadata'
 
 -- | Send 'GrpcException' to the client
 --
@@ -466,13 +455,8 @@ sendTrailersOnly Call{callContext, callResponseKickoff} metadata = do
     trailers :: [CustomMetadata] -> TrailersOnly
     trailers metadata' = TrailersOnly {
           trailersOnlyContentType = serverContentType serverParams
-        , trailersOnlyProper      = ProperTrailers {
-              properTrailersGrpcStatus     = GrpcOk
-            , properTrailersGrpcMessage    = Nothing
-            , properTrailersMetadata       = customMetadataMapFromList metadata'
-            , properTrailersPushback       = Nothing
-            , properTrailersOrcaLoadReport = Nothing
-            }
+        , trailersOnlyProper      = simpleProperTrailers GrpcOk Nothing $
+                                      customMetadataMapFromList metadata'
         }
 
 -- | Get full request headers, including any potential invalid headers

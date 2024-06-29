@@ -74,8 +74,7 @@ module Network.GRPC.Spec (
   , RequestHeaders_(..)
   , RequestHeaders
   , RequestHeaders'
-  , InvalidRequestHeaders(..)
-  , prettyInvalidRequestHeaders
+  , InvalidRequestHeaders
     -- ** Parameters
   , CallParams(..)
     -- ** Pseudo-headers
@@ -109,17 +108,24 @@ module Network.GRPC.Spec (
     -- ** Headers
   , ResponseHeaders_(..)
   , ResponseHeaders
+  , ResponseHeaders'
   , buildResponseHeaders
   , parseResponseHeaders
+  , parseResponseHeaders'
     -- ** Trailers
   , ProperTrailers_(..)
   , ProperTrailers
+  , ProperTrailers'
   , TrailersOnly_(..)
   , TrailersOnly
+  , TrailersOnly'
   , Pushback(..)
+  , simpleProperTrailers
     -- ** Serialization
   , parseProperTrailers
+  , parseProperTrailers'
   , parseTrailersOnly
+  , parseTrailersOnly'
   , parsePushback
   , buildProperTrailers
   , buildTrailersOnly
@@ -167,7 +173,10 @@ module Network.GRPC.Spec (
   , ParseMetadata(..)
   , StaticMetadata(..)
   , buildMetadataIO
-    -- * Common types
+    -- * Common infrastructure to all headers
+  , InvalidHeaders(..)
+  , InvalidHeader(..)
+  , prettyInvalidHeaders
   , ContentType(..)
   , MessageType(..)
     -- * OpenTelemetry
@@ -188,6 +197,7 @@ import Network.GRPC.Spec.CustomMetadata.NoMetadata
 import Network.GRPC.Spec.CustomMetadata.Raw
 import Network.GRPC.Spec.CustomMetadata.Typed
 import Network.GRPC.Spec.Headers.Common
+import Network.GRPC.Spec.Headers.Invalid
 import Network.GRPC.Spec.Headers.PseudoHeaders
 import Network.GRPC.Spec.Headers.Request
 import Network.GRPC.Spec.Headers.Response

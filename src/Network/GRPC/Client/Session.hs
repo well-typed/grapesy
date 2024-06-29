@@ -27,7 +27,7 @@ import Network.GRPC.Util.Session
 
 data ClientSession rpc = ClientSession {
       clientCompression :: Compr.Negotation
-    , clientUpdateMeta  :: ResponseHeaders -> IO ()
+    , clientUpdateMeta  :: ResponseHeaders' -> IO ()
     }
 
 {-------------------------------------------------------------------------------
@@ -39,14 +39,14 @@ data ClientOutbound rpc
 
 instance IsRPC rpc => DataFlow (ClientInbound rpc) where
   data Headers (ClientInbound rpc) = InboundHeaders {
-        inbHeaders     :: ResponseHeaders
+        inbHeaders     :: ResponseHeaders'
       , inbCompression :: Compression
       }
     deriving (Show)
 
   type Message    (ClientInbound rpc) = (InboundEnvelope, Output rpc)
-  type Trailers   (ClientInbound rpc) = ProperTrailers
-  type NoMessages (ClientInbound rpc) = TrailersOnly
+  type Trailers   (ClientInbound rpc) = ProperTrailers'
+  type NoMessages (ClientInbound rpc) = TrailersOnly'
 
 instance IsRPC rpc => DataFlow (ClientOutbound rpc) where
   data Headers (ClientOutbound rpc) = OutboundHeaders {
@@ -69,7 +69,7 @@ instance SupportsClientRpc rpc => IsSession (ClientSession rpc) where
   type Outbound (ClientSession rpc) = ClientOutbound rpc
 
   buildOutboundTrailers _ = \NoMetadata -> []
-  parseInboundTrailers  _ = parseTrailers $ parseProperTrailers (Proxy @rpc)
+  parseInboundTrailers  _ = parseTrailers (parseProperTrailers' (Proxy @rpc))
 
   parseMsg _ = parseOutput (Proxy @rpc) . inbCompression
   buildMsg _ = buildInput  (Proxy @rpc) . outCompression
@@ -81,17 +81,17 @@ instance SupportsClientRpc rpc => InitiateSession (ClientSession rpc) where
                     (responseStatus info)
                     (fromMaybe BS.Lazy.empty $ responseBody info)
 
-      responseHeaders :: ResponseHeaders <-
-        case parseResponseHeaders (Proxy @rpc) (responseHeaders info) of
-          Left  err    -> throwIO $ CallSetupInvalidResponseHeaders err
-          Right parsed -> return parsed
+      cIn <- getInboundCompression session $
+               responseCompression responseHeaders'
+      clientUpdateMeta session responseHeaders'
 
-      cIn <- getInboundCompression session $ responseCompression responseHeaders
-      clientUpdateMeta session responseHeaders
       return $ InboundHeaders {
-          inbHeaders     = responseHeaders
+          inbHeaders     = responseHeaders'
         , inbCompression = cIn
         }
+    where
+      responseHeaders' :: ResponseHeaders'
+      responseHeaders' = parseResponseHeaders' (Proxy @rpc) (responseHeaders info)
 
   parseResponseNoMessages _ info = do
       unless (HTTP.statusCode (responseStatus info) == 200) $
@@ -99,7 +99,7 @@ instance SupportsClientRpc rpc => InitiateSession (ClientSession rpc) where
                     (responseStatus info)
                     (fromMaybe BS.Lazy.empty $ responseBody info)
 
-      parseTrailers (parseTrailersOnly (Proxy @rpc)) (responseHeaders info)
+      parseTrailers (parseTrailersOnly' (Proxy @rpc)) (responseHeaders info)
 
   buildRequestInfo _ start = RequestInfo {
         requestMethod  = rawMethod resourceHeaders
@@ -122,11 +122,12 @@ instance NoTrailers (ClientSession rpc) where
 -- | Determine compression used for messages from the peer
 getInboundCompression ::
      ClientSession rpc
-  -> Maybe CompressionId
+  -> Either InvalidHeaders (Maybe CompressionId)
   -> IO Compression
 getInboundCompression session = \case
-    Nothing  -> return noCompression
-    Just cid ->
+    Left  err        -> throwIO $ CallSetupInvalidResponseHeaders err
+    Right Nothing    -> return noCompression
+    Right (Just cid) ->
       case Compr.getSupported (clientCompression session) cid of
         Just compr -> return compr
         Nothing    -> throwIO $ CallSetupUnsupportedCompression cid
@@ -135,13 +136,18 @@ getInboundCompression session = \case
   Internal auxiliary
 -------------------------------------------------------------------------------}
 
+-- | Parse proper trailers
+--
+-- Although we parse the trailers in a lenient fashion (like all headers),
+-- only throwing errors for headers that we really need, if we get no trailers
+-- at /all/, then most likely something has gone wrong; for example, perhaps
+-- an intermediate cache has dropped the gRPC trailers entirely. We therefore
+-- check for this case separately and throw a different error.
 parseTrailers ::
-     ([HTTP.Header] -> Either String trailers)
-  -> [HTTP.Header] -> IO trailers
+     ([HTTP.Header] ->    trailers)
+  ->  [HTTP.Header] -> IO trailers
 parseTrailers _ []  = throwIO $ CallClosedWithoutTrailers
-parseTrailers f raw = case f raw of
-                        Left  err -> throwIO $ InvalidTrailers raw err
-                        Right res -> return res
+parseTrailers f raw = return $ f raw
 
 {-------------------------------------------------------------------------------
   Exceptions
@@ -169,7 +175,7 @@ data CallSetupFailure =
   | CallSetupUnsupportedCompression CompressionId
 
     -- | We failed to parse the response headers
-  | CallSetupInvalidResponseHeaders String
+  | CallSetupInvalidResponseHeaders InvalidHeaders
   deriving stock (Show)
   deriving anyclass (Exception)
 

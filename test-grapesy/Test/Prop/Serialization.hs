@@ -437,13 +437,14 @@ instance Arbitrary (Awkward ResponseHeaders) where
   arbitrary = Awkward <$> do
       responseCompression       <- awkward
       responseAcceptCompression <- awkward
-      responseMetadata          <- awkward
       responseContentType       <- awkward
+      responseMetadata          <- awkward
       return ResponseHeaders {
           responseCompression
         , responseAcceptCompression
-        , responseMetadata
         , responseContentType
+        , responseMetadata
+        , responseUnrecognized = ()
         }
 
   shrink h@(Awkward h') = concat [
@@ -457,15 +458,16 @@ instance Arbitrary (Awkward ProperTrailers) where
   arbitrary = Awkward <$> do
       properTrailersGrpcStatus     <- awkward
       properTrailersGrpcMessage    <- awkward
-      properTrailersMetadata       <- awkward
       properTrailersPushback       <- awkward
       properTrailersOrcaLoadReport <- awkward
+      properTrailersMetadata       <- awkward
       return $ ProperTrailers{
           properTrailersGrpcStatus
         , properTrailersGrpcMessage
-        , properTrailersMetadata
         , properTrailersPushback
         , properTrailersOrcaLoadReport
+        , properTrailersMetadata
+        , properTrailersUnrecognized = ()
         }
 
   shrink h@(Awkward h') = concat [

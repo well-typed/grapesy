@@ -67,20 +67,20 @@ instance SupportsServerRpc rpc => IsSession (ServerSession rpc) where
 
 instance SupportsServerRpc rpc => AcceptSession (ServerSession rpc) where
   parseRequestRegular session headers = do
-      cIn <- getInboundCompression session $ requestCompression requestHeaders
+      cIn <- getInboundCompression session $ requestCompression requestHeaders'
       return InboundHeaders {
-          inbHeaders     = requestHeaders
+          inbHeaders     = requestHeaders'
         , inbCompression = cIn
         }
     where
-      requestHeaders :: RequestHeaders'
-      requestHeaders = parseRequestHeaders' (Proxy @rpc) headers
+      requestHeaders' :: RequestHeaders'
+      requestHeaders' = parseRequestHeaders' (Proxy @rpc) headers
 
   parseRequestNoMessages _ headers =
-      return requestHeaders
+      return requestHeaders'
     where
-      requestHeaders :: RequestHeaders'
-      requestHeaders = parseRequestHeaders' (Proxy @rpc) headers
+      requestHeaders' :: RequestHeaders'
+      requestHeaders' = parseRequestHeaders' (Proxy @rpc) headers
 
   buildResponseInfo _ start = ResponseInfo {
         responseStatus  = HTTP.ok200
