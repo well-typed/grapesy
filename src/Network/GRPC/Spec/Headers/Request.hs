@@ -9,9 +9,13 @@ module Network.GRPC.Spec.Headers.Request (
     -- * Inputs (message sent to the peer)
     RequestHeaders_(..)
   , RequestHeaders
+  , RequestHeaders'
+  , InvalidRequestHeaders(..)
+  , prettyInvalidRequestHeaders
     -- * Serialization
   , buildRequestHeaders
   , parseRequestHeaders
+  , parseRequestHeaders'
   ) where
 
 import Control.Monad
@@ -19,8 +23,9 @@ import Control.Monad.Except (MonadError(throwError))
 import Control.Monad.State (State, execState, modify)
 import Data.Bifunctor
 import Data.ByteString qualified as Strict (ByteString)
+import Data.ByteString.Builder qualified as ByteString (Builder)
 import Data.ByteString.Char8 qualified as BS.Strict.C8
-import Data.ByteString.UTF8 qualified as BS.Strict.UTF8
+import Data.CaseInsensitive qualified as CI
 import Data.Functor (($>))
 import Data.List (intercalate)
 import Data.List.NonEmpty (NonEmpty)
@@ -39,6 +44,8 @@ import Network.GRPC.Spec.Timeout
 import Network.GRPC.Spec.TraceContext
 import Network.GRPC.Util.HKD (HKD, Undecorated, DecoratedWith)
 import Network.GRPC.Util.HKD qualified as HKD
+import Data.ByteString.Builder qualified as Builder
+import Data.ByteString.UTF8 qualified as BS.UTF8
 
 {-------------------------------------------------------------------------------
   Inputs (message sent to the peer)
@@ -50,9 +57,6 @@ import Network.GRPC.Util.HKD qualified as HKD
 data RequestHeaders_ f = RequestHeaders {
       -- | Timeout
       requestTimeout :: HKD f (Maybe Timeout)
-
-      -- | Custom metadata
-    , requestMetadata :: HKD f CustomMetadataMap
 
       -- | Compression used for outgoing messages
     , requestCompression :: HKD f (Maybe CompressionId)
@@ -106,19 +110,55 @@ data RequestHeaders_ f = RequestHeaders {
       -- This is part of automatic retries.
       -- See <https://github.com/grpc/proposal/blob/master/A6-client-retries.md>.
     , requestPreviousRpcAttempts :: HKD f (Maybe Int)
+
+      -- | Custom metadata
+      --
+      -- Any header we do not otherwise explicitly support we attempt to parse
+      -- as custom metadata. Headers for which this fails end up in
+      -- 'requestUnrecognized'; reasons for this include the use of reserved
+      -- header names (starting with @grpc-@), invalid binary encodings, etc.
+    , requestMetadata :: CustomMetadataMap
+
+      -- | Unrecognized headers
+    , requestUnrecognized :: HKD f ()
     }
 
+-- | Request headers without allowing for invalid headers
+--
+-- NOTE: The HKD type
+--
+-- > RequestHeaders_ Undecorated
+--
+-- means that each field of type @HKD f a@ is simply of type @a@ (that is,
+-- undecorated).
 type RequestHeaders = RequestHeaders_ Undecorated
+
+-- | Request headers allowing for invalid headers
+--
+-- NOTE: The HKD type
+--
+-- > RequestHeaders_ (DecoratedWith (Either InvalidRequestHeaders))
+--
+-- means that each field of type @HKD f a@ is of type
+--
+-- > Either InvalidRequestHeaders a
+--
+-- (i.e., either valid or invalid).
+type RequestHeaders' = RequestHeaders_ (DecoratedWith (Either InvalidRequestHeaders))
 
 deriving stock instance Show    RequestHeaders
 deriving stock instance Eq      RequestHeaders
 deriving stock instance Generic RequestHeaders
 
+deriving stock instance Show RequestHeaders'
+deriving stock instance Eq   RequestHeaders'
+-- We do not derive Generic for RequestHeaders', as doing so makes ghc confused
+-- about the instance for RequestHeaders for some reason.
+
 instance HKD.Traversable RequestHeaders_ where
   sequence x =
       RequestHeaders
         <$> requestTimeout             x
-        <*> requestMetadata            x
         <*> requestCompression         x
         <*> requestAcceptCompression   x
         <*> requestContentType         x
@@ -127,6 +167,8 @@ instance HKD.Traversable RequestHeaders_ where
         <*> requestIncludeTE           x
         <*> requestTraceContext        x
         <*> requestPreviousRpcAttempts x
+        <*> pure (requestMetadata      x)
+        <*> requestUnrecognized        x
 
 {-------------------------------------------------------------------------------
   Construction
@@ -230,19 +272,61 @@ callDefinition proxy = \hdrs -> catMaybes [
         )
 
 {-------------------------------------------------------------------------------
+  Invalid headers
+-------------------------------------------------------------------------------}
+
+data InvalidRequestHeaders = InvalidRequestHeaders {
+      -- | Invalid headers, each with an error message
+      --
+      -- TODO: Justify the list
+      invalidRequestHeaders :: [(HTTP.Header, String)]
+
+      -- | The HTTP status we should return
+    , invalidRequestHeaderStatus :: HTTP.Status
+    }
+  deriving (Show, Eq)
+
+prettyInvalidRequestHeaders :: InvalidRequestHeaders -> ByteString.Builder
+prettyInvalidRequestHeaders = mconcat . map go . invalidRequestHeaders
+  where
+    go :: (HTTP.Header, String) -> ByteString.Builder
+    go ((name, value), err) =
+        mconcat [
+            "Invalid header '"
+          , Builder.byteString (CI.original name)
+          , "' with value '"
+          , Builder.byteString value
+          , "': "
+          , Builder.byteString $ BS.UTF8.fromString err
+          , "\n"
+          ]
+
+{-------------------------------------------------------------------------------
   Parsing
 -------------------------------------------------------------------------------}
 
--- | Parse request headers
 parseRequestHeaders :: forall rpc m.
-     (IsRPC rpc, MonadError (HTTP.Status, Strict.ByteString) m)
-  => Proxy rpc -> [HTTP.Header] -> m RequestHeaders
+     (IsRPC rpc, MonadError InvalidRequestHeaders m)
+  => Proxy rpc
+  -> [HTTP.Header] -> m RequestHeaders
 parseRequestHeaders proxy =
-      HKD.sequence
-    . flip execState uninitRequestHeaders
+      either throwError return
+    . HKD.sequence
+    . parseRequestHeaders' proxy
+
+-- | Parse request headers
+--
+-- This can report invalid headers on a per-header basis; see also
+-- 'parseRequestHeaders'.
+parseRequestHeaders' :: forall rpc.
+     IsRPC rpc
+  => Proxy rpc
+  -> [HTTP.Header] -> RequestHeaders'
+parseRequestHeaders' proxy =
+      flip execState uninitRequestHeaders
     . mapM_ (parseHeader . second trim)
   where
-    parseHeader :: HTTP.Header -> State (RequestHeaders_ (DecoratedWith m)) ()
+    parseHeader :: HTTP.Header -> State RequestHeaders' ()
     parseHeader hdr@(name, value)
       | name == "user-agent"
       = modify $ \x -> x {
@@ -252,35 +336,35 @@ parseRequestHeaders proxy =
       | name == "grpc-timeout"
       = modify $ \x -> x {
             requestTimeout = fmap Just $
-              httpError HTTP.badRequest400 $
+              httpError hdr HTTP.badRequest400 $
                 parseTimeout value
           }
 
       | name == "grpc-encoding"
       = modify $ \x -> x {
             requestCompression = fmap Just $
-               httpError HTTP.badRequest400 $
+               httpError hdr HTTP.badRequest400 $
                  parseMessageEncoding hdr
           }
 
       | name == "grpc-accept-encoding"
       = modify $ \x -> x {
             requestAcceptCompression = fmap Just $
-               httpError HTTP.badRequest400 $
+               httpError hdr HTTP.badRequest400 $
                  parseMessageAcceptEncoding hdr
           }
 
       | name == "grpc-trace-bin"
       = modify $ \x -> x {
             requestTraceContext = fmap Just $
-              httpError HTTP.badRequest400 $
+              httpError hdr HTTP.badRequest400 $
                 parseBinaryValue value >>= parseTraceContext
           }
 
       | name == "content-type"
       = modify $ \x -> x {
             requestContentType = fmap Just $
-              httpError HTTP.unsupportedMediaType415 $
+              httpError hdr HTTP.unsupportedMediaType415 $
                 parseContentType proxy hdr
           }
 
@@ -293,7 +377,7 @@ parseRequestHeaders proxy =
       | name == "te"
       = modify $ \x -> x {
             requestIncludeTE = do
-              httpError HTTP.badRequest400 $
+              httpError hdr HTTP.badRequest400 $
                 expectHeaderValue hdr ["trailers"]
               return True
           }
@@ -301,7 +385,7 @@ parseRequestHeaders proxy =
       | name == "grpc-previous-rpc-attempts"
       = modify $ \x -> x {
             requestPreviousRpcAttempts = do
-              httpError HTTP.badRequest400 $
+              httpError hdr HTTP.badRequest400 $
                 maybe
                   (Left $ "grpc-previous-rpc-attempts: invalid " ++ show value)
                   (Right . Just)
@@ -309,16 +393,30 @@ parseRequestHeaders proxy =
           }
 
       | otherwise
-      = modify $ \x -> x {
-            requestMetadata = do
-              md <- httpError HTTP.badRequest400 $ parseCustomMetadata hdr
-              customMetadataMapInsert md <$> requestMetadata x
-          }
+      = modify $ \x ->
+          case parseCustomMetadata hdr of
+            Left err -> x {
+                requestUnrecognized = Left $
+                    case requestUnrecognized x of
+                      Left invalid -> invalid {
+                          invalidRequestHeaders =
+                              (hdr, err)
+                            : invalidRequestHeaders invalid
+                        }
+                      Right () -> InvalidRequestHeaders {
+                          invalidRequestHeaders      = [(hdr, err)]
+                        , invalidRequestHeaderStatus = HTTP.badRequest400
+                        }
+              }
+            Right md -> x {
+                requestMetadata =
+                    customMetadataMapInsert md
+                  $ requestMetadata x
+              }
 
-    uninitRequestHeaders :: RequestHeaders_ (DecoratedWith m)
+    uninitRequestHeaders :: RequestHeaders'
     uninitRequestHeaders = RequestHeaders {
           requestTimeout             = return Nothing
-        , requestMetadata            = return mempty
         , requestCompression         = return Nothing
         , requestAcceptCompression   = return Nothing
         , requestContentType         = return Nothing
@@ -333,13 +431,19 @@ parseRequestHeaders proxy =
             case rpcMessageType proxy of
               Nothing -> return $ Just MessageTypeDefault
               Just _  -> return $ Nothing
+        , requestMetadata            = customMetadataMapFromList []
+        , requestUnrecognized        = return ()
         }
 
     httpError ::
-         MonadError (HTTP.Status, Strict.ByteString) m'
-      => HTTP.Status -> Either String a -> m' a
-    httpError code (Left err) = throwError (code, BS.Strict.UTF8.fromString err)
-    httpError _    (Right a)  = return a
+         MonadError InvalidRequestHeaders m'
+      => HTTP.Header -> HTTP.Status -> Either String a -> m' a
+    httpError _   _      (Right a)  = return a
+    httpError hdr status (Left err) = throwError
+        InvalidRequestHeaders {
+            invalidRequestHeaders      = [(hdr, err)]
+          , invalidRequestHeaderStatus = status
+          }
 
 {-------------------------------------------------------------------------------
   Internal auxiliary

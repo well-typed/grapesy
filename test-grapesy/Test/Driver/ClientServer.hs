@@ -484,6 +484,10 @@ withTestServer cfg firstTestFailure handlerLock serverHandlers k = do
                   NoOverride            -> Nothing
                   ValidOverride   ctype -> Just ctype
                   InvalidOverride ctype -> Just ctype
+            , Server.serverVerifyHeaders =
+                -- We want to check that we can spot invalid headers
+                -- (and that we don't generate any in the client)
+                True
             }
 
     server <- Server.mkGrpcServer serverParams serverHandlers

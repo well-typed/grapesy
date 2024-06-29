@@ -75,7 +75,7 @@ instance SupportsClientRpc rpc => IsSession (ClientSession rpc) where
   buildMsg _ = buildInput  (Proxy @rpc) . outCompression
 
 instance SupportsClientRpc rpc => InitiateSession (ClientSession rpc) where
-  parseResponseRegular client info = do
+  parseResponseRegular session info = do
       unless (HTTP.statusCode (responseStatus info) == 200) $
         throwIO $ CallSetupUnexpectedStatus
                     (responseStatus info)
@@ -86,18 +86,8 @@ instance SupportsClientRpc rpc => InitiateSession (ClientSession rpc) where
           Left  err    -> throwIO $ CallSetupInvalidResponseHeaders err
           Right parsed -> return parsed
 
-      let cInId :: Maybe CompressionId
-          cInId = responseCompression responseHeaders
-      cIn :: Compression <-
-        case cInId of
-          Nothing  -> return noCompression
-          Just cid ->
-            case Compr.getSupported (clientCompression client) cid of
-              Nothing    -> throwIO $ CallSetupUnsupportedCompression cid
-              Just compr -> return compr
-
-      clientUpdateMeta client responseHeaders
-
+      cIn <- getInboundCompression session $ responseCompression responseHeaders
+      clientUpdateMeta session responseHeaders
       return $ InboundHeaders {
           inbHeaders     = responseHeaders
         , inbCompression = cIn
@@ -128,6 +118,18 @@ instance SupportsClientRpc rpc => InitiateSession (ClientSession rpc) where
 
 instance NoTrailers (ClientSession rpc) where
   noTrailers _ = NoMetadata
+
+-- | Determine compression used for messages from the peer
+getInboundCompression ::
+     ClientSession rpc
+  -> Maybe CompressionId
+  -> IO Compression
+getInboundCompression session = \case
+    Nothing  -> return noCompression
+    Just cid ->
+      case Compr.getSupported (clientCompression session) cid of
+        Just compr -> return compr
+        Nothing    -> throwIO $ CallSetupUnsupportedCompression cid
 
 {-------------------------------------------------------------------------------
   Internal auxiliary
