@@ -12,9 +12,8 @@ import Control.Monad
 import Data.Aeson.Types qualified as Aeson
 import Data.ByteString (ByteString)
 import Data.ByteString.Base64 qualified as Base64
-import Data.ByteString.Char8 qualified as Char8
 import Data.Hashable
-import Data.Text qualified as Text
+import Data.Text.Encoding qualified as Text
 
 import Network.GRPC.Common.JSON
 
@@ -53,10 +52,10 @@ data KVStore = KVStore {
 newtype Base64 = Base64 { getBase64 :: ByteString }
 
 instance ToJSON Base64 where
-  toJSON = toJSON . Text.pack . Char8.unpack . Base64.encode . getBase64
+  toJSON = toJSON . Text.decodeUtf8 . Base64.encode . getBase64
 
 instance FromJSON Base64 where
-  parseJSON = fmap Base64 . decode . Char8.pack . Text.unpack <=< parseJSON
+  parseJSON = fmap Base64 . decode . Text.encodeUtf8 <=< parseJSON
     where
       decode :: ByteString -> Aeson.Parser ByteString
       decode = either fail return . Base64.decode
