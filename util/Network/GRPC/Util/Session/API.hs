@@ -132,21 +132,17 @@ class IsSession sess => InitiateSession sess where
        sess
     -> FlowStart (Outbound sess) -> RequestInfo
 
-  -- | Parse 'ResponseInfo' from the server, regular case
-  --
-  -- See 'parseResponseTrailersOnly' for the Trailers-Only case.
-  parseResponseRegular ::
-       sess
-    -> ResponseInfo -> IO (Headers (Inbound sess))
-
-  -- | Parse 'ResponseInfo' from the server, Trailers-Only case
-  parseResponseNoMessages ::
-       sess
-    -> ResponseInfo -> IO (NoMessages (Inbound sess))
+  -- | Parse 'ResponseInfo' from the server
+  parseResponse ::
+      sess
+   -> ResponseInfo
+   -> IO (FlowStart (Inbound sess))
 
 -- | Accept session
 --
 -- A server node listens and accepts incoming requests from client nodes.
+--
+-- TODO: Should we bring this in line with 'InitiateSession'?
 class IsSession sess => AcceptSession sess where
   -- | Parse 'RequestInfo' from the client, regular case
   --

@@ -162,19 +162,16 @@ setupRequestChannel sess
                   , responseBody
                   }
 
-              -- TODO: <https://github.com/well-typed/grapesy/issues/120>.
-              -- We should not base our choice on the Content-Length header.
-              if Client.responseBodySize resp /= Just 0 then do
-                headers <- parseResponseRegular sess responseInfo
-                regular <- initFlowStateRegular headers
-                stream  <- clientInputStream resp
-                markReady $ FlowStateRegular regular
-                Right <$> recvMessageLoop sess regular stream
-              else do
-                -- The gRPC Trailers-Only case
-                trailers <- parseResponseNoMessages sess responseInfo
-                markReady $ FlowStateNoMessages trailers
-                return $ Left trailers
+              flowStart <- parseResponse sess responseInfo
+              case flowStart of
+                FlowStartRegular headers -> do
+                  state <- initFlowStateRegular headers
+                  stream  <- clientInputStream resp
+                  markReady $ FlowStateRegular state
+                  Right <$> recvMessageLoop sess state stream
+                FlowStartNoMessages trailers -> do
+                  markReady $ FlowStateNoMessages trailers
+                  return $ Left trailers
 
     outboundThread ::
          Channel sess

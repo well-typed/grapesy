@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module Network.GRPC.Client.Session (
     ClientSession(..)
   , ClientInbound
@@ -75,31 +77,27 @@ instance SupportsClientRpc rpc => IsSession (ClientSession rpc) where
   buildMsg _ = buildInput  (Proxy @rpc) . outCompression
 
 instance SupportsClientRpc rpc => InitiateSession (ClientSession rpc) where
-  parseResponseRegular session info = do
+  parseResponse session info = do
+      -- TODO: <https://github.com/well-typed/grapesy/issues/22>
       unless (HTTP.statusCode (responseStatus info) == 200) $
         throwIO $ CallSetupUnexpectedStatus
                     (responseStatus info)
                     (fromMaybe BS.Lazy.empty $ responseBody info)
 
-      cIn <- getInboundCompression session $
-               responseCompression responseHeaders'
-      clientUpdateMeta session responseHeaders'
+      if isTrailersOnly info then fmap FlowStartNoMessages $
+        parseTrailers (parseTrailersOnly' (Proxy @rpc)) (responseHeaders info)
+      else fmap FlowStartRegular $ do
+        let responseHeaders' :: ResponseHeaders'
+            responseHeaders' = parseResponseHeaders' (Proxy @rpc) $
+                                 responseHeaders info
+        cIn <- getInboundCompression session $
+                 responseCompression responseHeaders'
+        clientUpdateMeta session responseHeaders'
 
-      return $ InboundHeaders {
-          inbHeaders     = responseHeaders'
-        , inbCompression = cIn
-        }
-    where
-      responseHeaders' :: ResponseHeaders'
-      responseHeaders' = parseResponseHeaders' (Proxy @rpc) (responseHeaders info)
-
-  parseResponseNoMessages _ info = do
-      unless (HTTP.statusCode (responseStatus info) == 200) $
-        throwIO $ CallSetupUnexpectedStatus
-                    (responseStatus info)
-                    (fromMaybe BS.Lazy.empty $ responseBody info)
-
-      parseTrailers (parseTrailersOnly' (Proxy @rpc)) (responseHeaders info)
+        return $ InboundHeaders {
+            inbHeaders     = responseHeaders'
+          , inbCompression = cIn
+          }
 
   buildRequestInfo _ start = RequestInfo {
         requestMethod  = rawMethod resourceHeaders
@@ -118,6 +116,29 @@ instance SupportsClientRpc rpc => InitiateSession (ClientSession rpc) where
 
 instance NoTrailers (ClientSession rpc) where
   noTrailers _ = NoMetadata
+
+-- | Check if we are in the Trailers-Only case
+--
+-- It is tempting to use the HTTP @Content-Length@ header to determine whether
+-- we are in the Trailers-Only case or not, but this is doubly wrong:
+--
+-- * There might be servers who use the Trailers-Only case but do not set the
+--   @Content-Length@ header (although such a server would not conform to the
+--   HTTP spec: "An origin server SHOULD send a @Content-Length@ header field
+--   when the content size is known prior to sending the complete header
+--   section"; see
+--   <https://www.rfc-editor.org/rfc/rfc9110.html#name-content-length>).
+-- * Conversely, there might be servers or proxies who /do/ set @Content-Length@
+--   header even when it's /not/ the Trailers-Only case (e.g., see
+--   <https://github.com/grpc/grpc-web/issues/1101> or
+--   <https://github.com/envoyproxy/envoy/issues/5554>).
+--
+-- We therefore check for the presence of the @grpc-status@ header instead.
+isTrailersOnly :: ResponseInfo -> Bool
+isTrailersOnly = any isGrpcStatus . responseHeaders
+  where
+    isGrpcStatus :: HTTP.Header -> Bool
+    isGrpcStatus (name, _value) = name == "grpc-status"
 
 -- | Determine compression used for messages from the peer
 getInboundCompression ::
