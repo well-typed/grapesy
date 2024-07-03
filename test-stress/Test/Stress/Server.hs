@@ -1,6 +1,7 @@
 module Test.Stress.Server (server) where
 
 import Network.GRPC.Common
+import Network.GRPC.Common.HTTP2Settings
 import Network.GRPC.Server.Run
 import Network.GRPC.Server.StreamType
 import Network.GRPC.Server.StreamType.Binary qualified as Binary
@@ -22,6 +23,8 @@ server _cmdline =
   where
     config :: ServerConfig
     config = ServerConfig {
-          serverInsecure = Just $ InsecureConfig Nothing defaultInsecurePort
-        , serverSecure   = Nothing
+          serverInsecure                = Just $ InsecureConfig Nothing defaultInsecurePort
+        , serverSecure                  = Nothing
+        , serverOverrideNumberOfWorkers = Nothing
+        , serverHTTP2Settings           = defaultHTTP2Settings
         }

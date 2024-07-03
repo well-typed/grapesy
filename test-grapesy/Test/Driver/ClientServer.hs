@@ -39,6 +39,7 @@ import Test.Tasty.QuickCheck qualified as QuickCheck
 import Network.GRPC.Client qualified as Client
 import Network.GRPC.Common
 import Network.GRPC.Common.Compression qualified as Compr
+import Network.GRPC.Common.HTTP2Settings
 import Network.GRPC.Internal.XIO (NeverThrows)
 import Network.GRPC.Internal.XIO qualified as XIO
 import Network.GRPC.Server qualified as Server
@@ -452,18 +453,22 @@ withTestServer cfg firstTestFailure handlerLock serverHandlers k = do
                       insecureHost = Nothing
                     , insecurePort = serverPort cfg
                     }
-                , serverSecure   = Nothing
+                , serverSecure = Nothing
+                , serverOverrideNumberOfWorkers = Nothing
+                , serverHTTP2Settings = defaultHTTP2Settings
                 }
               Just (TlsFail TlsFailUnsupported) -> Server.ServerConfig {
                   serverInsecure = Just Server.InsecureConfig {
                       insecureHost = Nothing
                     , insecurePort = serverPort cfg
                     }
-                , serverSecure   = Nothing
+                , serverSecure = Nothing
+                , serverOverrideNumberOfWorkers = Nothing
+                , serverHTTP2Settings = defaultHTTP2Settings
                 }
               Just _tlsSetup -> Server.ServerConfig {
                   serverInsecure = Nothing
-                , serverSecure   = Just $ Server.SecureConfig {
+                , serverSecure = Just $ Server.SecureConfig {
                       secureHost       = "127.0.0.1"
                     , securePort       = serverPort cfg
                     , securePubCert    = pubCert
@@ -471,6 +476,8 @@ withTestServer cfg firstTestFailure handlerLock serverHandlers k = do
                     , securePrivKey    = privKey
                     , secureSslKeyLog  = SslKeyLogNone
                     }
+                , serverOverrideNumberOfWorkers = Nothing
+                , serverHTTP2Settings = defaultHTTP2Settings
                 }
 
         serverParams :: Server.ServerParams
@@ -528,7 +535,6 @@ runTestClient cfg firstTestFailure port clientRun = do
               connCompression           = clientCompr cfg
             , connInitCompression       = clientInitCompr cfg
             , connDefaultTimeout        = Nothing
-            , connOverridePingRateLimit = Nothing
 
               -- Content-type
             , connContentType =
@@ -544,6 +550,7 @@ runTestClient cfg firstTestFailure port clientRun = do
                   Client.ReconnectAfter $ do
                     threadDelay 100_000
                     return Client.DontReconnect
+            , connHTTP2Settings = defaultHTTP2Settings
             }
 
         clientServer :: Client.Server

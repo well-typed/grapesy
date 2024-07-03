@@ -2,7 +2,7 @@ dist-newstyle
 .envrc
 *.swp
 *.pcapng
-cabal.project.local
+*.local
 *.eventlog
 *.eventlog.html
 *.hp

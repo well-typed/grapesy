@@ -29,6 +29,7 @@ module Network.GRPC.Server.Run (
 import Control.Concurrent.Async
 import Control.Concurrent.STM
 import Control.Exception
+import Data.Maybe (fromMaybe)
 import Network.ByteOrder (BufferSize)
 import Network.HTTP2.Server qualified as HTTP2
 import Network.HTTP2.TLS.Server qualified as HTTP2.TLS
@@ -36,6 +37,7 @@ import Network.Run.TCP qualified as Run
 import Network.Socket
 import Network.TLS qualified as TLS
 
+import Network.GRPC.Common.HTTP2Settings
 import Network.GRPC.Server
 import Network.GRPC.Util.HTTP2 (allocConfigWithTimeout)
 import Network.GRPC.Util.TLS (SslKeyLog(..))
@@ -60,6 +62,22 @@ data ServerConfig = ServerConfig {
       --
       -- Set to 'Nothing' to disable.
     , serverSecure :: Maybe SecureConfig
+
+      -- | Number of threads that will be spawned to process incoming frames
+      -- on the currently active HTTP\/2 streams
+      --
+      -- This setting is specific to the
+      -- [http2](https://hackage.haskell.org/package/http2) package's
+      -- implementation of the HTTP\/2 specification for servers. Set to
+      -- 'Nothing' to use the default of 8 worker threads.
+      --
+      -- __Note__: If a lower 'http2ConnectionWindowSize' is desired, the
+      -- number of workers should be increased to avoid a potential HTTP\/2
+      -- control flow deadlock.
+    , serverOverrideNumberOfWorkers :: Maybe Word
+
+      -- | HTTP\/2 settings
+    , serverHTTP2Settings :: HTTP2Settings
     }
 
 -- | Offer insecure connection (no TLS)
@@ -90,7 +108,7 @@ data SecureConfig = SecureConfig {
 
       -- | Port number
       --
-      -- See 'insecurePort' for additional discussion'.
+      -- See 'insecurePort' for additional discussion.
     , securePort :: PortNumber
 
       -- | TLS public certificate (X.509 format)
@@ -167,17 +185,13 @@ data ServerTerminated = ServerTerminated
 
 -- | Start the server
 forkServer :: ServerConfig -> HTTP2.Server -> (RunningServer -> IO a) -> IO a
-forkServer ServerConfig{serverInsecure, serverSecure} server k = do
+forkServer cfg server k = do
     runningSocketInsecure <- newEmptyTMVarIO
     runningSocketSecure   <- newEmptyTMVarIO
 
     let secure, insecure :: IO ()
-        insecure = case serverInsecure of
-                     Nothing  -> return ()
-                     Just cfg -> runInsecure cfg runningSocketInsecure server
-        secure   = case serverSecure of
-                     Nothing  -> return ()
-                     Just cfg -> runSecure cfg runningSocketSecure server
+        insecure = runInsecure cfg runningSocketInsecure server
+        secure   = runSecure cfg runningSocketSecure server
 
     withAsync insecure $ \runningServerInsecure ->
       withAsync secure $ \runningServerSecure ->
@@ -275,47 +289,87 @@ getSocket serverAsync socketTMVar = do
   Insecure
 -------------------------------------------------------------------------------}
 
-runInsecure :: InsecureConfig -> TMVar Socket -> HTTP2.Server -> IO ()
-runInsecure cfg socketTMVar server =
+runInsecure :: ServerConfig -> TMVar Socket -> HTTP2.Server -> IO ()
+runInsecure ServerConfig{serverInsecure = Nothing} _ _ = return ()
+runInsecure
+    ServerConfig {
+        serverInsecure = Just insecureCfg
+      , serverOverrideNumberOfWorkers
+      , serverHTTP2Settings
+      }
+    socketTMVar server
+  =
     Run.runTCPServerWithSocket
         (openServerSocket socketTMVar)
-        (insecureHost cfg)
-        (show $ insecurePort cfg) $ \sock -> do
+        (insecureHost insecureCfg)
+        (show $ insecurePort insecureCfg) $ \sock -> do
       bracket (allocConfigWithTimeout sock writeBufferSize disableTimeout)
               HTTP2.freeSimpleConfig $ \config ->
-        HTTP2.run HTTP2.defaultServerConfig config server
+        HTTP2.run serverConfig config server
+  where
+    serverConfig :: HTTP2.ServerConfig
+    serverConfig = HTTP2.defaultServerConfig {
+          HTTP2.numberOfWorkers =
+              fromIntegral $ fromMaybe 8 serverOverrideNumberOfWorkers
+        , HTTP2.connectionWindowSize =
+              fromIntegral $ http2ConnectionWindowSize serverHTTP2Settings
+        , HTTP2.settings =
+              HTTP2.defaultSettings {
+                  HTTP2.initialWindowSize =
+                      fromIntegral $
+                        http2StreamWindowSize serverHTTP2Settings
+                , HTTP2.maxConcurrentStreams =
+                      Just . fromIntegral $
+                        http2MaxConcurrentStreams serverHTTP2Settings
+                }
+        }
 
 {-------------------------------------------------------------------------------
   Secure (over TLS)
 -------------------------------------------------------------------------------}
 
-runSecure :: SecureConfig -> TMVar Socket -> HTTP2.Server -> IO ()
-runSecure cfg socketTMVar server = do
+runSecure :: ServerConfig -> TMVar Socket -> HTTP2.Server -> IO ()
+runSecure ServerConfig{serverSecure = Nothing} _ _ = return ()
+runSecure
+    ServerConfig {
+        serverSecure = Just secureCfg
+      , serverOverrideNumberOfWorkers
+      , serverHTTP2Settings
+      }
+    socketTMVar server = do
     cred :: TLS.Credential <-
           TLS.credentialLoadX509Chain
-            (securePubCert    cfg)
-            (secureChainCerts cfg)
-            (securePrivKey    cfg)
+            (securePubCert    secureCfg)
+            (secureChainCerts secureCfg)
+            (securePrivKey    secureCfg)
       >>= \case
             Left  err -> throwIO $ CouldNotLoadCredentials err
             Right res -> return res
 
-    keyLogger <- Util.TLS.keyLogger (secureSslKeyLog cfg)
-    let settings :: HTTP2.TLS.Settings
-        settings = HTTP2.TLS.defaultSettings {
+    keyLogger <- Util.TLS.keyLogger (secureSslKeyLog secureCfg)
+    let tlsSettings :: HTTP2.TLS.Settings
+        tlsSettings = HTTP2.TLS.defaultSettings {
               HTTP2.TLS.settingsKeyLogger =
                 keyLogger
             , HTTP2.TLS.settingsOpenServerSocket =
                 openServerSocket socketTMVar
             , HTTP2.TLS.settingsTimeout =
                 disableTimeout
+            , HTTP2.TLS.settingsNumberOfWorkers =
+                fromIntegral $ fromMaybe 8 serverOverrideNumberOfWorkers
+            , HTTP2.TLS.settingsConnectionWindowSize =
+                fromIntegral $ http2ConnectionWindowSize serverHTTP2Settings
+            , HTTP2.TLS.settingsStreamWindowSize =
+                fromIntegral $ http2StreamWindowSize serverHTTP2Settings
+            , HTTP2.TLS.settingsConcurrentStreams =
+                fromIntegral $ http2MaxConcurrentStreams serverHTTP2Settings
             }
 
     HTTP2.TLS.run
-      settings
+      tlsSettings
       (TLS.Credentials [cred])
-      (secureHost cfg)
-      (securePort cfg)
+      (secureHost secureCfg)
+      (securePort secureCfg)
       server
 
 data CouldNotLoadCredentials =

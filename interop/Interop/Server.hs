@@ -7,6 +7,7 @@ import Control.Exception (SomeException)
 import Control.Monad.Catch (generalBracket, ExitCase(..))
 
 import Network.GRPC.Common
+import Network.GRPC.Common.HTTP2Settings (defaultHTTP2Settings)
 import Network.GRPC.Internal.XIO qualified as XIO
 import Network.GRPC.Server
 import Network.GRPC.Server.Protobuf
@@ -72,8 +73,7 @@ withInteropServer cmdline k = do
     serverConfig
       | cmdUseTLS cmdline
       = ServerConfig {
-            serverInsecure = Nothing
-          , serverSecure   = Just SecureConfig {
+            serverSecure = Just SecureConfig {
                 secureHost       = "0.0.0.0"
               , securePort       = cmdPort cmdline
               , securePubCert    = cmdPubCert cmdline
@@ -81,15 +81,20 @@ withInteropServer cmdline k = do
               , securePrivKey    = cmdPrivKey cmdline
               , secureSslKeyLog  = cmdSslKeyLog cmdline
               }
+          , serverInsecure                = Nothing
+          , serverOverrideNumberOfWorkers = Nothing
+          , serverHTTP2Settings           = defaultHTTP2Settings
           }
 
      | otherwise
      = ServerConfig {
-            serverSecure   = Nothing
-          , serverInsecure = Just InsecureConfig {
+            serverInsecure = Just InsecureConfig {
                 insecureHost = Nothing
               , insecurePort = cmdPort cmdline
               }
+          , serverSecure                  = Nothing
+          , serverOverrideNumberOfWorkers = Nothing
+          , serverHTTP2Settings           = defaultHTTP2Settings
           }
 
     serverParams :: ServerParams

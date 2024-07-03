@@ -5,6 +5,7 @@ import Control.Monad
 
 import Network.GRPC.Common
 import Network.GRPC.Common.Compression qualified as Compr
+import Network.GRPC.Common.HTTP2Settings (defaultHTTP2Settings)
 import Network.GRPC.Server
 import Network.GRPC.Server.Run
 
@@ -33,8 +34,10 @@ withKeyValueServer cmdline@Cmdline{cmdJSON} k = do
   where
     config :: ServerConfig
     config = ServerConfig {
-          serverInsecure = Just $ InsecureConfig Nothing defaultInsecurePort
-        , serverSecure   = Nothing
+          serverInsecure                = Just $ InsecureConfig Nothing defaultInsecurePort
+        , serverSecure                  = Nothing
+        , serverOverrideNumberOfWorkers = Nothing
+        , serverHTTP2Settings           = defaultHTTP2Settings
         }
 
     params :: ServerParams
