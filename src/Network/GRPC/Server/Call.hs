@@ -49,7 +49,10 @@ import Control.Monad.XIO (XIO')
 import Control.Monad.XIO qualified as XIO
 import Data.Bitraversable
 import Data.Default
+import Data.List.NonEmpty (NonEmpty)
+import Data.Void
 import GHC.Stack
+import Network.HTTP.Types qualified as HTTP
 import Network.HTTP2.Server qualified as HTTP2
 
 import Network.GRPC.Common
@@ -58,9 +61,9 @@ import Network.GRPC.Common.StreamElem qualified as StreamElem
 import Network.GRPC.Server.Context
 import Network.GRPC.Server.Session
 import Network.GRPC.Spec
+import Network.GRPC.Util.HTTP2 (fromHeaderTable)
 import Network.GRPC.Util.Session qualified as Session
 import Network.GRPC.Util.Session.Server qualified as Server
-import Data.List.NonEmpty (NonEmpty)
 
 {-------------------------------------------------------------------------------
   Definition
@@ -135,14 +138,9 @@ setupCall conn callContext@ServerContext{serverParams} = do
     callResponseMetadata <- XIO.unsafeTrustMe $ newTVarIO Nothing
     callResponseKickoff  <- XIO.unsafeTrustMe $ newEmptyTMVarIO
 
-    flowStart :: Session.FlowStart (ServerInbound rpc) <-
-      XIO.unsafeTrustMe $ Session.determineFlowStart callSession req
-
-    let callRequestHeaders :: RequestHeaders'
-        callRequestHeaders =
-            case flowStart of
-              Session.FlowStartRegular    headers  -> inbHeaders headers
-              Session.FlowStartNoMessages trailers ->            trailers
+    inboundHeaders <-
+      XIO.unsafeTrustMe $ determineInbound callSession req
+    let callRequestHeaders = inbHeaders inboundHeaders
 
     -- Technically compression is only relevant in the 'KickoffRegular' case
     -- (i.e., in the case that the /server/ responds with messages, rather than
@@ -156,8 +154,13 @@ setupCall conn callContext@ServerContext{serverParams} = do
       XIO.neverThrows $ Session.setupResponseChannel
         callSession
         conn
-        flowStart
-        (mkOutboundHeaders callResponseMetadata callResponseKickoff cOut)
+        (Session.FlowStartRegular inboundHeaders)
+        ( startOutbound
+            serverParams
+            callResponseMetadata
+            callResponseKickoff
+            cOut
+        )
 
     return Call{
         callContext
@@ -173,49 +176,107 @@ setupCall conn callContext@ServerContext{serverParams} = do
           serverSessionContext = callContext
         }
 
-    compr :: Compr.Negotation
-    compr = serverCompression serverParams
-
     req :: HTTP2.Request
     req = Server.request conn
 
-    mkOutboundHeaders ::
-         TVar (Maybe (ResponseInitialMetadata rpc))
-      -> TMVar Kickoff
-      -> Compression
-      -> IO (Session.FlowStart (ServerOutbound rpc))
-    mkOutboundHeaders metadataVar kickoffVar cOut = do
-        -- Wait for kickoff (see 'Kickoff' for discussion)
-        kickoff <- atomically $ readTMVar kickoffVar
+-- | Parse inbound headers
+determineInbound :: forall rpc.
+     SupportsServerRpc rpc
+  => ServerSession rpc
+  -> HTTP2.Request
+  -> IO (Headers (ServerInbound rpc))
+determineInbound session req = do
+    cIn <- getInboundCompression session $ requestCompression requestHeaders'
+    return InboundHeaders {
+        inbHeaders     = requestHeaders'
+      , inbCompression = cIn
+      }
+  where
+    requestHeaders' :: RequestHeaders'
+    requestHeaders' = parseRequestHeaders' (Proxy @rpc) $
+                        fromHeaderTable $ HTTP2.requestHeaders req
 
-        -- Get response metadata (see 'setResponseMetadata')
-        -- It is important we read this only /after/ the kickoff.
-        responseMetadata <- do
-          mMetadata <- atomically $ readTVar metadataVar
-          case mMetadata of
-            Just md -> buildMetadataIO md
-            Nothing -> throwIO $ ResponseInitialMetadataNotSet
+-- | Determine outbound flow start
+--
+-- This blocks until the 'Kickoff' is known.
+startOutbound :: forall rpc.
+     SupportsServerRpc rpc
+  => ServerParams
+  -> TVar (Maybe (ResponseInitialMetadata rpc))
+  -> TMVar Kickoff
+  -> Compression
+  -> IO (Session.FlowStart (ServerOutbound rpc), Session.ResponseInfo)
+startOutbound serverParams metadataVar kickoffVar cOut = do
+    -- Wait for kickoff (see 'Kickoff' for discussion)
+    kickoff <- atomically $ readTMVar kickoffVar
 
-        -- Session start
-        case kickoff of
-          KickoffRegular _cs ->
-            return $ Session.FlowStartRegular $ OutboundHeaders {
-                outHeaders = ResponseHeaders {
-                    responseCompression =
-                      Just $ Compr.compressionId cOut
-                  , responseAcceptCompression =
-                      Just $ Compr.offer compr
-                  , responseContentType =
-                      serverContentType serverParams
-                  , responseMetadata =
-                      customMetadataMapFromList responseMetadata
-                  , responseUnrecognized =
-                      ()
-                  }
-              , outCompression = cOut
-              }
-          KickoffTrailersOnly _cs trailers ->
-            return $ Session.FlowStartNoMessages trailers
+    -- Get response metadata (see 'setResponseMetadata')
+    -- It is important we read this only /after/ the kickoff.
+    responseMetadata <- do
+      mMetadata <- atomically $ readTVar metadataVar
+      case mMetadata of
+        Just md -> buildMetadataIO md
+        Nothing -> throwIO $ ResponseInitialMetadataNotSet
+
+    -- Session start
+    let flowStart :: Session.FlowStart (ServerOutbound rpc)
+        flowStart =
+          case kickoff of
+            KickoffRegular _cs ->
+              Session.FlowStartRegular $ OutboundHeaders {
+                  outHeaders = ResponseHeaders {
+                      responseCompression =
+                        Just $ Compr.compressionId cOut
+                    , responseAcceptCompression =
+                        Just $ Compr.offer compr
+                    , responseContentType =
+                        serverContentType serverParams
+                    , responseMetadata =
+                        customMetadataMapFromList responseMetadata
+                    , responseUnrecognized =
+                        ()
+                    }
+                , outCompression = cOut
+                }
+            KickoffTrailersOnly _cs trailers ->
+              Session.FlowStartNoMessages trailers
+
+    return (flowStart, buildResponseInfo flowStart)
+  where
+    compr :: Compr.Negotation
+    compr = serverCompression serverParams
+
+    buildResponseInfo ::
+         Session.FlowStart (ServerOutbound rpc)
+      -> Session.ResponseInfo
+    buildResponseInfo start = Session.ResponseInfo {
+          responseStatus  = HTTP.ok200
+        , responseHeaders =
+            case start of
+              Session.FlowStartRegular headers ->
+                buildResponseHeaders (Proxy @rpc) (outHeaders headers)
+              Session.FlowStartNoMessages trailers ->
+                buildTrailersOnly (Proxy @rpc) trailers
+        , responseBody = Nothing
+        }
+
+-- | Determine compression used for messages from the peer
+getInboundCompression ::
+     ServerSession rpc
+  -> Either InvalidRequestHeaders (Maybe CompressionId)
+  -> IO Compression
+getInboundCompression session = \case
+    Left  err        -> throwIO $ CallSetupInvalidRequestHeaders err
+    Right Nothing    -> return noCompression
+    Right (Just cid) ->
+      case Compr.getSupported serverCompression cid of
+        Just compr -> return compr
+        Nothing    -> throwIO $ CallSetupUnsupportedCompression cid
+  where
+    ServerSession{serverSessionContext} = session
+    ServerContext{serverParams} = serverSessionContext
+    ServerParams{serverCompression} = serverParams
+
 
 -- | Determine compression to be used for messages to the peer
 --
@@ -596,13 +657,11 @@ recvBoth Call{callChannel} =
     -- We lose type information here: Trailers-Only is no longer visible
     flatten ::
          Either
-           RequestHeaders'
+           Void
            (StreamElem NoMetadata (InboundEnvelope, Input rpc))
       -> StreamElem NoMetadata (InboundEnvelope, Input rpc)
-    flatten (Left _trailersOnly) =
-        NoMoreElems NoMetadata
-    flatten (Right streamElem) =
-        streamElem
+    flatten (Left  impossible) = absurd impossible
+    flatten (Right streamElem) = streamElem
 
 recvEither :: forall rpc.
      HasCallStack
@@ -615,15 +674,12 @@ recvEither Call{callChannel} =
     -- a message.
     flatten ::
          Either
-           RequestHeaders'
+           Void
            (Either NoMetadata (InboundEnvelope, Input rpc))
       -> NextElem (InboundEnvelope, Input rpc)
-    flatten (Left _trailersOnly) =
-        NoNextElem
-    flatten (Right (Left NoMetadata)) =
-        NoNextElem
-    flatten (Right (Right msg)) =
-        NextElem msg
+    flatten (Left impossible)         = absurd impossible
+    flatten (Right (Left NoMetadata)) = NoNextElem
+    flatten (Right (Right msg))       = NextElem msg
 
 {-------------------------------------------------------------------------------
   Exceptions

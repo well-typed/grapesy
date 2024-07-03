@@ -1,16 +1,13 @@
 -- | Node with server role (i.e., its peer is a client)
 module Network.GRPC.Util.Session.Server (
     ConnectionToClient(..)
-  , determineFlowStart
   , setupResponseChannel
   ) where
 
 import Control.Monad.XIO (XIO', NeverThrows)
 import Control.Monad.XIO qualified as XIO
-import Network.HTTP.Types qualified as HTTP
 import Network.HTTP2.Server qualified as Server
 
-import Network.GRPC.Util.HTTP2 (fromHeaderTable)
 import Network.GRPC.Util.HTTP2.Stream
 import Network.GRPC.Util.Session.API
 import Network.GRPC.Util.Session.Channel
@@ -30,33 +27,17 @@ data ConnectionToClient = ConnectionToClient {
   Initiate response
 -------------------------------------------------------------------------------}
 
--- | Distinguish between Regular and Trailers-Only flow
-determineFlowStart ::
-     AcceptSession sess
-  => sess
-  -> Server.Request
-  -> IO (FlowStart (Inbound sess))
-determineFlowStart sess req
-  | Server.requestBodySize req == Just 0
-  = FlowStartNoMessages <$> parseRequestNoMessages sess requestHeaders
-
-  | otherwise
-  = FlowStartRegular <$> parseRequestRegular sess requestHeaders
-  where
-    requestHeaders :: [HTTP.Header]
-    requestHeaders = fromHeaderTable $ Server.requestHeaders req
-
 -- | Setup response channel
 --
 -- The actual response will not immediately be initiated; see below.
 --
 -- We assume that the client is allowed to close their outbound stream to us.
 setupResponseChannel :: forall sess.
-     AcceptSession sess
+     IsSession sess
   => sess
   -> ConnectionToClient
   -> FlowStart (Inbound sess)
-  -> IO (FlowStart (Outbound sess))
+  -> IO (FlowStart (Outbound sess), ResponseInfo)
   -- ^ Construct headers for the initial response
   --
   -- This function is allowed to block. If it does, no response will not be
@@ -90,8 +71,7 @@ setupResponseChannel sess
 
     forkThread "grapesy:serverOutbound" (channelOutbound channel) $
       \unmask markReady _debugId -> unmask $ do
-        outboundStart <- startOutbound
-        let responseInfo = buildResponseInfo sess outboundStart
+        (outboundStart, responseInfo) <- startOutbound
         case outboundStart of
           FlowStartRegular headers -> do
             regular <- initFlowStateRegular headers

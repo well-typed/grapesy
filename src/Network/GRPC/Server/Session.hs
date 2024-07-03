@@ -9,9 +9,8 @@ module Network.GRPC.Server.Session (
 
 import Control.Exception
 import Data.Proxy
-import Network.HTTP.Types qualified as HTTP
+import Data.Void
 
-import Network.GRPC.Common.Compression qualified as Compr
 import Network.GRPC.Server.Context
 import Network.GRPC.Spec
 import Network.GRPC.Util.Session
@@ -41,8 +40,8 @@ instance IsRPC rpc => DataFlow (ServerInbound rpc) where
   type Message  (ServerInbound rpc) = (InboundEnvelope, Input rpc)
   type Trailers (ServerInbound rpc) = NoMetadata
 
-  -- See discussion of 'TrailersOnly' in 'ClientOutbound'
-  type NoMessages (ServerInbound rpc) = RequestHeaders'
+  -- gRPC does not support request trailers
+  type NoMessages (ServerInbound rpc) = Void
 
 instance IsRPC rpc => DataFlow (ServerOutbound rpc) where
   data Headers (ServerOutbound rpc) = OutboundHeaders {
@@ -64,51 +63,6 @@ instance SupportsServerRpc rpc => IsSession (ServerSession rpc) where
 
   parseMsg _ = parseInput  (Proxy @rpc) . inbCompression
   buildMsg _ = buildOutput (Proxy @rpc) . outCompression
-
-instance SupportsServerRpc rpc => AcceptSession (ServerSession rpc) where
-  parseRequestRegular session headers = do
-      cIn <- getInboundCompression session $ requestCompression requestHeaders'
-      return InboundHeaders {
-          inbHeaders     = requestHeaders'
-        , inbCompression = cIn
-        }
-    where
-      requestHeaders' :: RequestHeaders'
-      requestHeaders' = parseRequestHeaders' (Proxy @rpc) headers
-
-  parseRequestNoMessages _ headers =
-      return requestHeaders'
-    where
-      requestHeaders' :: RequestHeaders'
-      requestHeaders' = parseRequestHeaders' (Proxy @rpc) headers
-
-  buildResponseInfo _ start = ResponseInfo {
-        responseStatus  = HTTP.ok200
-      , responseHeaders =
-          case start of
-            FlowStartRegular headers ->
-              buildResponseHeaders (Proxy @rpc) (outHeaders headers)
-            FlowStartNoMessages trailers ->
-              buildTrailersOnly (Proxy @rpc) trailers
-      , responseBody = Nothing
-      }
-
--- | Determine compression used for messages from the peer
-getInboundCompression ::
-     ServerSession rpc
-  -> Either InvalidRequestHeaders (Maybe CompressionId)
-  -> IO Compression
-getInboundCompression session = \case
-    Left  err        -> throwIO $ CallSetupInvalidRequestHeaders err
-    Right Nothing    -> return noCompression
-    Right (Just cid) ->
-      case Compr.getSupported serverCompression cid of
-        Just compr -> return compr
-        Nothing    -> throwIO $ CallSetupUnsupportedCompression cid
-  where
-    ServerSession{serverSessionContext} = session
-    ServerContext{serverParams} = serverSessionContext
-    ServerParams{serverCompression} = serverParams
 
 {-------------------------------------------------------------------------------
   Exceptions

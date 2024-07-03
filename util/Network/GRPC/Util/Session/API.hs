@@ -7,7 +7,6 @@ module Network.GRPC.Util.Session.API (
   , FlowStart(..)
   , IsSession(..)
   , InitiateSession(..)
-  , AcceptSession(..)
     -- * Exceptions
   , PeerException(..)
   ) where
@@ -132,38 +131,11 @@ class IsSession sess => InitiateSession sess where
        sess
     -> FlowStart (Outbound sess) -> RequestInfo
 
-  -- | Parse 'ResponseInfo' from the server, regular case
-  --
-  -- See 'parseResponseTrailersOnly' for the Trailers-Only case.
-  parseResponseRegular ::
-       sess
-    -> ResponseInfo -> IO (Headers (Inbound sess))
-
-  -- | Parse 'ResponseInfo' from the server, Trailers-Only case
-  parseResponseNoMessages ::
-       sess
-    -> ResponseInfo -> IO (NoMessages (Inbound sess))
-
--- | Accept session
---
--- A server node listens and accepts incoming requests from client nodes.
-class IsSession sess => AcceptSession sess where
-  -- | Parse 'RequestInfo' from the client, regular case
-  --
-  -- See 'parseRequestTrailersOnly' for the Trailers-Only case.
-  parseRequestRegular ::
-       sess
-    -> [HTTP.Header] -> IO (Headers (Inbound sess))
-
-  --  | Parse 'RequestInfo' from the client, Trailers-Only case
-  parseRequestNoMessages ::
-       sess
-    -> [HTTP.Header] -> IO (NoMessages (Inbound sess))
-
-  -- | Build 'ResponseInfo' for the client
-  buildResponseInfo ::
-       sess
-    -> FlowStart (Outbound sess) -> ResponseInfo
+  -- | Parse 'ResponseInfo' from the server
+  parseResponse ::
+      sess
+   -> ResponseInfo
+   -> IO (FlowStart (Inbound sess))
 
 {-------------------------------------------------------------------------------
   Exceptions
