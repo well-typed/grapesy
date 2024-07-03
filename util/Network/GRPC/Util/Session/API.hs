@@ -7,7 +7,6 @@ module Network.GRPC.Util.Session.API (
   , FlowStart(..)
   , IsSession(..)
   , InitiateSession(..)
-  , AcceptSession(..)
     -- * Exceptions
   , PeerException(..)
   ) where
@@ -137,29 +136,6 @@ class IsSession sess => InitiateSession sess where
       sess
    -> ResponseInfo
    -> IO (FlowStart (Inbound sess))
-
--- | Accept session
---
--- A server node listens and accepts incoming requests from client nodes.
---
--- TODO: Should we bring this in line with 'InitiateSession'?
-class IsSession sess => AcceptSession sess where
-  -- | Parse 'RequestInfo' from the client, regular case
-  --
-  -- See 'parseRequestTrailersOnly' for the Trailers-Only case.
-  parseRequestRegular ::
-       sess
-    -> [HTTP.Header] -> IO (Headers (Inbound sess))
-
-  --  | Parse 'RequestInfo' from the client, Trailers-Only case
-  parseRequestNoMessages ::
-       sess
-    -> [HTTP.Header] -> IO (NoMessages (Inbound sess))
-
-  -- | Build 'ResponseInfo' for the client
-  buildResponseInfo ::
-       sess
-    -> FlowStart (Outbound sess) -> ResponseInfo
 
 {-------------------------------------------------------------------------------
   Exceptions

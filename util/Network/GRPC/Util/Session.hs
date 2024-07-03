@@ -18,7 +18,6 @@ module Network.GRPC.Util.Session (
   , FlowStart(..)
   , IsSession(..)
   , InitiateSession(..)
-  , AcceptSession(..)
   , NoTrailers(..)
     -- ** Raw request/response info
   , RequestInfo(..)
@@ -48,7 +47,6 @@ module Network.GRPC.Util.Session (
   , setupRequestChannel
     -- *** Server
   , ConnectionToClient(..)
-  , determineFlowStart
   , setupResponseChannel
   ) where
 

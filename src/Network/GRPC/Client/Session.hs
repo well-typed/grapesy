@@ -16,6 +16,7 @@ import Data.ByteString.Lazy qualified as BS.Lazy
 import Data.ByteString.Lazy qualified as Lazy (ByteString)
 import Data.Maybe (fromMaybe)
 import Data.Proxy
+import Data.Void
 import Network.HTTP.Types qualified as HTTP
 
 import Network.GRPC.Common
@@ -60,11 +61,9 @@ instance IsRPC rpc => DataFlow (ClientOutbound rpc) where
   type Message  (ClientOutbound rpc) = (OutboundEnvelope, Input rpc)
   type Trailers (ClientOutbound rpc) = NoMetadata
 
-  -- gRPC does not support request trailers, but does not require that a request
-  -- has any messages at all. When it does not, the request can be terminated
-  -- immediately after the initial set of headers; this makes it essentially a
-  -- 'Trailers-Only' case, but the headers are just the normal headers.
-  type NoMessages (ClientOutbound rpc) = RequestHeaders
+  -- gRPC does not support a Trailers-Only case for requests
+  -- (indeed, does not support request trailers at all).
+  type NoMessages (ClientOutbound rpc) = Void
 
 instance SupportsClientRpc rpc => IsSession (ClientSession rpc) where
   type Inbound  (ClientSession rpc) = ClientInbound  rpc
@@ -104,8 +103,8 @@ instance SupportsClientRpc rpc => InitiateSession (ClientSession rpc) where
       , requestPath    = rawPath resourceHeaders
       , requestHeaders = buildRequestHeaders (Proxy @rpc) $
             case start of
-              FlowStartRegular    headers -> outHeaders headers
-              FlowStartNoMessages headers ->            headers
+              FlowStartRegular    headers    -> outHeaders headers
+              FlowStartNoMessages impossible -> absurd impossible
       }
     where
       resourceHeaders :: RawResourceHeaders
