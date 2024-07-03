@@ -29,12 +29,13 @@ data HTTP2Settings = HTTP2Settings {
       --
       -- If the consumed window space of all streams exceeds this value, the
       -- sender will stop sending data. Therefore, if this value is less than
-      -- @'http2MaxConcurrentStreams' * 'http2StreamWindowSize'@, there
-      -- is risk of a control flow deadlock, since the connection window space
-      -- may be used up by streams that we are not yet processing before we have
+      -- @'http2MaxConcurrentStreams' * 'http2StreamWindowSize'@, there is risk
+      -- of a control flow deadlock, since the connection window space may be
+      -- used up by streams that we are not yet processing before we have
       -- received all data on the streams that we /are/ processing. To reduce
-      -- this risk, increase 'Network.GRPC.Server.Run.serverOverrideNumberOfWorkers'. See
-      -- <https://github.com/kazu-yamamoto/network-control/pull/4> for more
+      -- this risk, increase
+      -- 'Network.GRPC.Server.Run.serverOverrideNumberOfWorkers' for the server.
+      -- See <https://github.com/kazu-yamamoto/network-control/pull/4> for more
       -- information.
     , http2ConnectionWindowSize :: Word32
 

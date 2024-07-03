@@ -41,9 +41,13 @@ module Network.GRPC.Common (
     -- * Configuration
   , SslKeyLog(..)
 
+  -- * HTTP\/2 Settings
+  , HTTP2Settings(..)
+
     -- * Defaults
   , defaultInsecurePort
   , defaultSecurePort
+  , defaultHTTP2Settings
 
     -- * Exceptions
 
@@ -74,6 +78,7 @@ import Network.Socket (PortNumber)
 
 import Control.Exception
 
+import Network.GRPC.Common.HTTP2Settings
 import Network.GRPC.Common.NextElem (NextElem(..))
 import Network.GRPC.Common.StreamElem (StreamElem(..))
 import Network.GRPC.Spec

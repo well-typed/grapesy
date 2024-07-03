@@ -15,6 +15,7 @@ import Control.Monad.XIO qualified as XIO
 import Data.Default
 import System.IO
 
+import Network.GRPC.Common
 import Network.GRPC.Common.Compression qualified as Compr
 import Network.GRPC.Server.RequestHandler.API
 import Network.GRPC.Spec
@@ -83,15 +84,33 @@ data ServerParams = ServerParams {
       -- headers are valid. By default we do /not/ do this, throwing an error
       -- only in scenarios where we really cannot continue.
     , serverVerifyHeaders :: Bool
+
+      -- | Number of threads that will be spawned to process incoming frames
+      -- on the currently active HTTP\/2 streams
+      --
+      -- This setting is specific to the
+      -- [http2](https://hackage.haskell.org/package/http2) package's
+      -- implementation of the HTTP\/2 specification for servers. Set to
+      -- 'Nothing' to use the default of 8 worker threads.
+      --
+      -- __Note__: If a lower 'http2ConnectionWindowSize' is desired, the
+      -- number of workers should be increased to avoid a potential HTTP\/2
+      -- control flow deadlock.
+    , serverOverrideNumberOfWorkers :: Maybe Word
+
+      -- | HTTP\/2 settings
+    , serverHTTP2Settings :: HTTP2Settings
     }
 
 instance Default ServerParams where
   def = ServerParams {
-        serverCompression       = def
-      , serverTopLevel          = defaultServerTopLevel
-      , serverExceptionToClient = defaultServerExceptionToClient
-      , serverContentType       = Just ContentTypeDefault
-      , serverVerifyHeaders     = False
+        serverCompression             = def
+      , serverTopLevel                = defaultServerTopLevel
+      , serverExceptionToClient       = defaultServerExceptionToClient
+      , serverContentType             = Just ContentTypeDefault
+      , serverVerifyHeaders           = False
+      , serverOverrideNumberOfWorkers = Nothing
+      , serverHTTP2Settings           = def
       }
 
 defaultServerTopLevel ::

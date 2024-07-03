@@ -7,7 +7,6 @@ import Control.Exception (SomeException)
 import Control.Monad.Catch (generalBracket, ExitCase(..))
 
 import Network.GRPC.Common
-import Network.GRPC.Common.HTTP2Settings (defaultHTTP2Settings)
 import Network.GRPC.Internal.XIO qualified as XIO
 import Network.GRPC.Server
 import Network.GRPC.Server.Protobuf
@@ -67,13 +66,14 @@ services =
 withInteropServer :: Cmdline -> (RunningServer -> IO a) -> IO a
 withInteropServer cmdline k = do
     server <- mkGrpcServer serverParams $ fromServices services
-    forkServer serverConfig server k
+    forkServer serverParams serverConfig server k
   where
     serverConfig :: ServerConfig
     serverConfig
       | cmdUseTLS cmdline
       = ServerConfig {
-            serverSecure = Just SecureConfig {
+            serverInsecure = Nothing
+          , serverSecure   = Just SecureConfig {
                 secureHost       = "0.0.0.0"
               , securePort       = cmdPort cmdline
               , securePubCert    = cmdPubCert cmdline
@@ -81,20 +81,15 @@ withInteropServer cmdline k = do
               , securePrivKey    = cmdPrivKey cmdline
               , secureSslKeyLog  = cmdSslKeyLog cmdline
               }
-          , serverInsecure                = Nothing
-          , serverOverrideNumberOfWorkers = Nothing
-          , serverHTTP2Settings           = defaultHTTP2Settings
           }
 
      | otherwise
      = ServerConfig {
-            serverInsecure = Just InsecureConfig {
+            serverSecure   = Nothing
+          , serverInsecure = Just InsecureConfig {
                 insecureHost = Nothing
               , insecurePort = cmdPort cmdline
               }
-          , serverSecure                  = Nothing
-          , serverOverrideNumberOfWorkers = Nothing
-          , serverHTTP2Settings           = defaultHTTP2Settings
           }
 
     serverParams :: ServerParams

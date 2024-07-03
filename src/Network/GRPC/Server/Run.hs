@@ -62,22 +62,6 @@ data ServerConfig = ServerConfig {
       --
       -- Set to 'Nothing' to disable.
     , serverSecure :: Maybe SecureConfig
-
-      -- | Number of threads that will be spawned to process incoming frames
-      -- on the currently active HTTP\/2 streams
-      --
-      -- This setting is specific to the
-      -- [http2](https://hackage.haskell.org/package/http2) package's
-      -- implementation of the HTTP\/2 specification for servers. Set to
-      -- 'Nothing' to use the default of 8 worker threads.
-      --
-      -- __Note__: If a lower 'http2ConnectionWindowSize' is desired, the
-      -- number of workers should be increased to avoid a potential HTTP\/2
-      -- control flow deadlock.
-    , serverOverrideNumberOfWorkers :: Maybe Word
-
-      -- | HTTP\/2 settings
-    , serverHTTP2Settings :: HTTP2Settings
     }
 
 -- | Offer insecure connection (no TLS)
@@ -139,18 +123,18 @@ data SecureConfig = SecureConfig {
 --
 -- See also 'runServerWithHandlers', which handles the creation of the
 -- 'HTTP2.Server' for you.
-runServer :: ServerConfig -> HTTP2.Server -> IO ()
-runServer cfg server = forkServer cfg server $ waitServer
+runServer :: ServerParams -> ServerConfig -> HTTP2.Server -> IO ()
+runServer params cfg server = forkServer params cfg server $ waitServer
 
 -- | Convenience function that combines 'runServer' with 'mkGrpcServer'
 runServerWithHandlers ::
-     ServerConfig
-  -> ServerParams
+     ServerParams
+  -> ServerConfig
   -> [SomeRpcHandler IO]
   -> IO ()
-runServerWithHandlers config params handlers = do
+runServerWithHandlers params config handlers = do
     server <- mkGrpcServer params handlers
-    runServer config server
+    runServer params config server
 
 {-------------------------------------------------------------------------------
   Full interface
@@ -184,14 +168,18 @@ data ServerTerminated = ServerTerminated
   deriving anyclass (Exception)
 
 -- | Start the server
-forkServer :: ServerConfig -> HTTP2.Server -> (RunningServer -> IO a) -> IO a
-forkServer cfg server k = do
+forkServer :: ServerParams -> ServerConfig -> HTTP2.Server -> (RunningServer -> IO a) -> IO a
+forkServer params ServerConfig{serverInsecure, serverSecure} server k = do
     runningSocketInsecure <- newEmptyTMVarIO
     runningSocketSecure   <- newEmptyTMVarIO
 
     let secure, insecure :: IO ()
-        insecure = runInsecure cfg runningSocketInsecure server
-        secure   = runSecure cfg runningSocketSecure server
+        insecure = case serverInsecure of
+                     Nothing  -> return ()
+                     Just cfg -> runInsecure params cfg runningSocketInsecure server
+        secure   = case serverSecure of
+                     Nothing  -> return ()
+                     Just cfg -> runSecure params cfg runningSocketSecure server
 
     withAsync insecure $ \runningServerInsecure ->
       withAsync secure $ \runningServerSecure ->
@@ -289,20 +277,12 @@ getSocket serverAsync socketTMVar = do
   Insecure
 -------------------------------------------------------------------------------}
 
-runInsecure :: ServerConfig -> TMVar Socket -> HTTP2.Server -> IO ()
-runInsecure ServerConfig{serverInsecure = Nothing} _ _ = return ()
-runInsecure
-    ServerConfig {
-        serverInsecure = Just insecureCfg
-      , serverOverrideNumberOfWorkers
-      , serverHTTP2Settings
-      }
-    socketTMVar server
-  =
+runInsecure :: ServerParams -> InsecureConfig -> TMVar Socket -> HTTP2.Server -> IO ()
+runInsecure ServerParams{serverOverrideNumberOfWorkers, serverHTTP2Settings} cfg socketTMVar server =
     Run.runTCPServerWithSocket
         (openServerSocket socketTMVar)
-        (insecureHost insecureCfg)
-        (show $ insecurePort insecureCfg) $ \sock -> do
+        (insecureHost cfg)
+        (show $ insecurePort cfg) $ \sock -> do
       bracket (allocConfigWithTimeout sock writeBufferSize disableTimeout)
               HTTP2.freeSimpleConfig $ \config ->
         HTTP2.run serverConfig config server
@@ -328,27 +308,20 @@ runInsecure
   Secure (over TLS)
 -------------------------------------------------------------------------------}
 
-runSecure :: ServerConfig -> TMVar Socket -> HTTP2.Server -> IO ()
-runSecure ServerConfig{serverSecure = Nothing} _ _ = return ()
-runSecure
-    ServerConfig {
-        serverSecure = Just secureCfg
-      , serverOverrideNumberOfWorkers
-      , serverHTTP2Settings
-      }
-    socketTMVar server = do
+runSecure :: ServerParams -> SecureConfig -> TMVar Socket -> HTTP2.Server -> IO ()
+runSecure ServerParams{serverOverrideNumberOfWorkers, serverHTTP2Settings} cfg socketTMVar server = do
     cred :: TLS.Credential <-
           TLS.credentialLoadX509Chain
-            (securePubCert    secureCfg)
-            (secureChainCerts secureCfg)
-            (securePrivKey    secureCfg)
+            (securePubCert    cfg)
+            (secureChainCerts cfg)
+            (securePrivKey    cfg)
       >>= \case
             Left  err -> throwIO $ CouldNotLoadCredentials err
             Right res -> return res
 
-    keyLogger <- Util.TLS.keyLogger (secureSslKeyLog secureCfg)
-    let tlsSettings :: HTTP2.TLS.Settings
-        tlsSettings = HTTP2.TLS.defaultSettings {
+    keyLogger <- Util.TLS.keyLogger (secureSslKeyLog cfg)
+    let settings :: HTTP2.TLS.Settings
+        settings = HTTP2.TLS.defaultSettings {
               HTTP2.TLS.settingsKeyLogger =
                 keyLogger
             , HTTP2.TLS.settingsOpenServerSocket =
@@ -366,10 +339,10 @@ runSecure
             }
 
     HTTP2.TLS.run
-      tlsSettings
+      settings
       (TLS.Credentials [cred])
-      (secureHost secureCfg)
-      (securePort secureCfg)
+      (secureHost cfg)
+      (securePort cfg)
       server
 
 data CouldNotLoadCredentials =

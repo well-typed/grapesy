@@ -6,7 +6,6 @@ import Data.Aeson
 
 import Network.GRPC.Common
 import Network.GRPC.Common.Compression qualified as Compression
-import Network.GRPC.Common.HTTP2Settings (defaultHTTP2Settings)
 import Network.GRPC.Common.Protobuf
 import Network.GRPC.Server
 import Network.GRPC.Server.Protobuf
@@ -54,15 +53,13 @@ main = do
 
     let serverConfig :: ServerConfig
         serverConfig = ServerConfig {
-            serverInsecure                = cmdInsecure cmdline
-          , serverSecure                  = cmdSecure cmdline
-          , serverOverrideNumberOfWorkers = Nothing
-          , serverHTTP2Settings           = defaultHTTP2Settings
+            serverInsecure = cmdInsecure cmdline
+          , serverSecure   = cmdSecure cmdline
           }
 
     runServerWithHandlers
-      serverConfig
       (serverParams cmdline)
+      serverConfig
       (fromServices $ services cmdline db)
 
 getRouteGuideDb :: IO [Proto Feature]
