@@ -545,7 +545,7 @@ connectInsecure connParams attempt addr = do
         }
 
     clientConfig :: HTTP2.Client.ClientConfig
-    clientConfig = overridePingRateLimit connParams $
+    clientConfig = overrideRateLimits connParams $
         HTTP2.Client.defaultClientConfig {
             HTTP2.Client.authority = authority addr
           , HTTP2.Client.settings = settings
@@ -588,7 +588,7 @@ connectSecure connParams attempt validation sslKeyLog addr = do
             }
 
         clientConfig :: HTTP2.Client.ClientConfig
-        clientConfig = overridePingRateLimit connParams $
+        clientConfig = overrideRateLimits connParams $
             HTTP2.TLS.Client.defaultClientConfig
               settings
               (authority addr)
@@ -618,15 +618,27 @@ authority addr =
       Nothing   -> addressHost addr
       Just auth -> auth
 
--- | Override ping rate limit
-overridePingRateLimit ::
+-- | Override rate limits imposed by @http2@
+overrideRateLimits ::
      ConnParams
   -> HTTP2.Client.ClientConfig -> HTTP2.Client.ClientConfig
-overridePingRateLimit connParams clientConfig = clientConfig {
+overrideRateLimits connParams clientConfig = clientConfig {
       HTTP2.Client.settings = settings {
           HTTP2.Client.pingRateLimit =
             case http2OverridePingRateLimit (connHTTP2Settings connParams) of
               Nothing    -> HTTP2.Client.pingRateLimit settings
+              Just limit -> limit
+        , HTTP2.Client.emptyFrameRateLimit =
+            case http2OverrideEmptyFrameRateLimit (connHTTP2Settings connParams) of
+              Nothing    -> HTTP2.Client.emptyFrameRateLimit settings
+              Just limit -> limit
+        , HTTP2.Client.settingsRateLimit =
+            case http2OverrideSettingsRateLimit (connHTTP2Settings connParams) of
+              Nothing    -> HTTP2.Client.settingsRateLimit settings
+              Just limit -> limit
+        , HTTP2.Client.rstRateLimit =
+            case http2OverrideRstRateLimit (connHTTP2Settings connParams) of
+              Nothing    -> HTTP2.Client.rstRateLimit settings
               Just limit -> limit
         }
     }

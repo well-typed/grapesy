@@ -39,24 +39,6 @@ data HTTP2Settings = HTTP2Settings {
       -- information.
     , http2ConnectionWindowSize :: Word32
 
-      -- | Ping rate limit
-      --
-      -- This setting is specific to the [@http2@
-      -- package's](https://hackage.haskell.org/package/http2) implementation of
-      -- the HTTP\/2 specification. In particular, the library imposes a ping
-      -- rate limit as a security measure against
-      -- [CVE-2019-9512](https://www.cve.org/CVERecord?id=CVE-2019-9512). By
-      -- default (as of version 5.1.2) it sets this limit at 10 pings/second. If
-      -- you find yourself being disconnected from a gRPC peer because that peer
-      -- is sending too many pings (you will see an
-      -- [EnhanceYourCalm](https://hackage.haskell.org/package/http2-5.1.2/docs/Network-HTTP2-Client.html#t:ErrorCode)
-      -- exception, corresponding to the
-      -- [ENHANCE_YOUR_CALM](https://www.rfc-editor.org/rfc/rfc9113#ErrorCodes)
-      -- HTTP\/2 error code), you may wish to increase this limit. If you are
-      -- connecting to a peer that you trust, you can set this limit to
-      -- 'maxBound' (effectively turning off protecting against ping flooding).
-    , http2OverridePingRateLimit :: Maybe Int
-
       -- | Enable @TCP_NODELAY@
       --
       -- Send out TCP segments as soon as possible, even if there is only a
@@ -87,6 +69,81 @@ data HTTP2Settings = HTTP2Settings {
       --
       -- TL;DR: leave this at the default unless you know what you are doing.
     , http2TcpNoDelay :: Bool
+
+      -- | Ping rate limit
+      --
+      -- This setting is specific to the [@http2@
+      -- package's](https://hackage.haskell.org/package/http2) implementation of
+      -- the HTTP\/2 specification. In particular, the library imposes a ping
+      -- rate limit as a security measure against
+      -- [CVE-2019-9512](https://www.cve.org/CVERecord?id=CVE-2019-9512). By
+      -- default (as of version 5.1.2) it sets this limit at 10 pings/second. If
+      -- you find yourself being disconnected from a gRPC peer because that peer
+      -- is sending too many pings (you will see an
+      -- [EnhanceYourCalm](https://hackage.haskell.org/package/http2-5.1.2/docs/Network-HTTP2-Client.html#t:ErrorCode)
+      -- exception, corresponding to the
+      -- [ENHANCE_YOUR_CALM](https://www.rfc-editor.org/rfc/rfc9113#ErrorCodes)
+      -- HTTP\/2 error code), you may wish to increase this limit. If you are
+      -- connecting to a peer that you trust, you can set this limit to
+      -- 'maxBound' (effectively turning off protection against ping flooding).
+    , http2OverridePingRateLimit :: Maybe Int
+
+      -- | Empty DATA frame rate limit
+      --
+      -- This setting is specific to the [@http2@
+      -- package's](https://hackage.haskell.org/package/http2) implementation of
+      -- the HTTP\/2 specification. In particular, the library imposes a rate
+      -- limit for empty DATA frames as a security measure against
+      -- [CVE-2019-9518](https://www.cve.org/CVERecord?id=CVE-2019-9518). By
+      -- default, it sets this limit at 4 frames/second. If you find yourself
+      -- being disconnected from a gRPC peer because that peer is sending too
+      -- many empty DATA frames (you will see an
+      -- [EnhanceYourCalm](https://hackage.haskell.org/package/http2-5.1.2/docs/Network-HTTP2-Client.html#t:ErrorCode)
+      -- exception, corresponding to the
+      -- [ENHANCE_YOUR_CALM](https://www.rfc-editor.org/rfc/rfc9113#ErrorCodes)
+      -- HTTP\/2 error code), you may wish to increase this limit. If you are
+      -- connecting to a peer that you trust, you can set this limit to
+      -- 'maxBound' (effectively turning off protection against empty DATA frame
+      -- flooding).
+    , http2OverrideEmptyFrameRateLimit :: Maybe Int
+
+      -- | SETTINGS frame rate limit
+      --
+      -- This setting is specific to the [@http2@
+      -- package's](https://hackage.haskell.org/package/http2) implementation of
+      -- the HTTP\/2 specification. In particular, the library imposes a rate
+      -- limit for SETTINGS frames as a security measure against
+      -- [CVE-2019-9515](https://www.cve.org/CVERecord?id=CVE-2019-9515). By
+      -- default, it sets this limit at 4 frames/second. If you find yourself
+      -- being disconnected from a gRPC peer because that peer is sending too
+      -- many SETTINGS frames (you will see an
+      -- [EnhanceYourCalm](https://hackage.haskell.org/package/http2-5.1.2/docs/Network-HTTP2-Client.html#t:ErrorCode)
+      -- exception, corresponding to the
+      -- [ENHANCE_YOUR_CALM](https://www.rfc-editor.org/rfc/rfc9113#ErrorCodes)
+      -- HTTP\/2 error code), you may wish to increase this limit. If you are
+      -- connecting to a peer that you trust, you can set this limit to
+      -- 'maxBound' (effectively turning off protection against SETTINGS frame
+      -- flooding).
+    , http2OverrideSettingsRateLimit :: Maybe Int
+
+      -- | Reset (RST) frame rate limit
+      --
+      -- This setting is specific to the [@http2@
+      -- package's](https://hackage.haskell.org/package/http2) implementation of
+      -- the HTTP\/2 specification. In particular, the library imposes a rate
+      -- limit for RST frames as a security measure against
+      -- [CVE-2023-44487](https://www.cve.org/CVERecord?id=CVE-2023-44487). By
+      -- default, it sets this limit at 4 frames/second. If you find yourself
+      -- being disconnected from a gRPC peer because that peer is sending too
+      -- many empty RST frames (you will see an
+      -- [EnhanceYourCalm](https://hackage.haskell.org/package/http2-5.1.2/docs/Network-HTTP2-Client.html#t:ErrorCode)
+      -- exception, corresponding to the
+      -- [ENHANCE_YOUR_CALM](https://www.rfc-editor.org/rfc/rfc9113#ErrorCodes)
+      -- HTTP\/2 error code), you may wish to increase this limit. If you are
+      -- connecting to a peer that you trust, you can set this limit to
+      -- 'maxBound' (effectively turning off protection against RST frame
+      -- flooding).
+    , http2OverrideRstRateLimit :: Maybe Int
     }
   deriving (Show)
 
@@ -109,11 +166,14 @@ data HTTP2Settings = HTTP2Settings {
 -- PINGs/sec.
 defaultHTTP2Settings :: HTTP2Settings
 defaultHTTP2Settings = HTTP2Settings {
-      http2MaxConcurrentStreams  = defMaxConcurrentStreams
-    , http2StreamWindowSize      = defInitialStreamWindowSize
-    , http2ConnectionWindowSize  = defMaxConcurrentStreams * defInitialStreamWindowSize
-    , http2OverridePingRateLimit = Just 100
-    , http2TcpNoDelay            = True
+      http2MaxConcurrentStreams        = defMaxConcurrentStreams
+    , http2StreamWindowSize            = defInitialStreamWindowSize
+    , http2ConnectionWindowSize        = defMaxConcurrentStreams * defInitialStreamWindowSize
+    , http2TcpNoDelay                  = True
+    , http2OverridePingRateLimit       = Just 100
+    , http2OverrideEmptyFrameRateLimit = Nothing
+    , http2OverrideSettingsRateLimit   = Nothing
+    , http2OverrideRstRateLimit        = Nothing
     }
   where
     defMaxConcurrentStreams    = 128

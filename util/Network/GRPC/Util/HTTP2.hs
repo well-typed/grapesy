@@ -147,16 +147,29 @@ mkServerConfig http2Settings numberOfWorkers =
             (fromIntegral <$> numberOfWorkers)
       , Server.connectionWindowSize = fromIntegral $
           http2ConnectionWindowSize http2Settings
-      , Server.settings = Server.defaultSettings {
-            Server.initialWindowSize = fromIntegral $
-              http2StreamWindowSize http2Settings
-          , Server.maxConcurrentStreams = Just . fromIntegral $
-              http2MaxConcurrentStreams http2Settings
---          , Server.pingRateLimit =
---              fromMaybe
---                (Server.pingRateLimit Server.defaultSettings)
---                (http2OverridePingRateLimit http2Settings)
-          }
+      , Server.settings =
+          Server.defaultSettings {
+              Server.initialWindowSize = fromIntegral $
+                http2StreamWindowSize http2Settings
+            , Server.maxConcurrentStreams = Just . fromIntegral $
+                http2MaxConcurrentStreams http2Settings
+            , Server.pingRateLimit =
+                case http2OverridePingRateLimit http2Settings of
+                  Nothing    -> Server.pingRateLimit Server.defaultSettings
+                  Just limit -> limit
+            , Server.emptyFrameRateLimit =
+                case http2OverrideEmptyFrameRateLimit http2Settings of
+                  Nothing    -> Server.emptyFrameRateLimit Server.defaultSettings
+                  Just limit -> limit
+            , Server.settingsRateLimit =
+                case http2OverrideSettingsRateLimit http2Settings of
+                  Nothing    -> Server.settingsRateLimit Server.defaultSettings
+                  Just limit -> limit
+            , Server.rstRateLimit =
+                case http2OverrideRstRateLimit http2Settings of
+                  Nothing    -> Server.rstRateLimit Server.defaultSettings
+                  Just limit -> limit
+            }
       }
 
 -- | Settings for secure server (with TLS)
@@ -186,6 +199,22 @@ mkTlsSettings http2Settings numberOfWorkers keyLogger =
           http2StreamWindowSize http2Settings
       , Server.TLS.settingsConcurrentStreams = fromIntegral $
           http2MaxConcurrentStreams http2Settings
+      , Server.TLS.settingsPingRateLimit =
+          case http2OverridePingRateLimit http2Settings of
+            Nothing    -> Server.pingRateLimit Server.defaultSettings
+            Just limit -> limit
+      , Server.TLS.settingsEmptyFrameRateLimit =
+          case http2OverrideEmptyFrameRateLimit http2Settings of
+            Nothing    -> Server.emptyFrameRateLimit Server.defaultSettings
+            Just limit -> limit
+      , Server.TLS.settingsSettingsRateLimit =
+          case http2OverrideSettingsRateLimit http2Settings of
+            Nothing    -> Server.settingsRateLimit Server.defaultSettings
+            Just limit -> limit
+      , Server.TLS.settingsRstRateLimit =
+          case http2OverrideRstRateLimit http2Settings of
+            Nothing    -> Server.rstRateLimit Server.defaultSettings
+            Just limit -> limit
       }
 
 {-------------------------------------------------------------------------------
