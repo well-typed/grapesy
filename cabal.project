@@ -5,6 +5,17 @@ package grapesy
   benchmarks: True
   flags: +build-demo +build-stress-test +snappy
 
+
+source-repository-package
+  type: git
+  location: https://github.com/kazu-yamamoto/network-run
+  tag: 914e16ce1f819ac3e5e1343c0bce8c11cd83e0cb
+
+source-repository-package
+  type: git
+  location: https://github.com/kazu-yamamoto/http2-tls
+  tag: 6ecea0f22a576c3f0dcbb9efd7a402919bf4ad10
+
 --
 -- ghc 9.10
 --

@@ -1,4 +1,6 @@
-{-# LANGUAGE CPP #-}
+{-# LANGUAGE CPP               #-}
+{-# LANGUAGE OverloadedStrings #-}
+
 #include "MachDeps.h"
 
 -- | Convenience functions for running a HTTP2 server
@@ -29,6 +31,7 @@ module Network.GRPC.Server.Run (
 import Control.Concurrent.Async
 import Control.Concurrent.STM
 import Control.Exception
+import Control.Monad
 import Data.Maybe (fromMaybe)
 import Network.ByteOrder (BufferSize)
 import Network.HTTP2.Server qualified as HTTP2
@@ -290,14 +293,23 @@ runInsecure ::
   -> TMVar Socket
   -> HTTP2.Server
   -> IO ()
-runInsecure params cfg socketTMVar server =
-    Run.runTCPServerWithSocket
-        (openServerSocket socketTMVar)
+runInsecure params cfg socketTMVar server = do
+    withServerSocket
+        serverHTTP2Settings
+        socketTMVar
         (insecureHost cfg)
-        (show $ insecurePort cfg) $ \sock -> do
-      bracket (allocConfigWithTimeout sock writeBufferSize disableTimeout)
-              HTTP2.freeSimpleConfig $ \config ->
-        HTTP2.run serverConfig config server
+        (insecurePort cfg) $ \listenSock -> do
+      Run.runTCPServerWithSocket listenSock $ \clientSock -> do
+        when (http2TcpNoDelay serverHTTP2Settings) $
+          -- See description of 'withServerSocket'
+          setSockOpt clientSock NoDelay True
+        bracket ( allocConfigWithTimeout
+                    clientSock
+                    writeBufferSize
+                    disableTimeout
+                )
+                HTTP2.freeSimpleConfig $ \config ->
+          HTTP2.run serverConfig config server
   where
     ServerParams{
         serverOverrideNumberOfWorkers
@@ -348,8 +360,6 @@ runSecure params cfg socketTMVar server = do
         settings = HTTP2.TLS.defaultSettings {
               HTTP2.TLS.settingsKeyLogger =
                 keyLogger
-            , HTTP2.TLS.settingsOpenServerSocket =
-                openServerSocket socketTMVar
             , HTTP2.TLS.settingsTimeout =
                 disableTimeout
             , HTTP2.TLS.settingsNumberOfWorkers =
@@ -364,12 +374,18 @@ runSecure params cfg socketTMVar server = do
                 fromIntegral $ http2MaxConcurrentStreams serverHTTP2Settings
             }
 
-    HTTP2.TLS.run
-      settings
-      (TLS.Credentials [cred])
-      (secureHost cfg)
-      (securePort cfg)
-      server
+    withServerSocket
+        serverHTTP2Settings
+        socketTMVar
+        (Just $ secureHost cfg)
+        (securePort cfg) $ \listenSock ->
+      -- TODO: We should really set NoDelay on the clientSock, but we have
+      -- no access to it.
+      HTTP2.TLS.runWithSocket
+        settings
+        (TLS.Credentials [cred])
+        listenSock
+        server
   where
     ServerParams{
         serverOverrideNumberOfWorkers
@@ -408,11 +424,53 @@ disableTimeout =
     30 * 60
 #endif
 
-openServerSocket :: TMVar Socket -> AddrInfo -> IO Socket
-openServerSocket socketTMVar addr = do
-    sock <- Run.openServerSocket addr
-    atomically $ putTMVar socketTMVar sock
-    return sock
+-- | Create server listen socket
+--
+-- We set @TCP_NODELAY@ on the server listen socket, but there is no guarantee
+-- that the option will be inherited by the sockets returned from @accept@ for
+-- each client request. On Linux it seems to be, although I cannot find any
+-- authoritative reference to say so; the best I could find is a section in Unix
+-- Network Programming [1]. On FreeBSD on the other hand, the man page suggests
+-- that @TCP_NODELAY@ is /not/ inherited [2].
+--
+-- Even the Linux man page for @accept@ is maddingly vague:
+--
+-- > Portable programs should not rely on inheritance or non‐inheritance of file
+-- > status flags and always explicitly set all required flags on the socket
+-- > returned from accept().
+--
+-- Whether that /file status/ flags is significant (as opposed to other kinds of
+-- flags?) is unclear, especially in the second half of this sentence. The Linux
+-- man page on @tcp@ is even worse; this is the only mention of inheritance in
+-- entire page:
+--
+-- > [TCP_USER_TIMEOUT], like many others, will be inherited by the socket
+-- > returned by accept(2), if it was set on the listening socket.
+--
+-- It is therefore best to explicitly set @TCP_NODELAY@ on the client request
+-- socket.
+--
+-- [1] <https://notes.shichao.io/unp/ch7/#socket-states>
+-- [2] <https://man.freebsd.org/cgi/man.cgi?query=tcp>
+withServerSocket ::
+     HTTP2Settings
+  -> TMVar Socket
+  -> Maybe HostName
+  -> PortNumber
+  -> (Socket -> IO a)
+  -> IO a
+withServerSocket http2Settings socketTMVar host port k = do
+    addr <- Run.resolve Stream host (show port) [AI_PASSIVE]
+    bracket (openServerSocket addr) close $ \sock -> do
+      atomically $ putTMVar socketTMVar sock
+      k sock
+  where
+    openServerSocket :: AddrInfo -> IO Socket
+    openServerSocket = Run.openTCPServerSocketWithOptions $ concat [
+          [ (NoDelay, 1)
+          | http2TcpNoDelay http2Settings
+          ]
+        ]
 
 writeBufferSize :: BufferSize
 writeBufferSize = 4096

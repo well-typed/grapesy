@@ -13,10 +13,12 @@ import Options.Applicative qualified as Opt
 -------------------------------------------------------------------------------}
 
 data Cmdline = Cmdline {
-      cmdMode         :: Mode
-    , cmdDuration     :: Int
-    , cmdSimulateWork :: Bool
-    , cmdJSON         :: Bool
+      cmdMode              :: Mode
+    , cmdDuration          :: Int
+    , cmdSimulateWork      :: Bool
+    , cmdJSON              :: Bool
+    , cmdSecure            :: Bool
+    , cmdDisableTcpNoDelay :: Bool
     }
 
 data Mode =
@@ -58,6 +60,14 @@ parseCmdline =
       <*> (Opt.switch $ mconcat [
               Opt.long "json"
             , Opt.help "Use JSON instead of Protobuf"
+            ])
+      <*> (Opt.switch $ mconcat [
+              Opt.long "secure"
+            , Opt.help "Enable TLS"
+            ])
+      <*> (Opt.switch $ mconcat [
+              Opt.long "disable-tcp-nodelay"
+            , Opt.help "Disable the TCP_NODELAY option"
             ])
 
 parseMode :: Parser Mode

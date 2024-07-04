@@ -89,7 +89,11 @@ showStats Cmdline{cmdDuration} stats = unlines [
 -- separate thread, and kill the thread after some amount of time. The number
 -- of RPC calls made can then be read off from the 'IORef'.
 client :: Cmdline -> IORef Stats -> IO ()
-client Cmdline{cmdJSON} statsVar = do
+client Cmdline{
+           cmdJSON
+         , cmdSecure
+         , cmdDisableTcpNoDelay
+         } statsVar = do
     knownKeys <- RandomAccessSet.new
     random    <- RandomGen.new
 
@@ -120,14 +124,30 @@ client Cmdline{cmdJSON} statsVar = do
               _ -> error "impossible"
   where
     params :: ConnParams
-    params = def
+    params = def {
+          connHTTP2Settings = def {
+              http2TcpNoDelay = not cmdDisableTcpNoDelay
+            }
+        }
 
     server :: Server
-    server = ServerInsecure $ Address {
-         addressHost      = "127.0.0.1"
-       , addressPort      = defaultInsecurePort
-       , addressAuthority = Nothing
-       }
+    server
+      | cmdSecure
+      = ServerSecure
+          NoServerValidation
+          SslKeyLogNone -- Let the server write the log
+          Address {
+              addressHost      = "127.0.0.1"
+            , addressPort      = defaultSecurePort
+            , addressAuthority = Nothing
+            }
+
+      | otherwise
+      = ServerInsecure $ Address {
+             addressHost      = "127.0.0.1"
+           , addressPort      = defaultInsecurePort
+           , addressAuthority = Nothing
+           }
 
 {-------------------------------------------------------------------------------
   Access the various server features
