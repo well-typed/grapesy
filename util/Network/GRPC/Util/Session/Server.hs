@@ -78,11 +78,11 @@ setupResponseChannel sess
             markReady $ FlowStateRegular regular
             let resp :: Server.Response
                 resp = setResponseTrailers sess channel regular
-                     $ Server.responseStreaming
+                     $ Server.responseStreamingIface
                              (responseStatus  responseInfo)
                              (responseHeaders responseInfo)
-                     $ \write' flush' -> do
-                          stream <- serverOutputStream write' flush'
+                     $ \iface -> do
+                          stream <- serverOutputStream iface
                           sendMessageLoop sess regular stream
             respond conn resp
           FlowStartNoMessages trailers -> do

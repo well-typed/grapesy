@@ -56,6 +56,37 @@ data HTTP2Settings = HTTP2Settings {
       -- connecting to a peer that you trust, you can set this limit to
       -- 'maxBound' (effectively turning off protecting against ping flooding).
     , http2OverridePingRateLimit :: Maybe Int
+
+      -- | Enable @TCP_NODELAY@
+      --
+      -- Send out TCP segments as soon as possible, even if there is only a
+      -- small amount of data.
+      --
+      -- When @TCP_NODELAY@ is /NOT/ set, the TCP implementation will wait to
+      -- send a TCP segment to the receiving peer until either (1) there is
+      -- enough data to fill a certain minimum segment size or (2) we receive an
+      -- ACK from the receiving peer for data we sent previously. This adds a
+      -- network roundtrip delay to every RPC message we want to send (to
+      -- receive the ACK). If the peer uses TCP delayed acknowledgement, which
+      -- will typically be the case, then this delay will increase further
+      -- still; default for delayed acknowledgement is 40ms, thus resulting in a
+      -- theoretical maximum of 25 RPCs/sec.
+      --
+      -- We therefore enable TCP_NODELAY by default, so that data is sent to the
+      -- peer as soon as we have an entire gRPC message serialized and ready to
+      -- send (we send the data to the TCP layer only once an entire message is
+      -- written, or the @http2@ write buffer is full).
+      --
+      -- Turning this off /could/ improve throughput, as fewer TCP segments will
+      -- be needed, but you probably only want to do this if you send very few
+      -- very large RPC messages. In gRPC this is anyway discouraged, because
+      -- gRPC messages do not support incremental (de)serialization; if you need
+      -- to send large amounts of data, it is preferable to split these into
+      -- many, smaller, gRPC messages; this also gives the application the
+      -- possibility of reporting on data transmission progress.
+      --
+      -- TL;DR: leave this at the default unless you know what you are doing.
+    , http2TcpNoDelay :: Bool
     }
   deriving (Show)
 
@@ -82,6 +113,7 @@ defaultHTTP2Settings = HTTP2Settings {
     , http2StreamWindowSize      = defInitialStreamWindowSize
     , http2ConnectionWindowSize  = defMaxConcurrentStreams * defInitialStreamWindowSize
     , http2OverridePingRateLimit = Just 100
+    , http2TcpNoDelay            = True
     }
   where
     defMaxConcurrentStreams    = 128

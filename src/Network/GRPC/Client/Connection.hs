@@ -141,6 +141,7 @@ data ConnParams = ConnParams {
       -- messages sent by the client to the server.
     , connInitCompression :: Maybe Compression
 
+      -- | HTTP2 settings
     , connHTTP2Settings :: HTTP2Settings
     }
 
@@ -512,8 +513,11 @@ stayConnected connParams server connStateVar connOutOfScope =
 
 -- | Insecure connection (no TLS)
 connectInsecure :: ConnParams -> Attempt -> Address -> IO ()
-connectInsecure connParams attempt addr =
-    runTCPClient addr $ \sock -> do
+connectInsecure connParams attempt addr = do
+    Run.runTCPClientWithSettings
+        runSettings
+        (addressHost addr)
+        (show $ addressPort addr) $ \sock ->
       bracket (HTTP2.Client.allocSimpleConfig sock writeBufferSize)
               HTTP2.Client.freeSimpleConfig $ \conf ->
         HTTP2.Client.run clientConfig conf $ \sendRequest _aux -> do
@@ -523,15 +527,23 @@ connectInsecure connParams attempt addr =
               ConnectionReady (attemptClosed attempt) conn
           takeMVar $ attemptOutOfScope attempt
   where
+    ConnParams{connHTTP2Settings} = connParams
+
+    runSettings :: Run.Settings
+    runSettings = Run.defaultSettings {
+          Run.settingsOpenClientSocket = openClientSocket connHTTP2Settings
+        }
+
     settings :: HTTP2.Client.Settings
     settings = HTTP2.Client.defaultSettings {
           HTTP2.Client.maxConcurrentStreams =
               Just . fromIntegral $
-                http2MaxConcurrentStreams (connHTTP2Settings connParams)
+                http2MaxConcurrentStreams connHTTP2Settings
         , HTTP2.Client.initialWindowSize =
               fromIntegral $
-                http2StreamWindowSize (connHTTP2Settings connParams)
+                http2StreamWindowSize connHTTP2Settings
         }
+
     clientConfig :: HTTP2.Client.ClientConfig
     clientConfig = overridePingRateLimit connParams $
         HTTP2.Client.defaultClientConfig {
@@ -539,7 +551,7 @@ connectInsecure connParams attempt addr =
           , HTTP2.Client.settings = settings
           , HTTP2.Client.connectionWindowSize =
                 fromIntegral $
-                  http2ConnectionWindowSize (connHTTP2Settings connParams)
+                  http2ConnectionWindowSize connHTTP2Settings
           }
 
 -- | Secure connection (using TLS)
@@ -560,19 +572,19 @@ connectSecure connParams attempt validation sslKeyLog addr = do
                 case validation of
                   ValidateServer _   -> True
                   NoServerValidation -> False
-            , HTTP2.TLS.Client.settingsCAStore       = caStore
-            , HTTP2.TLS.Client.settingsKeyLogger     = keyLogger
-            , HTTP2.TLS.Client.settingsAddrInfoFlags = []
 
-            , HTTP2.TLS.Client.settingsConcurrentStreams =
-                fromIntegral $
-                  http2MaxConcurrentStreams (connHTTP2Settings connParams)
-            , HTTP2.TLS.Client.settingsStreamWindowSize =
-                fromIntegral $
-                  http2StreamWindowSize (connHTTP2Settings connParams)
-            , HTTP2.TLS.Client.settingsConnectionWindowSize =
-                fromIntegral $
-                  http2ConnectionWindowSize (connHTTP2Settings connParams)
+            , HTTP2.TLS.Client.settingsCAStore          = caStore
+            , HTTP2.TLS.Client.settingsKeyLogger        = keyLogger
+            , HTTP2.TLS.Client.settingsAddrInfoFlags    = []
+
+            , HTTP2.TLS.Client.settingsOpenClientSocket =
+                openClientSocket connHTTP2Settings
+            , HTTP2.TLS.Client.settingsConcurrentStreams = fromIntegral $
+                http2MaxConcurrentStreams connHTTP2Settings
+            , HTTP2.TLS.Client.settingsStreamWindowSize = fromIntegral $
+                http2StreamWindowSize connHTTP2Settings
+            , HTTP2.TLS.Client.settingsConnectionWindowSize = fromIntegral $
+                http2ConnectionWindowSize connHTTP2Settings
             }
 
         clientConfig :: HTTP2.Client.ClientConfig
@@ -592,6 +604,8 @@ connectSecure connParams attempt validation sslKeyLog addr = do
         writeTVar (attemptState attempt) $
           ConnectionReady (attemptClosed attempt) conn
       takeMVar $ attemptOutOfScope attempt
+  where
+    ConnParams{connHTTP2Settings} = connParams
 
 -- | Authority
 --
@@ -624,9 +638,16 @@ overridePingRateLimit connParams clientConfig = clientConfig {
   Auxiliary http2
 -------------------------------------------------------------------------------}
 
-runTCPClient :: Address -> (Socket -> IO a) -> IO a
-runTCPClient Address{addressHost, addressPort} =
-    Run.runTCPClient addressHost (show addressPort)
+openClientSocket :: HTTP2Settings -> AddrInfo -> IO Socket
+openClientSocket http2Settings =
+    Run.openClientSocketWithOptions socketOptions
+  where
+    socketOptions :: [(SocketOption, Int)]
+    socketOptions = concat [
+          [ (NoDelay, 1)
+          | http2TcpNoDelay http2Settings
+          ]
+        ]
 
 -- | Write-buffer size
 --
