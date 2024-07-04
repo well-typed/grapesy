@@ -168,18 +168,25 @@ data ServerTerminated = ServerTerminated
   deriving anyclass (Exception)
 
 -- | Start the server
-forkServer :: ServerParams -> ServerConfig -> HTTP2.Server -> (RunningServer -> IO a) -> IO a
+forkServer ::
+     ServerParams
+  -> ServerConfig
+  -> HTTP2.Server
+  -> (RunningServer -> IO a)
+  -> IO a
 forkServer params ServerConfig{serverInsecure, serverSecure} server k = do
     runningSocketInsecure <- newEmptyTMVarIO
     runningSocketSecure   <- newEmptyTMVarIO
 
     let secure, insecure :: IO ()
-        insecure = case serverInsecure of
-                     Nothing  -> return ()
-                     Just cfg -> runInsecure params cfg runningSocketInsecure server
-        secure   = case serverSecure of
-                     Nothing  -> return ()
-                     Just cfg -> runSecure params cfg runningSocketSecure server
+        insecure =
+          case serverInsecure of
+            Nothing  -> return ()
+            Just cfg -> runInsecure params cfg runningSocketInsecure server
+        secure =
+          case serverSecure of
+            Nothing  -> return ()
+            Just cfg -> runSecure params cfg runningSocketSecure server
 
     withAsync insecure $ \runningServerInsecure ->
       withAsync secure $ \runningServerSecure ->
@@ -277,8 +284,13 @@ getSocket serverAsync socketTMVar = do
   Insecure
 -------------------------------------------------------------------------------}
 
-runInsecure :: ServerParams -> InsecureConfig -> TMVar Socket -> HTTP2.Server -> IO ()
-runInsecure ServerParams{serverOverrideNumberOfWorkers, serverHTTP2Settings} cfg socketTMVar server =
+runInsecure ::
+     ServerParams
+  -> InsecureConfig
+  -> TMVar Socket
+  -> HTTP2.Server
+  -> IO ()
+runInsecure params cfg socketTMVar server =
     Run.runTCPServerWithSocket
         (openServerSocket socketTMVar)
         (insecureHost cfg)
@@ -287,6 +299,11 @@ runInsecure ServerParams{serverOverrideNumberOfWorkers, serverHTTP2Settings} cfg
               HTTP2.freeSimpleConfig $ \config ->
         HTTP2.run serverConfig config server
   where
+    ServerParams{
+        serverOverrideNumberOfWorkers
+      , serverHTTP2Settings
+      } = params
+
     serverConfig :: HTTP2.ServerConfig
     serverConfig = HTTP2.defaultServerConfig {
           HTTP2.numberOfWorkers =
@@ -310,8 +327,13 @@ runInsecure ServerParams{serverOverrideNumberOfWorkers, serverHTTP2Settings} cfg
   Secure (over TLS)
 -------------------------------------------------------------------------------}
 
-runSecure :: ServerParams -> SecureConfig -> TMVar Socket -> HTTP2.Server -> IO ()
-runSecure ServerParams{serverOverrideNumberOfWorkers, serverHTTP2Settings} cfg socketTMVar server = do
+runSecure ::
+     ServerParams
+  -> SecureConfig
+  -> TMVar Socket
+  -> HTTP2.Server
+  -> IO ()
+runSecure params cfg socketTMVar server = do
     cred :: TLS.Credential <-
           TLS.credentialLoadX509Chain
             (securePubCert    cfg)
@@ -348,6 +370,11 @@ runSecure ServerParams{serverOverrideNumberOfWorkers, serverHTTP2Settings} cfg s
       (secureHost cfg)
       (securePort cfg)
       server
+  where
+    ServerParams{
+        serverOverrideNumberOfWorkers
+      , serverHTTP2Settings
+      } = params
 
 data CouldNotLoadCredentials =
     -- | Failed to load server credentials
