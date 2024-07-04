@@ -5,6 +5,16 @@ package grapesy
   benchmarks: True
   flags: +build-demo +build-stress-test +snappy
 
+source-repository-package
+  type: git
+  location: https://github.com/edsko/network-run
+  tag: 70211ef61ebbf178d6681ec37d3293d720ec9030
+
+source-repository-package
+  type: git
+  location: https://github.com/edsko/http2-tls
+  tag: 53d8b7a0d2a044606de0906e5b66a1f2bce549bd
+
 --
 -- ghc 9.10
 --

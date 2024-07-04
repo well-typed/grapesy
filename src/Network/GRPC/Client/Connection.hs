@@ -560,9 +560,11 @@ connectSecure connParams attempt validation sslKeyLog addr = do
                 case validation of
                   ValidateServer _   -> True
                   NoServerValidation -> False
-            , HTTP2.TLS.Client.settingsCAStore       = caStore
-            , HTTP2.TLS.Client.settingsKeyLogger     = keyLogger
-            , HTTP2.TLS.Client.settingsAddrInfoFlags = []
+
+            , HTTP2.TLS.Client.settingsCAStore          = caStore
+            , HTTP2.TLS.Client.settingsKeyLogger        = keyLogger
+            , HTTP2.TLS.Client.settingsAddrInfoFlags    = []
+            , HTTP2.TLS.Client.settingsOpenClientSocket = openClientSocket
 
             , HTTP2.TLS.Client.settingsConcurrentStreams =
                 fromIntegral $
@@ -626,7 +628,14 @@ overridePingRateLimit connParams clientConfig = clientConfig {
 
 runTCPClient :: Address -> (Socket -> IO a) -> IO a
 runTCPClient Address{addressHost, addressPort} =
-    Run.runTCPClient addressHost (show addressPort)
+    Run.runTCPClientWithSocket openClientSocket addressHost (show addressPort)
+
+openClientSocket :: AddrInfo -> IO Socket
+openClientSocket =
+    Run.openClientSocketWithOptions socketOptions
+  where
+    socketOptions :: [(SocketOption, Int)]
+    socketOptions = [(NoDelay, 1)]
 
 -- | Write-buffer size
 --

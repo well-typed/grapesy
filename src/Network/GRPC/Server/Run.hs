@@ -410,9 +410,12 @@ disableTimeout =
 
 openServerSocket :: TMVar Socket -> AddrInfo -> IO Socket
 openServerSocket socketTMVar addr = do
-    sock <- Run.openServerSocket addr
+    sock <- Run.openServerSocketWithOptions socketOptions addr
     atomically $ putTMVar socketTMVar sock
     return sock
+  where
+    socketOptions :: [(SocketOption, Int)]
+    socketOptions = [(NoDelay, 1)]
 
 writeBufferSize :: BufferSize
 writeBufferSize = 4096
