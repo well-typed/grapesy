@@ -91,7 +91,7 @@ data ServerParams = ServerParams {
       -- This setting is specific to the
       -- [http2](https://hackage.haskell.org/package/http2) package's
       -- implementation of the HTTP\/2 specification for servers. Set to
-      -- 'Nothing' to use the default of 8 worker threads.
+      -- 'Nothing' if you don't want to override the default.
       --
       -- __Note__: If a lower 'http2ConnectionWindowSize' is desired, the
       -- number of workers should be increased to avoid a potential HTTP\/2

@@ -290,7 +290,9 @@ runInsecure ServerParams{serverOverrideNumberOfWorkers, serverHTTP2Settings} cfg
     serverConfig :: HTTP2.ServerConfig
     serverConfig = HTTP2.defaultServerConfig {
           HTTP2.numberOfWorkers =
-              fromIntegral $ fromMaybe 8 serverOverrideNumberOfWorkers
+              fromMaybe
+                (HTTP2.numberOfWorkers HTTP2.defaultServerConfig)
+                (fromIntegral <$> serverOverrideNumberOfWorkers)
         , HTTP2.connectionWindowSize =
               fromIntegral $ http2ConnectionWindowSize serverHTTP2Settings
         , HTTP2.settings =
@@ -329,7 +331,9 @@ runSecure ServerParams{serverOverrideNumberOfWorkers, serverHTTP2Settings} cfg s
             , HTTP2.TLS.settingsTimeout =
                 disableTimeout
             , HTTP2.TLS.settingsNumberOfWorkers =
-                fromIntegral $ fromMaybe 8 serverOverrideNumberOfWorkers
+                fromMaybe
+                  (HTTP2.TLS.settingsNumberOfWorkers HTTP2.TLS.defaultSettings)
+                  (fromIntegral <$> serverOverrideNumberOfWorkers)
             , HTTP2.TLS.settingsConnectionWindowSize =
                 fromIntegral $ http2ConnectionWindowSize serverHTTP2Settings
             , HTTP2.TLS.settingsStreamWindowSize =
