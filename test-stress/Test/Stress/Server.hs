@@ -14,7 +14,7 @@ import Test.Stress.Server.API
 
 server :: Cmdline -> IO ()
 server _cmdline =
-    runServerWithHandlers config def [
+    runServerWithHandlers def config [
         fromMethod $
           Binary.mkNonStreaming @ManyShortLived @Word $
             return . succ

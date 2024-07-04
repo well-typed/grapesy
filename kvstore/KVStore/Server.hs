@@ -29,7 +29,7 @@ withKeyValueServer cmdline@Cmdline{cmdJSON} k = do
           | otherwise = Protobuf.server $ handlers cmdline store
 
     server <- mkGrpcServer params rpcHandlers
-    forkServer config server k
+    forkServer params config server k
   where
     config :: ServerConfig
     config = ServerConfig {

@@ -58,8 +58,8 @@ main = do
           }
 
     runServerWithHandlers
-      serverConfig
       (serverParams cmdline)
+      serverConfig
       (fromServices $ services cmdline db)
 
 getRouteGuideDb :: IO [Proto Feature]

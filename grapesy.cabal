@@ -111,6 +111,7 @@ library
       Network.GRPC.Common.Protobuf
       Network.GRPC.Common.StreamElem
       Network.GRPC.Common.StreamType
+      Network.GRPC.Common.HTTP2Settings
       Network.GRPC.Internal.XIO
       Network.GRPC.Server
       Network.GRPC.Server.Binary

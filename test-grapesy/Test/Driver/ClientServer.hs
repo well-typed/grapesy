@@ -491,7 +491,7 @@ withTestServer cfg firstTestFailure handlerLock serverHandlers k = do
             }
 
     server <- Server.mkGrpcServer serverParams serverHandlers
-    Server.forkServer serverConfig server k
+    Server.forkServer serverParams serverConfig server k
 
 {-------------------------------------------------------------------------------
   Client
@@ -528,7 +528,6 @@ runTestClient cfg firstTestFailure port clientRun = do
               connCompression           = clientCompr cfg
             , connInitCompression       = clientInitCompr cfg
             , connDefaultTimeout        = Nothing
-            , connOverridePingRateLimit = Nothing
 
               -- Content-type
             , connContentType =
@@ -544,6 +543,7 @@ runTestClient cfg firstTestFailure port clientRun = do
                   Client.ReconnectAfter $ do
                     threadDelay 100_000
                     return Client.DontReconnect
+            , connHTTP2Settings = defaultHTTP2Settings
             }
 
         clientServer :: Client.Server

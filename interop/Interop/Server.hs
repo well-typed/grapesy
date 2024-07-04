@@ -66,7 +66,7 @@ services =
 withInteropServer :: Cmdline -> (RunningServer -> IO a) -> IO a
 withInteropServer cmdline k = do
     server <- mkGrpcServer serverParams $ fromServices services
-    forkServer serverConfig server k
+    forkServer serverParams serverConfig server k
   where
     serverConfig :: ServerConfig
     serverConfig

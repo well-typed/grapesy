@@ -47,6 +47,7 @@ import Network.GRPC.Client.Meta qualified as Meta
 import Network.GRPC.Client.Session
 import Network.GRPC.Common.Compression qualified as Compr
 import Network.GRPC.Common.Compression qualified as Compression
+import Network.GRPC.Common.HTTP2Settings
 import Network.GRPC.Spec
 import Network.GRPC.Util.GHC
 import Network.GRPC.Util.HTTP2.Stream (ServerDisconnected(..))
@@ -140,21 +141,7 @@ data ConnParams = ConnParams {
       -- messages sent by the client to the server.
     , connInitCompression :: Maybe Compression
 
-      -- | Override ping rate limit
-      --
-      -- The @http2@ library imposes a ping rate limit as a security measure
-      -- against
-      -- [CVE-2019-9512](https://www.cve.org/CVERecord?id=CVE-2019-9512). By
-      -- default (as of version 5.1.2) it sets this limit at 10 pings/second. If
-      -- you find yourself being disconnected from a gRPC peer because that peer
-      -- is sending too many pings (you will see an
-      -- [EnhanceYourCalm](https://hackage.haskell.org/package/http2-5.1.2/docs/Network-HTTP2-Client.html#t:ErrorCode)
-      -- exception, corresponding to the
-      -- [ENHANCE_YOUR_CALM](https://www.rfc-editor.org/rfc/rfc9113#ErrorCodes)
-      -- HTTP/2 error code), you may wish to increase this limit. If you are
-      -- connecting to a peer that you trust, you can set this limit to
-      -- 'maxBound' (effectively turning off protecting against ping flooding).
-    , connOverridePingRateLimit :: Maybe Int
+    , connHTTP2Settings :: HTTP2Settings
     }
 
 instance Default ConnParams where
@@ -164,7 +151,7 @@ instance Default ConnParams where
       , connReconnectPolicy       = def
       , connContentType           = Just ContentTypeDefault
       , connInitCompression       = Nothing
-      , connOverridePingRateLimit = Nothing
+      , connHTTP2Settings         = def
       }
 
 {-------------------------------------------------------------------------------
@@ -536,10 +523,23 @@ connectInsecure connParams attempt addr =
               ConnectionReady (attemptClosed attempt) conn
           takeMVar $ attemptOutOfScope attempt
   where
+    settings :: HTTP2.Client.Settings
+    settings = HTTP2.Client.defaultSettings {
+          HTTP2.Client.maxConcurrentStreams =
+              Just . fromIntegral $
+                http2MaxConcurrentStreams (connHTTP2Settings connParams)
+        , HTTP2.Client.initialWindowSize =
+              fromIntegral $
+                http2StreamWindowSize (connHTTP2Settings connParams)
+        }
     clientConfig :: HTTP2.Client.ClientConfig
     clientConfig = overridePingRateLimit connParams $
         HTTP2.Client.defaultClientConfig {
             HTTP2.Client.authority = authority addr
+          , HTTP2.Client.settings = settings
+          , HTTP2.Client.connectionWindowSize =
+                fromIntegral $
+                  http2ConnectionWindowSize (connHTTP2Settings connParams)
           }
 
 -- | Secure connection (using TLS)
@@ -563,6 +563,16 @@ connectSecure connParams attempt validation sslKeyLog addr = do
             , HTTP2.TLS.Client.settingsCAStore       = caStore
             , HTTP2.TLS.Client.settingsKeyLogger     = keyLogger
             , HTTP2.TLS.Client.settingsAddrInfoFlags = []
+
+            , HTTP2.TLS.Client.settingsConcurrentStreams =
+                fromIntegral $
+                  http2MaxConcurrentStreams (connHTTP2Settings connParams)
+            , HTTP2.TLS.Client.settingsStreamWindowSize =
+                fromIntegral $
+                  http2StreamWindowSize (connHTTP2Settings connParams)
+            , HTTP2.TLS.Client.settingsConnectionWindowSize =
+                fromIntegral $
+                  http2ConnectionWindowSize (connHTTP2Settings connParams)
             }
 
         clientConfig :: HTTP2.Client.ClientConfig
@@ -601,7 +611,7 @@ overridePingRateLimit ::
 overridePingRateLimit connParams clientConfig = clientConfig {
       HTTP2.Client.settings = settings {
           HTTP2.Client.pingRateLimit =
-            case connOverridePingRateLimit connParams of
+            case http2OverridePingRateLimit (connHTTP2Settings connParams) of
               Nothing    -> HTTP2.Client.pingRateLimit settings
               Just limit -> limit
         }
@@ -623,6 +633,6 @@ runTCPClient Address{addressHost, addressPort} =
 -- See docs of 'confBufferSize', but importantly: "this value is announced
 -- via SETTINGS_MAX_FRAME_SIZE to the peer."
 --
--- Value of 4kB is taken from the example code.
+-- Value of 4KB is taken from the example code.
 writeBufferSize :: HPACK.BufferSize
 writeBufferSize = 4096

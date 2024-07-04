@@ -41,7 +41,7 @@ data GrpcError =
     -- | Invalid argument
     --
     -- The client specified an invalid argument. Note that this differs from
-    -- 'GrpcFailedPrecondition': 'GrpcInvalidArgumen'` indicates arguments that
+    -- 'GrpcFailedPrecondition': 'GrpcInvalidArgument'` indicates arguments that
     -- are problematic regardless of the state of the system (e.g., a malformed
     -- file name).
   | GrpcInvalidArgument
@@ -79,7 +79,7 @@ data GrpcError =
     -- * 'GrpcPermissionDenied' must not be used for rejections caused by
     --   exhausting some resource (use 'GrpcResourceExhausted' instead for those
     --   errors).
-    -- * 'GrpcPermissionDenoed' must not be used if the caller can not be
+    -- * 'GrpcPermissionDenied' must not be used if the caller can not be
     --   identified (use 'GrpcUnauthenticated' instead for those errors).
     --
     -- This error code does not imply the request is valid or the requested
@@ -99,7 +99,7 @@ data GrpcError =
     -- is non-empty, an rmdir operation is applied to a non-directory, etc.
     --
     -- Service implementors can use the following guidelines to decide between
-    -- 'GrpcFailedPrecondition', 'GrpcAborted', and 'GrpcUnvailable':
+    -- 'GrpcFailedPrecondition', 'GrpcAborted', and 'GrpcUnavailable':
     --
     -- (a) Use 'GrpcUnavailable' if the client can retry just the failing call.
     -- (b) Use 'GrpcAborted' if the client should retry at a higher level (e.g.,

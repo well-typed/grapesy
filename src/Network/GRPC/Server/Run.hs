@@ -29,6 +29,7 @@ module Network.GRPC.Server.Run (
 import Control.Concurrent.Async
 import Control.Concurrent.STM
 import Control.Exception
+import Data.Maybe (fromMaybe)
 import Network.ByteOrder (BufferSize)
 import Network.HTTP2.Server qualified as HTTP2
 import Network.HTTP2.TLS.Server qualified as HTTP2.TLS
@@ -36,6 +37,7 @@ import Network.Run.TCP qualified as Run
 import Network.Socket
 import Network.TLS qualified as TLS
 
+import Network.GRPC.Common.HTTP2Settings
 import Network.GRPC.Server
 import Network.GRPC.Util.HTTP2 (allocConfigWithTimeout)
 import Network.GRPC.Util.TLS (SslKeyLog(..))
@@ -90,7 +92,7 @@ data SecureConfig = SecureConfig {
 
       -- | Port number
       --
-      -- See 'insecurePort' for additional discussion'.
+      -- See 'insecurePort' for additional discussion.
     , securePort :: PortNumber
 
       -- | TLS public certificate (X.509 format)
@@ -121,18 +123,18 @@ data SecureConfig = SecureConfig {
 --
 -- See also 'runServerWithHandlers', which handles the creation of the
 -- 'HTTP2.Server' for you.
-runServer :: ServerConfig -> HTTP2.Server -> IO ()
-runServer cfg server = forkServer cfg server $ waitServer
+runServer :: ServerParams -> ServerConfig -> HTTP2.Server -> IO ()
+runServer params cfg server = forkServer params cfg server $ waitServer
 
 -- | Convenience function that combines 'runServer' with 'mkGrpcServer'
 runServerWithHandlers ::
-     ServerConfig
-  -> ServerParams
+     ServerParams
+  -> ServerConfig
   -> [SomeRpcHandler IO]
   -> IO ()
-runServerWithHandlers config params handlers = do
+runServerWithHandlers params config handlers = do
     server <- mkGrpcServer params handlers
-    runServer config server
+    runServer params config server
 
 {-------------------------------------------------------------------------------
   Full interface
@@ -166,18 +168,25 @@ data ServerTerminated = ServerTerminated
   deriving anyclass (Exception)
 
 -- | Start the server
-forkServer :: ServerConfig -> HTTP2.Server -> (RunningServer -> IO a) -> IO a
-forkServer ServerConfig{serverInsecure, serverSecure} server k = do
+forkServer ::
+     ServerParams
+  -> ServerConfig
+  -> HTTP2.Server
+  -> (RunningServer -> IO a)
+  -> IO a
+forkServer params ServerConfig{serverInsecure, serverSecure} server k = do
     runningSocketInsecure <- newEmptyTMVarIO
     runningSocketSecure   <- newEmptyTMVarIO
 
     let secure, insecure :: IO ()
-        insecure = case serverInsecure of
-                     Nothing  -> return ()
-                     Just cfg -> runInsecure cfg runningSocketInsecure server
-        secure   = case serverSecure of
-                     Nothing  -> return ()
-                     Just cfg -> runSecure cfg runningSocketSecure server
+        insecure =
+          case serverInsecure of
+            Nothing  -> return ()
+            Just cfg -> runInsecure params cfg runningSocketInsecure server
+        secure =
+          case serverSecure of
+            Nothing  -> return ()
+            Just cfg -> runSecure params cfg runningSocketSecure server
 
     withAsync insecure $ \runningServerInsecure ->
       withAsync secure $ \runningServerSecure ->
@@ -275,22 +284,56 @@ getSocket serverAsync socketTMVar = do
   Insecure
 -------------------------------------------------------------------------------}
 
-runInsecure :: InsecureConfig -> TMVar Socket -> HTTP2.Server -> IO ()
-runInsecure cfg socketTMVar server =
+runInsecure ::
+     ServerParams
+  -> InsecureConfig
+  -> TMVar Socket
+  -> HTTP2.Server
+  -> IO ()
+runInsecure params cfg socketTMVar server =
     Run.runTCPServerWithSocket
         (openServerSocket socketTMVar)
         (insecureHost cfg)
         (show $ insecurePort cfg) $ \sock -> do
       bracket (allocConfigWithTimeout sock writeBufferSize disableTimeout)
               HTTP2.freeSimpleConfig $ \config ->
-        HTTP2.run HTTP2.defaultServerConfig config server
+        HTTP2.run serverConfig config server
+  where
+    ServerParams{
+        serverOverrideNumberOfWorkers
+      , serverHTTP2Settings
+      } = params
+
+    serverConfig :: HTTP2.ServerConfig
+    serverConfig = HTTP2.defaultServerConfig {
+          HTTP2.numberOfWorkers =
+              fromMaybe
+                (HTTP2.numberOfWorkers HTTP2.defaultServerConfig)
+                (fromIntegral <$> serverOverrideNumberOfWorkers)
+        , HTTP2.connectionWindowSize =
+              fromIntegral $ http2ConnectionWindowSize serverHTTP2Settings
+        , HTTP2.settings =
+              HTTP2.defaultSettings {
+                  HTTP2.initialWindowSize =
+                      fromIntegral $
+                        http2StreamWindowSize serverHTTP2Settings
+                , HTTP2.maxConcurrentStreams =
+                      Just . fromIntegral $
+                        http2MaxConcurrentStreams serverHTTP2Settings
+                }
+        }
 
 {-------------------------------------------------------------------------------
   Secure (over TLS)
 -------------------------------------------------------------------------------}
 
-runSecure :: SecureConfig -> TMVar Socket -> HTTP2.Server -> IO ()
-runSecure cfg socketTMVar server = do
+runSecure ::
+     ServerParams
+  -> SecureConfig
+  -> TMVar Socket
+  -> HTTP2.Server
+  -> IO ()
+runSecure params cfg socketTMVar server = do
     cred :: TLS.Credential <-
           TLS.credentialLoadX509Chain
             (securePubCert    cfg)
@@ -309,6 +352,16 @@ runSecure cfg socketTMVar server = do
                 openServerSocket socketTMVar
             , HTTP2.TLS.settingsTimeout =
                 disableTimeout
+            , HTTP2.TLS.settingsNumberOfWorkers =
+                fromMaybe
+                  (HTTP2.TLS.settingsNumberOfWorkers HTTP2.TLS.defaultSettings)
+                  (fromIntegral <$> serverOverrideNumberOfWorkers)
+            , HTTP2.TLS.settingsConnectionWindowSize =
+                fromIntegral $ http2ConnectionWindowSize serverHTTP2Settings
+            , HTTP2.TLS.settingsStreamWindowSize =
+                fromIntegral $ http2StreamWindowSize serverHTTP2Settings
+            , HTTP2.TLS.settingsConcurrentStreams =
+                fromIntegral $ http2MaxConcurrentStreams serverHTTP2Settings
             }
 
     HTTP2.TLS.run
@@ -317,6 +370,11 @@ runSecure cfg socketTMVar server = do
       (secureHost cfg)
       (securePort cfg)
       server
+  where
+    ServerParams{
+        serverOverrideNumberOfWorkers
+      , serverHTTP2Settings
+      } = params
 
 data CouldNotLoadCredentials =
     -- | Failed to load server credentials
