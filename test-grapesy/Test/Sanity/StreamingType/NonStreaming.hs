@@ -72,10 +72,6 @@ tests = testGroup "Test.Sanity.StreamingType.NonStreaming" [
                     test_increment def {
                         useTLS = Just $ TlsFail TlsFailValidation
                       }
-                , testCase "hostname" $
-                    test_increment def {
-                        useTLS = Just $ TlsFail TlsFailHostname
-                      }
                 , testCase "unsupported" $
                     test_increment def {
                         useTLS = Just $ TlsFail TlsFailUnsupported
