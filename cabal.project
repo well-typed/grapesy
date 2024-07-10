@@ -13,8 +13,8 @@ source-repository-package
 
 source-repository-package
   type: git
-  location: https://github.com/kazu-yamamoto/http2-tls
-  tag: 6ecea0f22a576c3f0dcbb9efd7a402919bf4ad10
+  location: https://github.com/edsko/http2-tls
+  tag: 82fd8ce2c3ce63d8fd765a27f8bf570e4b95d1c8
 
 --
 -- ghc 9.10
