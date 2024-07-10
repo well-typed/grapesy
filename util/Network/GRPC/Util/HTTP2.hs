@@ -1,6 +1,6 @@
 {-# LANGUAGE CPP #-}
 
-#include "MachDeps.h"
+
 
 module Network.GRPC.Util.HTTP2 (
     -- * General auxiliary
@@ -138,9 +138,10 @@ mkServerConfig ::
 mkServerConfig http2Settings numberOfWorkers =
     Server.defaultServerConfig {
         Server.numberOfWorkers =
-          fromMaybe
+          maybe
             (Server.numberOfWorkers Server.defaultServerConfig)
-            (fromIntegral <$> numberOfWorkers)
+            fromIntegral
+            numberOfWorkers
       , Server.connectionWindowSize = fromIntegral $
           http2ConnectionWindowSize http2Settings
       , Server.settings = Server.defaultSettings {
@@ -148,6 +149,10 @@ mkServerConfig http2Settings numberOfWorkers =
               http2StreamWindowSize http2Settings
           , Server.maxConcurrentStreams = Just . fromIntegral $
               http2MaxConcurrentStreams http2Settings
+          , Server.pingRateLimit =
+              fromMaybe
+                (Server.pingRateLimit Server.defaultSettings)
+                (http2OverridePingRateLimit http2Settings)
           }
       }
 

@@ -93,6 +93,7 @@ client Cmdline{
            cmdJSON
          , cmdSecure
          , cmdDisableTcpNoDelay
+         , cmdPingRateLimit
          } statsVar = do
     knownKeys <- RandomAccessSet.new
     random    <- RandomGen.new
@@ -126,7 +127,8 @@ client Cmdline{
     params :: ConnParams
     params = def {
           connHTTP2Settings = def {
-              http2TcpNoDelay = not cmdDisableTcpNoDelay
+              http2TcpNoDelay            = not cmdDisableTcpNoDelay
+            , http2OverridePingRateLimit = cmdPingRateLimit
             }
         }
 

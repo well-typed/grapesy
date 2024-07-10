@@ -26,6 +26,7 @@ withKeyValueServer cmdline@Cmdline{
                        cmdJSON
                      , cmdSecure
                      , cmdDisableTcpNoDelay
+                     , cmdPingRateLimit
                      } k = do
     store <- Store.new
 
@@ -61,7 +62,8 @@ withKeyValueServer cmdline@Cmdline{
     params :: ServerParams
     params = def {
           serverHTTP2Settings = def {
-              http2TcpNoDelay = not cmdDisableTcpNoDelay
+              http2TcpNoDelay            = not cmdDisableTcpNoDelay
+            , http2OverridePingRateLimit = cmdPingRateLimit
             }
 
           -- The Java benchmark does not use compression (unclear if the Java

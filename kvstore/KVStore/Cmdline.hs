@@ -19,6 +19,7 @@ data Cmdline = Cmdline {
     , cmdJSON              :: Bool
     , cmdSecure            :: Bool
     , cmdDisableTcpNoDelay :: Bool
+    , cmdPingRateLimit     :: Maybe Int
     }
 
 data Mode =
@@ -69,6 +70,13 @@ parseCmdline =
               Opt.long "disable-tcp-nodelay"
             , Opt.help "Disable the TCP_NODELAY option"
             ])
+      <*> (Opt.optional $
+            Opt.option Opt.auto $ mconcat [
+              Opt.long "ping-rate-limit"
+            , Opt.metavar "PINGs/sec"
+            , Opt.help "Allow at most this many pings per second from the peer"
+            ]
+          )
 
 parseMode :: Parser Mode
 parseMode = asum [
