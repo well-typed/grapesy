@@ -156,13 +156,6 @@ data TlsFail =
     -- self signed.
     TlsFailValidation
 
-    -- | Client uses the wrong address (@localhost@ instead of @127.0.0.1@)
-    --
-    -- This too will result in a TLS failure (hostname mismatch). To ensure we
-    -- get the TLS failure we expect, we /do/ add the server's certificate to
-    -- the client's trusted certs.
-  | TlsFailHostname
-
     -- | The server is not configured for TLS
   | TlsFailUnsupported
 
@@ -323,7 +316,6 @@ isExpectedTLSException :: ClientServerConfig -> TLSException -> Bool
 isExpectedTLSException cfg tls =
     case (useTLS cfg, tls) of
       (Just (TlsFail TlsFailValidation)  , HandshakeFailed _) -> True
-      (Just (TlsFail TlsFailHostname)    , HandshakeFailed _) -> True
       (Just (TlsFail TlsFailUnsupported) , HandshakeFailed _) -> True
       _otherwise -> False
 
@@ -449,14 +441,14 @@ withTestServer cfg firstTestFailure handlerLock serverHandlers k = do
             case useTLS cfg of
               Nothing -> Server.ServerConfig {
                   serverInsecure = Just Server.InsecureConfig {
-                      insecureHost = Nothing
+                      insecureHost = Just "127.0.0.1"
                     , insecurePort = serverPort cfg
                     }
                 , serverSecure   = Nothing
                 }
               Just (TlsFail TlsFailUnsupported) -> Server.ServerConfig {
                   serverInsecure = Just Server.InsecureConfig {
-                      insecureHost = Nothing
+                      insecureHost = Just "127.0.0.1"
                     , insecurePort = serverPort cfg
                     }
                 , serverSecure   = Nothing
@@ -558,8 +550,6 @@ runTestClient cfg firstTestFailure port clientRun = do
                         Client.NoServerValidation
                       TlsFail TlsFailValidation ->
                         Client.ValidateServer mempty
-                      TlsFail TlsFailHostname ->
-                        correctClientSetup
                       TlsFail TlsFailUnsupported ->
                         correctClientSetup
                   )
@@ -581,10 +571,8 @@ runTestClient cfg firstTestFailure port clientRun = do
         clientAuthority :: Client.Address
         clientAuthority =
             case useTLS cfg of
-              Just tlsSetup -> Client.Address {
-                  addressHost      = case tlsSetup of
-                                       TlsFail TlsFailHostname -> "localhost"
-                                       _otherwise              -> "127.0.0.1"
+              Just _tlsSetup -> Client.Address {
+                  addressHost      = "127.0.0.1"
                 , addressPort      = port
                 , addressAuthority = Nothing
                 }
