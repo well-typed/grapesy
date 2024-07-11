@@ -16,6 +16,7 @@ module Network.GRPC.Util.Thread (
   , cancelThread
   , withThreadInterface
   , waitForNormalThreadTermination
+  , waitForAbnormalThreadTermination
   , waitForNormalOrAbnormalThreadTermination
   , hasThreadTerminated
   ) where
@@ -315,6 +316,15 @@ waitForNormalOrAbnormalThreadTermination ::
   -> STM (Either SomeException a)
 waitForNormalOrAbnormalThreadTermination state =
     hasThreadTerminated state >>= maybe retry return
+
+-- | Wait for the thread to terminate abnormally
+waitForAbnormalThreadTermination ::
+     TVar (ThreadState a)
+  -> STM SomeException
+waitForAbnormalThreadTermination state =
+    hasThreadTerminated state >>= \case
+      Just (Left e) -> return e
+      _otherwise    -> retry
 
 -- | Has the thread terminated?
 hasThreadTerminated ::

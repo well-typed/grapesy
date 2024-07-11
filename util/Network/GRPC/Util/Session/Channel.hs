@@ -611,20 +611,18 @@ outboundTrailersMaker :: forall sess.
      IsSession sess
   => sess
   -> Channel sess
+  -> RegularFlowState (Outbound sess)
   -> HTTP2.TrailersMaker
-outboundTrailersMaker sess channel = go
+outboundTrailersMaker sess Channel{channelOutbound} regular = go
   where
     go :: HTTP2.TrailersMaker
     go (Just _) = return $ HTTP2.NextTrailersMaker go
     go Nothing  = do
-        -- Wait for the thread to terminate
-        --
-        -- If the thread was killed, this will throw an exception (which will
-        -- then result in @http2@ cancelling the corresponding stream).
-        flowState <- waitForOutbound channel
-        trailers  <- case flowState of
-                       FlowStateRegular regular ->
-                         atomically $ readTMVar $ flowTerminated regular
-                       FlowStateNoMessages _ ->
-                         error "unexpected FlowStateNoMessages"
-        return $ HTTP2.Trailers $ buildOutboundTrailers sess trailers
+        mFlowState <- atomically $ do
+                   (Right <$> readTMVar (flowTerminated regular))
+          `orElse` (Left <$> waitForAbnormalThreadTermination channelOutbound)
+        case mFlowState of
+            Right trailers ->
+              return $ HTTP2.Trailers $ buildOutboundTrailers sess trailers
+            Left _exception ->
+              return $ HTTP2.Trailers []
