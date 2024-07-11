@@ -77,7 +77,7 @@ setupResponseChannel sess
             regular <- initFlowStateRegular headers
             markReady $ FlowStateRegular regular
             let resp :: Server.Response
-                resp = setResponseTrailers sess channel
+                resp = setResponseTrailers sess channel regular
                      $ Server.responseStreaming
                              (responseStatus  responseInfo)
                              (responseHeaders responseInfo)
@@ -103,7 +103,8 @@ setResponseTrailers ::
      IsSession sess
   => sess
   -> Channel sess
+  -> RegularFlowState (Outbound sess)
   -> Server.Response -> Server.Response
-setResponseTrailers sess channel resp =
+setResponseTrailers sess channel regular resp =
     Server.setResponseTrailersMaker resp $
-      outboundTrailersMaker sess channel
+      outboundTrailersMaker sess channel regular
