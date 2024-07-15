@@ -74,14 +74,14 @@ data HTTP2Settings = HTTP2Settings {
 -- deadlock discussed at 'http2ConnectionWindowSize'.
 --
 -- The ping rate limit imposed by the [@http2@
--- package](https://hackage.haskell.org/package/http2) is not overridden by
--- default.
+-- package](https://hackage.haskell.org/package/http2) is overridden to 100
+-- PINGs/sec.
 defaultHTTP2Settings :: HTTP2Settings
 defaultHTTP2Settings = HTTP2Settings {
       http2MaxConcurrentStreams  = defMaxConcurrentStreams
     , http2StreamWindowSize      = defInitialStreamWindowSize
     , http2ConnectionWindowSize  = defMaxConcurrentStreams * defInitialStreamWindowSize
-    , http2OverridePingRateLimit = Nothing
+    , http2OverridePingRateLimit = Just 100
     }
   where
     defMaxConcurrentStreams    = 128
