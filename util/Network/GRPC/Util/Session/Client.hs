@@ -9,7 +9,6 @@ import Control.Concurrent.STM
 import Control.Monad.Catch
 import Data.ByteString qualified as BS.Strict
 import Data.ByteString qualified as Strict (ByteString)
-import Data.ByteString.Builder (Builder)
 import Data.ByteString.Lazy qualified as BS.Lazy
 import Data.ByteString.Lazy qualified as Lazy (ByteString)
 import Data.Proxy
@@ -181,15 +180,8 @@ setupRequestChannel sess
     outboundThread channel regular iface =
         threadBody "grapesy:clientOutbound" (channelOutbound channel) $ \markReady _debugId -> do
           markReady $ FlowStateRegular regular
-          stream <- clientOutputStream write' flush'
+          stream <- clientOutputStream iface
           Client.outBodyUnmask iface $ sendMessageLoop sess regular stream
-     where
-       write' :: Bool -> Builder -> IO ()
-       write' False = Client.outBodyPush      iface
-       write' True  = Client.outBodyPushFinal iface
-
-       flush' :: IO ()
-       flush' = Client.outBodyFlush iface
 
 {-------------------------------------------------------------------------------
    Auxiliary http2

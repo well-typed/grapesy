@@ -547,11 +547,11 @@ sendMessageLoop sess st stream = do
 
         case msg of
           StreamElem x -> do
-            writeChunk stream False $ build x
+            writeChunk stream $ build x
             flush stream
             loop
           FinalElem x trailers -> do
-            writeChunk stream True $ build x
+            writeChunkFinal stream $ build x
             return trailers
           NoMoreElems trailers -> do
             return trailers

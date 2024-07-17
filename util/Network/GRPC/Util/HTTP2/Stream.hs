@@ -2,6 +2,7 @@ module Network.GRPC.Util.HTTP2.Stream (
     -- * Streams
     OutputStream -- opaque
   , writeChunk
+  , writeChunkFinal
   , flush
   , InputStream -- opaque
   , getChunk
@@ -24,6 +25,7 @@ import GHC.Stack
 import Network.HTTP.Types qualified as HTTP
 import Network.HTTP2.Client qualified as Client
 import Network.HTTP2.Server qualified as Server
+import Network.HTTP2.Server (OutBodyIface(..))
 
 import Network.GRPC.Util.HTTP2 (fromHeaderTable)
 
@@ -33,9 +35,10 @@ import Network.GRPC.Util.HTTP2 (fromHeaderTable)
 
 data OutputStream = OutputStream {
       -- | Write a chunk to the stream
-      --
-      -- The 'Bool' argument indicates if this is the final chunk.
-      _writeChunk :: HasCallStack => Bool -> Builder -> IO ()
+      _writeChunk :: HasCallStack => Builder -> IO ()
+
+      -- | Write the final chunk to the stream
+    , _writeChunkFinal :: HasCallStack => Builder -> IO ()
 
       -- | Flush the stream (send frames to the peer)
     , _flush :: HasCallStack => IO ()
@@ -50,8 +53,11 @@ data InputStream = InputStream {
   Wrappers to get the proper CallStack
 -------------------------------------------------------------------------------}
 
-writeChunk :: HasCallStack => OutputStream -> Bool -> Builder -> IO ()
+writeChunk :: HasCallStack => OutputStream -> Builder -> IO ()
 writeChunk = _writeChunk
+
+writeChunkFinal :: HasCallStack => OutputStream -> Builder -> IO ()
+writeChunkFinal = _writeChunkFinal
 
 flush :: HasCallStack => OutputStream -> IO ()
 flush = _flush
@@ -101,8 +107,8 @@ serverInputStream req = do
 -- 'sendTrailersOnly'); when that API is used, we do not make use of this
 -- 'OutputStream' abstraction (indeed, we do not stream at all). In streaming
 -- cases (the default) we do not make use of @Trailers-Only@.
-serverOutputStream :: (Builder -> IO ()) -> IO () -> IO OutputStream
-serverOutputStream writeChunk' flush' = do
+serverOutputStream :: OutBodyIface -> IO OutputStream
+serverOutputStream iface = do
     -- Make sure that http2 does not wait for the first message before sending
     -- the response headers. This is important: the client might want the
     -- initial response metadata before the first message.
@@ -118,12 +124,15 @@ serverOutputStream writeChunk' flush' = do
     --   case (see discussion above).
 
     let outputStream = OutputStream {
-            _writeChunk = \_isFinal c ->
+            _writeChunk = \c ->
                wrapStreamExceptionsWith ClientDisconnected $
-                 writeChunk' c
+                 outBodyPush iface c
+          , _writeChunkFinal = \c ->
+               wrapStreamExceptionsWith ClientDisconnected $
+                 outBodyPushFinal iface c
           , _flush =
                wrapStreamExceptionsWith ClientDisconnected $
-                 flush'
+                 outBodyFlush iface
           }
 
     flush outputStream
@@ -144,15 +153,18 @@ clientInputStream resp = do
              maybe [] fromHeaderTable <$> Client.getResponseTrailers resp
       }
 
-clientOutputStream :: (Bool -> Builder -> IO ()) -> IO () -> IO OutputStream
-clientOutputStream writeChunk' flush' =
+clientOutputStream :: OutBodyIface -> IO OutputStream
+clientOutputStream iface =
     return OutputStream {
-        _writeChunk = \isFinal c ->
+        _writeChunk = \c ->
            wrapStreamExceptionsWith ServerDisconnected $
-             writeChunk' isFinal c
+             outBodyPush iface c
+      , _writeChunkFinal = \c ->
+           wrapStreamExceptionsWith ServerDisconnected $
+             outBodyPushFinal iface c
       , _flush =
            wrapStreamExceptionsWith ServerDisconnected $
-             flush'
+             outBodyFlush iface
       }
 
 {-------------------------------------------------------------------------------

@@ -15,13 +15,41 @@ import KVStore.Cmdline
 import KVStore.Util.Store (Store)
 import KVStore.Util.Store qualified as Store
 
+import Paths_grapesy
+
 {-------------------------------------------------------------------------------
   Server proper
 -------------------------------------------------------------------------------}
 
 withKeyValueServer :: Cmdline -> (RunningServer -> IO ()) -> IO ()
-withKeyValueServer cmdline@Cmdline{cmdJSON} k = do
+withKeyValueServer cmdline@Cmdline{
+                       cmdJSON
+                     , cmdSecure
+                     , cmdDisableTcpNoDelay
+                     , cmdPingRateLimit
+                     } k = do
     store <- Store.new
+
+    config :: ServerConfig <-
+      if cmdSecure then do
+        pub  <- getDataFileName "grpc-demo.pem"
+        priv <- getDataFileName "grpc-demo.key"
+        return ServerConfig {
+            serverInsecure = Nothing
+          , serverSecure   = Just $ SecureConfig {
+                secureHost       = "0.0.0.0"
+              , securePort       = defaultSecurePort
+              , securePubCert    = pub
+              , secureChainCerts = []
+              , securePrivKey    = priv
+              , secureSslKeyLog  = SslKeyLogFromEnv
+              }
+          }
+      else
+        return ServerConfig {
+            serverInsecure = Just $ InsecureConfig Nothing defaultInsecurePort
+          , serverSecure   = Nothing
+          }
 
     let rpcHandlers :: [SomeRpcHandler IO]
         rpcHandlers
@@ -31,19 +59,18 @@ withKeyValueServer cmdline@Cmdline{cmdJSON} k = do
     server <- mkGrpcServer params rpcHandlers
     forkServer params config server k
   where
-    config :: ServerConfig
-    config = ServerConfig {
-          serverInsecure = Just $ InsecureConfig Nothing defaultInsecurePort
-        , serverSecure   = Nothing
-        }
-
     params :: ServerParams
     params = def {
+          serverHTTP2Settings = def {
+              http2TcpNoDelay            = not cmdDisableTcpNoDelay
+            , http2OverridePingRateLimit = cmdPingRateLimit
+            }
+
           -- The Java benchmark does not use compression (unclear if the Java
           -- implementation supports compression at all; the compression Interop
           -- tests are also disabled for Java). For a fair comparison, we
           -- therefore disable compression here also.
-          serverCompression = Compr.none
+        , serverCompression = Compr.none
         }
 
 {-------------------------------------------------------------------------------

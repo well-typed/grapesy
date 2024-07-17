@@ -1,5 +1,4 @@
-{-# LANGUAGE CPP #-}
-#include "MachDeps.h"
+{-# LANGUAGE OverloadedStrings #-}
 
 -- | Convenience functions for running a HTTP2 server
 --
@@ -29,8 +28,7 @@ module Network.GRPC.Server.Run (
 import Control.Concurrent.Async
 import Control.Concurrent.STM
 import Control.Exception
-import Data.Maybe (fromMaybe)
-import Network.ByteOrder (BufferSize)
+import Control.Monad
 import Network.HTTP2.Server qualified as HTTP2
 import Network.HTTP2.TLS.Server qualified as HTTP2.TLS
 import Network.Run.TCP qualified as Run
@@ -39,7 +37,7 @@ import Network.TLS qualified as TLS
 
 import Network.GRPC.Common.HTTP2Settings
 import Network.GRPC.Server
-import Network.GRPC.Util.HTTP2 (allocConfigWithTimeout)
+import Network.GRPC.Util.HTTP2
 import Network.GRPC.Util.TLS (SslKeyLog(..))
 import Network.GRPC.Util.TLS qualified as Util.TLS
 
@@ -290,14 +288,18 @@ runInsecure ::
   -> TMVar Socket
   -> HTTP2.Server
   -> IO ()
-runInsecure params cfg socketTMVar server =
-    Run.runTCPServerWithSocket
-        (openServerSocket socketTMVar)
+runInsecure params cfg socketTMVar server = do
+    withServerSocket
+        serverHTTP2Settings
+        socketTMVar
         (insecureHost cfg)
-        (show $ insecurePort cfg) $ \sock -> do
-      bracket (allocConfigWithTimeout sock writeBufferSize disableTimeout)
-              HTTP2.freeSimpleConfig $ \config ->
-        HTTP2.run serverConfig config server
+        (insecurePort cfg) $ \listenSock -> do
+      Run.runTCPServerWithSocket listenSock $ \clientSock -> do
+        when (http2TcpNoDelay serverHTTP2Settings) $
+          -- See description of 'withServerSocket'
+          setSockOpt clientSock NoDelay True
+        withConfigForInsecure clientSock $ \config ->
+          HTTP2.run serverConfig config server
   where
     ServerParams{
         serverOverrideNumberOfWorkers
@@ -305,23 +307,10 @@ runInsecure params cfg socketTMVar server =
       } = params
 
     serverConfig :: HTTP2.ServerConfig
-    serverConfig = HTTP2.defaultServerConfig {
-          HTTP2.numberOfWorkers =
-              fromMaybe
-                (HTTP2.numberOfWorkers HTTP2.defaultServerConfig)
-                (fromIntegral <$> serverOverrideNumberOfWorkers)
-        , HTTP2.connectionWindowSize =
-              fromIntegral $ http2ConnectionWindowSize serverHTTP2Settings
-        , HTTP2.settings =
-              HTTP2.defaultSettings {
-                  HTTP2.initialWindowSize =
-                      fromIntegral $
-                        http2StreamWindowSize serverHTTP2Settings
-                , HTTP2.maxConcurrentStreams =
-                      Just . fromIntegral $
-                        http2MaxConcurrentStreams serverHTTP2Settings
-                }
-        }
+    serverConfig =
+        mkServerConfig
+          serverHTTP2Settings
+          serverOverrideNumberOfWorkers
 
 {-------------------------------------------------------------------------------
   Secure (over TLS)
@@ -344,32 +333,34 @@ runSecure params cfg socketTMVar server = do
             Right res -> return res
 
     keyLogger <- Util.TLS.keyLogger (secureSslKeyLog cfg)
-    let settings :: HTTP2.TLS.Settings
-        settings = HTTP2.TLS.defaultSettings {
-              HTTP2.TLS.settingsKeyLogger =
-                keyLogger
-            , HTTP2.TLS.settingsOpenServerSocket =
-                openServerSocket socketTMVar
-            , HTTP2.TLS.settingsTimeout =
-                disableTimeout
-            , HTTP2.TLS.settingsNumberOfWorkers =
-                fromMaybe
-                  (HTTP2.TLS.settingsNumberOfWorkers HTTP2.TLS.defaultSettings)
-                  (fromIntegral <$> serverOverrideNumberOfWorkers)
-            , HTTP2.TLS.settingsConnectionWindowSize =
-                fromIntegral $ http2ConnectionWindowSize serverHTTP2Settings
-            , HTTP2.TLS.settingsStreamWindowSize =
-                fromIntegral $ http2StreamWindowSize serverHTTP2Settings
-            , HTTP2.TLS.settingsConcurrentStreams =
-                fromIntegral $ http2MaxConcurrentStreams serverHTTP2Settings
-            }
+    let serverConfig :: HTTP2.ServerConfig
+        serverConfig =
+          mkServerConfig
+            serverHTTP2Settings
+            serverOverrideNumberOfWorkers
 
-    HTTP2.TLS.run
-      settings
-      (TLS.Credentials [cred])
-      (secureHost cfg)
-      (securePort cfg)
-      server
+        tlsSettings :: HTTP2.TLS.Settings
+        tlsSettings =
+          mkTlsSettings
+            serverHTTP2Settings
+            serverOverrideNumberOfWorkers
+            keyLogger
+
+    withServerSocket
+        serverHTTP2Settings
+        socketTMVar
+        (Just $ secureHost cfg)
+        (securePort cfg) $ \listenSock ->
+      HTTP2.TLS.runTLSWithSocket
+          tlsSettings
+          (TLS.Credentials [cred])
+          listenSock
+          "h2" $ \mgr backend -> do
+        when (http2TcpNoDelay serverHTTP2Settings) $
+          -- See description of 'withServerSocket'
+          setSockOpt (HTTP2.TLS.requestSock backend) NoDelay True
+        withConfigForSecure mgr backend $ \config ->
+          HTTP2.run serverConfig config server
   where
     ServerParams{
         serverOverrideNumberOfWorkers
@@ -386,33 +377,51 @@ data CouldNotLoadCredentials =
   Internal auxiliary
 -------------------------------------------------------------------------------}
 
--- | Work around the fact that we cannot disable timeouts in http2/http2-tls
+-- | Create server listen socket
 --
--- TODO: <https://github.com/well-typed/grapesy/issues/123>
--- We need a proper solution for this.
-disableTimeout :: Int
-disableTimeout =
-#if (WORD_SIZE_IN_BITS == 64)
-    -- Set a really high timeout to effectively disable timeouts
-    --
-    -- We cannot use `maxBound` here, because this is value in
-    -- seconds which will be multiplied by 1_000_000 to get a value
-    -- in microseconds; `maxBound` would result in overflow.
-    1000000000 -- roughly 30 years
-#else
-#warning "Timeout for RPC messages is set to 30 minutes on 32-bit systems."
-#warning "See https://github.com/kazu-yamamoto/http2/issues/112"
-    -- Unfortunately, the same trick does not work on 32-bit
-    -- systems, where we simply don't have enough range. The
-    -- maximum timeout we can support here is 30 mins.
-    30 * 60
-#endif
+-- We set @TCP_NODELAY@ on the server listen socket, but there is no guarantee
+-- that the option will be inherited by the sockets returned from @accept@ for
+-- each client request. On Linux it seems to be, although I cannot find any
+-- authoritative reference to say so; the best I could find is a section in Unix
+-- Network Programming [1]. On FreeBSD on the other hand, the man page suggests
+-- that @TCP_NODELAY@ is /not/ inherited [2].
+--
+-- Even the Linux man page for @accept@ is maddingly vague:
+--
+-- > Portable programs should not rely on inheritance or non‐inheritance of file
+-- > status flags and always explicitly set all required flags on the socket
+-- > returned from accept().
+--
+-- Whether that /file status/ flags is significant (as opposed to other kinds of
+-- flags?) is unclear, especially in the second half of this sentence. The Linux
+-- man page on @tcp@ is even worse; this is the only mention of inheritance in
+-- entire page:
+--
+-- > [TCP_USER_TIMEOUT], like many others, will be inherited by the socket
+-- > returned by accept(2), if it was set on the listening socket.
+--
+-- It is therefore best to explicitly set @TCP_NODELAY@ on the client request
+-- socket.
+--
+-- [1] <https://notes.shichao.io/unp/ch7/#socket-states>
+-- [2] <https://man.freebsd.org/cgi/man.cgi?query=tcp>
+withServerSocket ::
+     HTTP2Settings
+  -> TMVar Socket
+  -> Maybe HostName
+  -> PortNumber
+  -> (Socket -> IO a)
+  -> IO a
+withServerSocket http2Settings socketTMVar host port k = do
+    addr <- Run.resolve Stream host (show port) [AI_PASSIVE]
+    bracket (openServerSocket addr) close $ \sock -> do
+      atomically $ putTMVar socketTMVar sock
+      k sock
+  where
+    openServerSocket :: AddrInfo -> IO Socket
+    openServerSocket = Run.openTCPServerSocketWithOptions $ concat [
+          [ (NoDelay, 1)
+          | http2TcpNoDelay http2Settings
+          ]
+        ]
 
-openServerSocket :: TMVar Socket -> AddrInfo -> IO Socket
-openServerSocket socketTMVar addr = do
-    sock <- Run.openServerSocket addr
-    atomically $ putTMVar socketTMVar sock
-    return sock
-
-writeBufferSize :: BufferSize
-writeBufferSize = 4096
