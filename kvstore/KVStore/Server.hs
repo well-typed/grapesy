@@ -47,7 +47,7 @@ withKeyValueServer cmdline@Cmdline{
           }
       else
         return ServerConfig {
-            serverInsecure = Just $ InsecureConfig Nothing defaultInsecurePort
+            serverInsecure = Just $ InsecureConfig (Just "127.0.0.1") defaultInsecurePort
           , serverSecure   = Nothing
           }
 
