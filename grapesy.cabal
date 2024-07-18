@@ -177,7 +177,6 @@ library
       Paths_grapesy
 
       Proto.OrcaLoadReport
-      Proto.OrcaLoadReport_Fields
 
       Control.Monad.XIO
   autogen-modules:
@@ -384,11 +383,8 @@ executable demo-client
       Proto.API.Ping
       Proto.API.RouteGuide
       Proto.Helloworld
-      Proto.Helloworld_Fields
       Proto.Ping
-      Proto.Ping_Fields
       Proto.RouteGuide
-      Proto.RouteGuide_Fields
   autogen-modules:
       Paths_grapesy
   build-depends:
@@ -431,11 +427,8 @@ executable demo-server
       Proto.API.Ping
       Proto.API.RouteGuide
       Proto.Helloworld
-      Proto.Helloworld_Fields
       Proto.Ping
-      Proto.Ping_Fields
       Proto.RouteGuide
-      Proto.RouteGuide_Fields
 
       Paths_grapesy
   autogen-modules:
