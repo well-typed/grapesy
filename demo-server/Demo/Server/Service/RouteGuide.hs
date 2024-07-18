@@ -8,6 +8,7 @@ module Demo.Server.Service.RouteGuide (
   ) where
 
 import Control.Monad.IO.Class
+import Control.Monad.Trans.Reader
 import Control.Monad.Trans.State (StateT, evalStateT)
 import Control.Monad.Trans.State qualified as State
 import Data.Map qualified as Map
@@ -21,10 +22,10 @@ import Network.GRPC.Server
 import Network.GRPC.Server.Protobuf
 import Network.GRPC.Server.StreamType
 
-import Demo.Common.API
 import Demo.Server.Aux.RouteGuide
 import Demo.Server.Cmdline
-import Control.Monad.Trans.Reader
+
+import Proto.API.RouteGuide
 
 {-------------------------------------------------------------------------------
   Custom handler monad

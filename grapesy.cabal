@@ -177,7 +177,6 @@ library
       Paths_grapesy
 
       Proto.OrcaLoadReport
-      Proto.OrcaLoadReport_Fields
 
       Control.Monad.XIO
   autogen-modules:
@@ -316,8 +315,11 @@ test-suite test-grapesy
 
       Paths_grapesy
 
+      Proto.API.Interop
+      Proto.API.Ping
       Proto.Empty
       Proto.Messages
+      Proto.Ping
       Proto.Test
   autogen-modules:
       Paths_grapesy
@@ -359,7 +361,6 @@ executable demo-client
     , common-executable-flags
   hs-source-dirs:
       demo-client
-      demo-common
       proto
   main-is:
       Main.hs
@@ -374,16 +375,16 @@ executable demo-client
       Demo.Client.API.StreamType.MonadStack.Greeter
       Demo.Client.Cmdline
       Demo.Client.Util.DelayOr
-
-      Demo.Common.API
-      Demo.Common.Logging
+      Demo.Client.Util.Logging
 
       Paths_grapesy
 
+      Proto.API.Helloworld
+      Proto.API.Ping
+      Proto.API.RouteGuide
       Proto.Helloworld
-      Proto.Helloworld_Fields
+      Proto.Ping
       Proto.RouteGuide
-      Proto.RouteGuide_Fields
   autogen-modules:
       Paths_grapesy
   build-depends:
@@ -412,7 +413,6 @@ executable demo-server
     , common-executable-flags
   hs-source-dirs:
       demo-server
-      demo-common
       proto
   main-is:
       Main.hs
@@ -423,13 +423,12 @@ executable demo-server
       Demo.Server.Service.Ping
       Demo.Server.Service.RouteGuide
 
-      Demo.Common.API
-      Demo.Common.Logging
-
+      Proto.API.Helloworld
+      Proto.API.Ping
+      Proto.API.RouteGuide
       Proto.Helloworld
-      Proto.Helloworld_Fields
+      Proto.Ping
       Proto.RouteGuide
-      Proto.RouteGuide_Fields
 
       Paths_grapesy
   autogen-modules:
@@ -442,7 +441,6 @@ executable demo-server
     , aeson                >= 1.5  && < 2.3
     , bytestring           >= 0.10 && < 0.13
     , containers           >= 0.6  && < 0.8
-    , contra-tracer        >= 0.2  && < 0.3
     , exceptions           >= 0.10 && < 0.11
     , network              >= 3.1  && < 3.3
     , optparse-applicative >= 0.16 && < 0.19
@@ -493,7 +491,6 @@ test-suite grapesy-interop
   main-is:
       Main.hs
   other-modules:
-      Interop.API
       Interop.Client
       Interop.Client.Common
       Interop.Client.Connect
@@ -532,9 +529,11 @@ test-suite grapesy-interop
 
       Paths_grapesy
 
-      Proto.Ping
+      Proto.API.Interop
+      Proto.API.Ping
       Proto.Empty
       Proto.Messages
+      Proto.Ping
       Proto.Test
   autogen-modules:
       Paths_grapesy

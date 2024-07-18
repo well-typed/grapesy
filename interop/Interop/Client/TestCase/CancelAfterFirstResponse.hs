@@ -2,12 +2,14 @@ module Interop.Client.TestCase.CancelAfterFirstResponse (runTest) where
 
 import Network.GRPC.Client
 import Network.GRPC.Common
+import Network.GRPC.Common.Protobuf
 
-import Interop.API
 import Interop.Client.Connect
 import Interop.Cmdline
 import Interop.Util.Exceptions
 import Interop.Client.Common (mkStreamingOutputCallRequest)
+
+import Proto.API.Interop
 
 -- | <https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptions.md#cancel_after_first_response>
 runTest :: Cmdline -> IO ()

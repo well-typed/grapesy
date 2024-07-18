@@ -16,7 +16,6 @@ module Demo.Client.Cmdline (
 
 import Prelude
 
-import Data.ByteString.Lazy qualified as Lazy (ByteString)
 import Data.Foldable (asum)
 import Data.Int
 import Data.Kind
@@ -35,7 +34,11 @@ import Network.GRPC.Common.Protobuf
 import Paths_grapesy
 
 import Demo.Client.Util.DelayOr (DelayOr(..))
-import Demo.Common.API
+
+import Proto.API.Helloworld
+import Proto.API.Ping
+import Proto.API.RouteGuide
+import Text.Read (readMaybe)
 
 {-------------------------------------------------------------------------------
   Definition
@@ -75,7 +78,7 @@ data SMethod :: Type -> Type where
   SRecordRoute  :: [DelayOr (Proto Point)]     -> SMethod RecordRoute
   SRouteChat    :: [DelayOr (Proto RouteNote)] -> SMethod RouteChat
 
-  SPing :: Lazy.ByteString -> SMethod Ping
+  SPing :: Proto PingMessage -> SMethod Ping
 
 deriving stock instance Show (SMethod rpc)
 
@@ -249,7 +252,7 @@ parseSomeMethod = Opt.subparser $ mconcat [
           Opt.many (parseDelayOr $ parseRouteNote)
     , sub "ping" "Ping.ping" $
         SomeMethod . SPing <$>
-          Opt.argument Opt.str (Opt.metavar "MSG")
+          Opt.argument parsePingMessage (Opt.metavar "NUM")
     ]
 
 {-------------------------------------------------------------------------------
@@ -323,6 +326,15 @@ parseRouteNote =
         defMessage
           & #location .~ location
           & #message  .~ message
+
+parsePingMessage :: Opt.ReadM (Proto PingMessage)
+parsePingMessage = Opt.str >>= aux
+  where
+    aux :: String -> Opt.ReadM (Proto PingMessage)
+    aux str =
+        case readMaybe str of
+          Nothing  -> fail $ "Could not parse ping ID " ++ show str
+          Just pid -> return $ defMessage & #id .~ pid
 
 {-------------------------------------------------------------------------------
   Internal auxiliary

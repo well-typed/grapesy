@@ -10,11 +10,10 @@ import Network.GRPC.Client.StreamType.IO
 import Network.GRPC.Common
 import Network.GRPC.Common.Protobuf
 
-import Proto.Ping
-
-import Interop.API
 import Interop.Client.Connect
 import Interop.Cmdline
+
+import Proto.API.Ping
 
 ping :: Cmdline -> IO ()
 ping cmdline =

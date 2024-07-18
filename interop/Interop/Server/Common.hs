@@ -10,11 +10,13 @@ module Interop.Server.Common (
 import Control.Exception
 
 import Network.GRPC.Common
+import Network.GRPC.Common.Protobuf
 import Network.GRPC.Server
 import Network.GRPC.Spec
 
-import Interop.API
 import Interop.Util.Exceptions
+
+import Proto.API.Interop
 
 {-------------------------------------------------------------------------------
   Dealing with the test-suite's message types

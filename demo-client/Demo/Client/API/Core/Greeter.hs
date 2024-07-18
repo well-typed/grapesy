@@ -11,8 +11,9 @@ import Network.GRPC.Common.Protobuf
 
 import Demo.Client.Util.DelayOr (DelayOr)
 import Demo.Client.Util.DelayOr qualified as DelayOr
-import Demo.Common.API
-import Demo.Common.Logging
+import Demo.Client.Util.Logging
+
+import Proto.API.Helloworld
 
 {-------------------------------------------------------------------------------
   helloworld.Greeter

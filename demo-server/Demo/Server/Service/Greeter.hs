@@ -13,7 +13,7 @@ import Network.GRPC.Server
 import Network.GRPC.Server.Protobuf
 import Network.GRPC.Server.StreamType
 
-import Demo.Common.API
+import Proto.API.Helloworld
 
 {-------------------------------------------------------------------------------
   Top-level

@@ -4,13 +4,15 @@ import Data.Proxy
 
 import Network.GRPC.Client
 import Network.GRPC.Common
+import Network.GRPC.Common.Protobuf
 import Network.GRPC.Common.StreamElem qualified as StreamElem
 import Network.GRPC.Spec
 
-import Interop.API
 import Interop.Client.Connect
 import Interop.Cmdline
 import Interop.Util.Exceptions
+
+import Proto.API.Interop
 
 -- | <https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptions.md#empty_unary>
 runTest :: Cmdline -> IO ()

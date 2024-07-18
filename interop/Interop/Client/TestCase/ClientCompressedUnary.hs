@@ -6,10 +6,11 @@ import Network.GRPC.Client
 import Network.GRPC.Common
 import Network.GRPC.Spec
 
-import Interop.API
 import Interop.Client.Common
 import Interop.Client.Connect
 import Interop.Cmdline
+
+import Proto.API.Interop
 
 -- | <https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptions.md#client_compressed_unary>
 runTest :: Cmdline -> IO ()
