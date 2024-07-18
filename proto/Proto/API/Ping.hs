@@ -3,17 +3,22 @@
 
 module Proto.API.Ping (
     Ping
-  ) where
+
+    -- * Re-exports
+  , module Proto.Ping
+) where
 
 import Network.GRPC.Common
-import Network.GRPC.Common.Binary
+import Network.GRPC.Common.Protobuf
+
+import Proto.Ping
 
 {-------------------------------------------------------------------------------
   Ping
 -------------------------------------------------------------------------------}
 
-type Ping = RawRpc "Ping" "ping"
+type Ping = Protobuf PingService "ping"
 
-type instance RequestMetadata          (RawRpc "Ping" meth) = NoMetadata
-type instance ResponseInitialMetadata  (RawRpc "Ping" meth) = NoMetadata
-type instance ResponseTrailingMetadata (RawRpc "Ping" meth) = NoMetadata
+type instance RequestMetadata          (Protobuf PingService meth) = NoMetadata
+type instance ResponseInitialMetadata  (Protobuf PingService meth) = NoMetadata
+type instance ResponseTrailingMetadata (Protobuf PingService meth) = NoMetadata

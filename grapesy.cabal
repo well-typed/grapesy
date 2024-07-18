@@ -382,6 +382,8 @@ executable demo-client
       Proto.API.RouteGuide
       Proto.Helloworld
       Proto.Helloworld_Fields
+      Proto.Ping
+      Proto.Ping_Fields
       Proto.RouteGuide
       Proto.RouteGuide_Fields
   autogen-modules:
@@ -427,6 +429,8 @@ executable demo-server
       Proto.API.RouteGuide
       Proto.Helloworld
       Proto.Helloworld_Fields
+      Proto.Ping
+      Proto.Ping_Fields
       Proto.RouteGuide
       Proto.RouteGuide_Fields
 
