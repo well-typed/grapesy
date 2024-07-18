@@ -23,6 +23,8 @@ import Interop.Server.TestService.StreamingInputCall  qualified as StreamingInpu
 import Interop.Server.TestService.StreamingOutputCall qualified as StreamingOutputCall
 import Interop.Server.TestService.UnaryCall           qualified as UnaryCall
 
+import Proto.API.Ping
+
 {-------------------------------------------------------------------------------
   Handlers
 

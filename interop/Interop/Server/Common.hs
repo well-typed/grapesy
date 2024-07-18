@@ -10,6 +10,7 @@ module Interop.Server.Common (
 import Control.Exception
 
 import Network.GRPC.Common
+import Network.GRPC.Common.Protobuf
 import Network.GRPC.Server
 import Network.GRPC.Spec
 

@@ -534,9 +534,10 @@ test-suite grapesy-interop
 
       Paths_grapesy
 
-      Proto.Ping
+      Proto.API.Ping
       Proto.Empty
       Proto.Messages
+      Proto.Ping
       Proto.Test
   autogen-modules:
       Paths_grapesy

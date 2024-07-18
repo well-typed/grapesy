@@ -5,6 +5,7 @@ module Interop.Server.TestService.StreamingInputCall (handle) where
 import Data.ByteString qualified as BS.Strict
 
 import Network.GRPC.Common
+import Network.GRPC.Common.Protobuf
 import Network.GRPC.Server
 import Network.GRPC.Spec
 

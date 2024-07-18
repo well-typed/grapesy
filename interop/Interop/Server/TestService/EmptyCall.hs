@@ -1,5 +1,7 @@
 module Interop.Server.TestService.EmptyCall (handle) where
 
+import Network.GRPC.Common.Protobuf
+
 import Interop.API
 
 -- | Handle @TestService.EmptyCall@

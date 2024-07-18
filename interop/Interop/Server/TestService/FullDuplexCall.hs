@@ -1,6 +1,7 @@
 module Interop.Server.TestService.FullDuplexCall (handle) where
 
 import Network.GRPC.Common
+import Network.GRPC.Common.Protobuf
 import Network.GRPC.Server
 
 import Interop.API

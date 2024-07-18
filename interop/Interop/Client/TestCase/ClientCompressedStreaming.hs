@@ -2,6 +2,7 @@ module Interop.Client.TestCase.ClientCompressedStreaming (runTest) where
 
 import Network.GRPC.Client
 import Network.GRPC.Common
+import Network.GRPC.Common.Protobuf
 import Network.GRPC.Spec
 
 import Interop.API

@@ -6,6 +6,7 @@ import Data.Text (Text)
 
 import Network.GRPC.Client
 import Network.GRPC.Common
+import Network.GRPC.Common.Protobuf
 import Network.GRPC.Spec
 
 import Interop.API

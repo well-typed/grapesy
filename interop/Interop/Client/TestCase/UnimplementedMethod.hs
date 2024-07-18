@@ -2,6 +2,7 @@ module Interop.Client.TestCase.UnimplementedMethod (runTest) where
 
 import Network.GRPC.Client
 import Network.GRPC.Common
+import Network.GRPC.Common.Protobuf
 import Network.GRPC.Client.StreamType.IO
 
 import Interop.API

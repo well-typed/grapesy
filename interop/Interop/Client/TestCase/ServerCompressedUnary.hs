@@ -4,6 +4,7 @@ import Data.Maybe (isJust)
 
 import Network.GRPC.Client
 import Network.GRPC.Common
+import Network.GRPC.Common.Protobuf
 import Network.GRPC.Common.StreamElem qualified as StreamElem
 import Network.GRPC.Spec
 

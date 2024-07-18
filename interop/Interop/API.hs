@@ -20,14 +20,9 @@ module Interop.API (
     -- * UnimplementedService
   , UnimplementedServiceCall
 
-    -- * PingService
-  , Ping
-
     -- * Re-exports
-  , module Network.GRPC.Common.Protobuf
   , module Proto.Empty
   , module Proto.Messages
-  , module Proto.Ping
   , module Proto.Test
   ) where
 
@@ -40,7 +35,6 @@ import Network.GRPC.Common.Protobuf
 
 import Proto.Empty
 import Proto.Messages
-import Proto.Ping
 import Proto.Test
 
 {-------------------------------------------------------------------------------
@@ -183,13 +177,3 @@ type UnimplementedServiceCall = Protobuf UnimplementedService "unimplementedCall
 type instance RequestMetadata          (Protobuf UnimplementedService meth) = NoMetadata
 type instance ResponseInitialMetadata  (Protobuf UnimplementedService meth) = NoMetadata
 type instance ResponseTrailingMetadata (Protobuf UnimplementedService meth) = NoMetadata
-
-{-------------------------------------------------------------------------------
-  Ping service
--------------------------------------------------------------------------------}
-
-type Ping = Protobuf PingService "ping"
-
-type instance RequestMetadata          (Protobuf PingService meth) = NoMetadata
-type instance ResponseInitialMetadata  (Protobuf PingService meth) = NoMetadata
-type instance ResponseTrailingMetadata (Protobuf PingService meth) = NoMetadata

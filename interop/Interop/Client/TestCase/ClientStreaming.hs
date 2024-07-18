@@ -2,6 +2,7 @@ module Interop.Client.TestCase.ClientStreaming (runTest) where
 
 import Network.GRPC.Client
 import Network.GRPC.Common
+import Network.GRPC.Common.Protobuf
 
 import Interop.API
 import Interop.Client.Connect
