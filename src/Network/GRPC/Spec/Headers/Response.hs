@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP               #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Deal with HTTP2 responses
@@ -20,6 +21,7 @@ module Network.GRPC.Spec.Headers.Response (
   , simpleProperTrailers
   , trailersOnlyToProperTrailers
   , properTrailersToTrailersOnly
+  , classifyServerResponse
     -- * gRPC termination
   , GrpcException(..)
   , throwGrpcError
@@ -49,13 +51,22 @@ import Data.Bifunctor
 import Data.ByteString qualified as BS.Strict
 import Data.ByteString qualified as Strict (ByteString)
 import Data.ByteString.Char8 qualified as BS.Strict.C8
+import Data.ByteString.Lazy qualified as BS.Lazy
+import Data.ByteString.Lazy qualified as Lazy (ByteString)
 import Data.CaseInsensitive qualified as CI
 import Data.List.NonEmpty (NonEmpty)
+import Data.Maybe (isJust)
 import Data.Proxy
 import Data.Text (Text)
+import Data.Text qualified as Text
+import Data.Text.Encoding qualified as Text
 import GHC.Generics (Generic)
 import Network.HTTP.Types qualified as HTTP
 import Text.Read (readMaybe)
+
+#if !MIN_VERSION_text(2,0,0)
+import Data.Text.Encoding.Error qualified as Text
+#endif
 
 import Network.GRPC.Spec.Compression (CompressionId)
 import Network.GRPC.Spec.CustomMetadata.Map
@@ -251,6 +262,125 @@ trailersOnlyToProperTrailers TrailersOnly{
       trailersOnlyProper
     , trailersOnlyContentType
     )
+
+{-------------------------------------------------------------------------------
+  Classify server response
+-------------------------------------------------------------------------------}
+
+-- | Classify server response
+--
+-- gRPC servers are supposed to respond with HTTP status @200 OK@ no matter
+-- whether the call was successful or not; if not successful, the information
+-- about the failure should be reported using @grpc-status@ and related headers
+-- (@grpc-message@, @grpc-status-details-bin@).
+--
+-- The gRPC spec mandates that if we get a non-200 status from a broken
+-- deployment, we synthesize a gRPC exception with an appropriate status and
+-- status message. The spec itself does not provide any guidance on what such an
+-- appropriate status would look like, but the official gRPC repo does provide a
+-- partial mapping between HTTP status codes and gRPC status codes at
+-- <https://github.com/grpc/grpc/blob/master/doc/http-grpc-status-mapping.md>.
+-- This is the mapping we implement here.
+classifyServerResponse :: forall rpc.
+     IsRPC rpc
+  => Proxy rpc
+  -> HTTP.Status           -- ^ HTTP status
+  -> [HTTP.Header]         -- ^ Headers
+  -> Maybe Lazy.ByteString -- ^ Response body, if known (used for errors only)
+  -> Either TrailersOnly' ResponseHeaders'
+classifyServerResponse rpc status headers mBody
+  -- The "HTTP to gRPC Status Code Mapping" is explicit:
+  --
+  -- > (..) to be used only for clients that received a response that did not
+  -- > include grpc-status. If grpc-status was provided, it must be used.
+  --
+  -- Therefore if @grpc-status@ is present, we ignore the HTTP status.
+  | hasGrpcStatus headers
+  = Left $ parseTrailersOnly' rpc headers
+
+  | 200 <- statusCode
+  = Right $ parseResponseHeaders' rpc headers
+
+  | otherwise
+  = Left $
+      case statusCode of
+        400 -> synthesize GrpcInternal         -- Bad request
+        401 -> synthesize GrpcUnauthenticated  -- Unauthorized
+        403 -> synthesize GrpcPermissionDenied -- Forbidden
+        404 -> synthesize GrpcUnimplemented    -- Not found
+        429 -> synthesize GrpcUnavailable      -- Too many requests
+        502 -> synthesize GrpcUnavailable      -- Bad gateway
+        503 -> synthesize GrpcUnavailable      -- Service unavailable
+        504 -> synthesize GrpcUnavailable      -- Gateway timeout
+        _   -> synthesize GrpcUnknown
+  where
+    HTTP.Status{statusCode, statusMessage} = status
+
+    -- The @grpc-status@ header not present, and HTTP status not @200 OK@.
+    -- We classify the response as an error response (hence 'TrailersOnly''):
+    --
+    -- * We set 'properTrailersGrpcStatus' based on the HTTP status.
+    -- * We leave 'properTrailersGrpcMessage' alone if @grpc-message@ present
+    --   and valid, and replace it with a default message otherwise.
+    --
+    -- The resulting 'TrailersOnly'' cannot contain any parse errors
+    -- (only @grpc-status@ is required, and only @grpc-message@ can fail).
+    synthesize :: GrpcError -> TrailersOnly'
+    synthesize err = parsed {
+          trailersOnlyProper = parsedTrailers {
+              properTrailersGrpcStatus = Right $
+                GrpcError err
+            , properTrailersGrpcMessage = Right $
+                case properTrailersGrpcMessage parsedTrailers of
+                  Right (Just msg) -> Just msg
+                  _otherwise       -> Just defaultMsg
+            }
+        }
+
+      where
+        parsed :: TrailersOnly'
+        parsed = parseTrailersOnly' rpc headers
+
+        parsedTrailers :: ProperTrailers'
+        parsedTrailers = trailersOnlyProper parsed
+
+        defaultMsg :: Text
+        defaultMsg = mconcat [
+              "Unexpected HTTP status code "
+            , Text.pack (show statusCode)
+            , if not (BS.Strict.null statusMessage)
+                then " (" <> decodeUtf8Lenient statusMessage <> ")"
+                else mempty
+            , case mBody of
+                Just body | not (BS.Lazy.null body) -> mconcat [
+                    "\nResponse body:\n"
+                  , decodeUtf8Lenient (BS.Lazy.toStrict body)
+                  ]
+                _otherwise ->
+                  mempty
+            ]
+
+-- | Is the @grpc-status@ header set?
+--
+-- We use this as a proxy to determine if we are in the Trailers-Only case.
+--
+-- It might be tempting to use the HTTP @Content-Length@ header instead, but
+-- this is doubly wrong:
+--
+-- * There might be servers who use the Trailers-Only case but do not set the
+--   @Content-Length@ header (although such a server would not conform to the
+--   HTTP spec: "An origin server SHOULD send a @Content-Length@ header field
+--   when the content size is known prior to sending the complete header
+--   section"; see
+--   <https://www.rfc-editor.org/rfc/rfc9110.html#name-content-length>).
+-- * Conversely, there might be servers or proxies who /do/ set @Content-Length@
+--   header even when it's /not/ the Trailers-Only case (e.g., see
+--   <https://github.com/grpc/grpc-web/issues/1101> or
+--   <https://github.com/envoyproxy/envoy/issues/5554>).
+--
+-- We therefore check for the presence of the @grpc-status@ header instead.
+hasGrpcStatus :: [HTTP.Header] -> Bool
+hasGrpcStatus = isJust . lookup "grpc-status"
 
 {-------------------------------------------------------------------------------
   Pushback
@@ -676,3 +806,9 @@ parseTrailersOnly' proxy =
 otherInvalid :: Either InvalidHeaders () -> InvalidHeaders
 otherInvalid = either id (\() -> mempty)
 
+decodeUtf8Lenient :: BS.Strict.C8.ByteString -> Text
+#if MIN_VERSION_text(2,0,0)
+decodeUtf8Lenient = Text.decodeUtf8Lenient
+#else
+decodeUtf8Lenient = Text.decodeUtf8With Text.lenientDecode
+#endif

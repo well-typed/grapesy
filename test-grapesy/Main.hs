@@ -16,6 +16,7 @@ import GHC.Conc.Sync (threadLabel)
 import Test.Prop.Dialogue                     qualified as Dialogue
 import Test.Prop.IncrementalParsing           qualified as IncrementalParsing
 import Test.Prop.Serialization                qualified as Serialization
+import Test.Sanity.BrokenDeployments          qualified as BrokenDeployments
 import Test.Sanity.EndOfStream                qualified as EndOfStream
 import Test.Sanity.Interop                    qualified as Interop
 import Test.Sanity.StreamingType.CustomFormat qualified as StreamingType.CustomFormat
@@ -33,6 +34,7 @@ main = do
               , StreamingType.CustomFormat.tests
               ]
           , Interop.tests
+          , BrokenDeployments.tests
           ]
       , testGroup "Prop" [
             IncrementalParsing.tests

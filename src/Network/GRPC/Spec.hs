@@ -112,6 +112,7 @@ module Network.GRPC.Spec (
   , buildResponseHeaders
   , parseResponseHeaders
   , parseResponseHeaders'
+  , classifyServerResponse
     -- ** Trailers
   , ProperTrailers_(..)
   , ProperTrailers
