@@ -1,4 +1,4 @@
-module Demo.Common.Logging (
+module Demo.Client.Util.Logging (
     threadSafeTracer
   , logMsg
   ) where

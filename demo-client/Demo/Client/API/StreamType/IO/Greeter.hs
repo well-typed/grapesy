@@ -8,8 +8,8 @@ import Network.GRPC.Client.StreamType.IO
 import Network.GRPC.Common.NextElem qualified as NextElem
 import Network.GRPC.Common.Protobuf
 
+import Demo.Client.Util.Logging
 import Demo.Common.API
-import Demo.Common.Logging
 
 {-------------------------------------------------------------------------------
   helloworld.Greeter

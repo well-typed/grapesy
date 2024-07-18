@@ -374,9 +374,9 @@ executable demo-client
       Demo.Client.API.StreamType.MonadStack.Greeter
       Demo.Client.Cmdline
       Demo.Client.Util.DelayOr
+      Demo.Client.Util.Logging
 
       Demo.Common.API
-      Demo.Common.Logging
 
       Paths_grapesy
 
@@ -424,7 +424,6 @@ executable demo-server
       Demo.Server.Service.RouteGuide
 
       Demo.Common.API
-      Demo.Common.Logging
 
       Proto.Helloworld
       Proto.Helloworld_Fields
