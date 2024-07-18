@@ -15,7 +15,7 @@ import Test.Tasty.HUnit
 
 import Network.GRPC.Client qualified as Client
 import Network.GRPC.Client.Binary qualified as Client.Binary
-import Network.GRPC.Client.StreamType.IO.Binary qualified as Client.Binary
+import Network.GRPC.Client.StreamType.IO qualified as Client
 import Network.GRPC.Common
 import Network.GRPC.Common.Protobuf
 import Network.GRPC.Common.StreamElem qualified as StreamElem
@@ -24,8 +24,8 @@ import Network.GRPC.Server.Binary qualified as Server.Binary
 import Network.GRPC.Server.StreamType qualified as Server
 import Network.GRPC.Spec
 
-import Proto.Messages
-import Proto.Test
+import Proto.API.Interop
+import Proto.API.Ping
 
 import Test.Driver.ClientServer
 
@@ -53,28 +53,28 @@ tests = testGroup "Test.Sanity.Interop" [
   even if the first failed with a gRPC exception
 -------------------------------------------------------------------------------}
 
-type Ping = RawRpc "test" "ping"
-
 test_callAfterException :: IO ()
 test_callAfterException =
     testClientServer $ ClientServerTest {
         config = def
       , client = simpleTestClient $ \conn -> do
-          resp1 <- ping conn 0
+          resp1 <- ping conn $ defMessage & #id .~ 0
           case resp1 of
             Left _  -> return ()
             Right _ -> assertFailure "Expected gRPC exception"
 
-          resp2 <- ping conn 1
+          resp2 <- ping conn $ defMessage & #id .~ 1
           case resp2 of
             Left  _ -> assertFailure "Expected pong"
-            Right i -> assertEqual "pong" i 1
+            Right i -> assertEqual "pong" i (defMessage & #id .~ 1)
       , server = [
             Server.someRpcHandler $
               Server.mkRpcHandler @Ping $ \call -> do
-                i :: Word <- Server.Binary.recvFinalInput call
-                if i > 0 then
-                  Server.Binary.sendFinalOutput call (i, NoMetadata)
+                pingMsg <- Server.recvFinalInput call
+                if pingMsg ^. #id > 0 then do
+                  let pongMsg :: Proto PongMessage
+                      pongMsg = defMessage & #id .~ (pingMsg ^. #id)
+                  Server.sendFinalOutput call (pongMsg, NoMetadata)
                 else
                   Server.sendGrpcException call $ GrpcException {
                       grpcError         = GrpcInvalidArgument
@@ -84,16 +84,17 @@ test_callAfterException =
           ]
       }
   where
-    ping :: Client.Connection -> Word -> IO (Either SomeException Word)
-    ping conn = try . Client.Binary.nonStreaming conn (Client.rpc @Ping)
+    ping ::
+         Client.Connection
+      -> Proto PingMessage
+      -> IO (Either SomeException (Proto PongMessage))
+    ping conn = try . Client.nonStreaming conn (Client.rpc @Ping)
 
 {-------------------------------------------------------------------------------
   @empty_unary@
 
   <https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptions.md#empty_unary>
 -------------------------------------------------------------------------------}
-
-type EmptyCall = Protobuf TestService "emptyCall"
 
 -- | Test that the empty message has an empty encoding
 --
@@ -132,8 +133,6 @@ test_emptyUnary =
 
   <https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptions.md#server_compressed_streaming>
 -------------------------------------------------------------------------------}
-
-type StreamingOutputCall = Protobuf TestService "streamingOutputCall"
 
 -- | Test that we can enable and disable compression per message
 test_serverCompressedStreaming :: IO ()
@@ -188,7 +187,7 @@ test_serverCompressedStreaming =
           Server.sendOutputWithEnvelope call $ StreamElem (envelope, response)
 
         -- No further output
-        Server.sendTrailers call NoMetadata
+        Server.sendTrailers call def
 
     verifyOutputs ::
          ( Maybe (InboundEnvelope, Proto StreamingOutputCallResponse)
@@ -277,10 +276,6 @@ test_cancellation_server =
 {-------------------------------------------------------------------------------
   Internal: we don't care about metadata in these tests
 -------------------------------------------------------------------------------}
-
-type instance RequestMetadata          (Protobuf TestService meth) = NoMetadata
-type instance ResponseInitialMetadata  (Protobuf TestService meth) = NoMetadata
-type instance ResponseTrailingMetadata (Protobuf TestService meth) = NoMetadata
 
 type instance RequestMetadata          (RawRpc "test" meth) = NoMetadata
 type instance ResponseInitialMetadata  (RawRpc "test" meth) = NoMetadata
