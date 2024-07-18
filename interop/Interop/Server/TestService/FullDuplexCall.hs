@@ -4,9 +4,10 @@ import Network.GRPC.Common
 import Network.GRPC.Common.Protobuf
 import Network.GRPC.Server
 
-import Interop.API
 import Interop.Server.Common
 import Interop.Server.TestService.StreamingOutputCall qualified as StreamingOutputCall
+
+import Proto.API.Interop
 
 -- | Handle @TestService.FullDuplexCall@
 --

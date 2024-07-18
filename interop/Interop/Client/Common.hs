@@ -22,9 +22,10 @@ import Network.GRPC.Common.Compression qualified as Compr
 import Network.GRPC.Common.Protobuf
 import Network.GRPC.Spec
 
-import Interop.API
 import Interop.Util.Exceptions
 import Interop.Util.Messages
+
+import Proto.API.Interop
 
 {-------------------------------------------------------------------------------
   Config

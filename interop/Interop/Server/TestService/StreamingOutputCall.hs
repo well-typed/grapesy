@@ -11,8 +11,9 @@ import Network.GRPC.Common.Protobuf
 import Network.GRPC.Server
 import Network.GRPC.Spec
 
-import Interop.API
 import Interop.Util.Messages
+
+import Proto.API.Interop
 
 -- | Handle @TestService.StreamingOutputCall@
 --

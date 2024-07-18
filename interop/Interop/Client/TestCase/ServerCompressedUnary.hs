@@ -8,12 +8,13 @@ import Network.GRPC.Common.Protobuf
 import Network.GRPC.Common.StreamElem qualified as StreamElem
 import Network.GRPC.Spec
 
-import Interop.API
 import Interop.Client.Common
 import Interop.Client.Connect
 import Interop.Cmdline
 import Interop.Util.Exceptions
 import Interop.Util.Messages
+
+import Proto.API.Interop
 
 -- | <https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptions.md#server_compressed_unary>
 runTest :: Cmdline -> IO ()

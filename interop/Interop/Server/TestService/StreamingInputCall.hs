@@ -9,8 +9,9 @@ import Network.GRPC.Common.Protobuf
 import Network.GRPC.Server
 import Network.GRPC.Spec
 
-import Interop.API
 import Interop.Server.Common
+
+import Proto.API.Interop
 
 -- | Handle @TestService.StreamingInputCall@
 --

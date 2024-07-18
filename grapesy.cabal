@@ -495,7 +495,6 @@ test-suite grapesy-interop
   main-is:
       Main.hs
   other-modules:
-      Interop.API
       Interop.Client
       Interop.Client.Common
       Interop.Client.Connect
@@ -534,6 +533,7 @@ test-suite grapesy-interop
 
       Paths_grapesy
 
+      Proto.API.Interop
       Proto.API.Ping
       Proto.Empty
       Proto.Messages

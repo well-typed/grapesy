@@ -13,7 +13,6 @@ import Network.GRPC.Server.Protobuf
 import Network.GRPC.Server.Run
 import Network.GRPC.Server.StreamType
 
-import Interop.API
 import Interop.Cmdline
 
 import Interop.Server.PingService.Ping                qualified as Ping
@@ -23,6 +22,7 @@ import Interop.Server.TestService.StreamingInputCall  qualified as StreamingInpu
 import Interop.Server.TestService.StreamingOutputCall qualified as StreamingOutputCall
 import Interop.Server.TestService.UnaryCall           qualified as UnaryCall
 
+import Proto.API.Interop
 import Proto.API.Ping
 
 {-------------------------------------------------------------------------------

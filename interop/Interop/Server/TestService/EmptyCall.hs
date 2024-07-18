@@ -2,7 +2,7 @@ module Interop.Server.TestService.EmptyCall (handle) where
 
 import Network.GRPC.Common.Protobuf
 
-import Interop.API
+import Proto.API.Interop
 
 -- | Handle @TestService.EmptyCall@
 --

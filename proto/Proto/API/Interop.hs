@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
 
-module Interop.API (
+module Proto.API.Interop (
     -- * TestService
 
     -- ** Endpoints

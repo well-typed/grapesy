@@ -14,8 +14,9 @@ import Data.ByteString.Char8 qualified as BS.Strict.Char8
 
 import Network.GRPC.Common.Protobuf
 
-import Interop.API
 import Interop.Util.Exceptions
+
+import Proto.API.Interop
 
 {-------------------------------------------------------------------------------
   BoolValue
