@@ -35,7 +35,8 @@ import Network.GRPC.Common.Protobuf
 import Paths_grapesy
 
 import Demo.Client.Util.DelayOr (DelayOr(..))
-import Demo.Common.API
+
+import Proto.API
 
 {-------------------------------------------------------------------------------
   Definition

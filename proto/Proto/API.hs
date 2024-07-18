@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
 
-module Demo.Common.API (
+module Proto.API (
     -- * Greeter
     SayHello
   , SayHelloStreamReply
@@ -29,11 +29,11 @@ import Data.ByteString qualified as Strict
 import GHC.TypeLits
 
 import Network.GRPC.Common
+import Network.GRPC.Common.Binary
 import Network.GRPC.Common.Protobuf
 
 import Proto.Helloworld
 import Proto.RouteGuide
-import Network.GRPC.Common.Binary
 
 {-------------------------------------------------------------------------------
   Greeter

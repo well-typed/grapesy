@@ -12,14 +12,14 @@ import Network.GRPC.Server.Protobuf
 import Network.GRPC.Server.Run
 import Network.GRPC.Server.StreamType
 
+import Paths_grapesy
+
 import Demo.Server.Cmdline
 import Demo.Server.Service.Greeter    qualified as Greeter
 import Demo.Server.Service.Ping       qualified as Ping
 import Demo.Server.Service.RouteGuide qualified as RouteGuide
 
-import Demo.Common.API
-
-import Paths_grapesy
+import Proto.API
 
 {-------------------------------------------------------------------------------
   All services

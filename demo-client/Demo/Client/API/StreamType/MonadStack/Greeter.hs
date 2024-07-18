@@ -13,8 +13,9 @@ import Network.GRPC.Client.StreamType.CanCallRPC
 import Network.GRPC.Common.NextElem qualified as NextElem
 import Network.GRPC.Common.Protobuf
 
-import Demo.Common.API
 import Demo.Client.Util.Logging qualified as Logging
+
+import Proto.API
 
 {-------------------------------------------------------------------------------
   Example custom monad

@@ -15,7 +15,8 @@ import Network.GRPC.Common.Protobuf
 import Demo.Client.Util.DelayOr (DelayOr)
 import Demo.Client.Util.DelayOr qualified as DelayOr
 import Demo.Client.Util.Logging
-import Demo.Common.API
+
+import Proto.API
 
 {-------------------------------------------------------------------------------
   routeguide.RouteGuide
