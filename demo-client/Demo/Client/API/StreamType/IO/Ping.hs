@@ -5,7 +5,7 @@ import Data.ByteString.Lazy.Char8 qualified as Lazy
 import Network.GRPC.Client
 import Network.GRPC.Client.StreamType.IO
 
-import Proto.API
+import Proto.API.Ping
 
 ping :: Connection -> Lazy.ByteString -> IO ()
 ping conn msg = do

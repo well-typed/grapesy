@@ -19,7 +19,9 @@ import Demo.Server.Service.Greeter    qualified as Greeter
 import Demo.Server.Service.Ping       qualified as Ping
 import Demo.Server.Service.RouteGuide qualified as RouteGuide
 
-import Proto.API
+import Proto.API.Helloworld
+import Proto.API.Ping
+import Proto.API.RouteGuide
 
 {-------------------------------------------------------------------------------
   All services

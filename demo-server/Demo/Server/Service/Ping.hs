@@ -4,7 +4,7 @@ import Data.ByteString.Lazy qualified as Lazy (ByteString)
 
 import Network.GRPC.Server.StreamType
 
-import Proto.API
+import Proto.API.Ping
 
 handlers :: Methods IO '[Ping]
 handlers =

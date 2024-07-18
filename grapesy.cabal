@@ -377,7 +377,9 @@ executable demo-client
 
       Paths_grapesy
 
-      Proto.API
+      Proto.API.Helloworld
+      Proto.API.Ping
+      Proto.API.RouteGuide
       Proto.Helloworld
       Proto.Helloworld_Fields
       Proto.RouteGuide
@@ -420,7 +422,9 @@ executable demo-server
       Demo.Server.Service.Ping
       Demo.Server.Service.RouteGuide
 
-      Proto.API
+      Proto.API.Helloworld
+      Proto.API.Ping
+      Proto.API.RouteGuide
       Proto.Helloworld
       Proto.Helloworld_Fields
       Proto.RouteGuide

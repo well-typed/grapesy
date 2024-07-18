@@ -36,7 +36,9 @@ import Paths_grapesy
 
 import Demo.Client.Util.DelayOr (DelayOr(..))
 
-import Proto.API
+import Proto.API.Helloworld
+import Proto.API.Ping
+import Proto.API.RouteGuide
 
 {-------------------------------------------------------------------------------
   Definition

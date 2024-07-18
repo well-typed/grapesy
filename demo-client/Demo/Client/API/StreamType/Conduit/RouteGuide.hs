@@ -16,7 +16,7 @@ import Demo.Client.Util.DelayOr (DelayOr)
 import Demo.Client.Util.DelayOr qualified as DelayOr
 import Demo.Client.Util.Logging
 
-import Proto.API
+import Proto.API.RouteGuide
 
 {-------------------------------------------------------------------------------
   routeguide.RouteGuide

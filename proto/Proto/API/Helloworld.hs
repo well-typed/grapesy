@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
 
-module Proto.API (
+module Proto.API.Helloworld (
     -- * Greeter
     SayHello
   , SayHelloStreamReply
@@ -10,18 +10,8 @@ module Proto.API (
     -- ** Metadata
   , SayHelloMetadata(..)
 
-    -- * RouteGuide
-  , GetFeature
-  , ListFeatures
-  , RecordRoute
-  , RouteChat
-
-    -- * Ping
-  , Ping
-
     -- * Re-exports
   , module Proto.Helloworld
-  , module Proto.RouteGuide
   ) where
 
 import Control.Monad.Catch
@@ -29,11 +19,9 @@ import Data.ByteString qualified as Strict
 import GHC.TypeLits
 
 import Network.GRPC.Common
-import Network.GRPC.Common.Binary
 import Network.GRPC.Common.Protobuf
 
 import Proto.Helloworld
-import Proto.RouteGuide
 
 {-------------------------------------------------------------------------------
   Greeter
@@ -74,26 +62,3 @@ instance ParseMetadata SayHelloMetadata where
           return $ SayHelloMetadata $ Just (customMetadataValue md)
         _otherwise ->
           throwM $ UnexpectedMetadata headers
-
-{-------------------------------------------------------------------------------
-  RouteGuide
--------------------------------------------------------------------------------}
-
-type GetFeature   = Protobuf RouteGuide "getFeature"
-type ListFeatures = Protobuf RouteGuide "listFeatures"
-type RecordRoute  = Protobuf RouteGuide "recordRoute"
-type RouteChat    = Protobuf RouteGuide "routeChat"
-
-type instance RequestMetadata          (Protobuf RouteGuide meth) = NoMetadata
-type instance ResponseInitialMetadata  (Protobuf RouteGuide meth) = NoMetadata
-type instance ResponseTrailingMetadata (Protobuf RouteGuide meth) = NoMetadata
-
-{-------------------------------------------------------------------------------
-  Ping
--------------------------------------------------------------------------------}
-
-type Ping = RawRpc "Ping" "ping"
-
-type instance RequestMetadata          (RawRpc "Ping" meth) = NoMetadata
-type instance ResponseInitialMetadata  (RawRpc "Ping" meth) = NoMetadata
-type instance ResponseTrailingMetadata (RawRpc "Ping" meth) = NoMetadata

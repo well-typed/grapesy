@@ -15,7 +15,7 @@ import Network.GRPC.Common.Protobuf
 
 import Demo.Client.Util.Logging qualified as Logging
 
-import Proto.API
+import Proto.API.Helloworld
 
 {-------------------------------------------------------------------------------
   Example custom monad

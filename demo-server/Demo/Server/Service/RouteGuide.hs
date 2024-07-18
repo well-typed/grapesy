@@ -25,7 +25,7 @@ import Network.GRPC.Server.StreamType
 import Demo.Server.Aux.RouteGuide
 import Demo.Server.Cmdline
 
-import Proto.API
+import Proto.API.RouteGuide
 
 {-------------------------------------------------------------------------------
   Custom handler monad

@@ -8,7 +8,7 @@ import Network.GRPC.Common.Protobuf
 
 import Demo.Client.Util.Logging
 
-import Proto.API
+import Proto.API.RouteGuide
 
 {-------------------------------------------------------------------------------
   RouteGuide

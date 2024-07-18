@@ -6,7 +6,7 @@ import Network.GRPC.Client
 import Network.GRPC.Common
 import Network.GRPC.Common.Protobuf
 
-import Proto.API
+import Proto.API.Helloworld
 
 {-------------------------------------------------------------------------------
   helloworld.Greeter
