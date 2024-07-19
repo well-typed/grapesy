@@ -301,6 +301,7 @@ test-suite test-grapesy
       Test.Prop.Dialogue
       Test.Prop.IncrementalParsing
       Test.Prop.Serialization
+      Test.Sanity.BrokenDeployments
       Test.Sanity.EndOfStream
       Test.Sanity.Interop
       Test.Sanity.StreamingType.CustomFormat
@@ -340,6 +341,7 @@ test-suite test-grapesy
     , lens                        >= 5.0   && < 5.4
     , mtl                         >= 2.2   && < 2.4
     , network                     >= 3.1   && < 3.3
+    , network-run                 >= 0.4   && < 0.5
     , prettyprinter               >= 1.7   && < 1.8
     , prettyprinter-ansi-terminal >= 1.1   && < 1.2
     , proto-lens                  >= 0.7   && < 0.8

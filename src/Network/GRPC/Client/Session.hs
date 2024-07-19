@@ -11,10 +11,6 @@ module Network.GRPC.Client.Session (
   ) where
 
 import Control.Exception
-import Control.Monad
-import Data.ByteString.Lazy qualified as BS.Lazy
-import Data.ByteString.Lazy qualified as Lazy (ByteString)
-import Data.Maybe (fromMaybe)
 import Data.Proxy
 import Data.Void
 import Network.HTTP.Types qualified as HTTP
@@ -70,33 +66,38 @@ instance SupportsClientRpc rpc => IsSession (ClientSession rpc) where
   type Outbound (ClientSession rpc) = ClientOutbound rpc
 
   buildOutboundTrailers _ = \NoMetadata -> []
-  parseInboundTrailers  _ = parseTrailers (parseProperTrailers' (Proxy @rpc))
+  parseInboundTrailers  _ = \trailers ->
+      if null trailers then
+        -- Although we parse the trailers in a lenient fashion (like all
+        -- headers), only throwing errors for headers that we really need, if we
+        -- get no trailers at /all/, then most likely something has gone wrong;
+        -- for example, perhaps an intermediate cache has dropped the gRPC
+        -- trailers entirely. We therefore check for this case separately and
+        -- throw a different error.
+        throwIO $ CallClosedWithoutTrailers
+      else
+        return $ parseProperTrailers' (Proxy @rpc) trailers
 
   parseMsg _ = parseOutput (Proxy @rpc) . inbCompression
   buildMsg _ = buildInput  (Proxy @rpc) . outCompression
 
 instance SupportsClientRpc rpc => InitiateSession (ClientSession rpc) where
-  parseResponse session info = do
-      -- TODO: <https://github.com/well-typed/grapesy/issues/22>
-      unless (HTTP.statusCode (responseStatus info) == 200) $
-        throwIO $ CallSetupUnexpectedStatus
-                    (responseStatus info)
-                    (fromMaybe BS.Lazy.empty $ responseBody info)
-
-      if isTrailersOnly info then fmap FlowStartNoMessages $
-        parseTrailers (parseTrailersOnly' (Proxy @rpc)) (responseHeaders info)
-      else fmap FlowStartRegular $ do
-        let responseHeaders' :: ResponseHeaders'
-            responseHeaders' = parseResponseHeaders' (Proxy @rpc) $
-                                 responseHeaders info
-        cIn <- getInboundCompression session $
-                 responseCompression responseHeaders'
-        clientUpdateMeta session responseHeaders'
-
-        return $ InboundHeaders {
-            inbHeaders     = responseHeaders'
-          , inbCompression = cIn
-          }
+  parseResponse session (ResponseInfo status headers body) =
+      case classifyServerResponse (Proxy @rpc) status headers body of
+        Left trailersOnly ->
+          -- We classify the response as Trailers-Only if the grpc-status header
+          -- is present, or when the HTTP status is anything other than 200 OK
+          -- (which we treat, as per the spec, as an implicit grpc-status).
+          -- The 'CallClosedWithoutTrailers' case is therefore not relevant.
+          return $ FlowStartNoMessages trailersOnly
+        Right responseHeaders' -> do
+          cIn <- getInboundCompression session $
+                   responseCompression responseHeaders'
+          clientUpdateMeta session responseHeaders'
+          return $ FlowStartRegular $ InboundHeaders {
+              inbHeaders     = responseHeaders'
+            , inbCompression = cIn
+            }
 
   buildRequestInfo _ start = RequestInfo {
         requestMethod  = rawMethod resourceHeaders
@@ -116,29 +117,6 @@ instance SupportsClientRpc rpc => InitiateSession (ClientSession rpc) where
 instance NoTrailers (ClientSession rpc) where
   noTrailers _ = NoMetadata
 
--- | Check if we are in the Trailers-Only case
---
--- It is tempting to use the HTTP @Content-Length@ header to determine whether
--- we are in the Trailers-Only case or not, but this is doubly wrong:
---
--- * There might be servers who use the Trailers-Only case but do not set the
---   @Content-Length@ header (although such a server would not conform to the
---   HTTP spec: "An origin server SHOULD send a @Content-Length@ header field
---   when the content size is known prior to sending the complete header
---   section"; see
---   <https://www.rfc-editor.org/rfc/rfc9110.html#name-content-length>).
--- * Conversely, there might be servers or proxies who /do/ set @Content-Length@
---   header even when it's /not/ the Trailers-Only case (e.g., see
---   <https://github.com/grpc/grpc-web/issues/1101> or
---   <https://github.com/envoyproxy/envoy/issues/5554>).
---
--- We therefore check for the presence of the @grpc-status@ header instead.
-isTrailersOnly :: ResponseInfo -> Bool
-isTrailersOnly = any isGrpcStatus . responseHeaders
-  where
-    isGrpcStatus :: HTTP.Header -> Bool
-    isGrpcStatus (name, _value) = name == "grpc-status"
-
 -- | Determine compression used for messages from the peer
 getInboundCompression ::
      ClientSession rpc
@@ -153,46 +131,12 @@ getInboundCompression session = \case
         Nothing    -> throwIO $ CallSetupUnsupportedCompression cid
 
 {-------------------------------------------------------------------------------
-  Internal auxiliary
--------------------------------------------------------------------------------}
-
--- | Parse proper trailers
---
--- Although we parse the trailers in a lenient fashion (like all headers),
--- only throwing errors for headers that we really need, if we get no trailers
--- at /all/, then most likely something has gone wrong; for example, perhaps
--- an intermediate cache has dropped the gRPC trailers entirely. We therefore
--- check for this case separately and throw a different error.
-parseTrailers ::
-     ([HTTP.Header] ->    trailers)
-  ->  [HTTP.Header] -> IO trailers
-parseTrailers _ []  = throwIO $ CallClosedWithoutTrailers
-parseTrailers f raw = return $ f raw
-
-{-------------------------------------------------------------------------------
   Exceptions
 -------------------------------------------------------------------------------}
 
 data CallSetupFailure =
-    -- | Server sent a HTTP status other than 200 OK
-    --
-    -- This can happen in one of two situations:
-    --
-    -- * We sent a malformed request to the server. This cannot happen in
-    --   @grapesy@ unless 'Network.GRPC.Client.ConnParams' is misconfigured.
-    -- * We are dealing with non-compliant server.
-    --
-    -- We also include the response body.
-    --
-    -- TODO: <https://github.com/well-typed/grapesy/issues/22>.
-    -- The spec /does/ require us to deal with non-compliant servers in limited
-    -- ways. For example, some non-compliant servers might return a HTTP 404
-    -- instead of a HTTP 200 with a 'GrpcStatus' of 'GrpcUnimplemented'. We do
-    -- not yet do this.
-    CallSetupUnexpectedStatus HTTP.Status Lazy.ByteString
-
     -- | Server chose an unsupported compression algorithm
-  | CallSetupUnsupportedCompression CompressionId
+    CallSetupUnsupportedCompression CompressionId
 
     -- | We failed to parse the response headers
   | CallSetupInvalidResponseHeaders InvalidHeaders

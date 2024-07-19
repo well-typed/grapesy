@@ -29,7 +29,6 @@ import Data.Map qualified as Map
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text qualified as Text
-import Network.HTTP.Types qualified as HTTP
 import Network.HTTP2.Server qualified as HTTP2.Server
 import Network.Socket (PortNumber)
 import Network.TLS
@@ -265,9 +264,11 @@ isExpectedClientException cfg e
   -- Call setup failure
   --
 
-  | Just (Client.CallSetupUnexpectedStatus status _body) <- fromException e
+  | Just grpcException <- fromException e
+  , GrpcUnknown <- grpcError grpcException
+  , Just msg <- grpcErrorMessage grpcException
+  , "415" `Text.isInfixOf` msg
   , InvalidOverride _ <- clientContentType cfg
-  , status == HTTP.unsupportedMediaType415
   = True
 
   --
@@ -275,9 +276,12 @@ isExpectedClientException cfg e
   --
 
   -- Client choose unsupported compression
-  | Just (Client.CallSetupUnexpectedStatus status _body) <- fromException e
+  --
+  -- We respond with 400 Bad Request, which gets turned into GrpcInternal
+  -- by 'classifyServerResponse'.
+  | Just grpcException <- fromException e
+  , GrpcInternal <- grpcError grpcException
   , compressionNegotationFailure cfg
-  , status == HTTP.badRequest400
   = True
 
   -- Server chose unsupported compression
