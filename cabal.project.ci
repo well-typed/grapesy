@@ -6,7 +6,7 @@ package grapesy
   flags: +build-demo +build-stress-test +snappy +strace
   ghc-options: -Werror
 
-constraints: network-control==0.1.2
+constraints: network-control==0.1.3
 
 --
 -- ghc 9.10

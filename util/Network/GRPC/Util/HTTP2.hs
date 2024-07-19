@@ -55,11 +55,7 @@ withConfigForInsecure ::
   -> (Server.Config -> IO a)
   -> IO a
 withConfigForInsecure sock k = do
-    -- TODO: <https://github.com/well-typed/grapesy/issues/190>
-    -- We should be using withManager instead.
-    bracket
-        (TimeManager.initialize (disableTimeout * 1_000_000))
-        (\_ -> return ()) $ \mgr -> do
+    TimeManager.withManager (disableTimeout * 1_000_000) $ \mgr -> do
       -- @recv@ does not provide a way to deallocate a buffer pool, and
       -- @http2-tls@ (in @freeServerConfig@) does not attempt to deallocate it.
       -- We follow suit here.
