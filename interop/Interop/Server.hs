@@ -3,11 +3,10 @@ module Interop.Server (
     , runInteropServer
     ) where
 
-import Control.Exception (SomeException)
+import Control.Exception
 import Control.Monad.Catch (generalBracket, ExitCase(..))
 
 import Network.GRPC.Common
-import Network.GRPC.Internal.XIO qualified as XIO
 import Network.GRPC.Server
 import Network.GRPC.Server.Protobuf
 import Network.GRPC.Server.Run
@@ -101,10 +100,11 @@ withInteropServer cmdline k = do
         }
 
     -- Don't show handler exceptions on stderr
-    swallowExceptions ::
-         RequestHandler SomeException ()
-      -> RequestHandler XIO.NeverThrows   ()
-    swallowExceptions h req resp = h req resp `XIO.catchError` \_ -> return ()
+    swallowExceptions :: RequestHandler () -> RequestHandler ()
+    swallowExceptions h unmask req resp = h unmask req resp `catch` handler
+      where
+        handler :: SomeException -> IO ()
+        handler _ = return ()
 
 runInteropServer :: Cmdline -> IO ()
 runInteropServer cmdline = withInteropServer cmdline $ \server ->

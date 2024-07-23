@@ -45,8 +45,6 @@ import Control.Concurrent.STM
 import Control.Exception (throwIO)
 import Control.Monad
 import Control.Monad.Catch
-import Control.Monad.XIO (XIO')
-import Control.Monad.XIO qualified as XIO
 import Data.Bitraversable
 import Data.Default
 import Data.List.NonEmpty (NonEmpty)
@@ -129,17 +127,18 @@ kickoffCallStack (KickoffTrailersOnly cs _) = cs
 -- | Setup call
 --
 -- No response is sent to the caller.
+--
+-- May throw 'CallSetupFailure'.
 setupCall :: forall rpc.
      SupportsServerRpc rpc
   => Server.ConnectionToClient
   -> ServerContext
-  -> XIO' CallSetupFailure (Call rpc)
+  -> IO (Call rpc)
 setupCall conn callContext@ServerContext{serverParams} = do
-    callResponseMetadata <- XIO.unsafeTrustMe $ newTVarIO Nothing
-    callResponseKickoff  <- XIO.unsafeTrustMe $ newEmptyTMVarIO
+    callResponseMetadata <- newTVarIO Nothing
+    callResponseKickoff  <- newEmptyTMVarIO
 
-    inboundHeaders <-
-      XIO.unsafeTrustMe $ determineInbound callSession req
+    inboundHeaders <- determineInbound callSession req
     let callRequestHeaders = inbHeaders inboundHeaders
 
     -- Technically compression is only relevant in the 'KickoffRegular' case
@@ -151,7 +150,7 @@ setupCall conn callContext@ServerContext{serverParams} = do
                  requestAcceptCompression callRequestHeaders
 
     callChannel :: Session.Channel (ServerSession rpc) <-
-      XIO.neverThrows $ Session.setupResponseChannel
+      Session.setupResponseChannel
         callSession
         conn
         (Session.FlowStartRegular inboundHeaders)

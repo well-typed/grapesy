@@ -271,7 +271,7 @@ do not, making it impossible to debug any network traffic in Wireshark.
 
 ### Running `grapesy` as a server
 
-To run `grapsey` as as server, run
+To run `grapesy` as as server, run
 
 ```bash
 grapesy$ cabal run grapesy-interop -- --server

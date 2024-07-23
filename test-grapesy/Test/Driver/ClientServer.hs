@@ -38,8 +38,6 @@ import Test.Tasty.QuickCheck qualified as QuickCheck
 import Network.GRPC.Client qualified as Client
 import Network.GRPC.Common
 import Network.GRPC.Common.Compression qualified as Compr
-import Network.GRPC.Internal.XIO (NeverThrows)
-import Network.GRPC.Internal.XIO qualified as XIO
 import Network.GRPC.Server qualified as Server
 import Network.GRPC.Server.Run qualified as Server
 import Network.GRPC.Spec
@@ -399,31 +397,34 @@ topLevelWithHandlerLock ::
      ClientServerConfig
   -> FirstTestFailure
   -> ServerHandlerLock
-  -> Server.RequestHandler SomeException ()
-  -> Server.RequestHandler NeverThrows   ()
-topLevelWithHandlerLock cfg firstTestFailure (ServerHandlerLock lock) handler =
+  -> Server.RequestHandler ()
+  -> Server.RequestHandler ()
+topLevelWithHandlerLock cfg
+                        firstTestFailure
+                        (ServerHandlerLock lock)
+                        handler
+                        unmask =
     handler'
   where
     handler' ::
          HTTP2.Server.Request
       -> (HTTP2.Server.Response -> IO ())
-      -> XIO.XIO' NeverThrows ()
+      -> IO ()
     handler' req respond = do
         markActive
-        result <- XIO.tryError $ handler req respond
-        XIO.unsafeTrustMe $
-          case result of
-            Right () ->
-              return ()
-            Left err | isExpectedServerException cfg err ->
-              return ()
-            Left err ->
-              markTestFailure firstTestFailure err
+        result <- try $ handler unmask req respond
+        case result of
+          Right () ->
+            return ()
+          Left err | isExpectedServerException cfg err ->
+            return ()
+          Left err ->
+            markTestFailure firstTestFailure err
         markDone
 
-    markActive, markDone :: XIO.XIO' NeverThrows ()
-    markActive = XIO.unsafeTrustMe $ atomically $ modifyTVar lock (\n -> n + 1)
-    markDone   = XIO.unsafeTrustMe $ atomically $ modifyTVar lock (\n -> n - 1)
+    markActive, markDone :: IO ()
+    markActive = atomically $ modifyTVar lock (\n -> n + 1)
+    markDone   = atomically $ modifyTVar lock (\n -> n - 1)
 
 {-------------------------------------------------------------------------------
   Server

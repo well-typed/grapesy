@@ -4,8 +4,6 @@ module Network.GRPC.Util.Session.Server (
   , setupResponseChannel
   ) where
 
-import Control.Monad.XIO (XIO', NeverThrows)
-import Control.Monad.XIO qualified as XIO
 import Network.HTTP2.Server qualified as Server
 
 import Network.GRPC.Util.HTTP2.Stream
@@ -29,9 +27,11 @@ data ConnectionToClient = ConnectionToClient {
 
 -- | Setup response channel
 --
--- The actual response will not immediately be initiated; see below.
+-- Notes:
 --
--- We assume that the client is allowed to close their outbound stream to us.
+-- * The actual response will not immediately be initiated; see below.
+-- * We assume that the client is allowed to close their outbound stream to us.
+-- * 'setupResponseChannel' will not throw any exceptions.
 setupResponseChannel :: forall sess.
      IsSession sess
   => sess
@@ -46,12 +46,12 @@ setupResponseChannel :: forall sess.
   -- If this function throws an exception, the response is never initiated;
   -- this is treated the same was as when we fail to set up the outbound
   -- connection due to a network failure.
-  -> XIO' NeverThrows (Channel sess)
+  -> IO (Channel sess)
 setupResponseChannel sess
                      conn
                      inboundStart
                      startOutbound
-                   = XIO.unsafeTrustMe $ do
+                   = do
     channel <- initChannel
 
     forkThread "grapesy:serverInbound" (channelInbound channel) $

@@ -21,8 +21,6 @@ import Control.Concurrent.Async
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
-import Control.Monad.XIO (XIO, XIO', NeverThrows)
-import Control.Monad.XIO qualified as XIO
 import Data.Default
 import Data.Kind
 import Data.Proxy
@@ -158,40 +156,37 @@ hoistSomeRpcHandler f (SomeRpcHandler p h) =
 -- of what happened (see 'forwardException') before re-throwing the exception.
 runHandler :: forall rpc.
      HasCallStack
-  => Call rpc
+  => (forall x. IO x -> IO x)
+  -> Call rpc
   -> RpcHandler IO rpc
-  -> XIO ()
-runHandler call (RpcHandler k) = do
+  -> IO ()
+runHandler unmask call (RpcHandler k) = do
     -- http2 will kill the handler when the client disappears, but we want the
     -- handler to be able to terminate cleanly. We therefore run the handler in
     -- a separate thread, and wait for that thread to terminate.
-    handlerThread <- liftIO $ asyncLabelled "grapesy:handler" $
-                       XIO.runThrow handler
-    waitForHandler call handlerThread
+    handlerThread <- asyncLabelled "grapesy:handler" handler
+    waitForHandler unmask call handlerThread
   where
     -- The handler itself will run in a separate thread
-    handler :: XIO ()
+    handler :: IO ()
     handler = do
-        result <- liftIO $ try $ k call
+        result <- try $ k call
         handlerTeardown result
 
     -- Deal with any exceptions thrown in the handler
-    handlerTeardown :: Either SomeException () -> XIO ()
+    handlerTeardown :: Either SomeException () -> IO ()
     handlerTeardown (Right ()) = do
         -- Handler terminated successfully, but may not have sent final message.
         -- /If/ the final message was sent, 'forwardException' does nothing.
-        forwarded <- XIO.neverThrows $ do
-          forwarded <- forwardException call $ toException HandlerTerminated
-          ignoreUncleanClose call $ ExitCaseSuccess ()
-          return forwarded
+        forwarded <- forwardException call $ toException HandlerTerminated
+        ignoreUncleanClose call $ ExitCaseSuccess ()
         when forwarded $
           -- The handler terminated before it sent the final message.
           throwM HandlerTerminated
     handlerTeardown (Left err) = do
         -- The handler threw an exception. Attempt to tell the client.
-        XIO.neverThrows $ do
-          void $ forwardException call err
-          ignoreUncleanClose call $ ExitCaseException err
+        void $ forwardException call err
+        ignoreUncleanClose call $ ExitCaseException err
         throwM err
 
 -- | Close the connection to the client, ignoring errors
@@ -211,9 +206,9 @@ runHandler call (RpcHandler k) = do
 --
 --    So there not really anything we can do here (except perhaps show
 --    the exception in 'serverTopLevel').
-ignoreUncleanClose :: Call rpc -> ExitCase a -> XIO' NeverThrows ()
+ignoreUncleanClose :: Call rpc -> ExitCase a -> IO ()
 ignoreUncleanClose Call{callChannel} reason =
-    XIO.swallowIO $ void $ Session.close callChannel reason
+    void $ Session.close callChannel reason
 
 -- | Wait for the handler to terminate
 --
@@ -237,13 +232,16 @@ ignoreUncleanClose Call{callChannel} reason =
 -- This is in line with the overall design philosophy of communication in this
 -- library: exceptions will only be raised synchronously when communication is
 -- attempted, not asynchronously when we notice a problem.
-waitForHandler :: HasCallStack => Call rpc -> Async () -> XIO ()
-waitForHandler call handlerThread = loop
+waitForHandler ::
+     HasCallStack
+  => (forall x. IO x -> IO x)
+  -> Call rpc -> Async () -> IO ()
+waitForHandler unmask call handlerThread = loop
   where
-    loop :: XIO ()
-    loop = liftIO (wait handlerThread) `catch` handleException
+    loop :: IO ()
+    loop = unmask (wait handlerThread) `catch` handleException
 
-    handleException :: SomeException -> XIO ()
+    handleException :: SomeException -> IO ()
     handleException err
       | Just (HTTP2.KilledByHttp2ThreadManager mErr) <- fromException err = do
           let exitReason :: ExitCase ()
@@ -253,7 +251,7 @@ waitForHandler call handlerThread = loop
                   Just exitWithException ->
                     ExitCaseException . toException $
                       ClientDisconnected exitWithException callStack
-          XIO.neverThrows $ ignoreUncleanClose call exitReason
+          ignoreUncleanClose call exitReason
           loop
 
       | otherwise = do
@@ -265,7 +263,7 @@ waitForHandler call handlerThread = loop
           --    exception to the handler (and wait for it to terminate).
           -- 2. The exception was thrown by the handler itself. In this
           --    case @cancelWith@ is a no-op.
-          liftIO $ cancelWith handlerThread err
+          cancelWith handlerThread err
           throwM err
 
 -- | Process exception thrown by a handler
@@ -281,7 +279,10 @@ waitForHandler call handlerThread = loop
 --
 -- We therefore catch and suppress all exceptions here. Returns @True@ if the
 -- forwarding was successful, @False@ if it raised an exception.
-forwardException :: Call rpc -> SomeException -> XIO' NeverThrows Bool
-forwardException call@Call{callContext} err = XIO.swallowIO' $ do
+forwardException :: Call rpc -> SomeException -> IO Bool
+forwardException call@Call{callContext} err = do
     trailers <- serverExceptionToClientError (serverParams callContext) err
-    sendProperTrailers call trailers
+    (True <$ sendProperTrailers call trailers) `catch` handler
+ where
+   handler :: SomeException -> IO Bool
+   handler _ = return False

@@ -10,8 +10,6 @@ module Network.GRPC.Server.Context (
   ) where
 
 import Control.Exception
-import Control.Monad.XIO (NeverThrows)
-import Control.Monad.XIO qualified as XIO
 import Data.Default
 import System.IO
 
@@ -55,9 +53,7 @@ data ServerParams = ServerParams {
       -- full control over how requests are handled.
       --
       -- The default merely logs any exceptions to 'stderr'.
-    , serverTopLevel ::
-           RequestHandler SomeException ()
-        -> RequestHandler NeverThrows   ()
+    , serverTopLevel :: RequestHandler () -> RequestHandler ()
 
       -- | Render handler-side exceptions for the client
       --
@@ -113,11 +109,12 @@ instance Default ServerParams where
       , serverHTTP2Settings           = def
       }
 
-defaultServerTopLevel ::
-     RequestHandler SomeException ()
-  -> RequestHandler NeverThrows   ()
-defaultServerTopLevel h req resp =
-    h req resp `XIO.catchError` (XIO.swallowIO . hPrint stderr)
+defaultServerTopLevel :: RequestHandler () -> RequestHandler ()
+defaultServerTopLevel h unmask req resp =
+    h unmask req resp `catch` handler
+  where
+    handler :: SomeException -> IO ()
+    handler = hPrint stderr
 
 -- | Default implementation for 'serverExceptionToClient'
 --
