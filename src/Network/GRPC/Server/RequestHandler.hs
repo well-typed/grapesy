@@ -13,10 +13,9 @@ module Network.GRPC.Server.RequestHandler (
   , requestHandler
   ) where
 
+import Control.Concurrent
+import Control.Concurrent.Thread.Delay qualified as UnboundedDelays
 import Control.Monad.Catch
-import Control.Monad.Except
-import Control.Monad.XIO (XIO', XIO)
-import Control.Monad.XIO qualified as XIO
 import Data.Bifunctor
 import Data.ByteString.Builder qualified as Builder
 import Data.ByteString.Char8 qualified as BS.Char8
@@ -44,22 +43,19 @@ import Network.GRPC.Util.Session.Server
 -------------------------------------------------------------------------------}
 
 -- | Construct request handler
-requestHandler ::
-     HandlerMap IO
-  -> ServerContext
-  -> RequestHandler SomeException ()
-requestHandler handlers ctxt request respond = do
+requestHandler :: HandlerMap IO -> ServerContext -> RequestHandler ()
+requestHandler handlers ctxt unmask request respond = do
     labelThisThread "grapesy:requestHandler"
 
     SomeRpcHandler (_ :: Proxy rpc) handler <-
-      findHandler handlers request      `XIO.catchError` setupFailure respond
+      findHandler handlers request      `catch` setupFailure respond
     call :: Call rpc <-
-      setupCall connectionToClient ctxt `XIO.catchError` setupFailure respond
+      setupCall connectionToClient ctxt `catch` setupFailure respond
     mTimeout :: Maybe Timeout <-
-      verifyHeaders ctxt call           `XIO.catchError` setupFailure respond
+      verifyHeaders ctxt call           `catch` setupFailure respond
 
     imposeTimeout mTimeout $
-      runHandler call handler
+      runHandler unmask call handler
   where
     connectionToClient :: ConnectionToClient
     connectionToClient = ConnectionToClient{request, respond}
@@ -71,20 +67,24 @@ requestHandler handlers ctxt request respond = do
         , grpcErrorMetadata = []
         }
 
-    imposeTimeout :: Maybe Timeout -> XIO () -> XIO ()
+    imposeTimeout :: Maybe Timeout -> IO () -> IO ()
     imposeTimeout Nothing  = id
-    imposeTimeout (Just t) = XIO.timeoutWith timeoutException (timeoutToMicro t)
+    imposeTimeout (Just t) = timeoutWith timeoutException (timeoutToMicro t)
 
+-- | Find handler (based on the path)
+--
+-- Throws 'CallSetupFailure' if no handler could be found.
 findHandler ::
      HandlerMap IO
   -> HTTP2.Request
-  -> XIO' CallSetupFailure (SomeRpcHandler IO)
+  -> IO (SomeRpcHandler IO)
 findHandler handlers req = do
     -- TODO: <https://github.com/well-typed/grapesy/issues/131>
     -- We should do some request logging.
 
-    resourceHeaders <- liftEither . first CallSetupInvalidResourceHeaders $
-      parseResourceHeaders rawHeaders
+    resourceHeaders <-
+      either throwM return . first CallSetupInvalidResourceHeaders $
+        parseResourceHeaders rawHeaders
     let path = resourcePath resourceHeaders
     handler <- do
       case HandlerMap.lookup path handlers of
@@ -92,7 +92,7 @@ findHandler handlers req = do
           return h
         Nothing -> do
           let unknown = Proxy @(UnknownRpc Nothing Nothing)
-          throwError $ CallSetupUnimplementedMethod unknown path
+          throwM $ CallSetupUnimplementedMethod unknown path
 
     return handler
   where
@@ -106,19 +106,21 @@ findHandler handlers req = do
 --
 -- In strict mode we verify /all/ headers; otherwise, we only verify those
 -- headers we need to setup the call.
+--
+-- Throws 'CallSetupFailure' if any (validated) headers were invalid.
 verifyHeaders ::
      ServerContext
   -> Call rpc
-  -> XIO' CallSetupFailure (Maybe Timeout)
+  -> IO (Maybe Timeout)
 verifyHeaders ctxt call = do
-    requestHeaders' <- XIO.unsafeTrustMe $ getRequestHeaders call
+    requestHeaders' <- getRequestHeaders call
     if serverVerifyHeaders then
       case HKD.sequence requestHeaders' of
-        Left  err            -> throwError $ CallSetupInvalidRequestHeaders err
+        Left  err            -> throwM $ CallSetupInvalidRequestHeaders err
         Right requestHeaders -> return $ requestTimeout requestHeaders
     else
       case requestTimeout requestHeaders' of
-        Left  err      -> throwError $ CallSetupInvalidRequestHeaders err
+        Left  err      -> throwM $ CallSetupInvalidRequestHeaders err
         Right mTimeout -> return mTimeout
   where
     ServerContext{serverParams} = ctxt
@@ -132,9 +134,9 @@ verifyHeaders ctxt call = do
 setupFailure ::
      (HTTP2.Response -> IO ())
   -> CallSetupFailure
-  -> XIO a
+  -> IO a
 setupFailure respond failure = do
-    XIO.swallowIO $ respond $ failureResponse failure
+    _ :: Either SomeException () <- try $ respond $ failureResponse failure
     throwM failure
 
 {-------------------------------------------------------------------------------
@@ -195,3 +197,19 @@ grpcUnimplemented path = GrpcException {
                               ]
     , grpcErrorMetadata = []
     }
+
+{-------------------------------------------------------------------------------
+  Auxiliary
+-------------------------------------------------------------------------------}
+
+-- | Timeout with a specific exception
+timeoutWith :: Exception e => e -> Integer -> IO a -> IO a
+timeoutWith e t io = do
+    me <- myThreadId
+
+    let timer :: IO ()
+        timer = do
+            UnboundedDelays.delay t
+            throwTo me e
+
+    bracket (forkIO timer) killThread $ \_ -> io

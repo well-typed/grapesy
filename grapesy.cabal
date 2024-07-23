@@ -112,7 +112,6 @@ library
       Network.GRPC.Common.StreamElem
       Network.GRPC.Common.StreamType
       Network.GRPC.Common.HTTP2Settings
-      Network.GRPC.Internal.XIO
       Network.GRPC.Server
       Network.GRPC.Server.Binary
       Network.GRPC.Server.Protobuf
@@ -177,14 +176,11 @@ library
       Paths_grapesy
 
       Proto.OrcaLoadReport
-
-      Control.Monad.XIO
   autogen-modules:
       Paths_grapesy
   hs-source-dirs:
       src
       util
-      xio
       proto
   build-depends:
     , aeson                >= 1.5     && < 2.3
