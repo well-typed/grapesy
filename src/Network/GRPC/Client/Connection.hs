@@ -9,7 +9,6 @@
 module Network.GRPC.Client.Connection (
     -- * Definition
     Connection -- opaque
-  , Call(..)
   , withConnection
     -- * Configuration
   , Server(..)
@@ -41,7 +40,6 @@ import System.Random
 
 import Network.GRPC.Client.Meta (Meta)
 import Network.GRPC.Client.Meta qualified as Meta
-import Network.GRPC.Client.Session
 import Network.GRPC.Common.Compression qualified as Compr
 import Network.GRPC.Common.HTTP2Settings
 import Network.GRPC.Spec
@@ -79,14 +77,6 @@ data Connection = Connection {
 
       -- | Connection state
     , connStateVar :: TVar ConnectionState
-    }
-
--- | State of the call
---
--- This type is kept abstract (opaque) in the public facing API.
-data Call rpc = SupportsClientRpc rpc => Call {
-      callSession :: ClientSession rpc
-    , callChannel :: Session.Channel (ClientSession rpc)
     }
 
 {-------------------------------------------------------------------------------
