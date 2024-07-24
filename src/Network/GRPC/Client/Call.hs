@@ -36,20 +36,29 @@ import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
 import Data.Bitraversable
+import Data.ByteString.Char8 qualified as BS.Strict.C8
 import Data.Default
-import Data.Maybe (isJust)
+import Data.Foldable (asum)
+import Data.List (intersperse)
+import Data.Maybe (fromMaybe, isJust)
 import Data.Proxy
 import Data.Text qualified as Text
+import Data.Version
 import GHC.Stack
 
-import Network.GRPC.Client.Connection (Connection, Call(..))
+import Network.GRPC.Client.Connection (Connection, ConnParams, Call(..))
 import Network.GRPC.Client.Connection qualified as Connection
 import Network.GRPC.Client.Session
 import Network.GRPC.Common
+import Network.GRPC.Common.Compression qualified as Compression
 import Network.GRPC.Common.StreamElem qualified as StreamElem
 import Network.GRPC.Spec
+import Network.GRPC.Util.GHC
+import Network.GRPC.Util.HTTP2.Stream (ServerDisconnected(..))
 import Network.GRPC.Util.Session qualified as Session
 import Network.GRPC.Util.Thread qualified as Thread
+
+import Paths_grapesy qualified as Grapesy
 
 {-------------------------------------------------------------------------------
   Open a call
@@ -90,7 +99,7 @@ withRPC :: forall m rpc a.
   => Connection -> CallParams rpc -> Proxy rpc -> (Call rpc -> m a) -> m a
 withRPC conn callParams proxy k = fmap fst $
       generalBracket
-        (liftIO $ Connection.startRPC conn proxy callParams)
+        (liftIO $ startRPC conn proxy callParams)
         closeRPC
         k
   where
@@ -154,6 +163,112 @@ withRPC conn callParams proxy k = fmap fst $
                                     ]
             , grpcErrorMetadata = []
             }
+
+-- | Open new channel to the server
+--
+-- This is a non-blocking call; the connection will be set up in a
+-- background thread; if this takes time, then the first call to
+-- 'sendInput' or 'recvOutput' will block, but the call to 'startRPC'
+-- itself will not block. This non-blocking nature makes this safe to use
+-- in 'bracket' patterns.
+startRPC :: forall rpc.
+     (SupportsClientRpc rpc, HasCallStack)
+  => Connection
+  -> Proxy rpc
+  -> CallParams rpc
+  -> IO (Call rpc)
+startRPC conn _ callParams = do
+    (connClosed, connToServer) <- Connection.getConnectionToServer conn
+    cOut     <- Connection.getOutboundCompression conn
+    metadata <- buildMetadataIO $ callRequestMetadata callParams
+    let flowStart :: Session.FlowStart (ClientOutbound rpc)
+        flowStart = Session.FlowStartRegular $ OutboundHeaders {
+            outHeaders     = requestHeaders cOut metadata
+          , outCompression = fromMaybe noCompression cOut
+          }
+
+    let serverClosedConnection ::
+             Either TrailersOnly' ProperTrailers'
+          -> SomeException
+        serverClosedConnection =
+              either toException toException
+            . grpcClassifyTermination
+            . either (fst . trailersOnlyToProperTrailers) id
+
+    channel <-
+      Session.setupRequestChannel
+        callSession
+        connToServer
+        serverClosedConnection
+        flowStart
+
+    -- Spawn a thread to monitor the connection, and close the new channel when
+    -- the connection is closed. To prevent a memory leak by hanging on to the
+    -- channel for the lifetime of the connection, the thread also terminates in
+    -- the (normal) case that the channel is closed before the connection is.
+    _ <- forkLabelled "grapesy:monitorConnection" $ do
+      status <- atomically $ do
+          (Left <$> Thread.waitForNormalOrAbnormalThreadTermination
+                      (Session.channelOutbound channel))
+        `orElse`
+          (Right <$> readTMVar connClosed)
+      case status of
+        Left _ -> return () -- Channel closed before the connection
+        Right mErr -> do
+          let exitReason :: ExitCase ()
+              exitReason =
+                case mErr of
+                  Nothing -> ExitCaseSuccess ()
+                  Just exitWithException ->
+                    ExitCaseException . toException $
+                      ServerDisconnected exitWithException callStack
+          _mAlreadyClosed <- Session.close channel exitReason
+          return ()
+
+    return $ Call callSession channel
+  where
+    connParams :: ConnParams
+    connParams = Connection.connParams conn
+
+    requestHeaders :: Maybe Compression -> [CustomMetadata] -> RequestHeaders
+    requestHeaders cOut metadata = RequestHeaders{
+          requestTimeout =
+            asum [
+                callTimeout callParams
+              , Connection.connDefaultTimeout connParams
+              ]
+        , requestMetadata =
+            customMetadataMapFromList metadata
+        , requestCompression =
+            compressionId <$> cOut
+        , requestAcceptCompression = Just $
+            Compression.offer $ Connection.connCompression connParams
+        , requestContentType =
+            Connection.connContentType connParams
+        , requestMessageType =
+            Just MessageTypeDefault
+        , requestUserAgent = Just $
+            mconcat [
+                "grpc-haskell-grapesy/"
+              , mconcat . intersperse "." $
+                  map (BS.Strict.C8.pack . show) $
+                    versionBranch Grapesy.version
+              ]
+        , requestIncludeTE =
+            True
+        , requestTraceContext =
+            Nothing
+        , requestPreviousRpcAttempts =
+            Nothing
+        , requestUnrecognized =
+            ()
+        }
+
+    callSession :: ClientSession rpc
+    callSession = ClientSession {
+          clientCompression = Connection.connCompression connParams
+        , clientUpdateMeta  = Connection.updateConnectionMeta conn
+        }
 
 {-------------------------------------------------------------------------------
   Open (ongoing) call
