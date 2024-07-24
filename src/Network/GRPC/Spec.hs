@@ -122,6 +122,10 @@ module Network.GRPC.Spec (
   , TrailersOnly'
   , Pushback(..)
   , simpleProperTrailers
+    -- ** Termination
+  , GrpcNormalTermination(..)
+  , grpcExceptionToTrailers
+  , grpcClassifyTermination
     -- ** Serialization
   , parseProperTrailers
   , parseProperTrailers'
@@ -133,17 +137,14 @@ module Network.GRPC.Spec (
   , buildPushback
   , properTrailersToTrailersOnly
   , trailersOnlyToProperTrailers
-    -- *** Status
+    -- * Status
   , GrpcStatus(..)
   , GrpcError(..)
   , fromGrpcStatus
   , toGrpcStatus
-    -- *** gRPC termination
+    -- ** Exceptions
   , GrpcException(..)
   , throwGrpcError
-  , GrpcNormalTermination(..)
-  , grpcExceptionToTrailers
-  , grpcClassifyTermination
     -- * Metadata
   , CustomMetadata(CustomMetadata)
   , customMetadataName

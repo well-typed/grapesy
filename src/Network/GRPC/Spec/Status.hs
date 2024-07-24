@@ -4,10 +4,16 @@ module Network.GRPC.Spec.Status (
   , GrpcError(..)
   , fromGrpcStatus
   , toGrpcStatus
+    -- * Exceptions
+  , GrpcException(..)
+  , throwGrpcError
   ) where
 
 import Control.Exception
+import Data.Text (Text)
 import GHC.Generics (Generic)
+
+import Network.GRPC.Spec.CustomMetadata.Raw (CustomMetadata)
 
 {-------------------------------------------------------------------------------
   gRPC status
@@ -209,3 +215,25 @@ toGrpcStatus 15 = Just $ GrpcError $ GrpcDataLoss
 toGrpcStatus 16 = Just $ GrpcError $ GrpcUnauthenticated
 toGrpcStatus _  = Nothing
 
+{-------------------------------------------------------------------------------
+  gRPC exceptions
+-------------------------------------------------------------------------------}
+
+-- | Server indicated a gRPC error
+--
+-- For the common case where you just want to set 'grpcError', you can use
+-- 'throwGrpcError'.
+data GrpcException = GrpcException {
+      grpcError          :: GrpcError
+    , grpcErrorMessage   :: Maybe Text
+    , grpcErrorMetadata  :: [CustomMetadata]
+    }
+  deriving stock (Show)
+  deriving anyclass (Exception)
+
+throwGrpcError :: GrpcError -> IO a
+throwGrpcError grpcError = throwIO $ GrpcException {
+      grpcError
+    , grpcErrorMessage  = Nothing
+    , grpcErrorMetadata = []
+    }
