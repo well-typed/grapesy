@@ -91,9 +91,7 @@ instance SupportsClientRpc rpc => InitiateSession (ClientSession rpc) where
           -- The 'CallClosedWithoutTrailers' case is therefore not relevant.
           return $ FlowStartNoMessages trailersOnly
         Right responseHeaders' -> do
-          cIn <- getInboundCompression session $
-                   responseCompression responseHeaders'
-          clientUpdateMeta session responseHeaders'
+          cIn <- processResponseHeaders session responseHeaders'
           return $ FlowStartRegular $ InboundHeaders {
               inbHeaders     = responseHeaders'
             , inbCompression = cIn
@@ -117,18 +115,23 @@ instance SupportsClientRpc rpc => InitiateSession (ClientSession rpc) where
 instance NoTrailers (ClientSession rpc) where
   noTrailers _ = NoMetadata
 
--- | Determine compression used for messages from the peer
-getInboundCompression ::
+-- | Process response headers
+--
+-- This is the client equivalent of
+-- 'Network.GRPC.Server.RequestHandler.processRequestHeaders'.
+processResponseHeaders ::
      ClientSession rpc
-  -> Either InvalidHeaders (Maybe CompressionId)
+  -> ResponseHeaders' -- Either InvalidHeaders (Maybe CompressionId)
   -> IO Compression
-getInboundCompression session = \case
-    Left  err        -> throwIO $ CallSetupInvalidResponseHeaders err
-    Right Nothing    -> return noCompression
-    Right (Just cid) ->
-      case Compr.getSupported (clientCompression session) cid of
-        Just compr -> return compr
-        Nothing    -> throwIO $ CallSetupUnsupportedCompression cid
+processResponseHeaders session responseHeaders' = do
+    clientUpdateMeta session responseHeaders'
+    case responseCompression responseHeaders' of
+      Left  err        -> throwIO $ CallSetupInvalidResponseHeaders err
+      Right Nothing    -> return noCompression
+      Right (Just cid) ->
+        case Compr.getSupported (clientCompression session) cid of
+          Just compr -> return compr
+          Nothing    -> throwIO $ CallSetupUnsupportedCompression cid
 
 {-------------------------------------------------------------------------------
   Exceptions

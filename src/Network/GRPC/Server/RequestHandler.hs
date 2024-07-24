@@ -52,7 +52,7 @@ requestHandler handlers ctxt unmask request respond = do
     call :: Call rpc <-
       setupCall connectionToClient ctxt `catch` setupFailure respond
     mTimeout :: Maybe Timeout <-
-      verifyHeaders ctxt call           `catch` setupFailure respond
+      processRequestHeaders ctxt call   `catch` setupFailure respond
 
     imposeTimeout mTimeout $
       runHandler unmask call handler
@@ -102,17 +102,17 @@ findHandler handlers req = do
         , rawMethod = fromMaybe "" $ HTTP2.requestMethod req
         }
 
--- | Verify request headers (if enabled)
+-- | Process request headers
 --
 -- In strict mode we verify /all/ headers; otherwise, we only verify those
 -- headers we need to setup the call.
 --
 -- Throws 'CallSetupFailure' if any (validated) headers were invalid.
-verifyHeaders ::
+processRequestHeaders ::
      ServerContext
   -> Call rpc
   -> IO (Maybe Timeout)
-verifyHeaders ctxt call = do
+processRequestHeaders ctxt call = do
     requestHeaders' <- getRequestHeaders call
     if serverVerifyHeaders then
       case HKD.sequence requestHeaders' of
