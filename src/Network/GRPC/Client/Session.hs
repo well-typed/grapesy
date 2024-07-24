@@ -122,6 +122,10 @@ instance NoTrailers (ClientSession rpc) where
   Process response headers
 -------------------------------------------------------------------------------}
 
+-- | Required response headers
+--
+-- If any of these headers are missing or invalid, we throw an exception,
+-- independent of 'connVerifyHeaders'
 data RequiredHeaders = RequiredHeaders {
       requiredCompression :: Maybe CompressionId
     }
@@ -132,8 +136,8 @@ validateAll = fmap go . HKD.sequence
   where
     go :: ResponseHeaders -> RequiredHeaders
     go responseHeaders = RequiredHeaders {
-        requiredCompression = responseCompression responseHeaders
-      }
+          requiredCompression = responseCompression responseHeaders
+        }
 
 -- | Validate only the required headers
 validateRequired :: ResponseHeaders' -> Either InvalidHeaders RequiredHeaders

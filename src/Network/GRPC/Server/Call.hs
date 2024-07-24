@@ -60,6 +60,7 @@ import Network.GRPC.Server.Context
 import Network.GRPC.Server.Session
 import Network.GRPC.Spec
 import Network.GRPC.Spec.Serialization
+import Network.GRPC.Util.HKD qualified as HKD
 import Network.GRPC.Util.HTTP2 (fromHeaderTable)
 import Network.GRPC.Util.Session qualified as Session
 import Network.GRPC.Util.Session.Server qualified as Server
@@ -134,12 +135,12 @@ setupCall :: forall rpc.
      SupportsServerRpc rpc
   => Server.ConnectionToClient
   -> ServerContext
-  -> IO (Call rpc)
+  -> IO (Call rpc, Maybe Timeout)
 setupCall conn callContext@ServerContext{serverParams} = do
     callResponseMetadata <- newTVarIO Nothing
     callResponseKickoff  <- newEmptyTMVarIO
 
-    inboundHeaders <- determineInbound callSession req
+    (inboundHeaders, timeout) <- determineInbound callSession req
     let callRequestHeaders = inbHeaders inboundHeaders
 
     -- Technically compression is only relevant in the 'KickoffRegular' case
@@ -162,14 +163,17 @@ setupCall conn callContext@ServerContext{serverParams} = do
             cOut
         )
 
-    return Call{
-        callContext
-      , callSession
-      , callRequestHeaders
-      , callResponseMetadata
-      , callResponseKickoff
-      , callChannel
-      }
+    return (
+        Call{
+            callContext
+          , callSession
+          , callRequestHeaders
+          , callResponseMetadata
+          , callResponseKickoff
+          , callChannel
+          }
+      , timeout
+      )
   where
     callSession :: ServerSession rpc
     callSession = ServerSession {
@@ -184,13 +188,16 @@ determineInbound :: forall rpc.
      SupportsServerRpc rpc
   => ServerSession rpc
   -> HTTP2.Request
-  -> IO (Headers (ServerInbound rpc))
+  -> IO (Headers (ServerInbound rpc), Maybe Timeout)
 determineInbound session req = do
-    cIn <- getInboundCompression session $ requestCompression requestHeaders'
-    return InboundHeaders {
-        inbHeaders     = requestHeaders'
-      , inbCompression = cIn
-      }
+    (cIn, timeout) <- processRequestHeaders session requestHeaders'
+    return (
+        InboundHeaders {
+            inbHeaders     = requestHeaders'
+          , inbCompression = cIn
+          }
+      , timeout
+      )
   where
     requestHeaders' :: RequestHeaders'
     requestHeaders' = parseRequestHeaders' (Proxy @rpc) $
@@ -260,24 +267,6 @@ startOutbound serverParams metadataVar kickoffVar cOut = do
         , responseBody = Nothing
         }
 
--- | Determine compression used for messages from the peer
-getInboundCompression ::
-     ServerSession rpc
-  -> Either InvalidRequestHeaders (Maybe CompressionId)
-  -> IO Compression
-getInboundCompression session = \case
-    Left  err        -> throwIO $ CallSetupInvalidRequestHeaders err
-    Right Nothing    -> return noCompression
-    Right (Just cid) ->
-      case Compr.getSupported serverCompression cid of
-        Just compr -> return compr
-        Nothing    -> throwIO $ CallSetupUnsupportedCompression cid
-  where
-    ServerSession{serverSessionContext} = session
-    ServerContext{serverParams} = serverSessionContext
-    ServerParams{serverCompression} = serverParams
-
-
 -- | Determine compression to be used for messages to the peer
 --
 -- In the case that we fail to parse the @grpc-accept-encoding@ header, we
@@ -303,6 +292,66 @@ serverExceptionToClientError params err
     | otherwise = do
         mMsg <- serverExceptionToClient params err
         return $ simpleProperTrailers (GrpcError GrpcUnknown) mMsg mempty
+
+{-------------------------------------------------------------------------------
+  Process request headers
+-------------------------------------------------------------------------------}
+
+-- | Required request headers
+--
+-- If any of these headers are missing or invalid, we throw an exception,
+-- independent of 'serverVerifyHeaders'
+data RequiredHeaders = RequiredHeaders {
+      requiredCompression :: Maybe CompressionId
+    , requiredTimeout     :: Maybe Timeout
+    }
+
+-- | Validate /all/ headers, and then extract the required
+validateAll ::
+     RequestHeaders'
+  -> Either InvalidRequestHeaders RequiredHeaders
+validateAll = fmap go . HKD.sequence
+  where
+    go :: RequestHeaders -> RequiredHeaders
+    go requestHeaders = RequiredHeaders {
+        requiredCompression = requestCompression requestHeaders
+      , requiredTimeout     = requestTimeout     requestHeaders
+      }
+
+-- | Validate only the required headers
+validateRequired ::
+     RequestHeaders'
+  -> Either InvalidRequestHeaders RequiredHeaders
+validateRequired requestHeaders' =
+    RequiredHeaders
+      <$> requestCompression requestHeaders'
+      <*> requestTimeout     requestHeaders'
+
+processRequestHeaders ::
+     ServerSession rpc
+  -> RequestHeaders'
+  -> IO (Compression, Maybe Timeout)
+processRequestHeaders session requestHeaders' = do
+    required <- either invalid return $
+                  if serverVerifyHeaders serverParams
+                    then validateAll      requestHeaders'
+                    else validateRequired requestHeaders'
+    cIn <- getCompression (requiredCompression required)
+    return (cIn, requiredTimeout required)
+  where
+    ServerSession{serverSessionContext} = session
+    ServerContext{serverParams} = serverSessionContext
+
+    -- this replaces getInboundCompression
+    getCompression :: Maybe CompressionId -> IO Compression
+    getCompression Nothing    = return noCompression
+    getCompression (Just cid) =
+        case Compr.getSupported (serverCompression serverParams) cid of
+          Just compr -> return compr
+          Nothing    -> throwIO $ CallSetupUnsupportedCompression cid
+
+    invalid :: forall x. InvalidRequestHeaders -> IO x
+    invalid = throwIO . CallSetupInvalidRequestHeaders
 
 {-------------------------------------------------------------------------------
   Open (ongoing) call
