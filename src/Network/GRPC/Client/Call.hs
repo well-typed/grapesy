@@ -5,7 +5,8 @@
 -- Intended for unqualified import.
 module Network.GRPC.Client.Call (
     -- * Construction
-    withRPC
+    Call -- opaque
+  , withRPC
 
     -- * Open (ongoing) call
   , sendInput
@@ -46,7 +47,7 @@ import Data.Text qualified as Text
 import Data.Version
 import GHC.Stack
 
-import Network.GRPC.Client.Connection (Connection, ConnParams, Call(..))
+import Network.GRPC.Client.Connection (Connection, ConnParams(..))
 import Network.GRPC.Client.Connection qualified as Connection
 import Network.GRPC.Client.Session
 import Network.GRPC.Common
@@ -63,6 +64,13 @@ import Paths_grapesy qualified as Grapesy
 {-------------------------------------------------------------------------------
   Open a call
 -------------------------------------------------------------------------------}
+
+-- | State of the call
+--
+-- This type is kept abstract (opaque) in the public facing API.
+data Call rpc = SupportsClientRpc rpc => Call {
+      callChannel :: Session.Channel (ClientSession rpc)
+    }
 
 -- | Scoped RPC call
 --
@@ -197,7 +205,7 @@ startRPC conn _ callParams = do
 
     channel <-
       Session.setupRequestChannel
-        callSession
+        session
         connToServer
         serverClosedConnection
         flowStart
@@ -225,7 +233,7 @@ startRPC conn _ callParams = do
           _mAlreadyClosed <- Session.close channel exitReason
           return ()
 
-    return $ Call callSession channel
+    return $ Call channel
   where
     connParams :: ConnParams
     connParams = Connection.connParams conn
@@ -235,16 +243,16 @@ startRPC conn _ callParams = do
           requestTimeout =
             asum [
                 callTimeout callParams
-              , Connection.connDefaultTimeout connParams
+              , connDefaultTimeout connParams
               ]
         , requestMetadata =
             customMetadataMapFromList metadata
         , requestCompression =
             compressionId <$> cOut
         , requestAcceptCompression = Just $
-            Compression.offer $ Connection.connCompression connParams
+            Compression.offer $ connCompression connParams
         , requestContentType =
-            Connection.connContentType connParams
+            connContentType connParams
         , requestMessageType =
             Just MessageTypeDefault
         , requestUserAgent = Just $
@@ -264,9 +272,9 @@ startRPC conn _ callParams = do
             ()
         }
 
-    callSession :: ClientSession rpc
-    callSession = ClientSession {
-          clientCompression = Connection.connCompression connParams
+    session :: ClientSession rpc
+    session = ClientSession {
+          clientCompression = connCompression connParams
         , clientUpdateMeta  = Connection.updateConnectionMeta conn
         }
 
