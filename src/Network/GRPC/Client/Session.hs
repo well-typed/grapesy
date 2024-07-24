@@ -117,6 +117,29 @@ instance SupportsClientRpc rpc => InitiateSession (ClientSession rpc) where
 instance NoTrailers (ClientSession rpc) where
   noTrailers _ = NoMetadata
 
+{-------------------------------------------------------------------------------
+  Process response headers
+-------------------------------------------------------------------------------}
+
+data RequiredHeaders = RequiredHeaders {
+      requiredCompression :: Maybe CompressionId
+    }
+
+-- | Validate /all/ headers, and then extract the required
+validateAll :: ResponseHeaders' -> Either InvalidHeaders RequiredHeaders
+validateAll = fmap go . HKD.sequence
+  where
+    go :: ResponseHeaders -> RequiredHeaders
+    go responseHeaders = RequiredHeaders {
+        requiredCompression = responseCompression responseHeaders
+      }
+
+-- | Validate only the required headers
+validateRequired :: ResponseHeaders' -> Either InvalidHeaders RequiredHeaders
+validateRequired responseHeaders' =
+    RequiredHeaders
+      <$> responseCompression responseHeaders'
+
 -- | Process response headers
 --
 -- This is the client equivalent of
@@ -127,15 +150,11 @@ processResponseHeaders ::
   -> IO Compression
 processResponseHeaders (ClientSession conn) responseHeaders' = do
     Connection.updateConnectionMeta conn responseHeaders'
-
-    if connVerifyHeaders connParams then
-      case HKD.sequence responseHeaders' of
-        Left  err  -> throwIO $ CallSetupInvalidResponseHeaders err
-        Right hdrs -> getCompression $ responseCompression hdrs
-    else
-      case responseCompression responseHeaders' of
-        Left  err  -> throwIO $ CallSetupInvalidResponseHeaders err
-        Right mcid -> getCompression mcid
+    required <- either invalid return $
+                  if connVerifyHeaders connParams
+                    then validateAll      responseHeaders'
+                    else validateRequired responseHeaders'
+    getCompression (requiredCompression required)
   where
     connParams :: ConnParams
     connParams = Connection.connParams conn
@@ -146,6 +165,9 @@ processResponseHeaders (ClientSession conn) responseHeaders' = do
         case Compr.getSupported (connCompression connParams) cid of
           Just compr -> return compr
           Nothing    -> throwIO $ CallSetupUnsupportedCompression cid
+
+    invalid :: forall x. InvalidHeaders -> IO x
+    invalid = throwIO . CallSetupInvalidResponseHeaders
 
 {-------------------------------------------------------------------------------
   Exceptions
