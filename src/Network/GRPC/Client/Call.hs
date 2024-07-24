@@ -274,8 +274,7 @@ startRPC conn _ callParams = do
 
     session :: ClientSession rpc
     session = ClientSession {
-          clientCompression = connCompression connParams
-        , clientUpdateMeta  = Connection.updateConnectionMeta conn
+          clientConnection = conn
         }
 
 {-------------------------------------------------------------------------------

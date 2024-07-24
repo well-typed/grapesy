@@ -15,6 +15,8 @@ import Data.Proxy
 import Data.Void
 import Network.HTTP.Types qualified as HTTP
 
+import Network.GRPC.Client.Connection (Connection, ConnParams(..))
+import Network.GRPC.Client.Connection qualified as Connection
 import Network.GRPC.Common
 import Network.GRPC.Common.Compression qualified as Compr
 import Network.GRPC.Spec
@@ -25,8 +27,7 @@ import Network.GRPC.Util.Session
 -------------------------------------------------------------------------------}
 
 data ClientSession rpc = ClientSession {
-      clientCompression :: Compr.Negotation
-    , clientUpdateMeta  :: ResponseHeaders' -> IO ()
+      clientConnection :: Connection
     }
 
 {-------------------------------------------------------------------------------
@@ -123,15 +124,18 @@ processResponseHeaders ::
      ClientSession rpc
   -> ResponseHeaders' -- Either InvalidHeaders (Maybe CompressionId)
   -> IO Compression
-processResponseHeaders session responseHeaders' = do
-    clientUpdateMeta session responseHeaders'
+processResponseHeaders (ClientSession conn) responseHeaders' = do
+    Connection.updateConnectionMeta conn responseHeaders'
     case responseCompression responseHeaders' of
       Left  err        -> throwIO $ CallSetupInvalidResponseHeaders err
       Right Nothing    -> return noCompression
       Right (Just cid) ->
-        case Compr.getSupported (clientCompression session) cid of
+        case Compr.getSupported (connCompression connParams) cid of
           Just compr -> return compr
           Nothing    -> throwIO $ CallSetupUnsupportedCompression cid
+  where
+    connParams :: ConnParams
+    connParams = Connection.connParams conn
 
 {-------------------------------------------------------------------------------
   Exceptions
