@@ -25,7 +25,8 @@ import Proto.API.Ping
 
 tests :: TestTree
 tests = testGroup "Test.Sanity.BrokenDeployments" [
-      testCase "non200" test_non200
+      testCase "non200"             test_non200
+    , testCase "nonGrpcContentType" test_nonGrpcContentType
     ]
 
 {-------------------------------------------------------------------------------
@@ -37,9 +38,9 @@ tests = testGroup "Test.Sanity.BrokenDeployments" [
 -- We don't test all codes here; we'd just end up duplicating the logic in
 -- 'classifyServerResponse'. We just check one representative value.
 test_non200 :: Assertion
-test_non200 = respondWith response  $ \addr -> do
+test_non200 = respondWith response $ \addr -> do
     mResp :: Either GrpcException (Proto PongMessage) <- try $
-      Client.withConnection def (Client.ServerInsecure addr) $ \conn ->
+      Client.withConnection connParams (Client.ServerInsecure addr) $ \conn ->
         Client.withRPC conn def (Proxy @Ping) $ \call -> do
           Client.sendFinalInput call defMessage
           fst <$> Client.recvFinalOutput call
@@ -54,12 +55,40 @@ test_non200 = respondWith response  $ \addr -> do
           responseStatus = HTTP.badRequest400
         }
 
+test_nonGrpcContentType :: Assertion
+test_nonGrpcContentType = respondWith response $ \addr -> do
+    mResp <- try $
+      Client.withConnection connParams (Client.ServerInsecure addr) $ \conn ->
+        Client.withRPC conn def (Proxy @Ping) $ \call -> do
+          Client.sendFinalInput call defMessage
+          fst <$> Client.recvFinalOutput call
+    case mResp of
+      -- TODO: <https://github.com/well-typed/grapesy/issues/22>
+      -- We should get a gRPC exception here instead.
+      Left Client.CallSetupInvalidResponseHeaders{} ->
+        return ()
+      _otherwise ->
+        assertFailure $ "Unexpected response: " ++ show mResp
+  where
+    response :: Response
+    response = def {
+          responseHeaders = [
+              ("content-type", "someInvalidContentType")
+            ]
+        }
+
+connParams :: Client.ConnParams
+connParams = def {
+      Client.connVerifyHeaders = True
+    }
+
 {-------------------------------------------------------------------------------
   Test server
 
   This allows us to simulate broken /servers/.
 
-  TODO: We should simulate broken /clients/.
+  TODO: <https://github.com/well-typed/grapesy/issues/22>
+  We should also simulate broken /clients/.
 -------------------------------------------------------------------------------}
 
 data Response = Response {

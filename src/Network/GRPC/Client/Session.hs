@@ -21,6 +21,7 @@ import Network.GRPC.Common
 import Network.GRPC.Common.Compression qualified as Compr
 import Network.GRPC.Spec
 import Network.GRPC.Util.Session
+import Network.GRPC.Util.HKD qualified as HKD
 
 {-------------------------------------------------------------------------------
   Definition
@@ -122,20 +123,29 @@ instance NoTrailers (ClientSession rpc) where
 -- 'Network.GRPC.Server.RequestHandler.processRequestHeaders'.
 processResponseHeaders ::
      ClientSession rpc
-  -> ResponseHeaders' -- Either InvalidHeaders (Maybe CompressionId)
+  -> ResponseHeaders'
   -> IO Compression
 processResponseHeaders (ClientSession conn) responseHeaders' = do
     Connection.updateConnectionMeta conn responseHeaders'
-    case responseCompression responseHeaders' of
-      Left  err        -> throwIO $ CallSetupInvalidResponseHeaders err
-      Right Nothing    -> return noCompression
-      Right (Just cid) ->
-        case Compr.getSupported (connCompression connParams) cid of
-          Just compr -> return compr
-          Nothing    -> throwIO $ CallSetupUnsupportedCompression cid
+
+    if connVerifyHeaders connParams then
+      case HKD.sequence responseHeaders' of
+        Left  err  -> throwIO $ CallSetupInvalidResponseHeaders err
+        Right hdrs -> getCompression $ responseCompression hdrs
+    else
+      case responseCompression responseHeaders' of
+        Left  err  -> throwIO $ CallSetupInvalidResponseHeaders err
+        Right mcid -> getCompression mcid
   where
     connParams :: ConnParams
     connParams = Connection.connParams conn
+
+    getCompression :: Maybe CompressionId -> IO Compression
+    getCompression Nothing    = return noCompression
+    getCompression (Just cid) =
+        case Compr.getSupported (connCompression connParams) cid of
+          Just compr -> return compr
+          Nothing    -> throwIO $ CallSetupUnsupportedCompression cid
 
 {-------------------------------------------------------------------------------
   Exceptions

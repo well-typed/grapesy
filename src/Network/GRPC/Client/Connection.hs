@@ -112,6 +112,19 @@ data ConnParams = ConnParams {
       -- (this is not conform gRPC spec).
     , connContentType :: Maybe ContentType
 
+      -- | Should we verify all request headers?
+      --
+      -- This is the client analogue of
+      -- 'Network.GRPC.Server.Context.serverVerifyHeaders'.
+      --
+      -- Arguably, it is less essential to verify headers on the client: a
+      -- server must deal with all kinds of different clients, and might want to
+      -- know if any of those clients has expectations that it cannot fulfill. A
+      -- client however connects to a known server, and knows what information
+      -- it wants from the server. It is also a bit more awkward to implement,
+      -- since the client is more asynchronous than the server handler.
+    , connVerifyHeaders :: Bool
+
       -- | Optionally set the initial compression algorithm
       --
       -- Under normal circumstances, the @grapesy@ client will only start using
@@ -129,12 +142,13 @@ data ConnParams = ConnParams {
 
 instance Default ConnParams where
   def = ConnParams {
-        connCompression           = def
-      , connDefaultTimeout        = Nothing
-      , connReconnectPolicy       = def
-      , connContentType           = Just ContentTypeDefault
-      , connInitCompression       = Nothing
-      , connHTTP2Settings         = def
+        connCompression     = def
+      , connDefaultTimeout  = Nothing
+      , connReconnectPolicy = def
+      , connContentType     = Just ContentTypeDefault
+      , connVerifyHeaders   = False
+      , connInitCompression = Nothing
+      , connHTTP2Settings   = def
       }
 
 {-------------------------------------------------------------------------------
