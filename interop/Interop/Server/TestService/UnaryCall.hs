@@ -6,7 +6,6 @@ import Network.GRPC.Common
 import Network.GRPC.Common.Protobuf
 import Network.GRPC.Common.StreamElem qualified as StreamElem
 import Network.GRPC.Server
-import Network.GRPC.Spec
 
 import Interop.Server.Common
 import Interop.Util.Messages
@@ -25,8 +24,8 @@ handle call = do
     trailers <- constructResponseMetadata call
 
     -- Wait for the request
-    (inboundEnvelope, request) <- do
-      streamElem <- recvInputWithEnvelope call
+    (inboundMeta, request) <- do
+      streamElem <- recvInputWithMeta call
       case StreamElem.value streamElem of
         Nothing -> fail "Expected element"
         Just x  -> return x
@@ -35,13 +34,13 @@ handle call = do
     -- <https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptions.md#client_compressed_unary>
     let expectCompressed :: Bool
         expectCompressed = request ^. #expectCompressed . #value
-    checkInboundCompression expectCompressed inboundEnvelope
+    checkInboundCompression expectCompressed inboundMeta
 
     -- Send response
     payload <- payloadOfType (request ^. #responseType) (request ^. #responseSize)
 
-    let outboundEnvelope :: OutboundEnvelope
-        outboundEnvelope = def {
+    let outboundMeta :: OutboundMeta
+        outboundMeta = def {
               outboundEnableCompression =
                 request ^. #responseCompressed . #value
             }
@@ -49,7 +48,7 @@ handle call = do
         response :: Proto SimpleResponse
         response = defMessage & #payload .~ payload
 
-    sendOutputWithEnvelope call $ StreamElem (outboundEnvelope, response)
+    sendOutputWithMeta call $ StreamElem (outboundMeta, response)
 
     -- Send status and trailers
     echoStatus (request ^. #responseStatus)

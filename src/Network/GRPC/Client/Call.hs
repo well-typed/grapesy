@@ -26,9 +26,9 @@ module Network.GRPC.Client.Call (
   , recvAllOutputs
 
     -- ** Low-level\/specialized API
-  , sendInputWithEnvelope
+  , sendInputWithMeta
   , recvNextOutputElem
-  , recvOutputWithEnvelope
+  , recvOutputWithMeta
   , recvInitialResponse
   ) where
 
@@ -289,19 +289,19 @@ sendInput ::
   => Call rpc
   -> StreamElem NoMetadata (Input rpc)
   -> m ()
-sendInput call = sendInputWithEnvelope call . fmap (def,)
+sendInput call = sendInputWithMeta call . fmap (def,)
 
 -- | Generalization of 'sendInput', providing additional control
 --
--- See also 'Network.GRPC.Server.sendOutputWithEnvelope'.
+-- See also 'Network.GRPC.Server.sendOutputWithMeta'.
 --
 -- Most applications will never need to use this function.
-sendInputWithEnvelope ::
+sendInputWithMeta ::
      (HasCallStack, MonadIO m)
   => Call rpc
-  -> StreamElem NoMetadata (OutboundEnvelope, Input rpc)
+  -> StreamElem NoMetadata (OutboundMeta, Input rpc)
   -> m ()
-sendInputWithEnvelope Call{callChannel} msg = liftIO $ do
+sendInputWithMeta Call{callChannel} msg = liftIO $ do
     Session.send callChannel msg
 
     -- This should be called before exiting the scope of 'withRPC'.
@@ -320,7 +320,7 @@ recvOutput :: forall m rpc.
   => Call rpc
   -> m (StreamElem (ResponseTrailingMetadata rpc) (Output rpc))
 recvOutput call@Call{} = liftIO $ do
-    streamElem <- recvOutputWithEnvelope call
+    streamElem <- recvOutputWithMeta call
     bitraverse (responseTrailingMetadata call) (return . snd) streamElem
 
 -- | Receive an output from the peer, if one exists
@@ -343,12 +343,12 @@ recvNextOutputElem =
 --
 -- Most applications will never need to use this function.
 --
--- See also 'Network.GRPC.Server.recvInputWithEnvelope'.
-recvOutputWithEnvelope :: forall rpc m.
+-- See also 'Network.GRPC.Server.recvInputWithMeta'.
+recvOutputWithMeta :: forall rpc m.
      (MonadIO m, HasCallStack)
   => Call rpc
-  -> m (StreamElem ProperTrailers' (InboundEnvelope, Output rpc))
-recvOutputWithEnvelope = recvBoth
+  -> m (StreamElem ProperTrailers' (InboundMeta, Output rpc))
+recvOutputWithMeta = recvBoth
 
 -- | The initial metadata that was included in the response headers
 --
@@ -540,7 +540,7 @@ recvAllOutputs call processOutput = loop
 recvBoth :: forall m rpc.
      (HasCallStack, MonadIO m)
   => Call rpc
-  -> m (StreamElem ProperTrailers' (InboundEnvelope, Output rpc))
+  -> m (StreamElem ProperTrailers' (InboundMeta, Output rpc))
 recvBoth Call{callChannel} = liftIO $
     flatten <$> Session.recvBoth callChannel
   where
@@ -548,8 +548,8 @@ recvBoth Call{callChannel} = liftIO $
     flatten ::
          Either
            TrailersOnly'
-           (StreamElem ProperTrailers' (InboundEnvelope, Output rpc))
-      -> StreamElem ProperTrailers' (InboundEnvelope, Output rpc)
+           (StreamElem ProperTrailers' (InboundMeta, Output rpc))
+      -> StreamElem ProperTrailers' (InboundMeta, Output rpc)
     flatten (Left trailersOnly) =
         NoMoreElems $ fst $ trailersOnlyToProperTrailers trailersOnly
     flatten (Right streamElem) =
@@ -558,15 +558,15 @@ recvBoth Call{callChannel} = liftIO $
 recvEither :: forall m rpc.
      (HasCallStack, MonadIO m)
   => Call rpc
-  -> m (Either ProperTrailers' (InboundEnvelope, Output rpc))
+  -> m (Either ProperTrailers' (InboundMeta, Output rpc))
 recvEither Call{callChannel} = liftIO $
     flatten <$> Session.recvEither callChannel
   where
     flatten ::
          Either
            TrailersOnly'
-           (Either ProperTrailers' (InboundEnvelope, Output rpc))
-      -> Either ProperTrailers' (InboundEnvelope, Output rpc)
+           (Either ProperTrailers' (InboundMeta, Output rpc))
+      -> Either ProperTrailers' (InboundMeta, Output rpc)
     flatten (Left trailersOnly) =
         Left $ fst $ trailersOnlyToProperTrailers trailersOnly
     flatten (Right (Left properTrailers)) =

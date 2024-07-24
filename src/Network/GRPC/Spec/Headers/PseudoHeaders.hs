@@ -1,5 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
-
 -- | Part of the gRPC spec that maps to HTTP2 pseudo-headers
 --
 -- Intended for unqualified import.
@@ -13,25 +11,15 @@ module Network.GRPC.Spec.Headers.PseudoHeaders (
   , Scheme(..)
   , Address(..)
   , Path(..)
-    -- * Building and parsing resource headers
-  , RawResourceHeaders(..)
-    -- ** Building
-  , buildResourceHeaders
   , rpcPath
-    -- ** Parsing
-  , InvalidResourceHeaders(..)
-  , parseResourceHeaders
   ) where
 
-import Control.Monad.Except
-import Data.ByteString qualified as BS.Strict
 import Data.ByteString qualified as Strict (ByteString)
 import Data.Hashable
 import Data.Proxy
 import Network.Socket (HostName, PortNumber)
 
 import Network.GRPC.Spec.RPC
-import Network.GRPC.Util.ByteString
 
 {-------------------------------------------------------------------------------
   Definition
@@ -137,51 +125,6 @@ instance Hashable Path where
   hashWithSalt salt Path{pathService, pathMethod} =
       hashWithSalt salt (pathService, pathMethod)
 
-{-------------------------------------------------------------------------------
-  Building and parsing resource headers
--------------------------------------------------------------------------------}
-
-data RawResourceHeaders = RawResourceHeaders {
-      rawPath   :: Strict.ByteString
-    , rawMethod :: Strict.ByteString
-    }
-  deriving (Show)
-
-buildResourceHeaders :: ResourceHeaders -> RawResourceHeaders
-buildResourceHeaders ResourceHeaders{resourcePath, resourceMethod} =
-    RawResourceHeaders {
-        rawMethod = case resourceMethod of Post -> "POST"
-      , rawPath   = mconcat [
-                        "/"
-                      , pathService resourcePath
-                      , "/"
-                      , pathMethod resourcePath
-                      ]
-      }
-
+-- | Construct path
 rpcPath :: IsRPC rpc => Proxy rpc -> Path
 rpcPath proxy = Path (rpcServiceName proxy) (rpcMethodName proxy)
-
-data InvalidResourceHeaders =
-    InvalidMethod Strict.ByteString
-  | InvalidPath Strict.ByteString
-  deriving stock (Show)
-
--- | Parse pseudo headers
-parseResourceHeaders ::
-     RawResourceHeaders
-  -> Either InvalidResourceHeaders ResourceHeaders
-parseResourceHeaders RawResourceHeaders{rawMethod, rawPath} = do
-    resourceMethod <-
-      case rawMethod of
-        "POST"     -> return Post
-        _otherwise -> throwError $ InvalidMethod rawMethod
-
-    resourcePath <-
-      case BS.Strict.split (ascii '/') rawPath of
-        ["", service, method] ->
-          return $ Path service method
-        _otherwise ->
-          throwError $ InvalidPath rawPath
-
-    return ResourceHeaders{resourceMethod, resourcePath}

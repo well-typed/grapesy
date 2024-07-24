@@ -12,7 +12,7 @@ import Control.Exception
 import Network.GRPC.Common
 import Network.GRPC.Common.Protobuf
 import Network.GRPC.Server
-import Network.GRPC.Spec
+import Network.GRPC.Spec.Serialization (parseGrpcStatus)
 
 import Interop.Util.Exceptions
 
@@ -54,7 +54,7 @@ constructResponseMetadata call = do
 -- See <https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptions.md#status_code_and_message>
 echoStatus :: Proto EchoStatus -> IO ()
 echoStatus status =
-    case toGrpcStatus code of
+    case parseGrpcStatus code of
       Just GrpcOk ->
         return ()
       Just (GrpcError err) ->
@@ -69,9 +69,9 @@ echoStatus status =
     code :: Word
     code = fromIntegral $ status ^. #code
 
-checkInboundCompression :: Bool -> InboundEnvelope -> IO ()
-checkInboundCompression expectCompressed envelope =
-    case (expectCompressed, inboundCompressedSize envelope) of
+checkInboundCompression :: Bool -> InboundMeta -> IO ()
+checkInboundCompression expectCompressed meta =
+    case (expectCompressed, inboundCompressedSize meta) of
       (True, Just _) ->
         return ()
       (False, Nothing) ->

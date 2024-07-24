@@ -7,7 +7,7 @@ import Data.Text (Text)
 import Network.GRPC.Client
 import Network.GRPC.Common
 import Network.GRPC.Common.Protobuf
-import Network.GRPC.Spec
+import Network.GRPC.Spec.Serialization (buildGrpcStatus)
 
 import Interop.Client.Connect
 import Interop.Cmdline
@@ -39,7 +39,7 @@ runTest cmdline = do
     echoStatus :: Proto EchoStatus
     echoStatus =
         defMessage
-          & #code    .~ fromIntegral (fromGrpcStatus $ GrpcError GrpcUnknown)
+          & #code    .~ fromIntegral (buildGrpcStatus $ GrpcError GrpcUnknown)
           & #message .~ statusMessage
 
     statusMessage :: Text

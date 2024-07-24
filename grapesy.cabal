@@ -119,6 +119,7 @@ library
       Network.GRPC.Server.StreamType
       Network.GRPC.Server.StreamType.Binary
       Network.GRPC.Spec
+      Network.GRPC.Spec.Serialization
   other-modules:
       Network.GRPC.Client.Call
       Network.GRPC.Client.Connection
@@ -132,7 +133,6 @@ library
       Network.GRPC.Server.RequestHandler
       Network.GRPC.Server.RequestHandler.API
       Network.GRPC.Server.Session
-      Network.GRPC.Spec.Base64
       Network.GRPC.Spec.Call
       Network.GRPC.Spec.Compression
       Network.GRPC.Spec.CustomMetadata.Map
@@ -144,7 +144,7 @@ library
       Network.GRPC.Spec.Headers.PseudoHeaders
       Network.GRPC.Spec.Headers.Request
       Network.GRPC.Spec.Headers.Response
-      Network.GRPC.Spec.LengthPrefixed
+      Network.GRPC.Spec.MessageMeta
       Network.GRPC.Spec.OrcaLoadReport
       Network.GRPC.Spec.PercentEncoding
       Network.GRPC.Spec.RPC
@@ -153,6 +153,16 @@ library
       Network.GRPC.Spec.RPC.Raw
       Network.GRPC.Spec.RPC.StreamType
       Network.GRPC.Spec.RPC.Unknown
+      Network.GRPC.Spec.Serialization.Base64
+      Network.GRPC.Spec.Serialization.CustomMetadata
+      Network.GRPC.Spec.Serialization.Headers.Common
+      Network.GRPC.Spec.Serialization.Headers.PseudoHeaders
+      Network.GRPC.Spec.Serialization.Headers.Request
+      Network.GRPC.Spec.Serialization.Headers.Response
+      Network.GRPC.Spec.Serialization.LengthPrefixed
+      Network.GRPC.Spec.Serialization.Status
+      Network.GRPC.Spec.Serialization.Timeout
+      Network.GRPC.Spec.Serialization.TraceContext
       Network.GRPC.Spec.Status
       Network.GRPC.Spec.Timeout
       Network.GRPC.Spec.TraceContext

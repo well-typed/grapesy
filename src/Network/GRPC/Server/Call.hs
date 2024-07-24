@@ -28,8 +28,8 @@ module Network.GRPC.Server.Call (
   , initiateResponse
   , sendTrailersOnly
   , recvNextInputElem
-  , recvInputWithEnvelope
-  , sendOutputWithEnvelope
+  , recvInputWithMeta
+  , sendOutputWithMeta
   , getRequestHeaders
 
     -- ** Internal API
@@ -59,6 +59,7 @@ import Network.GRPC.Common.StreamElem qualified as StreamElem
 import Network.GRPC.Server.Context
 import Network.GRPC.Server.Session
 import Network.GRPC.Spec
+import Network.GRPC.Spec.Serialization
 import Network.GRPC.Util.HTTP2 (fromHeaderTable)
 import Network.GRPC.Util.Session qualified as Session
 import Network.GRPC.Util.Session.Server qualified as Server
@@ -312,7 +313,7 @@ serverExceptionToClientError params err
 -- We do not return trailers, since gRPC does not support sending trailers from
 -- the client to the server (only from the server to the client).
 recvInput :: HasCallStack => Call rpc -> IO (StreamElem NoMetadata (Input rpc))
-recvInput = fmap (fmap snd) . recvInputWithEnvelope
+recvInput = fmap (fmap snd) . recvInputWithMeta
 
 -- | Receive RPC input from the client, if one exists
 --
@@ -355,11 +356,11 @@ recvNextInputElem = fmap (fmap snd) . recvEither
 -- as its compressed and uncompressed size.
 --
 -- Most applications will never need to use this function.
-recvInputWithEnvelope :: forall rpc.
+recvInputWithMeta :: forall rpc.
      HasCallStack
   => Call rpc
-  -> IO (StreamElem NoMetadata (InboundEnvelope, Input rpc))
-recvInputWithEnvelope = recvBoth
+  -> IO (StreamElem NoMetadata (InboundMeta, Input rpc))
+recvInputWithMeta = recvBoth
 
 -- | Send RPC output to the client
 --
@@ -373,7 +374,7 @@ sendOutput ::
      HasCallStack
   => Call rpc
   -> StreamElem (ResponseTrailingMetadata rpc) (Output rpc) -> IO ()
-sendOutput call = sendOutputWithEnvelope call . fmap (def,)
+sendOutput call = sendOutputWithMeta call . fmap (def,)
 
 -- | Generalization of 'sendOutput' with additional control
 --
@@ -381,12 +382,12 @@ sendOutput call = sendOutputWithEnvelope call . fmap (def,)
 -- messages.
 --
 -- Most applications will never need to use this function.
-sendOutputWithEnvelope :: forall rpc.
+sendOutputWithMeta :: forall rpc.
      HasCallStack
   => Call rpc
-  -> StreamElem (ResponseTrailingMetadata rpc) (OutboundEnvelope, Output rpc)
+  -> StreamElem (ResponseTrailingMetadata rpc) (OutboundMeta, Output rpc)
   -> IO ()
-sendOutputWithEnvelope call@Call{callChannel} msg = do
+sendOutputWithMeta call@Call{callChannel} msg = do
     _updated <- initiateResponse call
     msg'     <- bitraverse mkTrailers return msg
     Session.send callChannel msg'
@@ -649,7 +650,7 @@ sendProperTrailers Call{callContext, callResponseKickoff, callChannel}
 recvBoth :: forall rpc.
      HasCallStack
   => Call rpc
-  -> IO (StreamElem NoMetadata (InboundEnvelope, Input rpc))
+  -> IO (StreamElem NoMetadata (InboundMeta, Input rpc))
 recvBoth Call{callChannel} =
     flatten <$> Session.recvBoth callChannel
   where
@@ -657,15 +658,15 @@ recvBoth Call{callChannel} =
     flatten ::
          Either
            Void
-           (StreamElem NoMetadata (InboundEnvelope, Input rpc))
-      -> StreamElem NoMetadata (InboundEnvelope, Input rpc)
+           (StreamElem NoMetadata (InboundMeta, Input rpc))
+      -> StreamElem NoMetadata (InboundMeta, Input rpc)
     flatten (Left  impossible) = absurd impossible
     flatten (Right streamElem) = streamElem
 
 recvEither :: forall rpc.
      HasCallStack
   => Call rpc
-  -> IO (NextElem (InboundEnvelope, Input rpc))
+  -> IO (NextElem (InboundMeta, Input rpc))
 recvEither Call{callChannel} =
     flatten <$> Session.recvEither callChannel
   where
@@ -674,8 +675,8 @@ recvEither Call{callChannel} =
     flatten ::
          Either
            Void
-           (Either NoMetadata (InboundEnvelope, Input rpc))
-      -> NextElem (InboundEnvelope, Input rpc)
+           (Either NoMetadata (InboundMeta, Input rpc))
+      -> NextElem (InboundMeta, Input rpc)
     flatten (Left impossible)         = absurd impossible
     flatten (Right (Left NoMetadata)) = NoNextElem
     flatten (Right (Right msg))       = NextElem msg

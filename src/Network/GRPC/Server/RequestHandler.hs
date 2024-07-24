@@ -34,6 +34,7 @@ import Network.GRPC.Server.HandlerMap qualified as HandlerMap
 import Network.GRPC.Server.RequestHandler.API
 import Network.GRPC.Server.Session (CallSetupFailure(..))
 import Network.GRPC.Spec
+import Network.GRPC.Spec.Serialization
 import Network.GRPC.Util.GHC
 import Network.GRPC.Util.HKD qualified as HKD
 import Network.GRPC.Util.Session.Server

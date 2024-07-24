@@ -9,7 +9,6 @@ import Control.Monad
 import Network.GRPC.Common
 import Network.GRPC.Common.Protobuf
 import Network.GRPC.Server
-import Network.GRPC.Spec
 
 import Interop.Util.Messages
 
@@ -43,12 +42,12 @@ handleRequest call request =
 
       payload <- payloadOfType (Proto COMPRESSABLE) size
 
-      let envelope :: OutboundEnvelope
-          envelope = def { outboundEnableCompression = shouldCompress }
+      let meta :: OutboundMeta
+          meta = def { outboundEnableCompression = shouldCompress }
 
           response :: Proto StreamingOutputCallResponse
           response = defMessage & #payload .~ payload
 
-      sendOutputWithEnvelope call $ StreamElem (envelope, response)
+      sendOutputWithMeta call $ StreamElem (meta, response)
       threadDelay intervalUs
 

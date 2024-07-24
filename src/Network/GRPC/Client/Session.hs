@@ -20,6 +20,7 @@ import Network.GRPC.Client.Connection qualified as Connection
 import Network.GRPC.Common
 import Network.GRPC.Common.Compression qualified as Compr
 import Network.GRPC.Spec
+import Network.GRPC.Spec.Serialization
 import Network.GRPC.Util.Session
 import Network.GRPC.Util.HKD qualified as HKD
 
@@ -45,7 +46,7 @@ instance IsRPC rpc => DataFlow (ClientInbound rpc) where
       }
     deriving (Show)
 
-  type Message    (ClientInbound rpc) = (InboundEnvelope, Output rpc)
+  type Message    (ClientInbound rpc) = (InboundMeta, Output rpc)
   type Trailers   (ClientInbound rpc) = ProperTrailers'
   type NoMessages (ClientInbound rpc) = TrailersOnly'
 
@@ -56,7 +57,7 @@ instance IsRPC rpc => DataFlow (ClientOutbound rpc) where
       }
     deriving (Show)
 
-  type Message  (ClientOutbound rpc) = (OutboundEnvelope, Input rpc)
+  type Message  (ClientOutbound rpc) = (OutboundMeta, Input rpc)
   type Trailers (ClientOutbound rpc) = NoMetadata
 
   -- gRPC does not support a Trailers-Only case for requests

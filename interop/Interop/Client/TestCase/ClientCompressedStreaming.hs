@@ -3,7 +3,6 @@ module Interop.Client.TestCase.ClientCompressedStreaming (runTest) where
 import Network.GRPC.Client
 import Network.GRPC.Common
 import Network.GRPC.Common.Protobuf
-import Network.GRPC.Spec
 
 import Interop.Client.Common
 import Interop.Client.Connect
@@ -20,21 +19,21 @@ runTest cmdline =
       checkServerSupportsCompressedRequest conn
 
       withRPC conn def (Proxy @StreamingInputCall) $ \call -> do
-        sendInputWithEnvelope call $ StreamElem compressed
-        sendInputWithEnvelope call $ FinalElem uncompressed NoMetadata
+        sendInputWithMeta call $ StreamElem compressed
+        sendInputWithMeta call $ FinalElem uncompressed NoMetadata
 
         (resp, _metadata) <- recvFinalOutput call
         assertEqual 73086 $ resp ^. #aggregatedPayloadSize
   where
     -- Expect compressed, and /is/ compressed
-    compressed :: (OutboundEnvelope, Proto StreamingInputCallRequest)
+    compressed :: (OutboundMeta, Proto StreamingInputCallRequest)
     compressed = (
           def { outboundEnableCompression = True }
         , mkStreamingInputCallRequest True 27182
         )
 
     -- Expect uncompressed, and /is/ uncompressed
-    uncompressed :: (OutboundEnvelope, Proto StreamingInputCallRequest)
+    uncompressed :: (OutboundMeta, Proto StreamingInputCallRequest)
     uncompressed = (
           def { outboundEnableCompression = False }
         , mkStreamingInputCallRequest False 45904
@@ -51,11 +50,11 @@ runTest cmdline =
 checkServerSupportsCompressedRequest :: Connection -> IO ()
 checkServerSupportsCompressedRequest conn =
     withRPC conn def (Proxy @StreamingInputCall) $ \call -> do
-      sendInputWithEnvelope call $ FinalElem featureProbe NoMetadata
+      sendInputWithMeta call $ FinalElem featureProbe NoMetadata
       expectInvalidArgument $ recvFinalOutput call
   where
     -- Expect compressed, but is /not/ actually compressed
-    featureProbe :: (OutboundEnvelope, Proto StreamingInputCallRequest)
+    featureProbe :: (OutboundMeta, Proto StreamingInputCallRequest)
     featureProbe = (
           def { outboundEnableCompression = False }
         , mkStreamingInputCallRequest True 27182

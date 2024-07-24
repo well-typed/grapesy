@@ -13,6 +13,7 @@ import Data.Void
 
 import Network.GRPC.Server.Context
 import Network.GRPC.Spec
+import Network.GRPC.Spec.Serialization
 import Network.GRPC.Util.Session
 
 {-------------------------------------------------------------------------------
@@ -37,7 +38,7 @@ instance IsRPC rpc => DataFlow (ServerInbound rpc) where
       }
     deriving (Show)
 
-  type Message  (ServerInbound rpc) = (InboundEnvelope, Input rpc)
+  type Message  (ServerInbound rpc) = (InboundMeta, Input rpc)
   type Trailers (ServerInbound rpc) = NoMetadata
 
   -- gRPC does not support request trailers
@@ -50,7 +51,7 @@ instance IsRPC rpc => DataFlow (ServerOutbound rpc) where
       }
     deriving (Show)
 
-  type Message    (ServerOutbound rpc) = (OutboundEnvelope, Output rpc)
+  type Message    (ServerOutbound rpc) = (OutboundMeta, Output rpc)
   type Trailers   (ServerOutbound rpc) = ProperTrailers
   type NoMessages (ServerOutbound rpc) = TrailersOnly
 

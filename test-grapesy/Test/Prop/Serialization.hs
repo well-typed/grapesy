@@ -33,6 +33,7 @@ import Network.GRPC.Common
 import Network.GRPC.Common.Compression qualified as Compr
 import Network.GRPC.Common.Protobuf
 import Network.GRPC.Spec
+import Network.GRPC.Spec.Serialization
 
 import Test.Util.Awkward
 import Test.Util.Orphans ()

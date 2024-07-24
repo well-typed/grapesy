@@ -6,7 +6,6 @@ import Network.GRPC.Client
 import Network.GRPC.Common
 import Network.GRPC.Common.Protobuf
 import Network.GRPC.Common.StreamElem qualified as StreamElem
-import Network.GRPC.Spec
 
 import Interop.Client.Common
 import Interop.Client.Connect
@@ -21,18 +20,18 @@ runTest :: Cmdline -> IO ()
 runTest cmdline =
     withConnection def (testServer cmdline) $ \conn -> do
       withRPC conn def (Proxy @UnaryCall) $ \call -> do
-        sendInputWithEnvelope call $ FinalElem (request True) NoMetadata
-        resp <- recvOutputWithEnvelope call
+        sendInputWithMeta call $ FinalElem (request True) NoMetadata
+        resp <- recvOutputWithMeta call
         verifyResponse True (StreamElem.value resp)
 
       withRPC conn def (Proxy @UnaryCall) $ \call -> do
-        sendInputWithEnvelope call $ FinalElem (request False) NoMetadata
-        resp <- recvOutputWithEnvelope call
+        sendInputWithMeta call $ FinalElem (request False) NoMetadata
+        resp <- recvOutputWithMeta call
         verifyResponse False (StreamElem.value resp)
   where
     -- To keep the test simple, we disable /outbound/ compression
     -- (this test is testing /inbound/ compression)
-    request :: Bool -> (OutboundEnvelope, Proto SimpleRequest)
+    request :: Bool -> (OutboundMeta, Proto SimpleRequest)
     request expectCompressed = (
           def { outboundEnableCompression = False }
         , mkSimpleRequest False
@@ -41,10 +40,10 @@ runTest cmdline =
 
 verifyResponse ::
      HasCallStack
-  => Bool -> Maybe (InboundEnvelope, Proto SimpleResponse) -> IO ()
+  => Bool -> Maybe (InboundMeta, Proto SimpleResponse) -> IO ()
 verifyResponse _expectCompressed Nothing =
     assertFailure "Expected response"
-verifyResponse expectCompressed (Just (envelope, resp)) = do
-    assertEqual expectCompressed $ isJust (inboundCompressedSize envelope)
+verifyResponse expectCompressed (Just (meta, resp)) = do
+    assertEqual expectCompressed $ isJust (inboundCompressedSize meta)
     verifySimpleResponse resp
 

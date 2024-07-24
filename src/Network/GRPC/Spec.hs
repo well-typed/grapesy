@@ -27,15 +27,6 @@ module Network.GRPC.Spec (
   , RawRpc
     -- *** Unknown
   , UnknownRpc
-    -- ** Messages
-    -- *** Parsing
-  , InboundEnvelope(..)
-  , parseInput
-  , parseOutput
-    -- *** Construction
-  , OutboundEnvelope(..)
-  , buildInput
-  , buildOutput
     -- * Streaming types
   , StreamingType(..)
   , SStreamingType(..)
@@ -70,6 +61,9 @@ module Network.GRPC.Spec (
   , snappy
 #endif
   , allSupportedCompression
+    -- * Message metadata
+  , OutboundMeta(..)
+  , InboundMeta(..)
     -- * Requests
   , RequestHeaders_(..)
   , RequestHeaders
@@ -86,33 +80,17 @@ module Network.GRPC.Spec (
   , Scheme(..)
   , Method(..)
   , rpcPath
-    -- ** Serialization
-  , RawResourceHeaders(..)
-  , InvalidResourceHeaders(..)
-  , buildResourceHeaders
-  , parseResourceHeaders
-    -- ** Headers
-  , buildRequestHeaders
-  , parseRequestHeaders
-  , parseRequestHeaders'
     -- ** Timeouts
   , Timeout(..)
   , TimeoutValue(..)
   , TimeoutUnit(..)
   , timeoutToMicro
   , isValidTimeoutValue
-    -- ** Serialization
-  , buildTimeout
-  , parseTimeout
     -- * Responses
     -- ** Headers
   , ResponseHeaders_(..)
   , ResponseHeaders
   , ResponseHeaders'
-  , buildResponseHeaders
-  , parseResponseHeaders
-  , parseResponseHeaders'
-  , classifyServerResponse
     -- ** Trailers
   , ProperTrailers_(..)
   , ProperTrailers
@@ -126,22 +104,11 @@ module Network.GRPC.Spec (
   , GrpcNormalTermination(..)
   , grpcExceptionToTrailers
   , grpcClassifyTermination
-    -- ** Serialization
-  , parseProperTrailers
-  , parseProperTrailers'
-  , parseTrailersOnly
-  , parseTrailersOnly'
-  , parsePushback
-  , buildProperTrailers
-  , buildTrailersOnly
-  , buildPushback
   , properTrailersToTrailersOnly
   , trailersOnlyToProperTrailers
     -- * Status
   , GrpcStatus(..)
   , GrpcError(..)
-  , fromGrpcStatus
-  , toGrpcStatus
     -- ** Exceptions
   , GrpcException(..)
   , throwGrpcError
@@ -152,6 +119,7 @@ module Network.GRPC.Spec (
   , safeCustomMetadata
   , HeaderName(BinaryHeader, AsciiHeader)
   , safeHeaderName
+  , isValidAsciiValue
   , NoMetadata(..)
   , UnexpectedMetadata(..)
     -- ** Handling of duplicate metadata entries
@@ -159,11 +127,6 @@ module Network.GRPC.Spec (
   , customMetadataMapFromList
   , customMetadataMapToList
   , customMetadataMapInsert
-    -- ** Serialization
-  , buildBinaryValue
-  , parseBinaryValue
-  , parseCustomMetadata
-  , buildCustomMetadata
     -- ** Typed
   , RequestMetadata
   , ResponseInitialMetadata
@@ -175,10 +138,15 @@ module Network.GRPC.Spec (
   , ParseMetadata(..)
   , StaticMetadata(..)
   , buildMetadataIO
-    -- * Common infrastructure to all headers
+    -- * Invalid headers
   , InvalidHeaders(..)
   , InvalidHeader(..)
   , prettyInvalidHeaders
+  , invalidHeader
+  , missingHeader
+  , unexpectedHeader
+  , throwInvalidHeader
+    -- * Common infrastructure to all headers
   , ContentType(..)
   , MessageType(..)
     -- * OpenTelemetry
@@ -186,8 +154,6 @@ module Network.GRPC.Spec (
   , TraceId(..)
   , SpanId(..)
   , TraceOptions(..)
-  , buildTraceContext
-  , parseTraceContext
     -- * ORCA
   , OrcaLoadReport
   ) where
@@ -203,7 +169,7 @@ import Network.GRPC.Spec.Headers.Invalid
 import Network.GRPC.Spec.Headers.PseudoHeaders
 import Network.GRPC.Spec.Headers.Request
 import Network.GRPC.Spec.Headers.Response
-import Network.GRPC.Spec.LengthPrefixed
+import Network.GRPC.Spec.MessageMeta
 import Network.GRPC.Spec.OrcaLoadReport
 import Network.GRPC.Spec.RPC
 import Network.GRPC.Spec.RPC.JSON

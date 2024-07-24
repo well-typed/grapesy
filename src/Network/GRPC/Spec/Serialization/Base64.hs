@@ -3,7 +3,7 @@
 -- The gRPC specification mandates standard Base64-encoding for binary headers
 -- <https://datatracker.ietf.org/doc/html/rfc4648#section-4>, /but/ without
 -- padding.
-module Network.GRPC.Spec.Base64 (
+module Network.GRPC.Spec.Serialization.Base64 (
     encodeBase64
   , decodeBase64
   ) where

@@ -49,9 +49,14 @@ module Network.GRPC.Common (
   , defaultSecurePort
   , defaultHTTP2Settings
 
+    -- * Message metadata
+  , OutboundMeta(..)
+  , InboundMeta(..)
+
     -- * Exceptions
 
-    -- ** gRPC exceptions
+    -- ** gRPC status and exceptions
+  , GrpcStatus(..)
   , GrpcError(..)
   , GrpcException(..)
   , throwGrpcError

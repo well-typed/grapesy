@@ -40,7 +40,6 @@ import Network.GRPC.Common
 import Network.GRPC.Common.Compression qualified as Compr
 import Network.GRPC.Server qualified as Server
 import Network.GRPC.Server.Run qualified as Server
-import Network.GRPC.Spec
 
 import Paths_grapesy
 
@@ -109,10 +108,10 @@ data ContentTypeOverride =
     --
     -- It is the responsibility of the test to make sure that this content-type
     -- is in fact valid.
-  | ValidOverride ContentType
+  | ValidOverride Server.ContentType
 
     -- | Override with an invalid content-type
-  | InvalidOverride ContentType
+  | InvalidOverride Server.ContentType
 
 instance Default ClientServerConfig where
   def = ClientServerConfig {

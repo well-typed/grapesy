@@ -1,16 +1,16 @@
 -- | Length-prefixed messages
 --
 -- These are used both for inputs and outputs.
-module Network.GRPC.Spec.LengthPrefixed (
+module Network.GRPC.Spec.Serialization.LengthPrefixed (
     -- * Message prefix
     MessagePrefix(..)
     -- * Length-prefixex messages
     -- ** Construction
-  , OutboundEnvelope(..)
+  , OutboundMeta(..)
   , buildInput
   , buildOutput
     -- ** Parsing
-  , InboundEnvelope(..)
+  , InboundMeta(..)
   , parseInput
   , parseOutput
   ) where
@@ -21,12 +21,10 @@ import Data.ByteString.Builder (Builder)
 import Data.ByteString.Builder qualified as Builder
 import Data.ByteString.Lazy qualified as BS.Lazy
 import Data.ByteString.Lazy qualified as Lazy (ByteString)
-import Data.Default
 import Data.Proxy
 import Data.Word
 
-import Network.GRPC.Spec.Compression
-import Network.GRPC.Spec.RPC
+import Network.GRPC.Spec
 import Network.GRPC.Util.Parser (Parser)
 import Network.GRPC.Util.Parser qualified as Parser
 
@@ -59,20 +57,6 @@ getMessagePrefix = do
   Construction
 -------------------------------------------------------------------------------}
 
-data OutboundEnvelope = OutboundEnvelope {
-      -- | Enable compression for this message
-      --
-      -- Even if enabled, compression will only be used if this results in a
-      -- smaller message.
-      outboundEnableCompression :: Bool
-    }
-  deriving stock (Show)
-
-instance Default OutboundEnvelope where
-  def = OutboundEnvelope {
-        outboundEnableCompression = True
-      }
-
 -- | Serialize RPC input
 --
 -- > Length-Prefixed-Message → Compressed-Flag Message-Length Message
@@ -86,7 +70,7 @@ buildInput ::
      SupportsClientRpc rpc
   => Proxy rpc
   -> Compression
-  -> (OutboundEnvelope, Input rpc)
+  -> (OutboundMeta, Input rpc)
   -> Builder
 buildInput = buildMsg . rpcSerializeInput
 
@@ -95,7 +79,7 @@ buildOutput ::
      SupportsServerRpc rpc
   => Proxy rpc
   -> Compression
-  -> (OutboundEnvelope, Output rpc)
+  -> (OutboundMeta, Output rpc)
   -> Builder
 buildOutput = buildMsg . rpcSerializeOutput
 
@@ -103,9 +87,9 @@ buildOutput = buildMsg . rpcSerializeOutput
 buildMsg ::
      (x -> Lazy.ByteString)
   -> Compression
-  -> (OutboundEnvelope, x)
+  -> (OutboundMeta, x)
   -> Builder
-buildMsg build compr (envelope, x) = mconcat [
+buildMsg build compr (meta, x) = mconcat [
       buildMessagePrefix prefix
     , Builder.lazyByteString $
         if shouldCompress
@@ -120,7 +104,7 @@ buildMsg build compr (envelope, x) = mconcat [
     shouldCompress :: Bool
     shouldCompress = and [
           uncompressedSizeThreshold compr uncompressedLength
-        , outboundEnableCompression envelope
+        , outboundEnableCompression meta
         , compressedLength < uncompressedLength
         ]
       where
@@ -145,55 +129,46 @@ buildMsg build compr (envelope, x) = mconcat [
   Parsing
 -------------------------------------------------------------------------------}
 
-data InboundEnvelope = InboundEnvelope {
-      -- | Size of the message in compressed form, /if/ it was compressed
-      inboundCompressedSize :: Maybe Word32
-
-      -- | Size of the message in uncompressed (but still serialized) form
-    , inboundUncompressedSize :: Word32
-    }
-  deriving stock (Show)
-
 parseInput ::
      SupportsServerRpc rpc
   => Proxy rpc
   -> Compression
-  -> Parser String (InboundEnvelope, Input rpc)
+  -> Parser String (InboundMeta, Input rpc)
 parseInput = parseMsg . rpcDeserializeInput
 
 parseOutput ::
      SupportsClientRpc rpc
   => Proxy rpc
   -> Compression
-  -> Parser String (InboundEnvelope, Output rpc)
+  -> Parser String (InboundMeta, Output rpc)
 parseOutput = parseMsg . rpcDeserializeOutput
 
 parseMsg :: forall x.
      (Lazy.ByteString -> Either String x)
   -> Compression
-  -> Parser String (InboundEnvelope, x)
+  -> Parser String (InboundMeta, x)
 parseMsg parse compr = do
     prefix <- Parser.getExactly 5 getMessagePrefix
     Parser.consumeExactly (fromIntegral $ msgLength prefix) $
       parseBody (msgIsCompressed prefix)
   where
-    parseBody :: Bool -> Lazy.ByteString -> Either String (InboundEnvelope, x)
+    parseBody :: Bool -> Lazy.ByteString -> Either String (InboundMeta, x)
     parseBody False body =
-        (envelope,) <$> parse body
+        (meta,) <$> parse body
       where
-        envelope :: InboundEnvelope
-        envelope = InboundEnvelope {
+        meta :: InboundMeta
+        meta = InboundMeta {
               inboundCompressedSize   = Nothing
             , inboundUncompressedSize = lengthOf body
             }
     parseBody True compressed =
-        (envelope,) <$> parse uncompressed
+        (meta,) <$> parse uncompressed
       where
         uncompressed :: Lazy.ByteString
         uncompressed = decompress compr compressed
 
-        envelope :: InboundEnvelope
-        envelope = InboundEnvelope {
+        meta :: InboundMeta
+        meta = InboundMeta {
               inboundCompressedSize   = Just (lengthOf compressed)
             , inboundUncompressedSize = lengthOf uncompressed
             }
