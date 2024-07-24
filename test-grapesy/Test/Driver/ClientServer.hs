@@ -525,6 +525,8 @@ runTestClient cfg firstTestFailure port clientRun = do
               connCompression           = clientCompr cfg
             , connInitCompression       = clientInitCompr cfg
             , connDefaultTimeout        = Nothing
+            , connVerifyHeaders         = True
+            , connHTTP2Settings         = defaultHTTP2Settings
 
               -- Content-type
             , connContentType =
@@ -540,7 +542,6 @@ runTestClient cfg firstTestFailure port clientRun = do
                   Client.ReconnectAfter $ do
                     threadDelay 100_000
                     return Client.DontReconnect
-            , connHTTP2Settings = defaultHTTP2Settings
             }
 
         clientServer :: Client.Server

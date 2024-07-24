@@ -15,18 +15,20 @@ import Data.Proxy
 import Data.Void
 import Network.HTTP.Types qualified as HTTP
 
+import Network.GRPC.Client.Connection (Connection, ConnParams(..))
+import Network.GRPC.Client.Connection qualified as Connection
 import Network.GRPC.Common
 import Network.GRPC.Common.Compression qualified as Compr
 import Network.GRPC.Spec
 import Network.GRPC.Util.Session
+import Network.GRPC.Util.HKD qualified as HKD
 
 {-------------------------------------------------------------------------------
   Definition
 -------------------------------------------------------------------------------}
 
 data ClientSession rpc = ClientSession {
-      clientCompression :: Compr.Negotation
-    , clientUpdateMeta  :: ResponseHeaders' -> IO ()
+      clientConnection :: Connection
     }
 
 {-------------------------------------------------------------------------------
@@ -91,9 +93,7 @@ instance SupportsClientRpc rpc => InitiateSession (ClientSession rpc) where
           -- The 'CallClosedWithoutTrailers' case is therefore not relevant.
           return $ FlowStartNoMessages trailersOnly
         Right responseHeaders' -> do
-          cIn <- getInboundCompression session $
-                   responseCompression responseHeaders'
-          clientUpdateMeta session responseHeaders'
+          cIn <- processResponseHeaders session responseHeaders'
           return $ FlowStartRegular $ InboundHeaders {
               inbHeaders     = responseHeaders'
             , inbCompression = cIn
@@ -117,18 +117,35 @@ instance SupportsClientRpc rpc => InitiateSession (ClientSession rpc) where
 instance NoTrailers (ClientSession rpc) where
   noTrailers _ = NoMetadata
 
--- | Determine compression used for messages from the peer
-getInboundCompression ::
+-- | Process response headers
+--
+-- This is the client equivalent of
+-- 'Network.GRPC.Server.RequestHandler.processRequestHeaders'.
+processResponseHeaders ::
      ClientSession rpc
-  -> Either InvalidHeaders (Maybe CompressionId)
+  -> ResponseHeaders'
   -> IO Compression
-getInboundCompression session = \case
-    Left  err        -> throwIO $ CallSetupInvalidResponseHeaders err
-    Right Nothing    -> return noCompression
-    Right (Just cid) ->
-      case Compr.getSupported (clientCompression session) cid of
-        Just compr -> return compr
-        Nothing    -> throwIO $ CallSetupUnsupportedCompression cid
+processResponseHeaders (ClientSession conn) responseHeaders' = do
+    Connection.updateConnectionMeta conn responseHeaders'
+
+    if connVerifyHeaders connParams then
+      case HKD.sequence responseHeaders' of
+        Left  err  -> throwIO $ CallSetupInvalidResponseHeaders err
+        Right hdrs -> getCompression $ responseCompression hdrs
+    else
+      case responseCompression responseHeaders' of
+        Left  err  -> throwIO $ CallSetupInvalidResponseHeaders err
+        Right mcid -> getCompression mcid
+  where
+    connParams :: ConnParams
+    connParams = Connection.connParams conn
+
+    getCompression :: Maybe CompressionId -> IO Compression
+    getCompression Nothing    = return noCompression
+    getCompression (Just cid) =
+        case Compr.getSupported (connCompression connParams) cid of
+          Just compr -> return compr
+          Nothing    -> throwIO $ CallSetupUnsupportedCompression cid
 
 {-------------------------------------------------------------------------------
   Exceptions
