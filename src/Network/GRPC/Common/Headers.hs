@@ -43,7 +43,8 @@ requiredHeadersVerified =
 -- By default, we only check those headers @grapesy@ needs to function.
 verifyRequired ::
      HasRequiredHeaders h
-  => h (Checked e) -> Either e (RequiredHeaders h)
+  => h (Checked InvalidHeaders)
+  -> Either InvalidHeaders (RequiredHeaders h)
 verifyRequired = requiredHeaders
 
 -- | Validate /all/ headers
@@ -51,9 +52,10 @@ verifyRequired = requiredHeaders
 -- Validate all headers; we do this only if
 -- 'Network.GRPC.Client.connVerifyHeaders' (on the client) or
 -- 'Network.GRPC.Server.serverVerifyHeaders' (on the server) is enabled.
-verifyAll :: forall h e.
+verifyAll :: forall h.
      HasRequiredHeaders h
-  => h (Checked e) -> Either e (h Undecorated, RequiredHeaders h)
+  => h (Checked InvalidHeaders)
+  -> Either InvalidHeaders (h Undecorated, RequiredHeaders h)
 verifyAll = fmap aux . HKD.sequence
   where
     aux :: h Undecorated -> (h Undecorated, RequiredHeaders h)
@@ -62,7 +64,9 @@ verifyAll = fmap aux . HKD.sequence
 -- | Convenience wrapper, conditionally verifying all headers
 verifyAllIf ::
      HasRequiredHeaders h
-  => Bool -> h (Checked e) -> Either e (RequiredHeaders h)
+  => Bool
+  -> h (Checked InvalidHeaders)
+  -> Either InvalidHeaders (RequiredHeaders h)
 verifyAllIf False = verifyRequired
 verifyAllIf True  = fmap snd . verifyAll
 
