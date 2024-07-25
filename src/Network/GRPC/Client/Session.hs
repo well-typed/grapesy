@@ -99,6 +99,9 @@ instance SupportsClientRpc rpc => InitiateSession (ClientSession rpc) where
           case verifyAllIf connVerifyHeaders responseHeaders of
             Left  err  -> throwIO $ CallSetupInvalidResponseHeaders err
             Right hdrs -> do
+              -- TODO: <https://github.com/well-typed/grapesy/issues/203>
+              -- If we omit this call to 'updateConnectionMeta', no tests fail.
+              Connection.updateConnectionMeta conn responseHeaders
               cIn <- getCompression $ requiredResponseCompression hdrs
               return $ FlowStartRegular $ InboundHeaders {
                   inbHeaders     = responseHeaders
