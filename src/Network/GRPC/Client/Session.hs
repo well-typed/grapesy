@@ -19,10 +19,10 @@ import Network.GRPC.Client.Connection (Connection, ConnParams(..))
 import Network.GRPC.Client.Connection qualified as Connection
 import Network.GRPC.Common
 import Network.GRPC.Common.Compression qualified as Compr
+import Network.GRPC.Common.Headers
 import Network.GRPC.Spec
 import Network.GRPC.Spec.Serialization
 import Network.GRPC.Util.Session
-import Network.GRPC.Util.HKD qualified as HKD
 
 {-------------------------------------------------------------------------------
   Definition
@@ -85,20 +85,37 @@ instance SupportsClientRpc rpc => IsSession (ClientSession rpc) where
   buildMsg _ = buildInput  (Proxy @rpc) . outCompression
 
 instance SupportsClientRpc rpc => InitiateSession (ClientSession rpc) where
-  parseResponse session (ResponseInfo status headers body) =
+  parseResponse (ClientSession conn) (ResponseInfo status headers body) =
       case classifyServerResponse (Proxy @rpc) status headers body of
         Left trailersOnly ->
           -- We classify the response as Trailers-Only if the grpc-status header
           -- is present, or when the HTTP status is anything other than 200 OK
           -- (which we treat, as per the spec, as an implicit grpc-status).
           -- The 'CallClosedWithoutTrailers' case is therefore not relevant.
-          return $ FlowStartNoMessages trailersOnly
-        Right responseHeaders' -> do
-          cIn <- processResponseHeaders session responseHeaders'
-          return $ FlowStartRegular $ InboundHeaders {
-              inbHeaders     = responseHeaders'
-            , inbCompression = cIn
-            }
+          case verifyAllIf connVerifyHeaders trailersOnly of
+            Left  err   -> throwIO $ CallSetupInvalidResponseHeaders err
+            Right _hdrs -> return $ FlowStartNoMessages trailersOnly
+        Right responseHeaders -> do
+          case verifyAllIf connVerifyHeaders responseHeaders of
+            Left  err  -> throwIO $ CallSetupInvalidResponseHeaders err
+            Right hdrs -> do
+              cIn <- getCompression $ requiredResponseCompression hdrs
+              return $ FlowStartRegular $ InboundHeaders {
+                  inbHeaders     = responseHeaders
+                , inbCompression = cIn
+                }
+    where
+      ConnParams{
+          connCompression
+        , connVerifyHeaders
+        } = Connection.connParams conn
+
+      getCompression :: Maybe CompressionId -> IO Compression
+      getCompression Nothing    = return noCompression
+      getCompression (Just cid) =
+          case Compr.getSupported connCompression cid of
+            Just compr -> return compr
+            Nothing    -> throwIO $ CallSetupUnsupportedCompression cid
 
   buildRequestInfo _ start = RequestInfo {
         requestMethod  = rawMethod resourceHeaders
@@ -117,62 +134,6 @@ instance SupportsClientRpc rpc => InitiateSession (ClientSession rpc) where
 
 instance NoTrailers (ClientSession rpc) where
   noTrailers _ = NoMetadata
-
-{-------------------------------------------------------------------------------
-  Process response headers
--------------------------------------------------------------------------------}
-
--- | Required response headers
---
--- If any of these headers are missing or invalid, we throw an exception,
--- independent of 'connVerifyHeaders'
-data RequiredHeaders = RequiredHeaders {
-      requiredCompression :: Maybe CompressionId
-    }
-
--- | Validate /all/ headers, and then extract the required
-validateAll :: ResponseHeaders' -> Either InvalidHeaders RequiredHeaders
-validateAll = fmap go . HKD.sequence
-  where
-    go :: ResponseHeaders -> RequiredHeaders
-    go responseHeaders = RequiredHeaders {
-          requiredCompression = responseCompression responseHeaders
-        }
-
--- | Validate only the required headers
-validateRequired :: ResponseHeaders' -> Either InvalidHeaders RequiredHeaders
-validateRequired responseHeaders' =
-    RequiredHeaders
-      <$> responseCompression responseHeaders'
-
--- | Process response headers
---
--- This is the client equivalent of
--- 'Network.GRPC.Server.RequestHandler.processRequestHeaders'.
-processResponseHeaders ::
-     ClientSession rpc
-  -> ResponseHeaders'
-  -> IO Compression
-processResponseHeaders (ClientSession conn) responseHeaders' = do
-    Connection.updateConnectionMeta conn responseHeaders'
-    required <- either invalid return $
-                  if connVerifyHeaders connParams
-                    then validateAll      responseHeaders'
-                    else validateRequired responseHeaders'
-    getCompression (requiredCompression required)
-  where
-    connParams :: ConnParams
-    connParams = Connection.connParams conn
-
-    getCompression :: Maybe CompressionId -> IO Compression
-    getCompression Nothing    = return noCompression
-    getCompression (Just cid) =
-        case Compr.getSupported (connCompression connParams) cid of
-          Just compr -> return compr
-          Nothing    -> throwIO $ CallSetupUnsupportedCompression cid
-
-    invalid :: forall x. InvalidHeaders -> IO x
-    invalid = throwIO . CallSetupInvalidResponseHeaders
 
 {-------------------------------------------------------------------------------
   Exceptions

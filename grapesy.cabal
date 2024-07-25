@@ -106,12 +106,13 @@ library
       Network.GRPC.Common
       Network.GRPC.Common.Binary
       Network.GRPC.Common.Compression
+      Network.GRPC.Common.Headers
+      Network.GRPC.Common.HTTP2Settings
       Network.GRPC.Common.JSON
       Network.GRPC.Common.NextElem
       Network.GRPC.Common.Protobuf
       Network.GRPC.Common.StreamElem
       Network.GRPC.Common.StreamType
-      Network.GRPC.Common.HTTP2Settings
       Network.GRPC.Server
       Network.GRPC.Server.Binary
       Network.GRPC.Server.Protobuf

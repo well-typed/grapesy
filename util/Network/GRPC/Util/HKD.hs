@@ -13,6 +13,7 @@ module Network.GRPC.Util.HKD (
   , Coerce(..)
   , Traversable(..)
   , sequence
+  , map
     -- * Dealing with HKD fields
   , ValidDecoration
   , pure
@@ -21,7 +22,7 @@ module Network.GRPC.Util.HKD (
   , sequenceChecked
   ) where
 
-import Prelude hiding (Traversable(..), pure)
+import Prelude hiding (Traversable(..), pure, map)
 import Prelude qualified
 
 import Control.Monad.Except (MonadError, throwError)
@@ -68,6 +69,12 @@ class Coerce t where
   undecorate :: t (DecoratedWith Identity) -> t Undecorated
   undecorate = unsafeCoerce
 
+  -- | Introduce trivial decoration
+  --
+  -- See 'undecorate' for discussion of the validity of the default definitino.
+  decorate :: t Undecorated -> t (DecoratedWith Identity)
+  decorate = unsafeCoerce
+
 class Coerce t => Traversable t where
   traverse ::
        Applicative m
@@ -79,6 +86,13 @@ sequence ::
      (Traversable t, Applicative m)
   => t (DecoratedWith m) -> m (t Undecorated)
 sequence = fmap undecorate . traverse (fmap Identity)
+
+map ::
+     Traversable t
+  => (forall a. f a -> g a)
+  -> t (DecoratedWith f)
+  -> t (DecoratedWith g)
+map f = runIdentity . traverse (Identity . f)
 
 {-------------------------------------------------------------------------------
   Dealing with HKD fields
