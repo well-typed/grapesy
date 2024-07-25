@@ -110,8 +110,8 @@ data ContentTypeOverride =
     -- is in fact valid.
   | ValidOverride Server.ContentType
 
-    -- | Override with an invalid content-type
-  | InvalidOverride Server.ContentType
+    -- | Override with an invalid (possibly missing) content-type
+  | InvalidOverride (Maybe Server.ContentType)
 
 instance Default ClientServerConfig where
   def = ClientServerConfig {
@@ -446,7 +446,7 @@ withTestServer cfg firstTestFailure handlerLock serverHandlers k = do
               Nothing -> Server.ServerConfig {
                   serverInsecure = Just Server.InsecureConfig {
                       insecureHost = Just "127.0.0.1"
-                    , insecurePort = serverPort cfg
+                    , insecurePort = 50051 -- serverPort cfg
                     }
                 , serverSecure   = Nothing
                 }
@@ -477,9 +477,9 @@ withTestServer cfg firstTestFailure handlerLock serverHandlers k = do
                 topLevelWithHandlerLock cfg firstTestFailure handlerLock
             , Server.serverContentType =
                 case serverContentType cfg of
-                  NoOverride            -> Nothing
+                  NoOverride            -> Just Server.ContentTypeDefault
                   ValidOverride   ctype -> Just ctype
-                  InvalidOverride ctype -> Just ctype
+                  InvalidOverride ctype -> ctype
             , Server.serverVerifyHeaders =
                 -- We want to check that we can spot invalid headers
                 -- (and that we don't generate any in the client)
@@ -530,9 +530,9 @@ runTestClient cfg firstTestFailure port clientRun = do
               -- Content-type
             , connContentType =
                 case clientContentType cfg of
-                  NoOverride            -> Nothing
+                  NoOverride            -> Just Server.ContentTypeDefault
                   ValidOverride   ctype -> Just ctype
-                  InvalidOverride ctype -> Just ctype
+                  InvalidOverride ctype -> ctype
 
               -- We need a single reconnect, to enable wait-for-ready.
               -- This avoids a race condition between the server starting first

@@ -25,20 +25,25 @@ import Proto.API.Ping
 
 tests :: TestTree
 tests = testGroup "Test.Sanity.BrokenDeployments" [
-      testCase "non200"             test_non200
-    , testCase "nonGrpcContentType" test_nonGrpcContentType
+      testCase "statusNon200" test_statusNon200
+    , testGroup "ContentType" [
+          testCase "nonGrpcRegular"      test_nonGrpcContentTypeRegular
+        , testCase "missingRegular"      test_missingContentTypeRegular
+        , testCase "nonGrpcTrailersOnly" test_nonGrpcContentTypeTrailersOnly
+        , testCase "missingTrailersOnly" test_missingContentTypeTrailersOnly
+      ]
     ]
 
 {-------------------------------------------------------------------------------
-  Tests
+  HTTP Status
 -------------------------------------------------------------------------------}
 
 -- | Test HTTP to gRPC status code mapping
 --
 -- We don't test all codes here; we'd just end up duplicating the logic in
 -- 'classifyServerResponse'. We just check one representative value.
-test_non200 :: Assertion
-test_non200 = respondWith response $ \addr -> do
+test_statusNon200 :: Assertion
+test_statusNon200 = respondWith response $ \addr -> do
     mResp :: Either GrpcException (Proto PongMessage) <- try $
       Client.withConnection connParams (Client.ServerInsecure addr) $ \conn ->
         Client.withRPC conn def (Proxy @Ping) $ \call -> do
@@ -55,31 +60,43 @@ test_non200 = respondWith response $ \addr -> do
           responseStatus = HTTP.badRequest400
         }
 
-test_nonGrpcContentType :: Assertion
-test_nonGrpcContentType = respondWith response $ \addr -> do
+{-------------------------------------------------------------------------------
+  Content-type
+-------------------------------------------------------------------------------}
+
+test_invalidContentType :: Response -> Assertion
+test_invalidContentType response = respondWith response $ \addr -> do
     mResp <- try $
       Client.withConnection connParams (Client.ServerInsecure addr) $ \conn ->
         Client.withRPC conn def (Proxy @Ping) $ \call -> do
           Client.sendFinalInput call defMessage
           fst <$> Client.recvFinalOutput call
     case mResp of
-      -- TODO: <https://github.com/well-typed/grapesy/issues/22>
-      -- We should get a gRPC exception here instead.
-      Left Client.CallSetupInvalidResponseHeaders{} ->
+      Left GrpcException{grpcError = GrpcUnknown} ->
         return ()
       _otherwise ->
         assertFailure $ "Unexpected response: " ++ show mResp
-  where
-    response :: Response
-    response = def {
-          responseHeaders = [
-              ("content-type", "someInvalidContentType")
-            ]
-        }
 
-connParams :: Client.ConnParams
-connParams = def {
-      Client.connVerifyHeaders = True
+test_nonGrpcContentTypeRegular :: Assertion
+test_nonGrpcContentTypeRegular = test_invalidContentType def {
+      responseHeaders = [ ("content-type", "someInvalidContentType") ]
+    }
+
+test_missingContentTypeRegular :: Assertion
+test_missingContentTypeRegular = test_invalidContentType def {
+      responseHeaders = [ ]
+    }
+
+test_nonGrpcContentTypeTrailersOnly :: Assertion
+test_nonGrpcContentTypeTrailersOnly = test_invalidContentType def {
+      responseHeaders = [ ("grpc-status", "0")
+                        , ("content-type", "someInvalidContentType")
+                        ]
+    }
+
+test_missingContentTypeTrailersOnly :: Assertion
+test_missingContentTypeTrailersOnly = test_invalidContentType def {
+      responseHeaders = [ ("grpc-status", "0") ]
     }
 
 {-------------------------------------------------------------------------------
@@ -160,3 +177,13 @@ withTestServer server k = do
               , addressAuthority = Nothing
               }
       k addr
+
+{-------------------------------------------------------------------------------
+  Auxiliary
+-------------------------------------------------------------------------------}
+
+connParams :: Client.ConnParams
+connParams = def {
+      Client.connVerifyHeaders = True
+    }
+

@@ -117,7 +117,13 @@ classifyServerResponse rpc status headers mBody
     -- (only @grpc-status@ is required, and only @grpc-message@ can fail).
     synthesize :: GrpcError -> TrailersOnly' GrpcException
     synthesize err = parsed {
-          trailersOnlyProper = parsedTrailers {
+          trailersOnlyContentType =
+            -- We tried to parse the headers that were there, but there will
+            -- almost certainly not be a content-type header present in the
+            -- case of a non-200 HTTP status. We don't want to synthesize /that/
+            -- error, so we override it.
+            Right Nothing
+        , trailersOnlyProper = parsedTrailers {
               properTrailersGrpcStatus = Right $
                 GrpcError err
             , properTrailersGrpcMessage = Right $
@@ -227,7 +233,7 @@ parseResponseHeaders' proxy =
     parseHeader hdr@(name, _value)
       | name == "content-type"
       = modify $ \x -> x {
-            responseContentType = Just <$> parseContentType proxy hdr
+            responseContentType = Just <$> parseContentType' proxy hdr
           }
 
       | name == "grpc-encoding"
@@ -261,10 +267,44 @@ parseResponseHeaders' proxy =
     uninitResponseHeaders = ResponseHeaders {
           responseCompression       = return Nothing
         , responseAcceptCompression = return Nothing
-        , responseContentType       = return Nothing
         , responseMetadata          = mempty
         , responseUnrecognized      = return ()
+
+          -- special cases
+
+        , responseContentType =
+            throwError $
+              invalidContentType
+                "Missing content-type header"
+                (MissingHeader Nothing "content-type")
         }
+
+{-------------------------------------------------------------------------------
+  Content type
+
+  See 'parseContentType' for discussion.
+-------------------------------------------------------------------------------}
+
+parseContentType' ::
+     IsRPC rpc
+  => Proxy rpc
+  -> HTTP.Header
+  -> Either (InvalidHeaders GrpcException) ContentType
+parseContentType' proxy hdr =
+    parseContentType
+      proxy
+      (\err -> invalidContentType err (InvalidHeader Nothing hdr err))
+      hdr
+
+invalidContentType ::
+     String
+  -> InvalidHeader HandledSynthesized
+  -> InvalidHeaders GrpcException
+invalidContentType err = invalidHeaderSynthesize GrpcException {
+      grpcError         = GrpcUnknown
+    , grpcErrorMessage  = Just $ Text.pack err
+    , grpcErrorMetadata = []
+    }
 
 {-------------------------------------------------------------------------------
   > Trailers → Status [Status-Message] *Custom-Metadata
@@ -378,13 +418,19 @@ parseProperTrailers' proxy hdrs =
                ]
            }
       (properTrailers, Left invalid) ->
-         -- The @content-type@ header is present, /and/ invalid!
-         properTrailers {
-           properTrailersUnrecognized = Left $ mconcat [
-               unexpectedHeader "content-type"
-             , invalid
-             , otherInvalid $ properTrailersUnrecognized properTrailers
-             ]
+         case dropSynthesized invalid of
+           -- The content-type header is "invalid" because it's missing.
+           -- In our case, this actually means everything is as it should be.
+           InvalidHeaders [MissingHeader{}] ->
+             properTrailers
+           -- The @content-type@ header is present, /and/ invalid!
+           _otherwise ->
+             properTrailers {
+               properTrailersUnrecognized = Left $ mconcat [
+                   unexpectedHeader "content-type"
+                 , invalid
+                 , otherInvalid $ properTrailersUnrecognized properTrailers
+                 ]
          }
   where
     trailersOnly :: TrailersOnly' GrpcException
@@ -406,7 +452,7 @@ parseTrailersOnly' proxy =
     parseHeader hdr@(name, value)
       | name == "content-type"
       = modify $ \x -> x {
-            trailersOnlyContentType = Just <$> parseContentType proxy hdr
+            trailersOnlyContentType = Just <$> parseContentType' proxy hdr
           }
 
       | name == "grpc-status"
@@ -456,11 +502,16 @@ parseTrailersOnly' proxy =
 
     uninitTrailersOnly :: TrailersOnly' GrpcException
     uninitTrailersOnly = TrailersOnly {
-          trailersOnlyContentType = return Nothing
-        , trailersOnlyProper      = simpleProperTrailers
-                                      (throwError $ missingHeader "grpc-status")
-                                      (return Nothing)
-                                      mempty
+          trailersOnlyContentType =
+            throwError $
+              invalidContentType
+                "Missing content-type header"
+                (MissingHeader Nothing "content-type")
+        , trailersOnlyProper =
+            simpleProperTrailers
+              (throwError $ missingHeader Nothing "grpc-status")
+              (return Nothing)
+              mempty
         }
 
     liftProperTrailers ::

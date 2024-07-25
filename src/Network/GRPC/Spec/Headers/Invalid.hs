@@ -6,13 +6,14 @@ module Network.GRPC.Spec.Headers.Invalid (
   , InvalidHeader(..)
     -- * Construction
   , invalidHeader
-  , invalidHeaderWith
   , missingHeader
   , unexpectedHeader
+  , invalidHeaderSynthesize
   , throwInvalidHeader
     -- * Synthesized errors
   , HandledSynthesized
   , handledSynthesized
+  , dropSynthesized
   , mapSynthesized
   , mapSynthesizedM
   , throwSynthesized
@@ -60,17 +61,17 @@ newtype InvalidHeaders e = InvalidHeaders {
 -- 'Network.GRPC.Spec.Headers.Response.responseUnrecognized', etc.), which
 -- collects /all/ unrecognized headers in one field (and has value @()@ if there
 -- are none).
+--
+-- For some invalid headers the gRPC spec mandates a specific HTTP status;
+-- if this status is not specified, then we use 400 Bad Request.
 data InvalidHeader e =
     -- | We failed to parse this header
     --
     -- We record the original header and the reason parsing failed.
-    --
-    -- For some invalid headers the gRPC spec mandates a specific HTTP status;
-    -- if this status is not specified, then we use 400 Bad Request.
     InvalidHeader (Maybe HTTP.Status) HTTP.Header String
 
     -- | Missing header (header that should have been present but was not)
-  | MissingHeader HTTP.HeaderName
+  | MissingHeader (Maybe HTTP.Status) HTTP.HeaderName
 
     -- | Unexpected header (header that should not have been present but was)
   | UnexpectedHeader HTTP.HeaderName
@@ -80,24 +81,29 @@ data InvalidHeader e =
     -- This will be instantiated to 'Network.GRPC.Spec.GrpcException' after
     -- parsing, and to 'HandledSynthesized' once synthesized errors have been
     -- handled. See 'HandledSynthesized' for more details.
-  | InvalidHeaderSynthesize e
+    --
+    -- We record both the actual error and the synthesized error.
+  | InvalidHeaderSynthesize e (InvalidHeader HandledSynthesized)
   deriving stock (Show, Eq)
 
 {-------------------------------------------------------------------------------
   Construction
 -------------------------------------------------------------------------------}
 
-invalidHeader :: HTTP.Header -> String -> InvalidHeaders e
-invalidHeader hdr err = wrapOne $ InvalidHeader Nothing hdr err
+invalidHeader :: Maybe HTTP.Status -> HTTP.Header -> String -> InvalidHeaders e
+invalidHeader status hdr err = wrapOne $ InvalidHeader status hdr err
 
-invalidHeaderWith :: HTTP.Status -> HTTP.Header -> String -> InvalidHeaders e
-invalidHeaderWith status hdr err = wrapOne $ InvalidHeader (Just status) hdr err
-
-missingHeader :: HTTP.HeaderName -> InvalidHeaders e
-missingHeader name = wrapOne $ MissingHeader name
+missingHeader :: Maybe HTTP.Status -> HTTP.HeaderName -> InvalidHeaders e
+missingHeader status name = wrapOne $ MissingHeader status name
 
 unexpectedHeader :: HTTP.HeaderName -> InvalidHeaders e
 unexpectedHeader name = wrapOne $ UnexpectedHeader name
+
+invalidHeaderSynthesize ::
+     e
+  -> InvalidHeader HandledSynthesized
+  -> InvalidHeaders e
+invalidHeaderSynthesize e orig = wrapOne $ InvalidHeaderSynthesize e orig
 
 throwInvalidHeader ::
      MonadError (InvalidHeaders e) m
@@ -105,7 +111,7 @@ throwInvalidHeader ::
   -> Either String a
   -> m a
 throwInvalidHeader _   (Right a)  = return a
-throwInvalidHeader hdr (Left err) = throwError $ invalidHeader hdr err
+throwInvalidHeader hdr (Left err) = throwError $ invalidHeader Nothing hdr err
 
 {-------------------------------------------------------------------------------
   Synthesized errors
@@ -127,8 +133,26 @@ data HandledSynthesized
 instance Show HandledSynthesized where
   show = handledSynthesized
 
+instance Eq HandledSynthesized where
+  x == _ = handledSynthesized x
+
 handledSynthesized :: HandledSynthesized -> a
 handledSynthesized x = case x of {}
+
+-- | Drop all synthesized errors, leaving just the original
+dropSynthesized :: InvalidHeaders e -> InvalidHeaders HandledSynthesized
+dropSynthesized = \(InvalidHeaders es) ->
+    InvalidHeaders $ map aux es
+  where
+    aux :: InvalidHeader e -> InvalidHeader HandledSynthesized
+    aux (InvalidHeader status (name, value) err) =
+        InvalidHeader status (name, value) err
+    aux (MissingHeader status name) =
+        MissingHeader status name
+    aux (UnexpectedHeader name) =
+        UnexpectedHeader name
+    aux (InvalidHeaderSynthesize _ orig) =
+        orig
 
 mapSynthesizedM :: forall m e e'.
      Monad m
@@ -144,13 +168,13 @@ mapSynthesizedM f = \(InvalidHeaders es) ->
         case x of
           InvalidHeader status (name, value) err ->
             go (InvalidHeader status (name, value) err : acc) xs
-          MissingHeader name ->
-            go (MissingHeader name : acc) xs
+          MissingHeader status name ->
+            go (MissingHeader status name : acc) xs
           UnexpectedHeader name ->
             go (UnexpectedHeader name : acc) xs
-          InvalidHeaderSynthesize e -> do
+          InvalidHeaderSynthesize e orig -> do
             e' <- f e
-            go (InvalidHeaderSynthesize e' : acc) xs
+            go (InvalidHeaderSynthesize e' orig : acc) xs
 
 mapSynthesized :: (e -> e') -> InvalidHeaders e -> InvalidHeaders e'
 mapSynthesized f = runIdentity . mapSynthesizedM (Identity . f)
@@ -182,7 +206,7 @@ prettyInvalidHeaders = mconcat . map go . getInvalidHeaders
         , Builder.byteString $ BS.UTF8.fromString err
         , "\n"
         ]
-    go (MissingHeader name) = mconcat [
+    go (MissingHeader _status name) = mconcat [
           "Missing header '"
         , Builder.byteString (CI.original name)
         , "'\n"
@@ -192,7 +216,7 @@ prettyInvalidHeaders = mconcat . map go . getInvalidHeaders
         , Builder.byteString (CI.original name)
         , "'\n"
         ]
-    go (InvalidHeaderSynthesize e) =
+    go (InvalidHeaderSynthesize e _orig) =
         handledSynthesized e
 
 -- | HTTP status to report
@@ -204,10 +228,10 @@ statusInvalidHeaders (InvalidHeaders hs) =
     fromMaybe HTTP.badRequest400 $ asum $ map getStatus hs
   where
     getStatus :: InvalidHeader HandledSynthesized -> Maybe HTTP.Status
-    getStatus (InvalidHeader status _ _)  = status
-    getStatus MissingHeader{}             = Nothing
-    getStatus UnexpectedHeader{}          = Nothing
-    getStatus (InvalidHeaderSynthesize e) = handledSynthesized e
+    getStatus (InvalidHeader status _ _)        = status
+    getStatus (MissingHeader status _)          = status
+    getStatus (UnexpectedHeader _)              = Nothing
+    getStatus (InvalidHeaderSynthesize e _orig) = handledSynthesized e
 
 {-------------------------------------------------------------------------------
   Internal auxiliary

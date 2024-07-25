@@ -185,7 +185,7 @@ parseRequestHeaders' proxy =
       | name == "content-type"
       = modify $ \x -> x {
             requestContentType = fmap Just $
-              parseContentType proxy hdr
+              parseContentType' proxy hdr
           }
 
       | name == "grpc-message-type"
@@ -229,27 +229,51 @@ parseRequestHeaders' proxy =
           requestTimeout             = return Nothing
         , requestCompression         = return Nothing
         , requestAcceptCompression   = return Nothing
-        , requestContentType         = return Nothing
         , requestIncludeTE           = return False
         , requestUserAgent           = return Nothing
         , requestTraceContext        = return Nothing
         , requestPreviousRpcAttempts = return Nothing
-        , requestMessageType         =
+        , requestMetadata            = mempty
+        , requestUnrecognized        = return ()
+
+        -- Special cases
+
+        , requestContentType =
+            throwError $ missingHeader invalidContentType "content-type"
+        , requestMessageType =
             -- If the default is that this header should be absent, then /start/
             -- with 'MessageTypeDefault'; if it happens to present, parse it as
             -- an override.
             case rpcMessageType proxy of
               Nothing -> return $ Just MessageTypeDefault
               Just _  -> return $ Nothing
-        , requestMetadata            = mempty
-        , requestUnrecognized        = return ()
         }
 
     httpError ::
          MonadError (InvalidHeaders GrpcException) m'
       => HTTP.Header -> Either String a -> m' a
     httpError _   (Right a)  = return a
-    httpError hdr (Left err) = throwError $ invalidHeader hdr err
+    httpError hdr (Left err) = throwError $ invalidHeader Nothing hdr err
+
+{-------------------------------------------------------------------------------
+  Content type
+
+  See 'parseContentType' for discussion.
+-------------------------------------------------------------------------------}
+
+parseContentType' ::
+     IsRPC rpc
+  => Proxy rpc
+  -> HTTP.Header
+  -> Either (InvalidHeaders GrpcException) ContentType
+parseContentType' proxy hdr =
+    parseContentType
+      proxy
+      (invalidHeader invalidContentType hdr)
+      hdr
+
+invalidContentType :: Maybe HTTP.Status
+invalidContentType = Just HTTP.unsupportedMediaType415
 
 {-------------------------------------------------------------------------------
   Internal auxiliary
@@ -260,7 +284,7 @@ expectHeaderValue ::
   => HTTP.Header -> [Strict.ByteString] -> m ()
 expectHeaderValue hdr@(_name, actual) expected =
     unless (actual `elem` expected) $
-      throwError $ invalidHeader hdr err
+      throwError $ invalidHeader Nothing hdr err
   where
     err :: String
     err = concat [
