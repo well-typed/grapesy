@@ -22,9 +22,9 @@ import Data.ByteString.Builder qualified as Builder
 import Data.ByteString.Builder qualified as ByteString (Builder)
 import Data.ByteString.UTF8 qualified as BS.UTF8
 import Data.CaseInsensitive qualified as CI
+import Data.Foldable (asum)
 import Data.Maybe (fromMaybe)
 import Network.HTTP.Types qualified as HTTP
-import Control.Applicative
 
 {-------------------------------------------------------------------------------
   Definition
