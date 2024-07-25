@@ -13,9 +13,9 @@ import Network.GRPC.Client.Binary qualified as Binary
 import Network.GRPC.Common
 import Network.GRPC.Common.Binary (RawRpc)
 import Network.GRPC.Common.Compression qualified as Compr
+import Network.GRPC.Server (ContentType(..))
 import Network.GRPC.Server.StreamType qualified as Server
 import Network.GRPC.Server.StreamType.Binary qualified as Binary
-import Network.GRPC.Spec (ContentType(ContentTypeOverride))
 
 import Test.Driver.ClientServer
 

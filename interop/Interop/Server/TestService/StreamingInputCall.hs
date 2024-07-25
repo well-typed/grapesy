@@ -7,7 +7,6 @@ import Data.ByteString qualified as BS.Strict
 import Network.GRPC.Common
 import Network.GRPC.Common.Protobuf
 import Network.GRPC.Server
-import Network.GRPC.Spec
 
 import Interop.Server.Common
 
@@ -29,15 +28,15 @@ handle call = do
     -- Returns the sum of all request payload bodies received.
     loop :: Int -> IO Int
     loop !acc = do
-        streamElem <- recvInputWithEnvelope call
+        streamElem <- recvInputWithMeta call
         case streamElem of
           StreamElem  r   -> handleRequest r >>= \sz -> loop (acc + sz)
           FinalElem   r _ -> handleRequest r >>= \sz -> return $ acc + sz
           NoMoreElems   _ -> return acc
 
-    handleRequest :: (InboundEnvelope, Proto StreamingInputCallRequest) -> IO Int
-    handleRequest (envelope, request) = do
-        checkInboundCompression expectCompressed envelope
+    handleRequest :: (InboundMeta, Proto StreamingInputCallRequest) -> IO Int
+    handleRequest (meta, request) = do
+        checkInboundCompression expectCompressed meta
         return $ BS.Strict.length (request ^. #payload ^. #body)
       where
         expectCompressed :: Bool

@@ -20,7 +20,6 @@ import Network.GRPC.Client
 import Network.GRPC.Common
 import Network.GRPC.Common.Compression qualified as Compr
 import Network.GRPC.Common.Protobuf
-import Network.GRPC.Spec
 
 import Interop.Util.Exceptions
 import Interop.Util.Messages
@@ -110,13 +109,13 @@ verifyStreamingOutputs :: forall rpc.
      HasCallStack
   => Call rpc
   -> (ProperTrailers' -> IO ())               -- ^ Verify trailers
-  -> [(InboundEnvelope, Output rpc) -> IO ()] -- ^ Verifier per expected output
+  -> [(InboundMeta, Output rpc) -> IO ()] -- ^ Verifier per expected output
   -> IO ()
 verifyStreamingOutputs call verifyTrailers = go
   where
-    go :: [(InboundEnvelope, Output rpc) -> IO ()] -> IO ()
+    go :: [(InboundMeta, Output rpc) -> IO ()] -> IO ()
     go verifiers = do
-        mResp <- recvOutputWithEnvelope call
+        mResp <- recvOutputWithMeta call
         case (mResp, verifiers) of
           (NoMoreElems trailers, [])     -> verifyTrailers trailers
           (StreamElem{}, [])             -> assertFailure "Too many outputs"

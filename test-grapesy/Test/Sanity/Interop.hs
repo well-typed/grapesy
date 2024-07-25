@@ -17,12 +17,13 @@ import Network.GRPC.Client qualified as Client
 import Network.GRPC.Client.Binary qualified as Client.Binary
 import Network.GRPC.Client.StreamType.IO qualified as Client
 import Network.GRPC.Common
+import Network.GRPC.Common.Binary (RawRpc)
 import Network.GRPC.Common.Protobuf
 import Network.GRPC.Common.StreamElem qualified as StreamElem
 import Network.GRPC.Server qualified as Server
 import Network.GRPC.Server.Binary qualified as Server.Binary
+import Network.GRPC.Server.StreamType (ServerHandler'(..))
 import Network.GRPC.Server.StreamType qualified as Server
-import Network.GRPC.Spec
 
 import Proto.API.Interop
 import Proto.API.Ping
@@ -108,10 +109,10 @@ test_emptyUnary =
       , client = simpleTestClient $ \conn ->
           Client.withRPC conn def (Proxy @EmptyCall) $ \call -> do
             Client.sendFinalInput call defMessage
-            streamElem <- Client.recvOutputWithEnvelope call
+            streamElem <- Client.recvOutputWithMeta call
             case StreamElem.value streamElem of
-              Nothing             -> fail "Expected answer"
-              Just (envelope, _x) -> verifyEnvelope envelope
+              Nothing         -> fail "Expected answer"
+              Just (meta, _x) -> verifyMeta meta
       , server = [
             Server.fromMethod @EmptyCall $ ServerHandler $ \_empty ->
               return defMessage
@@ -121,10 +122,10 @@ test_emptyUnary =
     -- We don't /expect/ the empty message to be compressed, due to the overhead
     -- mentioned above. However, /if/ it is compressed, perhaps using a custom
     -- zero-overhead compression algorithm, it's size should be zero.
-    verifyEnvelope :: InboundEnvelope -> IO ()
-    verifyEnvelope envelope = do
-        assertEqual "uncompressed size" (inboundUncompressedSize envelope) 0
-        case inboundCompressedSize envelope of
+    verifyMeta :: InboundMeta -> IO ()
+    verifyMeta meta = do
+        assertEqual "uncompressed size" (inboundUncompressedSize meta) 0
+        case inboundCompressedSize meta of
           Nothing   -> return ()
           Just size -> assertEqual "compressed size" size 0
 
@@ -149,8 +150,8 @@ test_serverCompressedStreaming =
                   & #compressed .~ (defMessage & #value .~ False)
                   & #size .~ 92653
               ]
-            output1 <- Client.recvOutputWithEnvelope call
-            output2 <- Client.recvOutputWithEnvelope call
+            output1 <- Client.recvOutputWithMeta call
+            output2 <- Client.recvOutputWithMeta call
             verifyOutputs (StreamElem.value output1, StreamElem.value output2)
       , server = [
             Server.someRpcHandler $
@@ -173,8 +174,8 @@ test_serverCompressedStreaming =
               size :: Int
               size = fromIntegral $ responseParams ^. #size
 
-              envelope :: OutboundEnvelope
-              envelope = def { outboundEnableCompression = shouldCompress }
+              meta :: OutboundMeta
+              meta = def { outboundEnableCompression = shouldCompress }
 
               -- Payload matters for the test, because for messages that are too
               -- small no compression is used even when enabled.
@@ -184,22 +185,22 @@ test_serverCompressedStreaming =
               response :: Proto StreamingOutputCallResponse
               response = defMessage & #payload .~ payload
 
-          Server.sendOutputWithEnvelope call $ StreamElem (envelope, response)
+          Server.sendOutputWithMeta call $ StreamElem (meta, response)
 
         -- No further output
         Server.sendTrailers call def
 
     verifyOutputs ::
-         ( Maybe (InboundEnvelope, Proto StreamingOutputCallResponse)
-         , Maybe (InboundEnvelope, Proto StreamingOutputCallResponse)
+         ( Maybe (InboundMeta, Proto StreamingOutputCallResponse)
+         , Maybe (InboundMeta, Proto StreamingOutputCallResponse)
          )
       -> IO ()
     verifyOutputs = \case
-        (Just (envelope1, _), Just (envelope2, _)) -> do
-          case inboundCompressedSize envelope1 of
+        (Just (meta1, _), Just (meta2, _)) -> do
+          case inboundCompressedSize meta1 of
             Nothing -> assertFailure "First output should be compressed"
             Just _  -> return ()
-          case inboundCompressedSize envelope2 of
+          case inboundCompressedSize meta2 of
             Nothing -> return ()
             Just _  -> assertFailure "First output should not be compressed"
         _otherwise ->

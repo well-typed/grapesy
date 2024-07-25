@@ -6,7 +6,6 @@ import Network.GRPC.Client
 import Network.GRPC.Common
 import Network.GRPC.Common.Protobuf
 import Network.GRPC.Common.StreamElem qualified as StreamElem
-import Network.GRPC.Spec
 
 import Interop.Client.Connect
 import Interop.Cmdline
@@ -20,8 +19,8 @@ runTest cmdline =
     withConnection def (testServer cmdline) $ \conn ->
       withRPC conn def (Proxy @EmptyCall) $ \call -> do
         sendFinalInput call empty
-        streamElem :: StreamElem ProperTrailers' (InboundEnvelope, Proto Empty)
-          <- recvOutputWithEnvelope call
+        streamElem :: StreamElem ProperTrailers' (InboundMeta, Proto Empty)
+          <- recvOutputWithMeta call
 
         -- The test description asks us to also verify the size of the /outgoing/
         -- message if possible. This information is not readily available in
@@ -29,9 +28,9 @@ runTest cmdline =
         -- interop client against the @grapesy@ interop server.
 
         case StreamElem.value streamElem of
-          Just (envelope, resp) -> do
+          Just (meta, resp) -> do
             assertEqual empty $ resp
-            assertEqual 0     $ inboundUncompressedSize envelope
+            assertEqual 0     $ inboundUncompressedSize meta
           Nothing ->
             assertFailure "Expected response"
   where

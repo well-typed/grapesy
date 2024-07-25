@@ -2,12 +2,16 @@ module Network.GRPC.Spec.Status (
     -- * GRPC status
     GrpcStatus(..)
   , GrpcError(..)
-  , fromGrpcStatus
-  , toGrpcStatus
+    -- * Exceptions
+  , GrpcException(..)
+  , throwGrpcError
   ) where
 
 import Control.Exception
+import Data.Text (Text)
 import GHC.Generics (Generic)
+
+import Network.GRPC.Spec.CustomMetadata.Raw (CustomMetadata)
 
 {-------------------------------------------------------------------------------
   gRPC status
@@ -170,42 +174,25 @@ data GrpcError =
   deriving stock (Show, Eq, Generic)
   deriving anyclass (Exception)
 
-fromGrpcStatus :: GrpcStatus -> Word
-fromGrpcStatus  GrpcOk                            =  0
-fromGrpcStatus (GrpcError GrpcCancelled)          =  1
-fromGrpcStatus (GrpcError GrpcUnknown)            =  2
-fromGrpcStatus (GrpcError GrpcInvalidArgument)    =  3
-fromGrpcStatus (GrpcError GrpcDeadlineExceeded)   =  4
-fromGrpcStatus (GrpcError GrpcNotFound)           =  5
-fromGrpcStatus (GrpcError GrpcAlreadyExists)      =  6
-fromGrpcStatus (GrpcError GrpcPermissionDenied)   =  7
-fromGrpcStatus (GrpcError GrpcResourceExhausted)  =  8
-fromGrpcStatus (GrpcError GrpcFailedPrecondition) =  9
-fromGrpcStatus (GrpcError GrpcAborted)            = 10
-fromGrpcStatus (GrpcError GrpcOutOfRange)         = 11
-fromGrpcStatus (GrpcError GrpcUnimplemented)      = 12
-fromGrpcStatus (GrpcError GrpcInternal)           = 13
-fromGrpcStatus (GrpcError GrpcUnavailable)        = 14
-fromGrpcStatus (GrpcError GrpcDataLoss)           = 15
-fromGrpcStatus (GrpcError GrpcUnauthenticated)    = 16
+{-------------------------------------------------------------------------------
+  gRPC exceptions
+-------------------------------------------------------------------------------}
 
-toGrpcStatus :: Word -> Maybe GrpcStatus
-toGrpcStatus  0 = Just $ GrpcOk
-toGrpcStatus  1 = Just $ GrpcError $ GrpcCancelled
-toGrpcStatus  2 = Just $ GrpcError $ GrpcUnknown
-toGrpcStatus  3 = Just $ GrpcError $ GrpcInvalidArgument
-toGrpcStatus  4 = Just $ GrpcError $ GrpcDeadlineExceeded
-toGrpcStatus  5 = Just $ GrpcError $ GrpcNotFound
-toGrpcStatus  6 = Just $ GrpcError $ GrpcAlreadyExists
-toGrpcStatus  7 = Just $ GrpcError $ GrpcPermissionDenied
-toGrpcStatus  8 = Just $ GrpcError $ GrpcResourceExhausted
-toGrpcStatus  9 = Just $ GrpcError $ GrpcFailedPrecondition
-toGrpcStatus 10 = Just $ GrpcError $ GrpcAborted
-toGrpcStatus 11 = Just $ GrpcError $ GrpcOutOfRange
-toGrpcStatus 12 = Just $ GrpcError $ GrpcUnimplemented
-toGrpcStatus 13 = Just $ GrpcError $ GrpcInternal
-toGrpcStatus 14 = Just $ GrpcError $ GrpcUnavailable
-toGrpcStatus 15 = Just $ GrpcError $ GrpcDataLoss
-toGrpcStatus 16 = Just $ GrpcError $ GrpcUnauthenticated
-toGrpcStatus _  = Nothing
+-- | Server indicated a gRPC error
+--
+-- For the common case where you just want to set 'grpcError', you can use
+-- 'throwGrpcError'.
+data GrpcException = GrpcException {
+      grpcError          :: GrpcError
+    , grpcErrorMessage   :: Maybe Text
+    , grpcErrorMetadata  :: [CustomMetadata]
+    }
+  deriving stock (Show)
+  deriving anyclass (Exception)
 
+throwGrpcError :: GrpcError -> IO a
+throwGrpcError grpcError = throwIO $ GrpcException {
+      grpcError
+    , grpcErrorMessage  = Nothing
+    , grpcErrorMetadata = []
+    }

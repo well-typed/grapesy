@@ -8,11 +8,13 @@ module Network.GRPC.Spec.Headers.Invalid (
   , InvalidHeader(..)
     -- * Construction
   , invalidHeader
+  , invalidHeaderWith
   , missingHeader
   , unexpectedHeader
   , throwInvalidHeader
     -- * Utility
   , prettyInvalidHeaders
+  , statusInvalidHeaders
   ) where
 
 import Control.Monad.Except
@@ -20,6 +22,8 @@ import Data.ByteString.Builder qualified as Builder
 import Data.ByteString.Builder qualified as ByteString (Builder)
 import Data.ByteString.UTF8 qualified as BS.UTF8
 import Data.CaseInsensitive qualified as CI
+import Data.Foldable (asum)
+import Data.Maybe (fromMaybe)
 import Network.HTTP.Types qualified as HTTP
 
 {-------------------------------------------------------------------------------
@@ -50,7 +54,10 @@ data InvalidHeader =
     -- | We failed to parse this header
     --
     -- We record the original header and the reason parsing failed.
-    InvalidHeader HTTP.Header String
+    --
+    -- For some invalid headers the gRPC spec mandates a specific HTTP status;
+    -- if this status is not specified, then we use 400 Bad Request.
+    InvalidHeader (Maybe HTTP.Status) HTTP.Header String
 
     -- | Missing header (header that should have been present but was not)
   | MissingHeader HTTP.HeaderName
@@ -64,13 +71,16 @@ data InvalidHeader =
 -------------------------------------------------------------------------------}
 
 invalidHeader :: HTTP.Header -> String -> InvalidHeaders
-invalidHeader hdr err = InvalidHeaders [InvalidHeader hdr err]
+invalidHeader hdr err = wrapOne $ InvalidHeader Nothing hdr err
+
+invalidHeaderWith :: HTTP.Status -> HTTP.Header -> String -> InvalidHeaders
+invalidHeaderWith status hdr err = wrapOne $ InvalidHeader (Just status) hdr err
 
 missingHeader :: HTTP.HeaderName -> InvalidHeaders
-missingHeader name = InvalidHeaders [MissingHeader name]
+missingHeader name = wrapOne $ MissingHeader name
 
 unexpectedHeader :: HTTP.HeaderName -> InvalidHeaders
-unexpectedHeader name = InvalidHeaders [UnexpectedHeader name]
+unexpectedHeader name = wrapOne $ UnexpectedHeader name
 
 throwInvalidHeader ::
      MonadError InvalidHeaders m
@@ -88,7 +98,7 @@ prettyInvalidHeaders :: InvalidHeaders -> ByteString.Builder
 prettyInvalidHeaders = mconcat . map go . getInvalidHeaders
   where
     go :: InvalidHeader -> ByteString.Builder
-    go (InvalidHeader (name, value) err) = mconcat [
+    go (InvalidHeader _status (name, value) err) = mconcat [
           "Invalid header '"
         , Builder.byteString (CI.original name)
         , "' with value '"
@@ -107,3 +117,24 @@ prettyInvalidHeaders = mconcat . map go . getInvalidHeaders
         , Builder.byteString (CI.original name)
         , "'\n"
         ]
+
+-- | HTTP status to report
+--
+-- If there are multiple headers, each of which with a mandated status, we
+-- just use the first; the spec is essentially ambiguous in this case.
+statusInvalidHeaders :: InvalidHeaders -> HTTP.Status
+statusInvalidHeaders (InvalidHeaders hs) =
+    fromMaybe HTTP.badRequest400 $ asum $ map getStatus hs
+  where
+    getStatus :: InvalidHeader -> Maybe HTTP.Status
+    getStatus (InvalidHeader status _ _) = status
+    getStatus MissingHeader{}            = Nothing
+    getStatus UnexpectedHeader{}         = Nothing
+
+{-------------------------------------------------------------------------------
+  Internal auxiliary
+-------------------------------------------------------------------------------}
+
+wrapOne :: InvalidHeader -> InvalidHeaders
+wrapOne = InvalidHeaders . (:[])
+

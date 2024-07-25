@@ -57,10 +57,19 @@ module Network.GRPC.Client (
   , recvAllOutputs
 
     -- ** Low-level\/specialized API
-  , sendInputWithEnvelope
+  , ResponseHeaders_(..)
+  , ResponseHeaders
+  , ResponseHeaders'
+  , ProperTrailers_(..)
+  , ProperTrailers
+  , ProperTrailers'
+  , TrailersOnly_(..)
+  , TrailersOnly
+  , TrailersOnly'
   , recvNextOutputElem
-  , recvOutputWithEnvelope
   , recvInitialResponse
+  , recvOutputWithMeta
+  , sendInputWithMeta
 
     -- * Communication patterns
   , rpc

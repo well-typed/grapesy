@@ -4,7 +4,6 @@ import Data.Maybe (isJust)
 
 import Network.GRPC.Client
 import Network.GRPC.Common
-import Network.GRPC.Spec
 
 import Interop.Client.Common
 import Interop.Client.Connect
@@ -20,8 +19,8 @@ runTest cmdline = do
       withRPC conn def (Proxy @StreamingOutputCall) $ \call -> do
         sendFinalInput call $ mkStreamingOutputCallRequest expected Nothing
         verifyStreamingOutputs call (\_ -> return ()) $ [
-            \(envelope, resp) -> do
-               assertEqual compressed $ isJust (inboundCompressedSize envelope)
+            \(meta, resp) -> do
+               assertEqual compressed $ isJust (inboundCompressedSize meta)
                verifyStreamingOutputCallResponse sz resp
           | (compressed, sz) <- expected
           ]

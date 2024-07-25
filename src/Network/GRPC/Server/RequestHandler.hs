@@ -27,15 +27,15 @@ import Network.HTTP.Types qualified as HTTP
 import Network.HTTP2.Server qualified as HTTP2
 
 import Network.GRPC.Server.Call
-import Network.GRPC.Server.Context (ServerContext (..), ServerParams (..))
+import Network.GRPC.Server.Context (ServerContext (..))
 import Network.GRPC.Server.Handler
 import Network.GRPC.Server.HandlerMap (HandlerMap)
 import Network.GRPC.Server.HandlerMap qualified as HandlerMap
 import Network.GRPC.Server.RequestHandler.API
 import Network.GRPC.Server.Session (CallSetupFailure(..))
 import Network.GRPC.Spec
+import Network.GRPC.Spec.Serialization
 import Network.GRPC.Util.GHC
-import Network.GRPC.Util.HKD qualified as HKD
 import Network.GRPC.Util.Session.Server
 
 {-------------------------------------------------------------------------------
@@ -49,10 +49,8 @@ requestHandler handlers ctxt unmask request respond = do
 
     SomeRpcHandler (_ :: Proxy rpc) handler <-
       findHandler handlers request      `catch` setupFailure respond
-    call :: Call rpc <-
+    (call :: Call rpc, mTimeout :: Maybe Timeout) <-
       setupCall connectionToClient ctxt `catch` setupFailure respond
-    mTimeout :: Maybe Timeout <-
-      processRequestHeaders ctxt call   `catch` setupFailure respond
 
     imposeTimeout mTimeout $
       runHandler unmask call handler
@@ -102,30 +100,6 @@ findHandler handlers req = do
         , rawMethod = fromMaybe "" $ HTTP2.requestMethod req
         }
 
--- | Process request headers
---
--- In strict mode we verify /all/ headers; otherwise, we only verify those
--- headers we need to setup the call.
---
--- Throws 'CallSetupFailure' if any (validated) headers were invalid.
-processRequestHeaders ::
-     ServerContext
-  -> Call rpc
-  -> IO (Maybe Timeout)
-processRequestHeaders ctxt call = do
-    requestHeaders' <- getRequestHeaders call
-    if serverVerifyHeaders then
-      case HKD.sequence requestHeaders' of
-        Left  err            -> throwM $ CallSetupInvalidRequestHeaders err
-        Right requestHeaders -> return $ requestTimeout requestHeaders
-    else
-      case requestTimeout requestHeaders' of
-        Left  err      -> throwM $ CallSetupInvalidRequestHeaders err
-        Right mTimeout -> return mTimeout
-  where
-    ServerContext{serverParams} = ctxt
-    ServerParams{serverVerifyHeaders} = serverParams
-
 -- | Call setup failure
 --
 -- Something went wrong during call setup. No response has been sent to the
@@ -173,8 +147,9 @@ failureResponse (CallSetupInvalidResourceHeaders (InvalidMethod method)) =
 failureResponse (CallSetupInvalidResourceHeaders (InvalidPath path)) =
     HTTP2.responseBuilder HTTP.badRequest400 [] . Builder.byteString $
       "Invalid path " <> path
-failureResponse (CallSetupInvalidRequestHeaders (status, invalid)) =
-    HTTP2.responseBuilder status [] $ prettyInvalidHeaders invalid
+failureResponse (CallSetupInvalidRequestHeaders invalid) =
+    HTTP2.responseBuilder (statusInvalidHeaders invalid) [] $
+      prettyInvalidHeaders invalid
 failureResponse (CallSetupUnsupportedCompression cid) =
     HTTP2.responseBuilder HTTP.badRequest400 [] . Builder.byteString $
       "Unsupported compression: " <> BS.UTF8.fromString (show cid)

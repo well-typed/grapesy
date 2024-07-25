@@ -3,7 +3,7 @@
 -- | Server handlers
 module Network.GRPC.Server.StreamType (
     -- * Handler type
-    ServerHandler' -- opaque
+    ServerHandler'(..)
   , ServerHandler
     -- * Construct server handler
   , mkNonStreaming

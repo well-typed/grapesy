@@ -5,6 +5,7 @@ module Network.GRPC.Server (
     -- ** Configuration
   , ServerParams(..)
   , RequestHandler
+  , ContentType(..)
 
     -- * Handlers
   , Call       -- opaque
@@ -37,8 +38,8 @@ module Network.GRPC.Server (
     -- ** Low-level\/specialized API
   , initiateResponse
   , sendTrailersOnly
-  , recvInputWithEnvelope
-  , sendOutputWithEnvelope
+  , recvInputWithMeta
+  , sendOutputWithMeta
   , getRequestHeaders
 
     -- * Exceptions
@@ -57,6 +58,7 @@ import Network.GRPC.Server.HandlerMap (HandlerMap)
 import Network.GRPC.Server.HandlerMap qualified as HandlerMap
 import Network.GRPC.Server.RequestHandler
 import Network.GRPC.Server.Session (CallSetupFailure(..))
+import Network.GRPC.Spec
 import Network.GRPC.Util.HTTP2.Stream (ClientDisconnected(..))
 
 {-------------------------------------------------------------------------------

@@ -4,7 +4,7 @@ module Interop.Client.TestCase.ClientCompressedUnary (runTest) where
 
 import Network.GRPC.Client
 import Network.GRPC.Common
-import Network.GRPC.Spec
+import Network.GRPC.Common.Protobuf
 
 import Interop.Client.Common
 import Interop.Client.Connect
@@ -21,25 +21,25 @@ runTest cmdline =
 
       -- 2. Call UnaryCall with the compressed message
       withRPC conn def (Proxy @UnaryCall) $ \call -> do
-        sendInputWithEnvelope call $ FinalElem compressed NoMetadata
+        sendInputWithMeta call $ FinalElem compressed NoMetadata
         (resp, _metadata) <- recvFinalOutput call
         verifySimpleResponse resp
 
       -- 3. Call UnaryCall with the uncompressed message
       withRPC conn def (Proxy @UnaryCall) $ \call -> do
-        sendInputWithEnvelope call $ FinalElem uncompressed NoMetadata
+        sendInputWithMeta call $ FinalElem uncompressed NoMetadata
         (resp, _metadata) <- recvFinalOutput call
         verifySimpleResponse resp
   where
     -- Expect compressed, and /is/ compressed
-    compressed :: (OutboundEnvelope, Proto SimpleRequest)
+    compressed :: (OutboundMeta, Proto SimpleRequest)
     compressed = (
           def { outboundEnableCompression = True }
         , mkSimpleRequest True
         )
 
     -- Expect uncompressed, and /is/ uncompressed
-    uncompressed :: (OutboundEnvelope, Proto SimpleRequest)
+    uncompressed :: (OutboundMeta, Proto SimpleRequest)
     uncompressed = (
           def { outboundEnableCompression = False }
         , mkSimpleRequest False
@@ -51,11 +51,11 @@ runTest cmdline =
 checkServerSupportsCompressedRequest :: Connection -> IO ()
 checkServerSupportsCompressedRequest conn =
     withRPC conn def (Proxy @UnaryCall) $ \call -> do
-      sendInputWithEnvelope call $ FinalElem featureProbe NoMetadata
+      sendInputWithMeta call $ FinalElem featureProbe NoMetadata
       expectInvalidArgument $ recvFinalOutput call
   where
     -- Expect compressed, but is /not/ actually compressed
-    featureProbe :: (OutboundEnvelope, Proto SimpleRequest)
+    featureProbe :: (OutboundMeta, Proto SimpleRequest)
     featureProbe = (
           def { outboundEnableCompression = False }
         , mkSimpleRequest True

@@ -16,7 +16,7 @@ runTest cmdline =
       withRPC conn def (Proxy @StreamingOutputCall) $ \call -> do
         sendFinalInput call $ mkStreamingOutputCallRequest expected Nothing
         verifyStreamingOutputs call (\_ -> return ()) $ [
-            \(_envelope, resp) -> verifyStreamingOutputCallResponse sz resp
+            \(_meta, resp) -> verifyStreamingOutputCallResponse sz resp
           | (_compressed, sz) <- expected
           ]
   where
