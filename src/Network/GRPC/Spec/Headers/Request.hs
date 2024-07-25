@@ -20,7 +20,7 @@ import Network.GRPC.Spec.Headers.Common
 import Network.GRPC.Spec.Headers.Invalid
 import Network.GRPC.Spec.Timeout
 import Network.GRPC.Spec.TraceContext
-import Network.GRPC.Util.HKD (HKD, Undecorated, DecoratedWith)
+import Network.GRPC.Util.HKD (HKD, Undecorated, Checked)
 import Network.GRPC.Util.HKD qualified as HKD
 
 {-------------------------------------------------------------------------------
@@ -114,15 +114,14 @@ type RequestHeaders = RequestHeaders_ Undecorated
 --
 -- NOTE: The HKD type
 --
--- > RequestHeaders_ (DecoratedWith (Either InvalidRequestHeaders))
+-- > RequestHeaders_ (Checked InvalidHeaders)
 --
 -- means that each field of type @HKD f a@ is of type
 --
--- > Either InvalidRequestHeaders a
+-- > Either InvalidHeaders a
 --
 -- (i.e., either valid or invalid).
-type RequestHeaders' =
-       RequestHeaders_ (DecoratedWith (Either InvalidHeaders))
+type RequestHeaders' = RequestHeaders_ (Checked InvalidHeaders)
 
 deriving stock instance Show    RequestHeaders
 deriving stock instance Eq      RequestHeaders

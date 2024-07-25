@@ -212,7 +212,7 @@ buildResponseHeaders proxy
 parseResponseHeaders :: forall rpc m.
      (IsRPC rpc, MonadError InvalidHeaders m)
   => Proxy rpc -> [HTTP.Header] -> m ResponseHeaders
-parseResponseHeaders proxy = HKD.sequenceThrow . parseResponseHeaders' proxy
+parseResponseHeaders proxy = HKD.sequenceChecked . parseResponseHeaders' proxy
 
 parseResponseHeaders' :: forall rpc.
      IsRPC rpc
@@ -361,7 +361,7 @@ buildTrailersOnly proxy TrailersOnly{
 parseProperTrailers :: forall rpc m.
      (IsRPC rpc, MonadError InvalidHeaders m)
   => Proxy rpc -> [HTTP.Header] -> m ProperTrailers
-parseProperTrailers proxy = HKD.sequenceThrow . parseProperTrailers' proxy
+parseProperTrailers proxy = HKD.sequenceChecked . parseProperTrailers' proxy
 
 parseProperTrailers' :: forall rpc.
      IsRPC rpc
@@ -393,7 +393,7 @@ parseProperTrailers' proxy hdrs =
 parseTrailersOnly :: forall m rpc.
      (IsRPC rpc, MonadError InvalidHeaders m)
   => Proxy rpc -> [HTTP.Header] -> m TrailersOnly
-parseTrailersOnly proxy = HKD.sequenceThrow . parseTrailersOnly' proxy
+parseTrailersOnly proxy = HKD.sequenceChecked . parseTrailersOnly' proxy
 
 parseTrailersOnly' :: forall rpc.
      IsRPC rpc

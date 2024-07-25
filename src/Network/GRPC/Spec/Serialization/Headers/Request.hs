@@ -135,7 +135,7 @@ parseRequestHeaders :: forall rpc m.
      (IsRPC rpc, MonadError InvalidHeaders m)
   => Proxy rpc
   -> [HTTP.Header] -> m RequestHeaders
-parseRequestHeaders proxy = HKD.sequenceThrow . parseRequestHeaders' proxy
+parseRequestHeaders proxy = HKD.sequenceChecked . parseRequestHeaders' proxy
 
 -- | Parse request headers
 --

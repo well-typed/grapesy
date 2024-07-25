@@ -39,7 +39,7 @@ import Network.GRPC.Spec.Headers.Common
 import Network.GRPC.Spec.Headers.Invalid
 import Network.GRPC.Spec.OrcaLoadReport
 import Network.GRPC.Spec.Status
-import Network.GRPC.Util.HKD (HKD, Undecorated, DecoratedWith)
+import Network.GRPC.Util.HKD (HKD, Undecorated, Checked)
 import Network.GRPC.Util.HKD qualified as HKD
 
 {-------------------------------------------------------------------------------
@@ -77,8 +77,8 @@ type ResponseHeaders = ResponseHeaders_ Undecorated
 
 -- | Response headers allowing for invalid headers
 --
--- See 'RequestHeaders'' for an explanation of @DecoratedWith@.
-type ResponseHeaders' = ResponseHeaders_ (DecoratedWith (Either InvalidHeaders))
+-- See 'RequestHeaders'' for an explanation of @Checked@.
+type ResponseHeaders' = ResponseHeaders_ (Checked InvalidHeaders)
 
 deriving stock instance Show    ResponseHeaders
 deriving stock instance Eq      ResponseHeaders
@@ -153,7 +153,7 @@ simpleProperTrailers status msg metadata = ProperTrailers {
 type ProperTrailers = ProperTrailers_ Undecorated
 
 -- | Trailers sent after the response, allowing for invalid trailers
-type ProperTrailers' = ProperTrailers_ (DecoratedWith (Either InvalidHeaders))
+type ProperTrailers' = ProperTrailers_ (Checked InvalidHeaders)
 
 deriving stock instance Show    ProperTrailers
 deriving stock instance Eq      ProperTrailers
@@ -190,7 +190,7 @@ data TrailersOnly_ f = TrailersOnly {
 type TrailersOnly = TrailersOnly_ Undecorated
 
 -- | Trailers for the Trailers-Only case, allowing for invalid headers
-type TrailersOnly' = TrailersOnly_ (DecoratedWith (Either InvalidHeaders))
+type TrailersOnly' = TrailersOnly_ (Checked InvalidHeaders)
 
 deriving stock instance Show    TrailersOnly
 deriving stock instance Eq      TrailersOnly

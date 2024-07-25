@@ -13,10 +13,12 @@ module Network.GRPC.Util.HKD (
   , Coerce(..)
   , Traversable(..)
   , sequence
-  , sequenceThrow
     -- * Dealing with HKD fields
   , ValidDecoration
   , pure
+    -- * Error decorations
+  , Checked
+  , sequenceChecked
   ) where
 
 import Prelude hiding (Traversable(..), pure)
@@ -78,12 +80,6 @@ sequence ::
   => t (DecoratedWith m) -> m (t Undecorated)
 sequence = fmap undecorate . traverse (fmap Identity)
 
-sequenceThrow ::
-     (MonadError e m, Traversable t)
-  => t (DecoratedWith (Either e))
-  -> m (t Undecorated)
-sequenceThrow = either throwError return . sequence
-
 {-------------------------------------------------------------------------------
   Dealing with HKD fields
 -------------------------------------------------------------------------------}
@@ -119,3 +115,15 @@ pure _ =
     case validDecoration :: IsValidDecoration Applicative f of
       ValidDecoratedWith -> Prelude.pure
       ValidUndecorated   -> id
+
+{-------------------------------------------------------------------------------
+  Error decorations
+-------------------------------------------------------------------------------}
+
+type Checked e = DecoratedWith (Either e)
+
+sequenceChecked ::
+     (MonadError e m, Traversable t)
+  => t (Checked e) -> m (t Undecorated)
+sequenceChecked = either throwError return . sequence
+
