@@ -190,7 +190,7 @@ determineInbound :: forall rpc.
   -> HTTP2.Request
   -> IO (Headers (ServerInbound rpc), Maybe Timeout)
 determineInbound session req = do
-    requestHeaders' <- throwSynthesized parsed
+    requestHeaders' <- throwSynthesized throwIO parsed
     case verifyAllIf serverVerifyHeaders requestHeaders' of
       Left  err  -> throwIO $ CallSetupInvalidRequestHeaders err
       Right hdrs -> do

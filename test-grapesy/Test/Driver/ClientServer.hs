@@ -446,7 +446,7 @@ withTestServer cfg firstTestFailure handlerLock serverHandlers k = do
               Nothing -> Server.ServerConfig {
                   serverInsecure = Just Server.InsecureConfig {
                       insecureHost = Just "127.0.0.1"
-                    , insecurePort = 50051 -- serverPort cfg
+                    , insecurePort = serverPort cfg
                     }
                 , serverSecure   = Nothing
                 }

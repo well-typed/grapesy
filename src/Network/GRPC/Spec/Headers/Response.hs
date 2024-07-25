@@ -27,6 +27,7 @@ module Network.GRPC.Spec.Headers.Response (
   ) where
 
 import Control.Exception
+import Control.Monad.Except (throwError)
 import Data.List.NonEmpty (NonEmpty)
 import Data.Proxy
 import Data.Text (Text)
@@ -273,27 +274,34 @@ data GrpcNormalTermination = GrpcNormalTermination {
 grpcClassifyTermination ::
      ProperTrailers'
   -> Either GrpcException GrpcNormalTermination
-grpcClassifyTermination ProperTrailers {
-                              properTrailersGrpcStatus
-                            , properTrailersGrpcMessage
-                            , properTrailersMetadata
-                            } =
-    case properTrailersGrpcStatus of
-      Right GrpcOk -> Right GrpcNormalTermination {
-          grpcTerminatedMetadata = customMetadataMapToList properTrailersMetadata
-        }
-      Right (GrpcError err) -> Left GrpcException{
-          grpcError         = err
-        , grpcErrorMessage  = case properTrailersGrpcMessage of
-                                Right msg -> msg
-                                Left  _   -> Just "Invalid grpc-message"
-        , grpcErrorMetadata = customMetadataMapToList properTrailersMetadata
-        }
-      Left _invalidStatus -> Left GrpcException {
-          grpcError         = GrpcUnknown
-        , grpcErrorMessage  = Just "Invalid grpc-status"
-        , grpcErrorMetadata = customMetadataMapToList properTrailersMetadata
-        }
+grpcClassifyTermination =
+    -- If there are any synthesized errors, those take precedence
+    either Left aux . throwSynthesized throwError
+  where
+    aux ::
+         ProperTrailers_ (Checked (InvalidHeaders HandledSynthesized))
+      -> Either GrpcException GrpcNormalTermination
+    aux ProperTrailers { properTrailersGrpcStatus
+                       , properTrailersGrpcMessage
+                       , properTrailersMetadata
+                       } =
+        case properTrailersGrpcStatus of
+          Right GrpcOk -> Right GrpcNormalTermination {
+              grpcTerminatedMetadata =
+                customMetadataMapToList properTrailersMetadata
+            }
+          Right (GrpcError err) -> Left GrpcException{
+              grpcError         = err
+            , grpcErrorMessage  = case properTrailersGrpcMessage of
+                                    Right msg -> msg
+                                    Left  _   -> Just "Invalid grpc-message"
+            , grpcErrorMetadata = customMetadataMapToList properTrailersMetadata
+            }
+          Left _invalidStatus -> Left GrpcException {
+              grpcError         = GrpcUnknown
+            , grpcErrorMessage  = Just "Invalid grpc-status"
+            , grpcErrorMetadata = customMetadataMapToList properTrailersMetadata
+            }
 
 -- | Translate gRPC exception to response trailers
 grpcExceptionToTrailers ::  GrpcException -> ProperTrailers

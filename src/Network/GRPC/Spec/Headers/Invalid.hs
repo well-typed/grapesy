@@ -35,7 +35,6 @@ import Network.HTTP.Types qualified as HTTP
 import Network.GRPC.Spec.Status
 import Network.GRPC.Util.HKD (Checked)
 import Network.GRPC.Util.HKD qualified as HKD
-import Control.Exception
 
 {-------------------------------------------------------------------------------
   Definition
@@ -180,13 +179,14 @@ mapSynthesized :: (e -> e') -> InvalidHeaders e -> InvalidHeaders e'
 mapSynthesized f = runIdentity . mapSynthesizedM (Identity . f)
 
 throwSynthesized ::
-     HKD.Traversable h
-  =>     h (Checked (InvalidHeaders GrpcException))
-  -> IO (h (Checked (InvalidHeaders HandledSynthesized)))
-throwSynthesized =
+     (HKD.Traversable h, Monad m)
+  => (forall a. GrpcException -> m a)
+  ->    h (Checked (InvalidHeaders GrpcException))
+  -> m (h (Checked (InvalidHeaders HandledSynthesized)))
+throwSynthesized throw =
     HKD.traverse $
       either
-        (fmap Left  . mapSynthesizedM throwIO)
+        (fmap Left  . mapSynthesizedM throw)
         (fmap Right . return)
 
 {-------------------------------------------------------------------------------

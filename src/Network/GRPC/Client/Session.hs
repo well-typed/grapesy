@@ -88,7 +88,7 @@ instance SupportsClientRpc rpc => InitiateSession (ClientSession rpc) where
   parseResponse (ClientSession conn) (ResponseInfo status headers body) =
       case classifyServerResponse (Proxy @rpc) status headers body of
         Left parsed -> do
-          trailersOnly <- throwSynthesized parsed
+          trailersOnly <- throwSynthesized throwIO parsed
           -- We classify the response as Trailers-Only if the grpc-status header
           -- is present, or when the HTTP status is anything other than 200 OK
           -- (which we treat, as per the spec, as an implicit grpc-status).
@@ -97,7 +97,7 @@ instance SupportsClientRpc rpc => InitiateSession (ClientSession rpc) where
             Left  err   -> throwIO $ CallSetupInvalidResponseHeaders err
             Right _hdrs -> return $ FlowStartNoMessages trailersOnly
         Right parsed -> do
-          responseHeaders <- throwSynthesized parsed
+          responseHeaders <- throwSynthesized throwIO parsed
           case verifyAllIf connVerifyHeaders responseHeaders of
             Left  err  -> throwIO $ CallSetupInvalidResponseHeaders err
             Right hdrs -> do
