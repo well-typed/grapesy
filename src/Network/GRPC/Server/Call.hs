@@ -81,7 +81,7 @@ data Call rpc = SupportsServerRpc rpc => Call {
     , callChannel :: Session.Channel (ServerSession rpc)
 
       -- | Request headers
-    , callRequestHeaders :: RequestHeaders'
+    , callRequestHeaders :: RequestHeaders' HandledSynthesized
 
       -- | Response metadata
       --
@@ -190,6 +190,7 @@ determineInbound :: forall rpc.
   -> HTTP2.Request
   -> IO (Headers (ServerInbound rpc), Maybe Timeout)
 determineInbound session req = do
+    requestHeaders' <- throwSynthesized throwIO parsed
     case verifyAllIf serverVerifyHeaders requestHeaders' of
       Left  err  -> throwIO $ CallSetupInvalidRequestHeaders err
       Right hdrs -> do
@@ -206,9 +207,9 @@ determineInbound session req = do
     ServerContext{serverParams} = serverSessionContext
     ServerParams{serverVerifyHeaders} = serverParams
 
-    requestHeaders' :: RequestHeaders'
-    requestHeaders' = parseRequestHeaders' (Proxy @rpc) $
-                        fromHeaderTable $ HTTP2.requestHeaders req
+    parsed :: RequestHeaders' GrpcException
+    parsed = parseRequestHeaders' (Proxy @rpc) $
+               fromHeaderTable $ HTTP2.requestHeaders req
 
 -- | Determine outbound flow start
 --
@@ -296,7 +297,7 @@ getInboundCompression session = \case
 -- simply use no compression.
 getOutboundCompression ::
      ServerSession rpc
-  -> Either InvalidHeaders (Maybe (NonEmpty CompressionId))
+  -> Either (InvalidHeaders HandledSynthesized) (Maybe (NonEmpty CompressionId))
   -> Compression
 getOutboundCompression session = \case
     Left _invalidHeader -> noCompression
@@ -537,7 +538,7 @@ sendTrailersOnly Call{callContext, callResponseKickoff} metadata = do
 -- NOTE: When 'serverVerifyHeaders' is enabled the caller can be sure that the
 -- 'RequestHeaders'' do not contain any errors, even though unfortunately this
 -- is not visible from the type.
-getRequestHeaders :: Call rpc -> IO RequestHeaders'
+getRequestHeaders :: Call rpc -> IO (RequestHeaders' HandledSynthesized)
 getRequestHeaders Call{callRequestHeaders} =
     return callRequestHeaders
 

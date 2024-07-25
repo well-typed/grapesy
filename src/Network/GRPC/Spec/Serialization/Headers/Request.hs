@@ -132,7 +132,7 @@ callDefinition proxy = \hdrs -> catMaybes [
 -------------------------------------------------------------------------------}
 
 parseRequestHeaders :: forall rpc m.
-     (IsRPC rpc, MonadError InvalidHeaders m)
+     (IsRPC rpc, MonadError (InvalidHeaders GrpcException) m)
   => Proxy rpc
   -> [HTTP.Header] -> m RequestHeaders
 parseRequestHeaders proxy = HKD.sequenceChecked . parseRequestHeaders' proxy
@@ -144,12 +144,12 @@ parseRequestHeaders proxy = HKD.sequenceChecked . parseRequestHeaders' proxy
 parseRequestHeaders' :: forall rpc.
      IsRPC rpc
   => Proxy rpc
-  -> [HTTP.Header] -> RequestHeaders'
+  -> [HTTP.Header] -> RequestHeaders' GrpcException
 parseRequestHeaders' proxy =
       flip execState uninitRequestHeaders
     . mapM_ (parseHeader . second trim)
   where
-    parseHeader :: HTTP.Header -> State RequestHeaders' ()
+    parseHeader :: HTTP.Header -> State (RequestHeaders' GrpcException) ()
     parseHeader hdr@(name, value)
       | name == "user-agent"
       = modify $ \x -> x {
@@ -185,7 +185,7 @@ parseRequestHeaders' proxy =
       | name == "content-type"
       = modify $ \x -> x {
             requestContentType = fmap Just $
-              parseContentType proxy hdr
+              parseContentType' proxy hdr
           }
 
       | name == "grpc-message-type"
@@ -224,43 +224,67 @@ parseRequestHeaders' proxy =
                 requestMetadata = customMetadataMapInsert md $ requestMetadata x
               }
 
-    uninitRequestHeaders :: RequestHeaders'
+    uninitRequestHeaders :: RequestHeaders' GrpcException
     uninitRequestHeaders = RequestHeaders {
           requestTimeout             = return Nothing
         , requestCompression         = return Nothing
         , requestAcceptCompression   = return Nothing
-        , requestContentType         = return Nothing
         , requestIncludeTE           = return False
         , requestUserAgent           = return Nothing
         , requestTraceContext        = return Nothing
         , requestPreviousRpcAttempts = return Nothing
-        , requestMessageType         =
+        , requestMetadata            = mempty
+        , requestUnrecognized        = return ()
+
+        -- Special cases
+
+        , requestContentType =
+            throwError $ missingHeader invalidContentType "content-type"
+        , requestMessageType =
             -- If the default is that this header should be absent, then /start/
             -- with 'MessageTypeDefault'; if it happens to present, parse it as
             -- an override.
             case rpcMessageType proxy of
               Nothing -> return $ Just MessageTypeDefault
               Just _  -> return $ Nothing
-        , requestMetadata            = mempty
-        , requestUnrecognized        = return ()
         }
 
     httpError ::
-         MonadError InvalidHeaders m'
+         MonadError (InvalidHeaders GrpcException) m'
       => HTTP.Header -> Either String a -> m' a
     httpError _   (Right a)  = return a
-    httpError hdr (Left err) = throwError $ invalidHeader hdr err
+    httpError hdr (Left err) = throwError $ invalidHeader Nothing hdr err
+
+{-------------------------------------------------------------------------------
+  Content type
+
+  See 'parseContentType' for discussion.
+-------------------------------------------------------------------------------}
+
+parseContentType' ::
+     IsRPC rpc
+  => Proxy rpc
+  -> HTTP.Header
+  -> Either (InvalidHeaders GrpcException) ContentType
+parseContentType' proxy hdr =
+    parseContentType
+      proxy
+      (invalidHeader invalidContentType hdr)
+      hdr
+
+invalidContentType :: Maybe HTTP.Status
+invalidContentType = Just HTTP.unsupportedMediaType415
 
 {-------------------------------------------------------------------------------
   Internal auxiliary
 -------------------------------------------------------------------------------}
 
 expectHeaderValue ::
-     MonadError InvalidHeaders m
+     MonadError (InvalidHeaders GrpcException) m
   => HTTP.Header -> [Strict.ByteString] -> m ()
 expectHeaderValue hdr@(_name, actual) expected =
     unless (actual `elem` expected) $
-      throwError $ invalidHeader hdr err
+      throwError $ invalidHeader Nothing hdr err
   where
     err :: String
     err = concat [

@@ -44,15 +44,15 @@ tests = testGroup "Test.Sanity.StreamingType.NonStreaming" [
             , testGroup "fail" [
                   testCase "application/invalid-subtype" $
                     test_increment def {
-                        clientContentType = InvalidOverride $
-                           ContentTypeOverride "application/invalid-subtype"
+                        clientContentType = InvalidOverride . Just $
+                          ContentTypeOverride "application/invalid-subtype"
                       }
 
                   -- gRPC spec does not allow parameters
                 , testCase "charset" $
                     test_increment def {
-                        clientContentType = InvalidOverride $
-                           ContentTypeOverride "application/grpc; charset=us-ascii"
+                        clientContentType = InvalidOverride . Just $
+                          ContentTypeOverride "application/grpc; charset=utf-8"
                       }
                 ]
             ]

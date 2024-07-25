@@ -53,12 +53,21 @@ buildContentType proxy contentType = (
     defaultContentType :: Strict.ByteString
     defaultContentType = rpcContentType proxy
 
+-- | Parse @content-type@ header
+--
+-- The gRPC spec mandates different behaviour here for requests and responses:
+-- when parsing a request (i.e., on the server), the spec requires that the
+-- server responds with @415 Unsupported Media Type@. When parsing a response,
+-- however (i.e., on hte client), the spec mandates that we synthesize a
+-- gRPC exception. We therefore take a function as parameter to construct the
+-- actual error.
 parseContentType :: forall m rpc.
-     (MonadError InvalidHeaders m, IsRPC rpc)
+     (MonadError (InvalidHeaders GrpcException) m, IsRPC rpc)
   => Proxy rpc
+  -> (String -> InvalidHeaders GrpcException)
   -> HTTP.Header
   -> m ContentType
-parseContentType proxy hdr@(_name, value) = do
+parseContentType proxy invalid (_name, value) = do
     if value == rpcContentType proxy then
       return ContentTypeDefault
     else do
@@ -91,20 +100,18 @@ parseContentType proxy hdr@(_name, value) = do
             err "Invalid subtype."
   where
     err :: String -> m a
-    err reason =
-        throwError . invalidHeaderWith HTTP.unsupportedMediaType415 hdr $
-          concat [
-              reason
-            , " Expected \""
-            , BS.Strict.C8.unpack $
-                rpcContentType (Proxy @(UnknownRpc Nothing Nothing))
-            , "\" or \""
-            , BS.Strict.C8.unpack $
-                rpcContentType proxy
-            , "\", with \""
-            , "application/grpc+{other_format}"
-            , "\" also accepted."
-            ]
+    err reason = throwError . invalid . concat $ [
+          reason
+        , " Expected \""
+        , BS.Strict.C8.unpack $
+            rpcContentType (Proxy @(UnknownRpc Nothing Nothing))
+        , "\" or \""
+        , BS.Strict.C8.unpack $
+            rpcContentType proxy
+        , "\", with \""
+        , "application/grpc+{other_format}"
+        , "\" also accepted."
+        ]
 
 {-------------------------------------------------------------------------------
   > Message-Type → "grpc-message-type" {type name for message schema}
@@ -160,7 +167,7 @@ buildMessageEncoding compr = (
     )
 
 parseMessageEncoding ::
-     MonadError InvalidHeaders m
+     MonadError (InvalidHeaders GrpcException) m
   => HTTP.Header
   -> m CompressionId
 parseMessageEncoding (_name, value) =
@@ -178,7 +185,7 @@ buildMessageAcceptEncoding compr = (
     )
 
 parseMessageAcceptEncoding :: forall m.
-     MonadError InvalidHeaders m
+     MonadError (InvalidHeaders GrpcException) m
   => HTTP.Header
   -> m (NonEmpty CompressionId)
 parseMessageAcceptEncoding hdr@(_name, value) =
@@ -189,7 +196,7 @@ parseMessageAcceptEncoding hdr@(_name, value) =
   where
     atLeastOne :: forall a. [a] -> m (NonEmpty a)
     atLeastOne (x : xs) = return (x :| xs)
-    atLeastOne []       = throwError $ invalidHeader hdr $
+    atLeastOne []       = throwError $ invalidHeader Nothing hdr $
                             "Expected at least one compresion ID"
 
 {-------------------------------------------------------------------------------

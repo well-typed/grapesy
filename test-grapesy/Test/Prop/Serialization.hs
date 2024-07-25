@@ -401,7 +401,7 @@ instance Arbitrary (Awkward RequestHeaders) where
       requestTimeout             <- awkward
       requestCompression         <- awkward
       requestAcceptCompression   <- awkward
-      requestContentType         <- awkward
+      requestContentType         <- Just <$> awkward -- cannot be missing
       requestMessageType         <- awkward
       requestUserAgent           <- awkward
       requestIncludeTE           <- arbitrary
@@ -438,7 +438,7 @@ instance Arbitrary (Awkward ResponseHeaders) where
   arbitrary = Awkward <$> do
       responseCompression       <- awkward
       responseAcceptCompression <- awkward
-      responseContentType       <- awkward
+      responseContentType       <- Just <$> awkward
       responseMetadata          <- awkward
       return ResponseHeaders {
           responseCompression
@@ -481,7 +481,7 @@ instance Arbitrary (Awkward ProperTrailers) where
 
 instance Arbitrary (Awkward TrailersOnly) where
   arbitrary = Awkward <$> do
-      trailersOnlyContentType <- awkward
+      trailersOnlyContentType <- Just <$> awkward
       trailersOnlyProper      <- awkward
       return $ TrailersOnly {
            trailersOnlyContentType

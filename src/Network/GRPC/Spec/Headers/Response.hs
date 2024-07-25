@@ -27,6 +27,7 @@ module Network.GRPC.Spec.Headers.Response (
   ) where
 
 import Control.Exception
+import Control.Monad.Except (throwError)
 import Data.List.NonEmpty (NonEmpty)
 import Data.Proxy
 import Data.Text (Text)
@@ -77,15 +78,15 @@ type ResponseHeaders = ResponseHeaders_ Undecorated
 
 -- | Response headers allowing for invalid headers
 --
--- See 'RequestHeaders'' for an explanation of @Checked@.
-type ResponseHeaders' = ResponseHeaders_ (Checked InvalidHeaders)
+-- See 'RequestHeaders'' for an explanation of @Checked@ and the purpose of @e@.
+type ResponseHeaders' e =  ResponseHeaders_ (Checked (InvalidHeaders e))
 
 deriving stock instance Show    ResponseHeaders
 deriving stock instance Eq      ResponseHeaders
 deriving stock instance Generic ResponseHeaders
 
-deriving stock instance Show ResponseHeaders'
-deriving stock instance Eq   ResponseHeaders'
+deriving stock instance Show e => Show (ResponseHeaders_ (Checked e))
+deriving stock instance Eq   e => Eq   (ResponseHeaders_ (Checked e))
 
 instance HKD.Traversable ResponseHeaders_ where
   traverse f x =
@@ -153,14 +154,19 @@ simpleProperTrailers status msg metadata = ProperTrailers {
 type ProperTrailers = ProperTrailers_ Undecorated
 
 -- | Trailers sent after the response, allowing for invalid trailers
-type ProperTrailers' = ProperTrailers_ (Checked InvalidHeaders)
+--
+-- We do not parameterize this over the type of synthesized errors: unlike
+-- response (or request) headers, we have no opportunity to check the trailers
+-- for synthesized errors ahead of time, so having a type to signal
+-- "trailers without synthesized errors" is not particularly useful.
+type ProperTrailers' = ProperTrailers_ (Checked (InvalidHeaders GrpcException))
 
 deriving stock instance Show    ProperTrailers
 deriving stock instance Eq      ProperTrailers
 deriving stock instance Generic ProperTrailers
 
-deriving stock instance Show ProperTrailers'
-deriving stock instance Eq   ProperTrailers'
+deriving stock instance Show e => Show (ProperTrailers_ (Checked e))
+deriving stock instance Eq   e => Eq   (ProperTrailers_ (Checked e))
 
 instance HKD.Traversable ProperTrailers_ where
   traverse f x =
@@ -190,14 +196,14 @@ data TrailersOnly_ f = TrailersOnly {
 type TrailersOnly = TrailersOnly_ Undecorated
 
 -- | Trailers for the Trailers-Only case, allowing for invalid headers
-type TrailersOnly' = TrailersOnly_ (Checked InvalidHeaders)
+type TrailersOnly' e = TrailersOnly_ (Checked (InvalidHeaders e))
 
 deriving stock instance Show    TrailersOnly
 deriving stock instance Eq      TrailersOnly
 deriving stock instance Generic TrailersOnly
 
-deriving stock instance Show TrailersOnly'
-deriving stock instance Eq   TrailersOnly'
+deriving stock instance Show e => Show (TrailersOnly_ (Checked e))
+deriving stock instance Eq   e => Eq   (TrailersOnly_ (Checked e))
 
 instance HKD.Traversable TrailersOnly_ where
   traverse f x =
@@ -268,27 +274,34 @@ data GrpcNormalTermination = GrpcNormalTermination {
 grpcClassifyTermination ::
      ProperTrailers'
   -> Either GrpcException GrpcNormalTermination
-grpcClassifyTermination ProperTrailers {
-                              properTrailersGrpcStatus
-                            , properTrailersGrpcMessage
-                            , properTrailersMetadata
-                            } =
-    case properTrailersGrpcStatus of
-      Right GrpcOk -> Right GrpcNormalTermination {
-          grpcTerminatedMetadata = customMetadataMapToList properTrailersMetadata
-        }
-      Right (GrpcError err) -> Left GrpcException{
-          grpcError         = err
-        , grpcErrorMessage  = case properTrailersGrpcMessage of
-                                Right msg -> msg
-                                Left  _   -> Just "Invalid grpc-message"
-        , grpcErrorMetadata = customMetadataMapToList properTrailersMetadata
-        }
-      Left _invalidStatus -> Left GrpcException {
-          grpcError         = GrpcUnknown
-        , grpcErrorMessage  = Just "Invalid grpc-status"
-        , grpcErrorMetadata = customMetadataMapToList properTrailersMetadata
-        }
+grpcClassifyTermination =
+    -- If there are any synthesized errors, those take precedence
+    either Left aux . throwSynthesized throwError
+  where
+    aux ::
+         ProperTrailers_ (Checked (InvalidHeaders HandledSynthesized))
+      -> Either GrpcException GrpcNormalTermination
+    aux ProperTrailers { properTrailersGrpcStatus
+                       , properTrailersGrpcMessage
+                       , properTrailersMetadata
+                       } =
+        case properTrailersGrpcStatus of
+          Right GrpcOk -> Right GrpcNormalTermination {
+              grpcTerminatedMetadata =
+                customMetadataMapToList properTrailersMetadata
+            }
+          Right (GrpcError err) -> Left GrpcException{
+              grpcError         = err
+            , grpcErrorMessage  = case properTrailersGrpcMessage of
+                                    Right msg -> msg
+                                    Left  _   -> Just "Invalid grpc-message"
+            , grpcErrorMetadata = customMetadataMapToList properTrailersMetadata
+            }
+          Left _invalidStatus -> Left GrpcException {
+              grpcError         = GrpcUnknown
+            , grpcErrorMessage  = Just "Invalid grpc-status"
+            , grpcErrorMetadata = customMetadataMapToList properTrailersMetadata
+            }
 
 -- | Translate gRPC exception to response trailers
 grpcExceptionToTrailers ::  GrpcException -> ProperTrailers

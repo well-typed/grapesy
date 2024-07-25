@@ -33,7 +33,7 @@ data ServerOutbound rpc
 
 instance IsRPC rpc => DataFlow (ServerInbound rpc) where
   data Headers (ServerInbound rpc) = InboundHeaders {
-        inbHeaders     :: RequestHeaders'
+        inbHeaders     :: RequestHeaders' HandledSynthesized
       , inbCompression :: Compression
       }
     deriving (Show)
@@ -79,7 +79,7 @@ data CallSetupFailure =
     -- 'CallSetupInvalidResourceHeaders' refers to an invalid method (anything
     -- other than POST) or an invalid path; 'CallSetupInvalidRequestHeaders'
     -- means we could not parse the HTTP headers according to the gRPC spec.
-  | CallSetupInvalidRequestHeaders InvalidHeaders
+  | CallSetupInvalidRequestHeaders (InvalidHeaders HandledSynthesized)
 
     -- | Client chose unsupported compression algorithm
     --

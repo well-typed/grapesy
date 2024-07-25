@@ -321,7 +321,10 @@ getOutboundCompression Connection{connMetaVar} =
 --
 -- Amongst other things, this updates the compression algorithm to be used
 -- (see also 'getOutboundCompression').
-updateConnectionMeta :: Connection -> ResponseHeaders' -> IO ()
+updateConnectionMeta ::
+     Connection
+  -> ResponseHeaders' HandledSynthesized
+  -> IO ()
 updateConnectionMeta Connection{connMetaVar, connParams} hdrs =
     modifyMVar_ connMetaVar $ Meta.update (connCompression connParams) hdrs
 

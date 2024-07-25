@@ -123,7 +123,7 @@ buildCustomMetadata (CustomMetadata name value) =
       AsciiHeader  _ -> (buildHeaderName name, buildAsciiValue  value)
 
 parseCustomMetadata ::
-     MonadError InvalidHeaders m
+     MonadError (InvalidHeaders GrpcException) m
   => HTTP.Header -> m CustomMetadata
 parseCustomMetadata hdr@(name, value) = throwInvalidHeader hdr $ do
     name'     <- parseHeaderName name
