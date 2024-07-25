@@ -121,14 +121,16 @@ type RequestHeaders = RequestHeaders_ Undecorated
 -- > Either InvalidHeaders a
 --
 -- (i.e., either valid or invalid).
-type RequestHeaders' = RequestHeaders_ (Checked InvalidHeaders)
+--
+-- See 'InvalidHeaderSynthesize' for an explanation of the @e@ parameter.
+type RequestHeaders' e = RequestHeaders_ (Checked (InvalidHeaders e))
 
 deriving stock instance Show    RequestHeaders
 deriving stock instance Eq      RequestHeaders
 deriving stock instance Generic RequestHeaders
 
-deriving stock instance Show RequestHeaders'
-deriving stock instance Eq   RequestHeaders'
+deriving stock instance Show e => Show (RequestHeaders' e)
+deriving stock instance Eq e   => Eq   (RequestHeaders' e)
 -- We do not derive Generic for RequestHeaders', as doing so makes ghc confused
 -- about the instance for RequestHeaders for some reason.
 

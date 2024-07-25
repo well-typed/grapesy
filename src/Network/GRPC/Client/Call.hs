@@ -60,6 +60,8 @@ import Network.GRPC.Util.Session qualified as Session
 import Network.GRPC.Util.Thread qualified as Thread
 
 import Paths_grapesy qualified as Grapesy
+import Network.GRPC.Util.HKD qualified as HKD
+import Data.Bifunctor
 
 {-------------------------------------------------------------------------------
   Open a call
@@ -196,12 +198,12 @@ startRPC conn _ callParams = do
           }
 
     let serverClosedConnection ::
-             Either TrailersOnly' ProperTrailers'
+             Either (TrailersOnly' HandledSynthesized) ProperTrailers'
           -> SomeException
         serverClosedConnection =
               either toException toException
             . grpcClassifyTermination
-            . either (fst . trailersOnlyToProperTrailers) id
+            . either trailersOnlyToProperTrailers' id
 
     channel <-
       Session.setupRequestChannel
@@ -374,7 +376,10 @@ recvResponseInitialMetadata :: forall rpc. Call rpc -> IO (ResponseMetadata rpc)
 recvResponseInitialMetadata call@Call{} =
     recvInitialResponse call >>= aux
   where
-    aux :: Either TrailersOnly' ResponseHeaders' -> IO (ResponseMetadata rpc)
+    aux ::
+         Either (TrailersOnly'    HandledSynthesized)
+                (ResponseHeaders' HandledSynthesized)
+      -> IO (ResponseMetadata rpc)
     aux (Left trailers) =
         case grpcClassifyTermination properTrailers of
           Left exception ->
@@ -383,7 +388,7 @@ recvResponseInitialMetadata call@Call{} =
             ResponseTrailingMetadata <$>
               parseMetadata (grpcTerminatedMetadata terminatedNormally)
       where
-        (properTrailers, _contentType) = trailersOnlyToProperTrailers trailers
+        properTrailers = trailersOnlyToProperTrailers' trailers
     aux (Right headers) =
         ResponseInitialMetadata <$>
           parseMetadata (customMetadataMapToList $ responseMetadata headers)
@@ -397,7 +402,9 @@ recvResponseInitialMetadata call@Call{} =
 -- Most applications will never need to use this function.
 recvInitialResponse ::
      Call rpc
-  -> IO (Either TrailersOnly' ResponseHeaders')
+  -> IO ( Either (TrailersOnly'    HandledSynthesized)
+                 (ResponseHeaders' HandledSynthesized)
+        )
 recvInitialResponse Call{callChannel} =
     fmap inbHeaders <$> Session.getInboundHeaders callChannel
 
@@ -547,11 +554,11 @@ recvBoth Call{callChannel} = liftIO $
     -- We lose type information here: Trailers-Only is no longer visible
     flatten ::
          Either
-           TrailersOnly'
+           (TrailersOnly' HandledSynthesized)
            (StreamElem ProperTrailers' (InboundMeta, Output rpc))
       -> StreamElem ProperTrailers' (InboundMeta, Output rpc)
     flatten (Left trailersOnly) =
-        NoMoreElems $ fst $ trailersOnlyToProperTrailers trailersOnly
+        NoMoreElems $ trailersOnlyToProperTrailers' trailersOnly
     flatten (Right streamElem) =
         streamElem
 
@@ -564,11 +571,11 @@ recvEither Call{callChannel} = liftIO $
   where
     flatten ::
          Either
-           TrailersOnly'
+           (TrailersOnly' HandledSynthesized)
            (Either ProperTrailers' (InboundMeta, Output rpc))
       -> Either ProperTrailers' (InboundMeta, Output rpc)
     flatten (Left trailersOnly) =
-        Left $ fst $ trailersOnlyToProperTrailers trailersOnly
+        Left $ trailersOnlyToProperTrailers' trailersOnly
     flatten (Right (Left properTrailers)) =
         Left $ properTrailers
     flatten (Right (Right msg)) =
@@ -584,3 +591,25 @@ responseTrailingMetadata Call{} trailers = liftIO $
         parseMetadata $ grpcTerminatedMetadata terminatedNormally
       Left exception ->
         throwM exception
+
+
+-- | Forget that we are in the Trailers-Only case
+--
+-- Error handling is a bit subtle here. If we are in the Trailers-Only case:
+--
+-- * Any synthesized errors have already been dealt with
+--   (the type @TrailersOnly' Void@ tell us this)
+-- * If 'connVerifyHeaders' is enabled, /all/ trailers have been verified
+--   (unfortunately this we cannot see from type).
+--
+-- This means that we might only have a (non-synthesized) error for the
+-- content-type if 'connVerifyHeaders' is /not/ enabled; since we are not
+-- actually interested in the content-type here, we can therefore just ignore
+-- these errors.
+trailersOnlyToProperTrailers' ::
+     TrailersOnly' HandledSynthesized
+  -> ProperTrailers'
+trailersOnlyToProperTrailers' =
+      fst                                   -- justified by the comment above
+    . trailersOnlyToProperTrailers
+    . HKD.map (first $ mapSynthesized handledSynthesized) -- simple injection

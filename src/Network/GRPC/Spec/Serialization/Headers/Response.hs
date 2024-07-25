@@ -77,7 +77,7 @@ classifyServerResponse :: forall rpc.
   -> HTTP.Status           -- ^ HTTP status
   -> [HTTP.Header]         -- ^ Headers
   -> Maybe Lazy.ByteString -- ^ Response body, if known (used for errors only)
-  -> Either TrailersOnly' ResponseHeaders'
+  -> Either (TrailersOnly' GrpcException) (ResponseHeaders' GrpcException)
 classifyServerResponse rpc status headers mBody
   -- The "HTTP to gRPC Status Code Mapping" is explicit:
   --
@@ -115,7 +115,7 @@ classifyServerResponse rpc status headers mBody
     --
     -- The resulting 'TrailersOnly'' cannot contain any parse errors
     -- (only @grpc-status@ is required, and only @grpc-message@ can fail).
-    synthesize :: GrpcError -> TrailersOnly'
+    synthesize :: GrpcError -> TrailersOnly' GrpcException
     synthesize err = parsed {
           trailersOnlyProper = parsedTrailers {
               properTrailersGrpcStatus = Right $
@@ -128,7 +128,7 @@ classifyServerResponse rpc status headers mBody
         }
 
       where
-        parsed :: TrailersOnly'
+        parsed :: TrailersOnly' GrpcException
         parsed = parseTrailersOnly' rpc headers
 
         parsedTrailers :: ProperTrailers'
@@ -210,20 +210,20 @@ buildResponseHeaders proxy
 
 -- | Parse response headers
 parseResponseHeaders :: forall rpc m.
-     (IsRPC rpc, MonadError InvalidHeaders m)
+     (IsRPC rpc, MonadError (InvalidHeaders GrpcException) m)
   => Proxy rpc -> [HTTP.Header] -> m ResponseHeaders
 parseResponseHeaders proxy = HKD.sequenceChecked . parseResponseHeaders' proxy
 
 parseResponseHeaders' :: forall rpc.
      IsRPC rpc
-  => Proxy rpc -> [HTTP.Header] -> ResponseHeaders'
+  => Proxy rpc -> [HTTP.Header] -> ResponseHeaders' GrpcException
 parseResponseHeaders' proxy =
       flip execState uninitResponseHeaders
     . mapM_ (parseHeader . second trim)
   where
     -- HTTP2 header names are always lowercase, and must be ASCII.
     -- <https://datatracker.ietf.org/doc/html/rfc7540#section-8.1.2>
-    parseHeader :: HTTP.Header -> State ResponseHeaders' ()
+    parseHeader :: HTTP.Header -> State (ResponseHeaders' GrpcException) ()
     parseHeader hdr@(name, _value)
       | name == "content-type"
       = modify $ \x -> x {
@@ -257,7 +257,7 @@ parseResponseHeaders' proxy =
                   customMetadataMapInsert md $ responseMetadata x
               }
 
-    uninitResponseHeaders :: ResponseHeaders'
+    uninitResponseHeaders :: ResponseHeaders' GrpcException
     uninitResponseHeaders = ResponseHeaders {
           responseCompression       = return Nothing
         , responseAcceptCompression = return Nothing
@@ -359,7 +359,7 @@ buildTrailersOnly proxy TrailersOnly{
 -- This means that Trailers-Only is a superset of the Trailers; we make use of
 -- this here, and error out if we get an unexpected @Content-Type@ override.
 parseProperTrailers :: forall rpc m.
-     (IsRPC rpc, MonadError InvalidHeaders m)
+     (IsRPC rpc, MonadError (InvalidHeaders GrpcException) m)
   => Proxy rpc -> [HTTP.Header] -> m ProperTrailers
 parseProperTrailers proxy = HKD.sequenceChecked . parseProperTrailers' proxy
 
@@ -387,22 +387,22 @@ parseProperTrailers' proxy hdrs =
              ]
          }
   where
-    trailersOnly :: TrailersOnly'
+    trailersOnly :: TrailersOnly' GrpcException
     trailersOnly = parseTrailersOnly' proxy hdrs
 
 parseTrailersOnly :: forall m rpc.
-     (IsRPC rpc, MonadError InvalidHeaders m)
+     (IsRPC rpc, MonadError (InvalidHeaders GrpcException) m)
   => Proxy rpc -> [HTTP.Header] -> m TrailersOnly
 parseTrailersOnly proxy = HKD.sequenceChecked . parseTrailersOnly' proxy
 
 parseTrailersOnly' :: forall rpc.
      IsRPC rpc
-  => Proxy rpc -> [HTTP.Header] -> TrailersOnly'
+  => Proxy rpc -> [HTTP.Header] -> TrailersOnly' GrpcException
 parseTrailersOnly' proxy =
       flip execState uninitTrailersOnly
     . mapM_ (parseHeader . second trim)
   where
-    parseHeader :: HTTP.Header -> State TrailersOnly' ()
+    parseHeader :: HTTP.Header -> State (TrailersOnly' GrpcException) ()
     parseHeader hdr@(name, value)
       | name == "content-type"
       = modify $ \x -> x {
@@ -454,7 +454,7 @@ parseTrailersOnly' proxy =
                   customMetadataMapInsert md $ properTrailersMetadata x
               }
 
-    uninitTrailersOnly :: TrailersOnly'
+    uninitTrailersOnly :: TrailersOnly' GrpcException
     uninitTrailersOnly = TrailersOnly {
           trailersOnlyContentType = return Nothing
         , trailersOnlyProper      = simpleProperTrailers
@@ -502,7 +502,7 @@ parsePushback bs =
   Internal auxiliary
 -------------------------------------------------------------------------------}
 
-otherInvalid :: Either InvalidHeaders () -> InvalidHeaders
+otherInvalid :: Either (InvalidHeaders e) () -> InvalidHeaders e
 otherInvalid = either id (\() -> mempty)
 
 decodeUtf8Lenient :: BS.Strict.C8.ByteString -> Text

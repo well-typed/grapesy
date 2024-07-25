@@ -146,6 +146,12 @@ module Network.GRPC.Spec (
   , missingHeader
   , unexpectedHeader
   , throwInvalidHeader
+    -- ** Synthesized errors
+  , HandledSynthesized
+  , handledSynthesized
+  , mapSynthesizedM
+  , mapSynthesized
+  , throwSynthesized
     -- ** Use
   , prettyInvalidHeaders
   , statusInvalidHeaders

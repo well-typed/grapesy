@@ -132,7 +132,7 @@ callDefinition proxy = \hdrs -> catMaybes [
 -------------------------------------------------------------------------------}
 
 parseRequestHeaders :: forall rpc m.
-     (IsRPC rpc, MonadError InvalidHeaders m)
+     (IsRPC rpc, MonadError (InvalidHeaders GrpcException) m)
   => Proxy rpc
   -> [HTTP.Header] -> m RequestHeaders
 parseRequestHeaders proxy = HKD.sequenceChecked . parseRequestHeaders' proxy
@@ -144,12 +144,12 @@ parseRequestHeaders proxy = HKD.sequenceChecked . parseRequestHeaders' proxy
 parseRequestHeaders' :: forall rpc.
      IsRPC rpc
   => Proxy rpc
-  -> [HTTP.Header] -> RequestHeaders'
+  -> [HTTP.Header] -> RequestHeaders' GrpcException
 parseRequestHeaders' proxy =
       flip execState uninitRequestHeaders
     . mapM_ (parseHeader . second trim)
   where
-    parseHeader :: HTTP.Header -> State RequestHeaders' ()
+    parseHeader :: HTTP.Header -> State (RequestHeaders' GrpcException) ()
     parseHeader hdr@(name, value)
       | name == "user-agent"
       = modify $ \x -> x {
@@ -224,7 +224,7 @@ parseRequestHeaders' proxy =
                 requestMetadata = customMetadataMapInsert md $ requestMetadata x
               }
 
-    uninitRequestHeaders :: RequestHeaders'
+    uninitRequestHeaders :: RequestHeaders' GrpcException
     uninitRequestHeaders = RequestHeaders {
           requestTimeout             = return Nothing
         , requestCompression         = return Nothing
@@ -246,7 +246,7 @@ parseRequestHeaders' proxy =
         }
 
     httpError ::
-         MonadError InvalidHeaders m'
+         MonadError (InvalidHeaders GrpcException) m'
       => HTTP.Header -> Either String a -> m' a
     httpError _   (Right a)  = return a
     httpError hdr (Left err) = throwError $ invalidHeader hdr err
@@ -256,7 +256,7 @@ parseRequestHeaders' proxy =
 -------------------------------------------------------------------------------}
 
 expectHeaderValue ::
-     MonadError InvalidHeaders m
+     MonadError (InvalidHeaders GrpcException) m
   => HTTP.Header -> [Strict.ByteString] -> m ()
 expectHeaderValue hdr@(_name, actual) expected =
     unless (actual `elem` expected) $

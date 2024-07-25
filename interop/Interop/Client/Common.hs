@@ -108,8 +108,8 @@ verifyStreamingOutputCallResponse expectedSize resp = do
 verifyStreamingOutputs :: forall rpc.
      HasCallStack
   => Call rpc
-  -> (ProperTrailers' -> IO ())               -- ^ Verify trailers
-  -> [(InboundMeta, Output rpc) -> IO ()] -- ^ Verifier per expected output
+  -> (ProperTrailers' -> IO ())            -- ^ Verify trailers
+  -> [(InboundMeta, Output rpc) -> IO ()]  -- ^ Verifier per expected output
   -> IO ()
 verifyStreamingOutputs call verifyTrailers = go
   where

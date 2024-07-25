@@ -41,14 +41,14 @@ data ClientOutbound rpc
 
 instance IsRPC rpc => DataFlow (ClientInbound rpc) where
   data Headers (ClientInbound rpc) = InboundHeaders {
-        inbHeaders     :: ResponseHeaders'
+        inbHeaders     :: ResponseHeaders' HandledSynthesized
       , inbCompression :: Compression
       }
     deriving (Show)
 
   type Message    (ClientInbound rpc) = (InboundMeta, Output rpc)
   type Trailers   (ClientInbound rpc) = ProperTrailers'
-  type NoMessages (ClientInbound rpc) = TrailersOnly'
+  type NoMessages (ClientInbound rpc) = TrailersOnly' HandledSynthesized
 
 instance IsRPC rpc => DataFlow (ClientOutbound rpc) where
   data Headers (ClientOutbound rpc) = OutboundHeaders {
@@ -87,15 +87,17 @@ instance SupportsClientRpc rpc => IsSession (ClientSession rpc) where
 instance SupportsClientRpc rpc => InitiateSession (ClientSession rpc) where
   parseResponse (ClientSession conn) (ResponseInfo status headers body) =
       case classifyServerResponse (Proxy @rpc) status headers body of
-        Left trailersOnly ->
-          -- We classify the response as Trailers-Only if the grpc-status header
-          -- is present, or when the HTTP status is anything other than 200 OK
-          -- (which we treat, as per the spec, as an implicit grpc-status).
-          -- The 'CallClosedWithoutTrailers' case is therefore not relevant.
+        Left parsed -> do
+          trailersOnly <- throwSynthesized parsed
+          ---- We classify the response as Trailers-Only if the grpc-status header
+          ---- is present, or when the HTTP status is anything other than 200 OK
+          ---- (which we treat, as per the spec, as an implicit grpc-status).
+          ---- The 'CallClosedWithoutTrailers' case is therefore not relevant.
           case verifyAllIf connVerifyHeaders trailersOnly of
             Left  err   -> throwIO $ CallSetupInvalidResponseHeaders err
             Right _hdrs -> return $ FlowStartNoMessages trailersOnly
-        Right responseHeaders -> do
+        Right parsed -> do
+          responseHeaders <- throwSynthesized parsed
           case verifyAllIf connVerifyHeaders responseHeaders of
             Left  err  -> throwIO $ CallSetupInvalidResponseHeaders err
             Right hdrs -> do
@@ -147,7 +149,7 @@ data CallSetupFailure =
     CallSetupUnsupportedCompression CompressionId
 
     -- | We failed to parse the response headers
-  | CallSetupInvalidResponseHeaders InvalidHeaders
+  | CallSetupInvalidResponseHeaders (InvalidHeaders HandledSynthesized)
   deriving stock (Show)
   deriving anyclass (Exception)
 

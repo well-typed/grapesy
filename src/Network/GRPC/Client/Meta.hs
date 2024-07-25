@@ -45,7 +45,9 @@ init initCompr = Meta {
 -- | Update 'Meta' given response headers
 --
 -- Returns the updated 'Meta'.
-update :: MonadThrow m => Compr.Negotation -> ResponseHeaders' -> Meta -> m Meta
+update ::
+     MonadThrow m
+  => Compr.Negotation -> ResponseHeaders' HandledSynthesized -> Meta -> m Meta
 update compr hdrs meta =
     Meta
       <$> updateCompression
@@ -64,7 +66,7 @@ update compr hdrs meta =
 updateCompression :: forall m.
      MonadThrow m
   => Compr.Negotation
-  -> Either InvalidHeaders (Maybe (NonEmpty CompressionId))
+  -> Either (InvalidHeaders HandledSynthesized) (Maybe (NonEmpty CompressionId))
   -> Maybe Compression -> m (Maybe Compression)
 updateCompression negotation (Right accepted) = go
   where

@@ -19,15 +19,14 @@ runTest cmdline =
     withConnection def (testServer cmdline) $ \conn ->
       withRPC conn def (Proxy @EmptyCall) $ \call -> do
         sendFinalInput call empty
-        streamElem :: StreamElem ProperTrailers' (InboundMeta, Proto Empty)
-          <- recvOutputWithMeta call
+        streamElem <- StreamElem.value <$> recvOutputWithMeta call
 
         -- The test description asks us to also verify the size of the /outgoing/
         -- message if possible. This information is not readily available in
         -- @grapesy@, but we will test it implicitly when running the @grapesy@
         -- interop client against the @grapesy@ interop server.
 
-        case StreamElem.value streamElem of
+        case streamElem of
           Just (meta, resp) -> do
             assertEqual empty $ resp
             assertEqual 0     $ inboundUncompressedSize meta

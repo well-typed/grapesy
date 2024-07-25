@@ -187,7 +187,7 @@ data GrpcException = GrpcException {
     , grpcErrorMessage   :: Maybe Text
     , grpcErrorMetadata  :: [CustomMetadata]
     }
-  deriving stock (Show)
+  deriving stock (Show, Eq)
   deriving anyclass (Exception)
 
 throwGrpcError :: GrpcError -> IO a

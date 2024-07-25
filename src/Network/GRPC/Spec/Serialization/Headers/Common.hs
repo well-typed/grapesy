@@ -54,7 +54,7 @@ buildContentType proxy contentType = (
     defaultContentType = rpcContentType proxy
 
 parseContentType :: forall m rpc.
-     (MonadError InvalidHeaders m, IsRPC rpc)
+     (MonadError (InvalidHeaders GrpcException) m, IsRPC rpc)
   => Proxy rpc
   -> HTTP.Header
   -> m ContentType
@@ -160,7 +160,7 @@ buildMessageEncoding compr = (
     )
 
 parseMessageEncoding ::
-     MonadError InvalidHeaders m
+     MonadError (InvalidHeaders GrpcException) m
   => HTTP.Header
   -> m CompressionId
 parseMessageEncoding (_name, value) =
@@ -178,7 +178,7 @@ buildMessageAcceptEncoding compr = (
     )
 
 parseMessageAcceptEncoding :: forall m.
-     MonadError InvalidHeaders m
+     MonadError (InvalidHeaders GrpcException) m
   => HTTP.Header
   -> m (NonEmpty CompressionId)
 parseMessageAcceptEncoding hdr@(_name, value) =
