@@ -118,6 +118,7 @@ data RequestHeaders_ f = RequestHeaders {
       -- | Unrecognized headers
     , requestUnrecognized :: HKD f ()
     }
+  deriving anyclass (HKD.Coerce)
 
 -- | Request headers (without allowing for invalid headers)
 --
@@ -153,19 +154,19 @@ deriving stock instance Eq   RequestHeaders'
 -- about the instance for RequestHeaders for some reason.
 
 instance HKD.Traversable RequestHeaders_ where
-  sequence x =
+  traverse f x =
       RequestHeaders
-        <$> requestTimeout             x
-        <*> requestCompression         x
-        <*> requestAcceptCompression   x
-        <*> requestContentType         x
-        <*> requestMessageType         x
-        <*> requestUserAgent           x
-        <*> requestIncludeTE           x
-        <*> requestTraceContext        x
-        <*> requestPreviousRpcAttempts x
-        <*> pure (requestMetadata      x)
-        <*> requestUnrecognized        x
+        <$> (f    $ requestTimeout             x)
+        <*> (f    $ requestCompression         x)
+        <*> (f    $ requestAcceptCompression   x)
+        <*> (f    $ requestContentType         x)
+        <*> (f    $ requestMessageType         x)
+        <*> (f    $ requestUserAgent           x)
+        <*> (f    $ requestIncludeTE           x)
+        <*> (f    $ requestTraceContext        x)
+        <*> (f    $ requestPreviousRpcAttempts x)
+        <*> (pure $ requestMetadata            x)
+        <*> (f    $ requestUnrecognized        x)
 
 {-------------------------------------------------------------------------------
   Construction

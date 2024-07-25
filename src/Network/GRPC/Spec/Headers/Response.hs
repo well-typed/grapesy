@@ -108,6 +108,7 @@ data ResponseHeaders_ f = ResponseHeaders {
       -- | Unrecognized headers
     , responseUnrecognized :: HKD f ()
     }
+  deriving anyclass (HKD.Coerce)
 
 -- | Response headers (without allowing for invalid headers)
 --
@@ -127,13 +128,13 @@ deriving stock instance Show ResponseHeaders'
 deriving stock instance Eq   ResponseHeaders'
 
 instance HKD.Traversable ResponseHeaders_ where
-  sequence x =
+  traverse f x =
       ResponseHeaders
-        <$> responseCompression       x
-        <*> responseAcceptCompression x
-        <*> responseContentType       x
-        <*> pure (responseMetadata    x)
-        <*> responseUnrecognized      x
+        <$> (f    $ responseCompression       x)
+        <*> (f    $ responseAcceptCompression x)
+        <*> (f    $ responseContentType       x)
+        <*> (pure $ responseMetadata          x)
+        <*> (f    $ responseUnrecognized      x)
 
 -- | Information sent by the peer after the final output
 --
@@ -170,6 +171,7 @@ data ProperTrailers_ f = ProperTrailers {
       -- | Unrecognized trailers
     , properTrailersUnrecognized :: HKD f ()
     }
+  deriving anyclass (HKD.Coerce)
 
 -- | Default constructor for 'ProperTrailers'
 simpleProperTrailers :: forall f.
@@ -201,14 +203,14 @@ deriving stock instance Show ProperTrailers'
 deriving stock instance Eq   ProperTrailers'
 
 instance HKD.Traversable ProperTrailers_ where
-  sequence x =
+  traverse f x =
       ProperTrailers
-        <$> properTrailersGrpcStatus     x
-        <*> properTrailersGrpcMessage    x
-        <*> properTrailersPushback       x
-        <*> properTrailersOrcaLoadReport x
-        <*> pure (properTrailersMetadata x)
-        <*> properTrailersUnrecognized   x
+        <$> (f    $ properTrailersGrpcStatus     x)
+        <*> (f    $ properTrailersGrpcMessage    x)
+        <*> (f    $ properTrailersPushback       x)
+        <*> (f    $ properTrailersOrcaLoadReport x)
+        <*> (pure $ properTrailersMetadata       x)
+        <*> (f    $ properTrailersUnrecognized   x)
 
 -- | Trailers sent in the gRPC Trailers-Only case
 --
@@ -222,6 +224,7 @@ data TrailersOnly_ f = TrailersOnly {
       -- | All regular trailers can also appear in the Trailers-Only case
     , trailersOnlyProper :: ProperTrailers_ f
     }
+  deriving anyclass (HKD.Coerce)
 
 -- | Trailers for the Trailers-Only case (without allowing for invalid trailers)
 type TrailersOnly = TrailersOnly_ Undecorated
@@ -237,10 +240,10 @@ deriving stock instance Show TrailersOnly'
 deriving stock instance Eq   TrailersOnly'
 
 instance HKD.Traversable TrailersOnly_ where
-  sequence x =
+  traverse f x =
       TrailersOnly
-        <$> trailersOnlyContentType x
-        <*> HKD.sequence (trailersOnlyProper x)
+        <$> (f              $ trailersOnlyContentType x)
+        <*> (HKD.traverse f $ trailersOnlyProper      x)
 
 -- | 'ProperTrailers' is a subset of 'TrailersOnly'
 properTrailersToTrailersOnly ::
