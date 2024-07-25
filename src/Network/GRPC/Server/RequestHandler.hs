@@ -147,8 +147,9 @@ failureResponse (CallSetupInvalidResourceHeaders (InvalidMethod method)) =
 failureResponse (CallSetupInvalidResourceHeaders (InvalidPath path)) =
     HTTP2.responseBuilder HTTP.badRequest400 [] . Builder.byteString $
       "Invalid path " <> path
-failureResponse (CallSetupInvalidRequestHeaders (status, invalid)) =
-    HTTP2.responseBuilder status [] $ prettyInvalidHeaders invalid
+failureResponse (CallSetupInvalidRequestHeaders invalid) =
+    HTTP2.responseBuilder (statusInvalidHeaders invalid) [] $
+      prettyInvalidHeaders invalid
 failureResponse (CallSetupUnsupportedCompression cid) =
     HTTP2.responseBuilder HTTP.badRequest400 [] . Builder.byteString $
       "Unsupported compression: " <> BS.UTF8.fromString (show cid)

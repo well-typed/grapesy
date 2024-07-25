@@ -68,7 +68,6 @@ module Network.GRPC.Spec (
   , RequestHeaders_(..)
   , RequestHeaders
   , RequestHeaders'
-  , InvalidRequestHeaders
     -- ** Parameters
   , CallParams(..)
     -- ** Pseudo-headers
@@ -141,11 +140,15 @@ module Network.GRPC.Spec (
     -- * Invalid headers
   , InvalidHeaders(..)
   , InvalidHeader(..)
-  , prettyInvalidHeaders
+    -- ** Construction
   , invalidHeader
+  , invalidHeaderWith
   , missingHeader
   , unexpectedHeader
   , throwInvalidHeader
+    -- ** Use
+  , prettyInvalidHeaders
+  , statusInvalidHeaders
     -- * Common infrastructure to all headers
   , ContentType(..)
   , MessageType(..)

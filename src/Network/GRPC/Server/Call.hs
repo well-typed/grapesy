@@ -273,7 +273,7 @@ startOutbound serverParams metadataVar kickoffVar cOut = do
 -- simply use no compression.
 getOutboundCompression ::
      ServerSession rpc
-  -> Either InvalidRequestHeaders (Maybe (NonEmpty CompressionId))
+  -> Either InvalidHeaders (Maybe (NonEmpty CompressionId))
   -> Compression
 getOutboundCompression session = \case
     Left _invalidHeader -> noCompression
@@ -309,7 +309,7 @@ data RequiredHeaders = RequiredHeaders {
 -- | Validate /all/ headers, and then extract the required
 validateAll ::
      RequestHeaders'
-  -> Either InvalidRequestHeaders RequiredHeaders
+  -> Either InvalidHeaders RequiredHeaders
 validateAll = fmap go . HKD.sequence
   where
     go :: RequestHeaders -> RequiredHeaders
@@ -321,7 +321,7 @@ validateAll = fmap go . HKD.sequence
 -- | Validate only the required headers
 validateRequired ::
      RequestHeaders'
-  -> Either InvalidRequestHeaders RequiredHeaders
+  -> Either InvalidHeaders RequiredHeaders
 validateRequired requestHeaders' =
     RequiredHeaders
       <$> requestCompression requestHeaders'
@@ -350,7 +350,7 @@ processRequestHeaders session requestHeaders' = do
           Just compr -> return compr
           Nothing    -> throwIO $ CallSetupUnsupportedCompression cid
 
-    invalid :: forall x. InvalidRequestHeaders -> IO x
+    invalid :: forall x. InvalidHeaders -> IO x
     invalid = throwIO . CallSetupInvalidRequestHeaders
 
 {-------------------------------------------------------------------------------

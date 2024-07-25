@@ -79,7 +79,7 @@ data CallSetupFailure =
     -- 'CallSetupInvalidResourceHeaders' refers to an invalid method (anything
     -- other than POST) or an invalid path; 'CallSetupInvalidRequestHeaders'
     -- means we could not parse the HTTP headers according to the gRPC spec.
-  | CallSetupInvalidRequestHeaders InvalidRequestHeaders
+  | CallSetupInvalidRequestHeaders InvalidHeaders
 
     -- | Client chose unsupported compression algorithm
     --

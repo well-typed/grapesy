@@ -132,7 +132,7 @@ callDefinition proxy = \hdrs -> catMaybes [
 -------------------------------------------------------------------------------}
 
 parseRequestHeaders :: forall rpc m.
-     (IsRPC rpc, MonadError InvalidRequestHeaders m)
+     (IsRPC rpc, MonadError InvalidHeaders m)
   => Proxy rpc
   -> [HTTP.Header] -> m RequestHeaders
 parseRequestHeaders proxy = HKD.sequenceThrow . parseRequestHeaders' proxy
@@ -159,36 +159,33 @@ parseRequestHeaders' proxy =
       | name == "grpc-timeout"
       = modify $ \x -> x {
             requestTimeout = fmap Just $
-              httpError hdr HTTP.badRequest400 $
+              httpError hdr $
                 parseTimeout value
           }
 
       | name == "grpc-encoding"
       = modify $ \x -> x {
             requestCompression = fmap Just $
-               first (HTTP.badRequest400,) $
-                 parseMessageEncoding hdr
+               parseMessageEncoding hdr
           }
 
       | name == "grpc-accept-encoding"
       = modify $ \x -> x {
             requestAcceptCompression = fmap Just $
-               first (HTTP.badRequest400,) $
-                 parseMessageAcceptEncoding hdr
+               parseMessageAcceptEncoding hdr
           }
 
       | name == "grpc-trace-bin"
       = modify $ \x -> x {
             requestTraceContext = fmap Just $
-              httpError hdr HTTP.badRequest400 $
+              httpError hdr $
                 parseBinaryValue value >>= parseTraceContext
           }
 
       | name == "content-type"
       = modify $ \x -> x {
             requestContentType = fmap Just $
-              first (HTTP.unsupportedMediaType415,) $
-                parseContentType proxy hdr
+              parseContentType proxy hdr
           }
 
       | name == "grpc-message-type"
@@ -200,15 +197,14 @@ parseRequestHeaders' proxy =
       | name == "te"
       = modify $ \x -> x {
             requestIncludeTE = do
-              first (HTTP.badRequest400,) $
-                expectHeaderValue hdr ["trailers"]
+              expectHeaderValue hdr ["trailers"]
               return True
           }
 
       | name == "grpc-previous-rpc-attempts"
       = modify $ \x -> x {
             requestPreviousRpcAttempts = do
-              httpError hdr HTTP.badRequest400 $
+              httpError hdr $
                 maybe
                   (Left $ "grpc-previous-rpc-attempts: invalid " ++ show value)
                   (Right . Just)
@@ -221,8 +217,8 @@ parseRequestHeaders' proxy =
             Left invalid -> x {
                 requestUnrecognized = Left $
                   case requestUnrecognized x of
-                    Left (status, invalid') -> (status, invalid <> invalid')
-                    Right ()                -> (HTTP.badRequest400, invalid)
+                    Left invalid' -> invalid <> invalid'
+                    Right ()      -> invalid
               }
             Right md -> x {
                 requestMetadata = customMetadataMapInsert md $ requestMetadata x
@@ -250,10 +246,10 @@ parseRequestHeaders' proxy =
         }
 
     httpError ::
-         MonadError InvalidRequestHeaders m'
-      => HTTP.Header -> HTTP.Status -> Either String a -> m' a
-    httpError _   _      (Right a)  = return a
-    httpError hdr status (Left err) = throwError (status, invalidHeader hdr err)
+         MonadError InvalidHeaders m'
+      => HTTP.Header -> Either String a -> m' a
+    httpError _   (Right a)  = return a
+    httpError hdr (Left err) = throwError $ invalidHeader hdr err
 
 {-------------------------------------------------------------------------------
   Internal auxiliary

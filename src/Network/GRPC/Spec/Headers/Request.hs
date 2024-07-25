@@ -8,13 +8,11 @@ module Network.GRPC.Spec.Headers.Request (
     RequestHeaders_(..)
   , RequestHeaders
   , RequestHeaders'
-  , InvalidRequestHeaders
   ) where
 
 import Data.ByteString qualified as Strict (ByteString)
 import Data.List.NonEmpty (NonEmpty)
 import GHC.Generics (Generic)
-import Network.HTTP.Types qualified as HTTP
 
 import Network.GRPC.Spec.Compression (CompressionId)
 import Network.GRPC.Spec.CustomMetadata.Map
@@ -124,12 +122,7 @@ type RequestHeaders = RequestHeaders_ Undecorated
 --
 -- (i.e., either valid or invalid).
 type RequestHeaders' =
-       RequestHeaders_ (DecoratedWith (Either InvalidRequestHeaders))
-
--- | Invalid request headers
---
--- For certain types of failures the gRPC spec mandates a specific HTTP status.
-type InvalidRequestHeaders = (HTTP.Status, InvalidHeaders)
+       RequestHeaders_ (DecoratedWith (Either InvalidHeaders))
 
 deriving stock instance Show    RequestHeaders
 deriving stock instance Eq      RequestHeaders

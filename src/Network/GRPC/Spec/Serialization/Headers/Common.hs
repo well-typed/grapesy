@@ -91,18 +91,20 @@ parseContentType proxy hdr@(_name, value) = do
             err "Invalid subtype."
   where
     err :: String -> m a
-    err reason = throwError $ invalidHeader hdr $ concat [
-          reason
-        , " Expected \""
-        , BS.Strict.C8.unpack $
-            rpcContentType (Proxy @(UnknownRpc Nothing Nothing))
-        , "\" or \""
-        , BS.Strict.C8.unpack $
-            rpcContentType proxy
-        , "\", with \""
-        , "application/grpc+{other_format}"
-        , "\" also accepted."
-        ]
+    err reason =
+        throwError . invalidHeaderWith HTTP.unsupportedMediaType415 hdr $
+          concat [
+              reason
+            , " Expected \""
+            , BS.Strict.C8.unpack $
+                rpcContentType (Proxy @(UnknownRpc Nothing Nothing))
+            , "\" or \""
+            , BS.Strict.C8.unpack $
+                rpcContentType proxy
+            , "\", with \""
+            , "application/grpc+{other_format}"
+            , "\" also accepted."
+            ]
 
 {-------------------------------------------------------------------------------
   > Message-Type → "grpc-message-type" {type name for message schema}
