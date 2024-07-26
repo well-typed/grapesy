@@ -122,7 +122,9 @@ classifyServerResponse rpc status headers mBody
             -- almost certainly not be a content-type header present in the
             -- case of a non-200 HTTP status. We don't want to synthesize /that/
             -- error, so we override it.
-            Right Nothing
+            case trailersOnlyContentType parsed of
+              Left  _err   -> Right Nothing
+              Right mCType -> Right mCType
         , trailersOnlyProper = parsedTrailers {
               properTrailersGrpcStatus = Right $
                 GrpcError err
@@ -132,7 +134,6 @@ classifyServerResponse rpc status headers mBody
                   _otherwise       -> Just defaultMsg
             }
         }
-
       where
         parsed :: TrailersOnly' GrpcException
         parsed = parseTrailersOnly' rpc headers
