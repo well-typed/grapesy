@@ -26,7 +26,10 @@ import Proto.API.Ping
 
 tests :: TestTree
 tests = testGroup "Test.Sanity.BrokenDeployments" [
-      testCase "statusNon200" test_statusNon200
+      testGroup "status" [
+          testCase "non200"     test_statusNon200
+        , testCase "non200Body" test_statusNon200Body
+        ]
     , testGroup "ContentType" [
           testCase "nonGrpcRegular"      test_nonGrpcContentTypeRegular
         , testCase "missingRegular"      test_missingContentTypeRegular
@@ -64,6 +67,29 @@ test_statusNon200 = respondWith response $ \addr -> do
     response :: Response
     response = def {
           responseStatus = HTTP.badRequest400
+        }
+
+-- | Ensure that we include the response body for errors, if any
+test_statusNon200Body :: Assertion
+test_statusNon200Body = respondWith response $ \addr -> do
+    mResp :: Either GrpcException (Proto PongMessage) <- try $
+      Client.withConnection connParams (Client.ServerInsecure addr) $ \conn ->
+        Client.withRPC conn def (Proxy @Ping) $ \call -> do
+          Client.sendFinalInput call defMessage
+          fst <$> Client.recvFinalOutput call
+    case mResp of
+      Left err
+        | grpcError err == GrpcInternal
+        , Just msg <- grpcErrorMessage err
+        , "Server supplied custom error" `Text.isInfixOf` msg ->
+        return ()
+      _otherwise ->
+        assertFailure $ "Unexpected response: " ++ show mResp
+  where
+    response :: Response
+    response = def {
+          responseStatus = HTTP.badRequest400
+        , responseBody   = "Server supplied custom error"
         }
 
 {-------------------------------------------------------------------------------
