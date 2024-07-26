@@ -169,7 +169,7 @@ $ cabal run demo-client --  --core sayHelloBidiStream  \
 {message: "John Ack"}
 Disconnected. Reconnecting after 1701081μs
 Reconnecting now.
-demo-client: CallClosedWithoutTrailers
+demo-client: GrpcException {grpcError = GrpcUnknown, grpcErrorMessage = Just "Call closed without trailers", grpcErrorMetadata = []}
 ```
 
 ### Dealing with unterminated streams

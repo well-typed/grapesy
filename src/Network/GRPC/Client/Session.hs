@@ -77,7 +77,15 @@ instance SupportsClientRpc rpc => IsSession (ClientSession rpc) where
         -- for example, perhaps an intermediate cache has dropped the gRPC
         -- trailers entirely. We therefore check for this case separately and
         -- throw a different error.
-        throwIO $ CallClosedWithoutTrailers
+        --
+        -- We /must/ throw a GrpcException (rather than some kind of custom one)
+        -- because the spec mandates that we synthesize a status and status
+        -- message when the peer omits them.
+        throwIO $ GrpcException {
+            grpcError         = GrpcUnknown
+          , grpcErrorMessage  = Just "Call closed without trailers"
+          , grpcErrorMetadata = []
+          }
       else
         return $ parseProperTrailers' (Proxy @rpc) trailers
 
@@ -92,7 +100,7 @@ instance SupportsClientRpc rpc => InitiateSession (ClientSession rpc) where
           -- We classify the response as Trailers-Only if the grpc-status header
           -- is present, or when the HTTP status is anything other than 200 OK
           -- (which we treat, as per the spec, as an implicit grpc-status).
-          -- The 'CallClosedWithoutTrailers' case is therefore not relevant.
+          -- The "closed without trailers" case is therefore not relevant.
           case verifyAllIf connVerifyHeaders trailersOnly of
             Left  err   -> throwIO $ CallSetupInvalidResponseHeaders err
             Right _hdrs -> return $ FlowStartNoMessages trailersOnly
@@ -160,13 +168,5 @@ data InvalidTrailers =
         invalidTrailers      :: [HTTP.Header]
       , invalidTrailersError :: String
       }
-
-    -- | The server terminated without sending trailers at all
-    --
-    -- This can also happen when a server just suddenly disappears (or the
-    -- network connection is dropped). We cannot reliably distinguish between
-    -- "we lost the connection" and "the server closed the connection but did
-    -- not send us any trailers".
-  | CallClosedWithoutTrailers
   deriving stock (Show)
   deriving anyclass (Exception)

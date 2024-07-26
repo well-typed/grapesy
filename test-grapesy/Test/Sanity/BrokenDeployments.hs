@@ -6,6 +6,7 @@ import Control.Concurrent
 import Control.Concurrent.Async
 import Control.Exception
 import Data.ByteString.Builder qualified as ByteString (Builder)
+import Data.Text qualified as Text
 import Network.HTTP.Types qualified as HTTP
 import Network.HTTP2.Server qualified as HTTP2
 import Network.Run.TCP qualified as NetworkRun
@@ -32,6 +33,11 @@ tests = testGroup "Test.Sanity.BrokenDeployments" [
         , testCase "nonGrpcTrailersOnly" test_nonGrpcContentTypeTrailersOnly
         , testCase "missingTrailersOnly" test_missingContentTypeTrailersOnly
       ]
+    , testGroup "Omit" [
+         testCase "status"        test_omitStatus
+       , testCase "statusMessage" test_omitStatusMessage
+       , testCase "allTrailers"   test_omitAllTrailers
+       ]
     ]
 
 {-------------------------------------------------------------------------------
@@ -98,6 +104,77 @@ test_missingContentTypeTrailersOnly :: Assertion
 test_missingContentTypeTrailersOnly = test_invalidContentType def {
       responseHeaders = [ ("grpc-status", "0") ]
     }
+
+{-------------------------------------------------------------------------------
+  Omit trailers
+-------------------------------------------------------------------------------}
+
+test_omitStatus :: Assertion
+test_omitStatus = respondWith response $ \addr -> do
+    mResp :: Either GrpcException
+                    (StreamElem NoMetadata (Proto PongMessage)) <- try $
+      Client.withConnection connParams (Client.ServerInsecure addr) $ \conn ->
+        Client.withRPC conn def (Proxy @Ping) $ \call -> do
+          Client.sendFinalInput call defMessage
+          Client.recvOutput call
+    case mResp of
+      Left err
+        | grpcError err == GrpcUnknown
+        , Just msg <- grpcErrorMessage err
+        , "grpc-status" `Text.isInfixOf` msg ->
+        return ()
+      _otherwise ->
+        assertFailure $ "Unexpected response: " ++ show mResp
+  where
+    response :: Response
+    response = def {
+          responseTrailers = [
+              ("grpc-message", "Message but no status")
+            ]
+        }
+
+test_omitStatusMessage :: Assertion
+test_omitStatusMessage = respondWith response $ \addr -> do
+    mResp :: Either GrpcException
+                    (StreamElem NoMetadata (Proto PongMessage)) <- try $
+      Client.withConnection connParams (Client.ServerInsecure addr) $ \conn ->
+        Client.withRPC conn def (Proxy @Ping) $ \call -> do
+          Client.sendFinalInput call defMessage
+          Client.recvOutput call
+    case mResp of
+      Right (NoMoreElems _) ->
+        return ()
+      _otherwise ->
+        assertFailure $ "Unexpected response: " ++ show mResp
+  where
+    response :: Response
+    response = def {
+          responseTrailers = [
+              ("grpc-status", "0")
+            ]
+        }
+
+test_omitAllTrailers :: Assertion
+test_omitAllTrailers = respondWith response $ \addr -> do
+    mResp :: Either GrpcException
+                    (StreamElem NoMetadata (Proto PongMessage)) <- try $
+      Client.withConnection connParams (Client.ServerInsecure addr) $ \conn ->
+        Client.withRPC conn def (Proxy @Ping) $ \call -> do
+          Client.sendFinalInput call defMessage
+          Client.recvOutput call
+    case mResp of
+      Left err
+        | grpcError err == GrpcUnknown
+        , Just msg <- grpcErrorMessage err
+        , "closed without trailers" `Text.isInfixOf` msg ->
+        return ()
+      _otherwise ->
+        assertFailure $ "Unexpected response: " ++ show mResp
+  where
+    response :: Response
+    response = def {
+          responseTrailers = []
+        }
 
 {-------------------------------------------------------------------------------
   Test server
