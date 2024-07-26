@@ -1,11 +1,17 @@
-{-# LANGUAGE OverloadedStrings #-}
+-- Intentionally /NOT/ enabling OverloadedStrings.
+-- This forces us to be precise about encoding issues.
 
 module Test.Sanity.BrokenDeployments (tests) where
 
 import Control.Concurrent
 import Control.Concurrent.Async
 import Control.Exception
-import Data.ByteString.Builder qualified as ByteString (Builder)
+import Data.ByteString qualified as BS.Strict
+import Data.ByteString qualified as Strict (ByteString)
+import Data.ByteString.Builder qualified as BS.Builder
+import Data.ByteString.Char8 qualified as BS.Strict.Char8
+import Data.ByteString.UTF8 qualified as BS.Strict.UTF8
+import Data.String (fromString)
 import Data.Text qualified as Text
 import Network.HTTP.Types qualified as HTTP
 import Network.HTTP2.Server qualified as HTTP2
@@ -41,6 +47,11 @@ tests = testGroup "Test.Sanity.BrokenDeployments" [
        , testCase "statusMessage" test_omitStatusMessage
        , testCase "allTrailers"   test_omitAllTrailers
        ]
+    , testGroup "Invalid" [
+          testCase "statusMessage"   test_invalidStatusMessage
+        , testCase "requestMetadata" test_invalidRequestMetadata
+        , testCase "trailerMetadata" test_invalidTrailerMetadata
+        ]
     ]
 
 {-------------------------------------------------------------------------------
@@ -81,7 +92,7 @@ test_statusNon200Body = respondWith response $ \addr -> do
       Left err
         | grpcError err == GrpcInternal
         , Just msg <- grpcErrorMessage err
-        , "Server supplied custom error" `Text.isInfixOf` msg ->
+        , Text.pack "Server supplied custom error" `Text.isInfixOf` msg ->
         return ()
       _otherwise ->
         assertFailure $ "Unexpected response: " ++ show mResp
@@ -89,8 +100,11 @@ test_statusNon200Body = respondWith response $ \addr -> do
     response :: Response
     response = def {
           responseStatus = HTTP.badRequest400
-        , responseBody   = "Server supplied custom error"
+        , responseBody   = BS.Strict.Char8.pack customError
         }
+
+    customError :: String
+    customError = "Server supplied custom error"
 
 {-------------------------------------------------------------------------------
   Content-type
@@ -111,7 +125,9 @@ test_invalidContentType response = respondWith response $ \addr -> do
 
 test_nonGrpcContentTypeRegular :: Assertion
 test_nonGrpcContentTypeRegular = test_invalidContentType def {
-      responseHeaders = [ ("content-type", "someInvalidContentType") ]
+      responseHeaders = [
+          asciiHeader "content-type" "someInvalidContentType"
+        ]
     }
 
 test_missingContentTypeRegular :: Assertion
@@ -121,14 +137,17 @@ test_missingContentTypeRegular = test_invalidContentType def {
 
 test_nonGrpcContentTypeTrailersOnly :: Assertion
 test_nonGrpcContentTypeTrailersOnly = test_invalidContentType def {
-      responseHeaders = [ ("grpc-status", "0")
-                        , ("content-type", "someInvalidContentType")
-                        ]
+      responseHeaders = [
+          asciiHeader "grpc-status" "0"
+        , asciiHeader "content-type" "someInvalidContentType"
+        ]
     }
 
 test_missingContentTypeTrailersOnly :: Assertion
 test_missingContentTypeTrailersOnly = test_invalidContentType def {
-      responseHeaders = [ ("grpc-status", "0") ]
+      responseHeaders = [
+          asciiHeader "grpc-status" "0"
+        ]
     }
 
 {-------------------------------------------------------------------------------
@@ -146,8 +165,7 @@ test_omitStatus = respondWith response $ \addr -> do
     case mResp of
       Left err
         | grpcError err == GrpcUnknown
-        , Just msg <- grpcErrorMessage err
-        , "grpc-status" `Text.isInfixOf` msg ->
+        , grpcMessageContains err "grpc-status" ->
         return ()
       _otherwise ->
         assertFailure $ "Unexpected response: " ++ show mResp
@@ -155,7 +173,7 @@ test_omitStatus = respondWith response $ \addr -> do
     response :: Response
     response = def {
           responseTrailers = [
-              ("grpc-message", "Message but no status")
+              asciiHeader "grpc-message" "Message but no status"
             ]
         }
 
@@ -176,7 +194,7 @@ test_omitStatusMessage = respondWith response $ \addr -> do
     response :: Response
     response = def {
           responseTrailers = [
-              ("grpc-status", "0")
+              asciiHeader "grpc-status" "0"
             ]
         }
 
@@ -191,8 +209,7 @@ test_omitAllTrailers = respondWith response $ \addr -> do
     case mResp of
       Left err
         | grpcError err == GrpcUnknown
-        , Just msg <- grpcErrorMessage err
-        , "closed without trailers" `Text.isInfixOf` msg ->
+        , grpcMessageContains err "closed without trailers" ->
         return ()
       _otherwise ->
         assertFailure $ "Unexpected response: " ++ show mResp
@@ -203,27 +220,127 @@ test_omitAllTrailers = respondWith response $ \addr -> do
         }
 
 {-------------------------------------------------------------------------------
+  Invalid headers
+
+  The gRPC spec mandates that we /MUST NOT/ throw away invalid headers. This
+  is done as a matter of default for all headers in grapesy, except the ones
+  that it really needs to operate. To access these invalid values, users do
+  however need to use the low-level API.
+-------------------------------------------------------------------------------}
+
+test_invalidStatusMessage :: Assertion
+test_invalidStatusMessage = respondWith response $ \addr -> do
+    mResp :: StreamElem
+               Client.ProperTrailers'
+               (InboundMeta, Proto PongMessage) <-
+      Client.withConnection connParams (Client.ServerInsecure addr) $ \conn ->
+        Client.withRPC conn def (Proxy @Ping) $ \call -> do
+          Client.sendFinalInput call defMessage
+          Client.recvOutputWithMeta call
+    case mResp of
+      NoMoreElems trailers
+        | Left invalid <- Client.properTrailersGrpcMessage trailers
+        , [ (_, headerValue) ] <- invalidHeaders invalid
+        , headerValue == BS.Strict.Char8.pack someInvalidMessage
+        ->
+        return ()
+      _otherwise ->
+        assertFailure $ "Unexpected response: " ++ show mResp
+  where
+    response :: Response
+    response = def {
+          responseTrailers = [
+              asciiHeader "grpc-status" "13" -- 'GrpcInternal'
+            , asciiHeader "grpc-message" someInvalidMessage
+            ]
+        }
+
+    someInvalidMessage :: String
+    someInvalidMessage = "This is invalid: %X"
+
+test_invalidRequestMetadata :: Assertion
+test_invalidRequestMetadata = respondWith response $ \addr -> do
+    mResp :: Either
+               (Client.TrailersOnly'    HandledSynthesized)
+               (Client.ResponseHeaders' HandledSynthesized) <-
+      Client.withConnection connParams' (Client.ServerInsecure addr) $ \conn ->
+        Client.withRPC conn def (Proxy @Ping) $ \call -> do
+          Client.recvInitialResponse call
+    case mResp of
+      Right headers
+        | Left invalid <- Client.responseUnrecognized headers
+        , [ (_, headerValue) ] <- invalidHeaders invalid
+        , headerValue == BS.Strict.UTF8.fromString someInvalidMetadata
+        ->
+        return ()
+      _otherwise ->
+        assertFailure $ "Unexpected response: " ++ show mResp
+  where
+    -- In this case we do /NOT/ want to verify all headers
+    -- (the whole point is that we can access the invalid header value)
+    connParams' :: Client.ConnParams
+    connParams' = def { Client.connVerifyHeaders = False }
+
+    response :: Response
+    response = def {
+          responseHeaders = [
+              asciiHeader "content-type" "application/grpc"
+            , utf8Header "some-custom-header" someInvalidMetadata
+            ]
+        }
+
+    someInvalidMetadata :: String
+    someInvalidMetadata = "This is invalid: 你好"
+
+test_invalidTrailerMetadata :: Assertion
+test_invalidTrailerMetadata = respondWith response $ \addr -> do
+    mResp :: StreamElem
+               Client.ProperTrailers'
+               (InboundMeta, Proto PongMessage) <-
+      Client.withConnection connParams (Client.ServerInsecure addr) $ \conn ->
+        Client.withRPC conn def (Proxy @Ping) $ \call -> do
+          Client.sendFinalInput call defMessage
+          Client.recvOutputWithMeta call
+    case mResp of
+      NoMoreElems trailers
+        | Left invalid <- Client.properTrailersUnrecognized trailers
+        , [ (_, headerValue) ] <- invalidHeaders invalid
+        , headerValue == BS.Strict.UTF8.fromString someInvalidMetadata
+        ->
+        return ()
+      _otherwise ->
+        assertFailure $ "Unexpected response: " ++ show mResp
+  where
+    response :: Response
+    response = def {
+          responseTrailers = [
+              asciiHeader "grpc-status" "0"
+            , utf8Header "some-custom-trailer" someInvalidMetadata
+            ]
+        }
+
+    someInvalidMetadata :: String
+    someInvalidMetadata = "This is invalid: 你好"
+
+{-------------------------------------------------------------------------------
   Test server
 
   This allows us to simulate broken /servers/.
-
-  TODO: <https://github.com/well-typed/grapesy/issues/22>
-  We should also simulate broken /clients/.
 -------------------------------------------------------------------------------}
 
 data Response = Response {
       responseStatus   :: HTTP.Status
     , responseHeaders  :: [HTTP.Header]
-    , responseBody     :: ByteString.Builder
+    , responseBody     :: Strict.ByteString
     , responseTrailers :: [HTTP.Header]
     }
 
 instance Default Response where
   def = Response {
         responseStatus   = HTTP.ok200
-      , responseHeaders  = [ ("content-type", "application/grpc") ]
-      , responseBody     = mempty
-      , responseTrailers = [ ("grpc-status", "0") ]
+      , responseHeaders  = [ asciiHeader "content-type" "application/grpc" ]
+      , responseBody     = BS.Strict.empty
+      , responseTrailers = [ asciiHeader "grpc-status" "0" ]
       }
 
 -- | Server that responds with the given 'Response', independent of the request
@@ -237,7 +354,7 @@ respondWith response = withTestServer $ \_req _aux respond ->
           HTTP2.responseBuilder
             (responseStatus  response)
             (responseHeaders response)
-            (responseBody    response)
+            (BS.Builder.byteString $ responseBody response)
 
     trailersMaker :: HTTP2.TrailersMaker
     trailersMaker Nothing  = return $ HTTP2.Trailers (responseTrailers response)
@@ -290,3 +407,18 @@ connParams = def {
       Client.connVerifyHeaders = True
     }
 
+-- | Header with ASCII value
+--
+-- (Header /names/ are always ASCII.)
+asciiHeader :: String -> String -> HTTP.Header
+asciiHeader name value = (fromString name, BS.Strict.Char8.pack value)
+
+-- | Header with UTF-8 encoded value
+utf8Header :: String -> String -> HTTP.Header
+utf8Header name value = (fromString name, BS.Strict.UTF8.fromString value)
+
+grpcMessageContains :: GrpcException -> String -> Bool
+grpcMessageContains GrpcException{grpcErrorMessage} str =
+    case grpcErrorMessage of
+      Just msg -> Text.pack str `Text.isInfixOf` msg
+      Nothing  -> False

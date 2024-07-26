@@ -18,6 +18,7 @@ module Network.GRPC.Spec.Headers.Invalid (
   , mapSynthesizedM
   , throwSynthesized
     -- * Utility
+  , invalidHeaders
   , prettyInvalidHeaders
   , statusInvalidHeaders
   ) where
@@ -29,7 +30,7 @@ import Data.ByteString.UTF8 qualified as BS.UTF8
 import Data.CaseInsensitive qualified as CI
 import Data.Foldable (asum)
 import Data.Functor.Identity
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, mapMaybe)
 import Network.HTTP.Types qualified as HTTP
 
 import Network.GRPC.Spec.Status
@@ -192,6 +193,18 @@ throwSynthesized throw =
 {-------------------------------------------------------------------------------
   Utility
 -------------------------------------------------------------------------------}
+
+-- | Extract all invalid headers
+invalidHeaders :: InvalidHeaders e -> [HTTP.Header]
+invalidHeaders = \invalid ->
+    case dropSynthesized invalid of
+      InvalidHeaders es -> mapMaybe aux es
+  where
+    aux :: InvalidHeader HandledSynthesized -> Maybe HTTP.Header
+    aux (InvalidHeader _status hdr _) = Just hdr
+    aux MissingHeader{}               = Nothing
+    aux UnexpectedHeader{}            = Nothing
+    aux (InvalidHeaderSynthesize e _) = handledSynthesized e
 
 prettyInvalidHeaders :: InvalidHeaders HandledSynthesized -> ByteString.Builder
 prettyInvalidHeaders = mconcat . map go . getInvalidHeaders
