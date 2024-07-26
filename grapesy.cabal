@@ -363,6 +363,7 @@ test-suite test-grapesy
     , text                        >= 1.2   && < 2.2
     , tls                         >= 1.7   && < 2.2
     , tree-diff                   >= 0.3   && < 0.4
+    , utf8-string                 >= 1.0   && < 1.1
 
 executable demo-client
   import:

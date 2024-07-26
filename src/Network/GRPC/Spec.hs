@@ -154,6 +154,7 @@ module Network.GRPC.Spec (
   , mapSynthesized
   , throwSynthesized
     -- ** Use
+  , invalidHeaders
   , prettyInvalidHeaders
   , statusInvalidHeaders
     -- * Common infrastructure to all headers

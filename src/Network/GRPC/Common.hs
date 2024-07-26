@@ -67,6 +67,10 @@ module Network.GRPC.Common (
   , Session.PeerException(..)
   , SomeProtocolException(..)
   , UnexpectedMetadata(..)
+  , InvalidHeaders(..)
+  , InvalidHeader(..)
+  , invalidHeaders
+  , HandledSynthesized
 
     -- ** User errors
   , Session.SendAfterFinal(..)
