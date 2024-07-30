@@ -21,7 +21,7 @@ import Proto.API.Interop
 -- For both UnaryCall and FullDuplexCall, the reference server (at least some)
 -- does not return any initial metadata until we send the first request. The
 -- test spec does not specify whether this is expected behaviour or not, so we
--- play it save and only ask for the initial metadata after sending the request.
+-- play it safe and only ask for the initial metadata after sending the request.
 runTest :: Cmdline -> IO ()
 runTest cmdline = do
     withConnection def (testServer cmdline) $ \conn -> do

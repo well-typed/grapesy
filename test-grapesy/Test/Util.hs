@@ -4,6 +4,9 @@ module Test.Util (
     -- * Timeouts
     Timeout(..)
   , within
+
+    -- * Files
+  , withTemporaryFile
   ) where
 
 import Control.Concurrent
@@ -11,6 +14,8 @@ import Control.Exception
 import Control.Monad.Catch
 import Control.Monad.IO.Class
 import GHC.Stack
+import System.Directory
+import System.IO
 
 {-------------------------------------------------------------------------------
   Timeouts
@@ -45,4 +50,13 @@ within t info io = do
     fmap fst $
       generalBracket startTimer stopTimer $ \_ -> io
 
-
+withTemporaryFile :: (FilePath -> IO a) -> IO a
+withTemporaryFile k = do
+    tmpDir <- getTemporaryDirectory
+    Control.Exception.bracket
+      (openTempFile tmpDir "grapesy-test-suite.txt")
+      (removeFile . fst)
+      ( \(fp, h) -> do
+          hClose h
+          k fp
+      )
