@@ -29,6 +29,7 @@ import Test.Driver.Dialogue.Definition
 import Test.Driver.Dialogue.TestClock (TestClock)
 import Test.Driver.Dialogue.TestClock qualified as TestClock
 import Test.Util
+import Debug.Trace (traceM)
 
 {-------------------------------------------------------------------------------
   Endpoints
@@ -191,8 +192,9 @@ clientLocal clock call = \(LocalSteps steps) ->
             peerHealth <- get
             case peerHealth of
               PeerTerminated _ -> return ()
-              PeerAlive        -> within timeoutGreenLight action $
-                                    TestClock.waitForGreenLight clock tick
+              PeerAlive        -> do
+                within timeoutGreenLight action $
+                  TestClock.waitForGreenLight clock tick
             case mException of
               Just ex -> throwM $ DeliberateException ex
               Nothing -> return False
@@ -413,6 +415,8 @@ serverLocal clock call = \(LocalSteps steps) -> do
           Terminate mErr -> do
             mInp <- liftIO $ try $ within timeoutReceive action $
                       Server.Binary.recvInput call
+            -- TODO: <https://github.com/well-typed/grapesy/issues/209>
+            --
             -- On the server side we cannot distinguish regular client
             -- termination from an exception when receiving.
             let expectation = isExpectedElem $ NoMoreElems NoMetadata
@@ -487,8 +491,8 @@ serverGlobal clock globalStepsVar call = do
   Top-level
 -------------------------------------------------------------------------------}
 
-execGlobalSteps :: GlobalSteps -> IO ClientServerTest
-execGlobalSteps steps = do
+execGlobalSteps :: Bool -> GlobalSteps -> IO ClientServerTest
+execGlobalSteps connPerRPC steps = do
     globalStepsVar <- newMVar (order steps)
     clock          <- TestClock.new
 
@@ -515,9 +519,6 @@ execGlobalSteps steps = do
   where
     clientTerminatesEarly, serverTerminatesEarly :: Bool
     (clientTerminatesEarly, serverTerminatesEarly) = hasEarlyTermination steps
-
-    connPerRPC :: Bool
-    connPerRPC = serverTerminatesEarly || clientTerminatesEarly
 
     -- For 'clientGlobal' the order doesn't matter, because it spawns a thread
     -- for each 'LocalSteps'. The server however doesn't get this option; the

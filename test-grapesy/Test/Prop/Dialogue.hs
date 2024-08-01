@@ -15,39 +15,46 @@ import Test.Driver.Dialogue
 tests :: TestTree
 tests = testGroup "Test.Prop.Dialogue" [
       testGroup "Regression" [
-          testCase "trivial1"           $ regression trivial1
-        , testCase "trivial2"           $ regression trivial2
-        , testCase "trivial3"           $ regression trivial3
-        , testCase "concurrent1"        $ regression concurrent1
-        , testCase "concurrent2"        $ regression concurrent2
-        , testCase "concurrent3"        $ regression concurrent3
-        , testCase "concurrent4"        $ regression concurrent4
-        , testCase "exception1"         $ regression exception1
-        , testCase "exception2"         $ regression exception2
-        , testCase "earlyTermination01" $ regression earlyTermination01
-        , testCase "earlyTermination02" $ regression earlyTermination02
-        , testCase "earlyTermination03" $ regression earlyTermination03
-        , testCase "earlyTermination04" $ regression earlyTermination04
-        , testCase "earlyTermination05" $ regression earlyTermination05
-        , testCase "earlyTermination06" $ regression earlyTermination06
-        , testCase "earlyTermination07" $ regression earlyTermination07
-        , testCase "earlyTermination08" $ regression earlyTermination08
-        , testCase "earlyTermination09" $ regression earlyTermination09
-        , testCase "earlyTermination10" $ regression earlyTermination10
-        , testCase "earlyTermination11" $ regression earlyTermination11
-        , testCase "earlyTermination12" $ regression earlyTermination12
-        , testCase "earlyTermination13" $ regression earlyTermination13
-        , testCase "earlyTermination14" $ regression earlyTermination14
-        , testCase "allowHalfClosed1"   $ regression allowHalfClosed1
-        , testCase "allowHalfClosed2"   $ regression allowHalfClosed2
-        , testCase "allowHalfClosed3"   $ regression allowHalfClosed3
+          testCase "trivial1"           $ regression False trivial1
+        , testCase "trivial2"           $ regression False trivial2
+        , testCase "trivial3"           $ regression False trivial3
+        , testCase "concurrent1"        $ regression False concurrent1
+        , testCase "concurrent2"        $ regression False concurrent2
+        , testCase "concurrent3"        $ regression False concurrent3
+        , testCase "concurrent4"        $ regression False concurrent4
+        , testCase "exception1"         $ regression True  exception1
+        , testCase "exception2"         $ regression True  exception2
+        , testCase "earlyTermination01" $ regression True  earlyTermination01
+        , testCase "earlyTermination02" $ regression True  earlyTermination02
+        , testCase "earlyTermination03" $ regression True  earlyTermination03
+        , testCase "earlyTermination04" $ regression True  earlyTermination04
+        , testCase "earlyTermination05" $ regression True  earlyTermination05
+        , testCase "earlyTermination06" $ regression True  earlyTermination06
+        , testCase "earlyTermination07" $ regression True  earlyTermination07
+        , testCase "earlyTermination08" $ regression True  earlyTermination08
+        , testCase "earlyTermination09" $ regression True  earlyTermination09
+        , testCase "earlyTermination10" $ regression True  earlyTermination10
+        , testCase "earlyTermination11" $ regression True  earlyTermination11
+        , testCase "earlyTermination12" $ regression True  earlyTermination12
+        , testCase "earlyTermination13" $ regression True  earlyTermination13
+        , testCase "earlyTermination14" $ regression True  earlyTermination14
+        , testCase "earlyTermination15" $ regression False earlyTermination15
+        , testCase "allowHalfClosed1"   $ regression False allowHalfClosed1
+        , testCase "allowHalfClosed2"   $ regression False allowHalfClosed2
+        , testCase "allowHalfClosed3"   $ regression True  allowHalfClosed3
         ]
     , testGroup "Setup" [
           testProperty "shrinkingWellFounded" prop_shrinkingWellFounded
         ]
     , testGroup "Arbitrary" [
-          testProperty "withoutExceptions" arbitraryWithoutExceptions
-        , testProperty "withExceptions"    arbitraryWithExceptions
+          testGroup "WithoutExceptions" [
+              testProperty "connPerRPC" (arbitraryWithoutExceptions True)
+            , testProperty "sharedConn" (arbitraryWithoutExceptions False)
+            ]
+        , testGroup "WithExceptions" [
+              testProperty "connPerRPC" (arbitraryWithExceptions True)
+            , testProperty "sharedConn" (arbitraryWithExceptions False)
+            ]
         ]
     ]
 
@@ -66,26 +73,26 @@ prop_shrinkingWellFounded =
   Running the tests
 -------------------------------------------------------------------------------}
 
-arbitraryWithoutExceptions :: DialogueWithoutExceptions -> Property
-arbitraryWithoutExceptions (DialogueWithoutExceptions dialogue) =
-    propDialogue dialogue
+arbitraryWithoutExceptions :: Bool -> DialogueWithoutExceptions -> Property
+arbitraryWithoutExceptions connPerRPC (DialogueWithoutExceptions dialogue) =
+    propDialogue connPerRPC dialogue
 
-arbitraryWithExceptions :: DialogueWithExceptions -> Property
-arbitraryWithExceptions (DialogueWithExceptions dialogue) =
-    propDialogue dialogue
+arbitraryWithExceptions :: Bool -> DialogueWithExceptions -> Property
+arbitraryWithExceptions connPerRPC (DialogueWithExceptions dialogue) =
+    propDialogue connPerRPC dialogue
 
-propDialogue :: Dialogue -> Property
-propDialogue dialogue =
+propDialogue :: Bool -> Dialogue -> Property
+propDialogue connPerRPC dialogue =
     counterexample (show globalSteps) $
-      propClientServer $ execGlobalSteps globalSteps
+      propClientServer $ execGlobalSteps connPerRPC globalSteps
   where
     globalSteps :: GlobalSteps
     globalSteps = dialogueGlobalSteps dialogue
 
-regression :: Dialogue -> IO ()
-regression dialogue =
+regression :: Bool -> Dialogue -> IO ()
+regression connPerRPC dialogue =
     handle (throwIO . RegressionTestFailed globalSteps) $
-      testClientServer =<< execGlobalSteps globalSteps
+      testClientServer =<< execGlobalSteps connPerRPC globalSteps
   where
     globalSteps :: GlobalSteps
     globalSteps = dialogueGlobalSteps dialogue
@@ -357,6 +364,16 @@ earlyTermination14 = NormalizedDialogue [
       (0, ClientAction $ Initiate (def, RPC1))
     , (0, ClientAction $ Terminate Nothing)
     , (0, ServerAction $ Terminate (Just (SomeServerException 0)))
+    ]
+
+earlyTermination15 :: Dialogue
+earlyTermination15 = NormalizedDialogue [
+      (0, ClientAction $ Initiate (def, RPC1))
+    , (0, ClientAction $ Terminate (Just (SomeClientException 0)))
+    , (1, ClientAction $ Initiate (def, RPC1))
+    , (1, ClientAction $ Send (FinalElem 0 NoMetadata))
+    , (0, ServerAction $ Send (NoMoreElems def))
+    , (1, ServerAction $ Send (NoMoreElems def))
     ]
 
 {-------------------------------------------------------------------------------

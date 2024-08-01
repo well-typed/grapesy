@@ -309,7 +309,9 @@ test-suite test-grapesy
       Test.Prop.IncrementalParsing
       Test.Prop.Serialization
       Test.Sanity.BrokenDeployments
+      Test.Sanity.Disconnect
       Test.Sanity.EndOfStream
+      Test.Sanity.Exception
       Test.Sanity.Interop
       Test.Sanity.StreamingType.CustomFormat
       Test.Sanity.StreamingType.NonStreaming
@@ -317,6 +319,7 @@ test-suite test-grapesy
       Test.Util.Awkward
       Test.Util.Orphans
       Test.Util.Protobuf
+      Test.Util.RawTestServer
 
       -- Internals we're testing
       Network.GRPC.Util.Parser

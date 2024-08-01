@@ -33,6 +33,7 @@ import Network.GRPC.Spec
 import Network.GRPC.Util.GHC
 import Network.GRPC.Util.HTTP2.Stream (ClientDisconnected(..))
 import Network.GRPC.Util.Session qualified as Session
+import Debug.Trace (traceM)
 
 {-------------------------------------------------------------------------------
   Handlers
@@ -244,6 +245,7 @@ waitForHandler unmask call handlerThread = loop
     handleException :: SomeException -> IO ()
     handleException err
       | Just (HTTP2.KilledByHttp2ThreadManager mErr) <- fromException err = do
+          traceM $ "handleException: " ++ show mErr
           let exitReason :: ExitCase ()
               exitReason =
                 case mErr of

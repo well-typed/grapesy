@@ -232,7 +232,7 @@ isExpectedClientException cfg e
   | Just (DeliberateException _) <- fromException e
   = True
 
-  -- Server threw deliberat exception
+  -- Server threw deliberate exception
   | Just grpcException <- fromException e
   , Just msg <- grpcErrorMessage grpcException
   , "DeliberateException" `Text.isInfixOf` msg
