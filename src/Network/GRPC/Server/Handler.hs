@@ -272,7 +272,7 @@ waitForHandler unmask call handlerThread = loop
 --
 -- The attempt to forward it to the client is a best-effort only:
 --
--- * The nature of the exception might mean that we we cannot send anything to
+-- * The nature of the exception might mean that we cannot send anything to
 --   the client at all.
 -- * It is possible the exception was thrown /after/ the handler already send
 --   the trailers to the client.

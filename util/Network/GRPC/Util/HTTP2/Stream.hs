@@ -16,6 +16,7 @@ module Network.GRPC.Util.HTTP2.Stream (
     -- * Exceptions
   , ClientDisconnected(..)
   , ServerDisconnected(..)
+  , wrapStreamExceptionsWith
   ) where
 
 import Control.Exception
@@ -153,18 +154,21 @@ clientInputStream resp = do
              maybe [] fromHeaderTable <$> Client.getResponseTrailers resp
       }
 
+-- | Construct a client 'OutputStream'
+--
+-- We do not wrap the members of the 'OutputStream' with
+-- 'wrapStreamExceptionsWith', since we do this around the entire
+-- 'sendMessageLoop'. See the comment for @outboundThread@ in
+-- 'Network.GRPC.Util.Session.Client.setupRequestChannel'.
 clientOutputStream :: OutBodyIface -> IO OutputStream
 clientOutputStream iface =
     return OutputStream {
         _writeChunk = \c ->
-           wrapStreamExceptionsWith ServerDisconnected $
-             outBodyPush iface c
+          outBodyPush iface c
       , _writeChunkFinal = \c ->
-           wrapStreamExceptionsWith ServerDisconnected $
-             outBodyPushFinal iface c
+          outBodyPushFinal iface c
       , _flush =
-           wrapStreamExceptionsWith ServerDisconnected $
-             outBodyFlush iface
+          outBodyFlush iface
       }
 
 {-------------------------------------------------------------------------------

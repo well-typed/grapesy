@@ -413,6 +413,8 @@ serverLocal clock call = \(LocalSteps steps) -> do
           Terminate mErr -> do
             mInp <- liftIO $ try $ within timeoutReceive action $
                       Server.Binary.recvInput call
+            -- TODO: <https://github.com/well-typed/grapesy/issues/209>
+            --
             -- On the server side we cannot distinguish regular client
             -- termination from an exception when receiving.
             let expectation = isExpectedElem $ NoMoreElems NoMetadata
@@ -426,6 +428,12 @@ serverLocal clock call = \(LocalSteps steps) -> do
     -- terminate more-or-less immediately, this does not necessarily indicate
     -- any kind of failure: the client may simply have put the call in
     -- half-closed mode.
+    --
+    -- TODO: <https://github.com/well-typed/grapesy/issues/209>
+    -- However, when the client terminates early and we are not using one
+    -- connection per RPC (i.e. we are sharing a connection), the server will
+    -- /never/ realize that the client has disappeared. See the discussion in
+    -- the issue above.
     waitForClientDisconnect :: IO ()
     waitForClientDisconnect =
         within timeoutFailure () $ loop

@@ -628,7 +628,7 @@ recvEndOfInput call@Call{} = do
 
 -- | Send 'ProperTrailers'
 --
--- This function is not part of the public API: we use it the top-level
+-- This function is not part of the public API: we use it as the top-level
 -- exception handler in "Network.GRPC.Server" to forward exceptions in server
 -- handlers to the client.
 --

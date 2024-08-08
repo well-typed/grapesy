@@ -17,7 +17,9 @@ import Test.Prop.Dialogue                     qualified as Dialogue
 import Test.Prop.IncrementalParsing           qualified as IncrementalParsing
 import Test.Prop.Serialization                qualified as Serialization
 import Test.Sanity.BrokenDeployments          qualified as BrokenDeployments
+import Test.Sanity.Disconnect                 qualified as Disconnect
 import Test.Sanity.EndOfStream                qualified as EndOfStream
+import Test.Sanity.Exception                  qualified as Exception
 import Test.Sanity.Interop                    qualified as Interop
 import Test.Sanity.StreamingType.CustomFormat qualified as StreamingType.CustomFormat
 import Test.Sanity.StreamingType.NonStreaming qualified as StreamingType.NonStreaming
@@ -28,11 +30,13 @@ main = do
 
     defaultMain $ testGroup "grapesy" [
         testGroup "Sanity" [
-            EndOfStream.tests
+            Disconnect.tests
+          , EndOfStream.tests
           , testGroup "StreamingType" [
                 StreamingType.NonStreaming.tests
               , StreamingType.CustomFormat.tests
               ]
+          , Exception.tests
           , Interop.tests
           , BrokenDeployments.tests
           ]
