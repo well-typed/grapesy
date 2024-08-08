@@ -15,39 +15,48 @@ import Test.Driver.Dialogue
 tests :: TestTree
 tests = testGroup "Test.Prop.Dialogue" [
       testGroup "Regression" [
-          testCase "trivial1"           $ regression trivial1
-        , testCase "trivial2"           $ regression trivial2
-        , testCase "trivial3"           $ regression trivial3
-        , testCase "concurrent1"        $ regression concurrent1
-        , testCase "concurrent2"        $ regression concurrent2
-        , testCase "concurrent3"        $ regression concurrent3
-        , testCase "concurrent4"        $ regression concurrent4
-        , testCase "exception1"         $ regression exception1
-        , testCase "exception2"         $ regression exception2
-        , testCase "earlyTermination01" $ regression earlyTermination01
-        , testCase "earlyTermination02" $ regression earlyTermination02
-        , testCase "earlyTermination03" $ regression earlyTermination03
-        , testCase "earlyTermination04" $ regression earlyTermination04
-        , testCase "earlyTermination05" $ regression earlyTermination05
-        , testCase "earlyTermination06" $ regression earlyTermination06
-        , testCase "earlyTermination07" $ regression earlyTermination07
-        , testCase "earlyTermination08" $ regression earlyTermination08
-        , testCase "earlyTermination09" $ regression earlyTermination09
-        , testCase "earlyTermination10" $ regression earlyTermination10
-        , testCase "earlyTermination11" $ regression earlyTermination11
-        , testCase "earlyTermination12" $ regression earlyTermination12
-        , testCase "earlyTermination13" $ regression earlyTermination13
-        , testCase "earlyTermination14" $ regression earlyTermination14
-        , testCase "allowHalfClosed1"   $ regression allowHalfClosed1
-        , testCase "allowHalfClosed2"   $ regression allowHalfClosed2
-        , testCase "allowHalfClosed3"   $ regression allowHalfClosed3
+          testCase "trivial1"               $ regression SharedConn trivial1
+        , testCase "trivial2"               $ regression SharedConn trivial2
+        , testCase "trivial3"               $ regression SharedConn trivial3
+        , testCase "concurrent1"            $ regression SharedConn concurrent1
+        , testCase "concurrent2"            $ regression SharedConn concurrent2
+        , testCase "concurrent3"            $ regression SharedConn concurrent3
+        , testCase "concurrent4"            $ regression SharedConn concurrent4
+        , testCase "exception1"             $ regression ConnPerRPC exception1
+        , testCase "exception2"             $ regression ConnPerRPC exception2
+        , testCase "earlyTermination01"     $ regression ConnPerRPC earlyTermination01
+        , testCase "earlyTermination02"     $ regression ConnPerRPC earlyTermination02
+        , testCase "earlyTermination03"     $ regression ConnPerRPC earlyTermination03
+        , testCase "earlyTermination04"     $ regression ConnPerRPC earlyTermination04
+        , testCase "earlyTermination05"     $ regression ConnPerRPC earlyTermination05
+        , testCase "earlyTermination06"     $ regression ConnPerRPC earlyTermination06
+        , testCase "earlyTermination07"     $ regression ConnPerRPC earlyTermination07
+        , testCase "earlyTermination08"     $ regression ConnPerRPC earlyTermination08
+        , testCase "earlyTermination09"     $ regression ConnPerRPC earlyTermination09
+        , testCase "earlyTermination10"     $ regression ConnPerRPC earlyTermination10
+        , testCase "earlyTermination11"     $ regression ConnPerRPC earlyTermination11
+        , testCase "earlyTermination12"     $ regression ConnPerRPC earlyTermination12
+        , testCase "earlyTermination13"     $ regression ConnPerRPC earlyTermination13
+        , testCase "earlyTermination14"     $ regression ConnPerRPC earlyTermination14
+        , testCase "unilateralTermination1" $ regression SharedConn unilateralTermination1
+        , testCase "unilateralTermination2" $ regression SharedConn unilateralTermination2
+        , testCase "unilateralTermination3" $ regression SharedConn unilateralTermination3
+        , testCase "allowHalfClosed1"       $ regression SharedConn allowHalfClosed1
+        , testCase "allowHalfClosed2"       $ regression SharedConn allowHalfClosed2
+        , testCase "allowHalfClosed3"       $ regression ConnPerRPC allowHalfClosed3
         ]
     , testGroup "Setup" [
           testProperty "shrinkingWellFounded" prop_shrinkingWellFounded
         ]
     , testGroup "Arbitrary" [
-          testProperty "withoutExceptions" arbitraryWithoutExceptions
-        , testProperty "withExceptions"    arbitraryWithExceptions
+          testGroup "WithoutExceptions" [
+            testProperty "connPerRPC" $ arbitraryWithoutExceptions ConnPerRPC
+          , testProperty "sharedConn" $ arbitraryWithoutExceptions SharedConn
+          ]
+        , testGroup "WithExceptions" [
+            testProperty "connPerRPC" $ arbitraryWithExceptions ConnPerRPC
+          , testProperty "sharedConn" $ arbitraryWithExceptions SharedConn
+          ]
         ]
     ]
 
@@ -66,26 +75,26 @@ prop_shrinkingWellFounded =
   Running the tests
 -------------------------------------------------------------------------------}
 
-arbitraryWithoutExceptions :: DialogueWithoutExceptions -> Property
-arbitraryWithoutExceptions (DialogueWithoutExceptions dialogue) =
-    propDialogue dialogue
+arbitraryWithoutExceptions :: ConnUsage -> DialogueWithoutExceptions -> Property
+arbitraryWithoutExceptions connUsage (DialogueWithoutExceptions dialogue) =
+    propDialogue connUsage dialogue
 
-arbitraryWithExceptions :: DialogueWithExceptions -> Property
-arbitraryWithExceptions (DialogueWithExceptions dialogue) =
-    propDialogue dialogue
+arbitraryWithExceptions :: ConnUsage -> DialogueWithExceptions -> Property
+arbitraryWithExceptions connUsage (DialogueWithExceptions dialogue) =
+    propDialogue connUsage dialogue
 
-propDialogue :: Dialogue -> Property
-propDialogue dialogue =
+propDialogue :: ConnUsage -> Dialogue -> Property
+propDialogue connUsage dialogue =
     counterexample (show globalSteps) $
-      propClientServer $ execGlobalSteps globalSteps
+      propClientServer $ execGlobalSteps connUsage globalSteps
   where
     globalSteps :: GlobalSteps
     globalSteps = dialogueGlobalSteps dialogue
 
-regression :: Dialogue -> IO ()
-regression dialogue =
+regression :: ConnUsage -> Dialogue -> IO ()
+regression connUsage dialogue =
     handle (throwIO . RegressionTestFailed globalSteps) $
-      testClientServer =<< execGlobalSteps globalSteps
+      testClientServer =<< execGlobalSteps connUsage globalSteps
   where
     globalSteps :: GlobalSteps
     globalSteps = dialogueGlobalSteps dialogue
@@ -357,6 +366,35 @@ earlyTermination14 = NormalizedDialogue [
       (0, ClientAction $ Initiate (def, RPC1))
     , (0, ClientAction $ Terminate Nothing)
     , (0, ServerAction $ Terminate (Just (SomeServerException 0)))
+    ]
+
+unilateralTermination1 :: Dialogue
+unilateralTermination1 = NormalizedDialogue [
+      (1,ClientAction (Initiate (def,RPC1)))
+    , (1,ServerAction (Send (FinalElem 0 def)))
+    , (0,ClientAction (Initiate (def,RPC1)))
+    , (0,ClientAction (Send (NoMoreElems NoMetadata)))
+    , (0,ServerAction (Send (NoMoreElems def)))
+    ]
+
+unilateralTermination2 :: Dialogue
+unilateralTermination2 = NormalizedDialogue [
+      (1,ClientAction (Initiate (def,RPC1)))
+    , (1,ServerAction (Send (FinalElem 0 def)))
+    , (0,ClientAction (Initiate (def,RPC1)))
+    , (0,ClientAction (Send (NoMoreElems NoMetadata)))
+    , (0,ServerAction (Send (NoMoreElems def)))
+    , (2,ClientAction (Initiate (def,RPC1)))
+    , (2,ServerAction (Send (FinalElem 0 def)))
+    ]
+
+unilateralTermination3 :: Dialogue
+unilateralTermination3 = NormalizedDialogue [
+      (0, ClientAction (Initiate (def,RPC1)))
+    , (0, ServerAction (Send (NoMoreElems def)))
+    , (1, ClientAction (Initiate (def,RPC1)))
+    , (1, ClientAction (Send (FinalElem 0 NoMetadata)))
+    , (1, ServerAction (Send (NoMoreElems def)))
     ]
 
 {-------------------------------------------------------------------------------

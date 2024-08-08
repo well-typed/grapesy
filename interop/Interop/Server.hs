@@ -88,7 +88,7 @@ withInteropServer cmdline k = do
      = ServerConfig {
             serverSecure   = Nothing
           , serverInsecure = Just InsecureConfig {
-                insecureHost = Nothing
+                insecureHost = Just "127.0.0.1"
               , insecurePort = cmdPort cmdline
               }
           }

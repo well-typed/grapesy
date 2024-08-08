@@ -405,12 +405,12 @@ sendOutputWithMeta call@Call{callChannel} msg = do
     msg'     <- bitraverse mkTrailers return msg
     Session.send callChannel msg'
 
-    -- This /must/ be called before leaving the scope of 'acceptCall' (or we
+    -- This /must/ be called before leaving the scope of 'runHandler' (or we
     -- risk that the HTTP2 stream is cancelled). We can't call 'waitForOutbound'
-    -- /in/ 'acceptCall', because if the handler for whatever reason never
+    -- /in/ 'runHandler', because if the handler for whatever reason never
     -- writes the final message, such a call would block indefinitely.
     StreamElem.whenDefinitelyFinal msg $ \_ ->
-      void $ Session.waitForOutbound callChannel
+      Session.waitForOutbound callChannel
   where
     mkTrailers :: ResponseTrailingMetadata rpc -> IO ProperTrailers
     mkTrailers metadata = do
@@ -650,7 +650,7 @@ sendProperTrailers Call{callContext, callResponseKickoff, callChannel}
       -- If we didn't update, then the response has already been initiated and
       -- we cannot make use of the Trailers-Only case.
       Session.send callChannel (NoMoreElems trailers)
-    void $ Session.waitForOutbound callChannel
+    Session.waitForOutbound callChannel
   where
     ServerContext{serverParams} = callContext
 

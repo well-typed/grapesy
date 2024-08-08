@@ -14,17 +14,19 @@ module Network.GRPC.Util.Thread (
     -- * Access thread state
   , CancelResult(..)
   , cancelThread
+  , ThreadState_(..)
+  , getThreadState_
+  , unlessAbnormallyTerminated
   , withThreadInterface
   , waitForNormalThreadTermination
-  , waitForAbnormalThreadTermination
   , waitForNormalOrAbnormalThreadTermination
-  , hasThreadTerminated
   ) where
 
 import Control.Concurrent
 import Control.Concurrent.STM
 import Control.Exception
 import Control.Monad
+import Data.Void (Void, absurd)
 import Foreign (newStablePtr, freeStablePtr)
 import GHC.Stack
 import System.IO.Unsafe (unsafePerformIO)
@@ -306,38 +308,62 @@ withThreadInterface state k =
 -- | Wait for the thread to terminate normally
 --
 -- If the thread terminated with an exception, this rethrows that exception.
-waitForNormalThreadTermination :: TVar (ThreadState a) -> STM a
+waitForNormalThreadTermination :: TVar (ThreadState a) -> STM ()
 waitForNormalThreadTermination state =
-    waitForNormalOrAbnormalThreadTermination state >>= either throwSTM return
+    waitUntilInitialized state >>= \case
+      ThreadNotYetRunning_ v -> absurd v
+      ThreadRunning_         -> retry
+      ThreadDone_            -> return ()
+      ThreadException_ e     -> throwSTM e
 
 -- | Wait for the thread to terminate normally or abnormally
 waitForNormalOrAbnormalThreadTermination ::
      TVar (ThreadState a)
-  -> STM (Either SomeException a)
+  -> STM (Maybe SomeException)
 waitForNormalOrAbnormalThreadTermination state =
-    hasThreadTerminated state >>= maybe retry return
+    waitUntilInitialized state >>= \case
+      ThreadNotYetRunning_ v -> absurd v
+      ThreadRunning_         -> retry
+      ThreadDone_            -> return $ Nothing
+      ThreadException_ e     -> return $ Just e
 
--- | Wait for the thread to terminate abnormally
-waitForAbnormalThreadTermination ::
+-- | Run the specified transaction, unless the thread terminated with an
+-- exception
+unlessAbnormallyTerminated ::
      TVar (ThreadState a)
-  -> STM SomeException
-waitForAbnormalThreadTermination state =
-    hasThreadTerminated state >>= \case
-      Just (Left e) -> return e
-      _otherwise    -> retry
+  -> STM b
+  -> STM (Either SomeException b)
+unlessAbnormallyTerminated state f =
+    waitUntilInitialized state >>= \case
+      ThreadNotYetRunning_ v -> absurd v
+      ThreadRunning_         -> Right <$> f
+      ThreadDone_            -> Right <$> f
+      ThreadException_ e     -> return $ Left e
 
--- | Has the thread terminated?
-hasThreadTerminated ::
+waitUntilInitialized ::
      TVar (ThreadState a)
-  -> STM (Maybe (Either SomeException a))
-hasThreadTerminated state = do
+  -> STM (ThreadState_ Void)
+waitUntilInitialized state = getThreadState_ state retry
+
+-- | An abstraction of 'ThreadState' without the public interface type.
+data ThreadState_ notRunning =
+      ThreadNotYetRunning_ notRunning
+    | ThreadRunning_
+    | ThreadDone_
+    | ThreadException_ SomeException
+
+getThreadState_ ::
+     TVar (ThreadState a)
+  -> STM notRunning
+  -> STM (ThreadState_ notRunning)
+getThreadState_ state onNotRunning = do
     st <- readTVar state
     case st of
-      ThreadNotStarted   _     -> retry
-      ThreadInitializing _ _   -> retry
-      ThreadRunning      _ _ _ -> return $ Nothing
-      ThreadDone         _   a -> return $ Just (Right a)
-      ThreadException    _   e -> return $ Just (Left e)
+      ThreadNotStarted   _     -> ThreadNotYetRunning_ <$> onNotRunning
+      ThreadInitializing _ _   -> ThreadNotYetRunning_ <$> onNotRunning
+      ThreadRunning      _ _ _ -> return $ ThreadRunning_
+      ThreadDone         _   _ -> return $ ThreadDone_
+      ThreadException    _   e -> return $ ThreadException_ e
 
 {-------------------------------------------------------------------------------
   Internal auxiliary

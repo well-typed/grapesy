@@ -2,10 +2,13 @@
 module Network.GRPC.Util.Session.Client (
     ConnectionToServer(..)
   , NoTrailers(..)
+  , CancelRequest
   , setupRequestChannel
   ) where
 
+import Control.Concurrent
 import Control.Concurrent.STM
+import Control.Monad
 import Control.Monad.Catch
 import Data.ByteString qualified as BS.Strict
 import Data.ByteString qualified as Strict (ByteString)
@@ -83,6 +86,8 @@ class NoTrailers sess where
   -- | There is no interesting information in the trailers
   noTrailers :: Proxy sess -> Trailers (Outbound sess)
 
+type CancelRequest = Maybe SomeException -> IO ()
+
 -- | Setup request channel
 --
 -- This initiates a new request.
@@ -95,7 +100,7 @@ setupRequestChannel :: forall sess.
   -- ^ We assume that when the server closes their outbound connection to us,
   -- the entire conversation is over (i.e., the server cannot "half-close").
   -> FlowStart (Outbound sess)
-  -> IO (Channel sess)
+  -> IO (Channel sess, CancelRequest)
 setupRequestChannel sess
                     ConnectionToServer{sendRequest}
                     terminateCall
@@ -103,6 +108,10 @@ setupRequestChannel sess
                   = do
     channel <- initChannel
     let requestInfo = buildRequestInfo sess outboundStart
+
+    cancelRequestVar <- newEmptyMVar
+    let cancelRequest :: CancelRequest
+        cancelRequest e = join . (fmap ($ e)) $ readMVar cancelRequestVar
 
     case outboundStart of
       FlowStartRegular headers -> do
@@ -112,7 +121,7 @@ setupRequestChannel sess
                     (requestMethod  requestInfo)
                     (requestPath    requestInfo)
                     (requestHeaders requestInfo)
-                $ outboundThread channel regular
+                $ outboundThread channel cancelRequestVar regular
         forkRequest channel req
       FlowStartNoMessages trailers -> do
         let state :: FlowState (Outbound sess)
@@ -123,6 +132,8 @@ setupRequestChannel sess
                     (requestMethod  requestInfo)
                     (requestPath    requestInfo)
                     (requestHeaders requestInfo)
+        -- Can't cancel non-streaming request
+        putMVar cancelRequestVar $ \_ -> return ()
         atomically $
           modifyTVar (channelOutbound channel) $ \oldState ->
             case oldState of
@@ -132,7 +143,7 @@ setupRequestChannel sess
                 error "setupRequestChannel: expected thread state"
         forkRequest channel req
 
-    return channel
+    return (channel, cancelRequest)
   where
     _ = addConstraint @(NoTrailers sess)
 
@@ -174,12 +185,14 @@ setupRequestChannel sess
 
     outboundThread ::
          Channel sess
+      -> MVar CancelRequest
       -> RegularFlowState (Outbound sess)
       -> Client.OutBodyIface
       -> IO ()
-    outboundThread channel regular iface =
+    outboundThread channel cancelRequestVar regular iface =
         threadBody "grapesy:clientOutbound" (channelOutbound channel) $ \markReady _debugId -> do
           markReady $ FlowStateRegular regular
+          putMVar cancelRequestVar (Client.outBodyCancel iface)
           stream <- clientOutputStream iface
           -- Unlike the client inbound thread, or the inbound/outbound threads
           -- of the server, http2 knows about this particular thread and may

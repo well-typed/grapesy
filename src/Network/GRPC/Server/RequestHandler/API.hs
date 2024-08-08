@@ -29,9 +29,9 @@ requestHandlerToServer ::
      -- ^ Request handler
      --
      -- We can assume in 'requestHandlerToServer' that the handler will not
-     -- throw any exceptions(doing so will cause @http2@ to reset the stream,
+     -- throw any exceptions (doing so will cause @http2@ to reset the stream,
      -- which is not always the right thing to do; see detailed comments in
-     -- 'acceptCall'). It is the responsibility of 'serverTopLevel' (prior to
+     -- 'runHandler'). It is the responsibility of 'serverTopLevel' (prior to
      -- calling 'requestHandlerToServer') to catch any remaining exceptions.
   -> HTTP2.Server
 requestHandlerToServer handler req _aux respond =
