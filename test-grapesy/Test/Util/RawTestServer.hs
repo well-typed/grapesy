@@ -1,8 +1,13 @@
-module Test.Util.RawTestServer where
+module Test.Util.RawTestServer
+  ( -- * Raw test server
+    respondWith
 
-import Control.Concurrent
-import Control.Concurrent.Async
-import Control.Exception
+    -- * Abstract response type
+  , Response(..)
+  , asciiHeader
+  , utf8Header
+  ) where
+
 import Data.ByteString qualified as BS.Strict
 import Data.ByteString qualified as Strict (ByteString)
 import Data.ByteString.Builder qualified as BS.Builder
@@ -10,12 +15,11 @@ import Data.ByteString.Char8 qualified as BS.Strict.Char8
 import Data.ByteString.UTF8 qualified as BS.Strict.UTF8
 import Data.String (fromString)
 import Network.HTTP2.Server qualified as HTTP2
-import Network.Run.TCP qualified as NetworkRun
-import Network.Socket
 
 import Network.GRPC.Client qualified as Client
-import Network.HTTP.Types qualified as HTTP
 import Network.GRPC.Common
+import Network.GRPC.Server.Run
+import Network.HTTP.Types qualified as HTTP
 
 {-------------------------------------------------------------------------------
   Raw test server
@@ -23,47 +27,27 @@ import Network.GRPC.Common
   This allows us to simulate broken /servers/.
 -------------------------------------------------------------------------------}
 
--- | Low-level test server
---
--- We bypass the entire grapesy machinery for constructing the server, for added
--- flexibility. This allows us to mock broken deployments or run the server in
--- another thread that we throw asynchronous exceptions to, for example.
---
--- The grapesy client can auto reconnect when the server is not (yet) up and
--- running, but to keep things simple, we just signal when the server is ready.
--- This also allows us to avoid binding to a specific port in the tests (which
--- might already be in use on the machine running the tests, leading to spurious
--- test failures).
-rawTestServer :: (PortNumber -> IO ()) -> HTTP2.Server -> IO ()
-rawTestServer signalPort server = do
-    addr <- NetworkRun.resolve Stream (Just "127.0.0.1") "0" [AI_PASSIVE]
-    bracket (NetworkRun.openTCPServerSocket addr) close $ \listenSock -> do
-      addr'   <- getSocketName listenSock
-      portOut <- case addr' of
-                   SockAddrInet  port   _host   -> return port
-                   SockAddrInet6 port _ _host _ -> return port
-                   SockAddrUnix{} -> error "rawTestServer: unexpected unix socket"
-      signalPort portOut
-      NetworkRun.runTCPServerWithSocket listenSock $ \clientSock ->
-        bracket (HTTP2.allocSimpleConfig clientSock 4096)
-                HTTP2.freeSimpleConfig $ \config ->
-          HTTP2.run HTTP2.defaultServerConfig config server
-
 -- | Run the server and apply the continuation to an 'Client.Address' holding
 -- the running server's host and port.
 withTestServer :: HTTP2.Server -> (Client.Address -> IO a) -> IO a
 withTestServer server k = do
-    serverPort <- newEmptyMVar
-    withAsync (rawTestServer (putMVar serverPort) server) $
-      \_serverThread -> do
-          port <- readMVar serverPort
-          let addr :: Client.Address
-              addr = Client.Address {
-                    addressHost      = "127.0.0.1"
-                  , addressPort      = port
-                  , addressAuthority = Nothing
-                  }
-          k addr
+    let serverConfig =
+          ServerConfig {
+            serverInsecure = Just $ InsecureConfig {
+                insecureHost = Just "127.0.0.1"
+              , insecurePort = 0
+              }
+            , serverSecure = Nothing
+            }
+    forkServer def serverConfig server $ \runningServer -> do
+      port <- getServerPort runningServer
+      let addr :: Client.Address
+          addr = Client.Address {
+                addressHost      = "127.0.0.1"
+              , addressPort      = port
+              , addressAuthority = Nothing
+              }
+      k addr
 
 -- | Server that responds with the given 'Response', independent of the request
 respondWith :: Response -> (Client.Address -> IO a) -> IO a

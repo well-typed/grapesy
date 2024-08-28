@@ -35,10 +35,10 @@ import Network.GRPC.Client.Binary qualified as Binary
 import Network.GRPC.Common
 import Network.GRPC.Server qualified as Server
 import Network.GRPC.Server.Binary qualified as Binary
+import Network.GRPC.Server.Run
 import Network.GRPC.Spec
 import Proto.API.Trivial
 import Test.Util
-import Test.Util.RawTestServer
 
 tests :: TestTree
 tests = testGroup "Test.Sanity.Disconnect" [
@@ -67,19 +67,29 @@ test_clientDisconnect = do
               Server.mkRpcHandler @RPC2 $ echoHandler (Just disconnectCounter2)
         ]
 
-    portSignal <- newEmptyMVar
-    void $ forkIO $ rawTestServer (putMVar portSignal) server
-
     -- Start server
+    let serverConfig = ServerConfig {
+            serverInsecure = Just $ InsecureConfig {
+                insecureHost = Just "127.0.0.1"
+              , insecurePort = 0
+              }
+          , serverSecure = Nothing
+          }
+    portSignal <- newEmptyMVar
+    void $ forkIO $ forkServer def serverConfig server $ \runningServer -> do
+      putMVar portSignal =<< getServerPort runningServer
+      waitServer runningServer
+
+    -- Wait for the server to signal its port
     serverPort <- readMVar portSignal
+
+    -- Start a client in a separate process
     let serverAddress =
           Client.ServerInsecure Client.Address {
               addressHost      = "127.0.0.1"
             , addressPort      = serverPort
             , addressAuthority = Nothing
             }
-
-    -- Start a client in a separate process
     void $ forkProcess $
       Client.withConnection def serverAddress $ \conn -> do
         -- Make 50 concurrent calls. 49 of them sending infinite messages. One
@@ -156,16 +166,26 @@ test_serverDisconnect = withTemporaryFile $ \ipcFile -> do
               Server.mkRpcHandler @Trivial $ echoHandler Nothing
         ]
 
-    let -- Starts the server in a new process. Gives back an action that kills
+    let serverConfig = ServerConfig {
+            serverInsecure = Just $ InsecureConfig {
+                insecureHost = Just "127.0.0.1"
+              , insecurePort = 0
+              }
+          , serverSecure = Nothing
+          }
+
+        -- Starts the server in a new process. Gives back an action that kills
         -- the created server process.
         startServer :: IO (IO ())
         startServer = do
           serverPid <-
             forkProcess $
-              rawTestServer ipcWrite server
+              forkServer def serverConfig server $ \runningServer -> do
+                ipcWrite =<< getServerPort runningServer
+                waitServer runningServer
           return $ signalProcess sigKILL serverPid
 
-    -- Start server, get the port
+    -- Start server, get the initial port
     killServer    <- startServer
     port1         <- ipcRead
     signalRestart <- newEmptyMVar
