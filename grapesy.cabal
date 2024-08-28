@@ -37,6 +37,7 @@ common lang
       -Wno-unticked-promoted-constructors
       -Wprepositive-qualified-module
       -Widentities
+      -Wmissing-export-lists
   build-depends:
       base >= 4.14 && < 4.21
   default-language:

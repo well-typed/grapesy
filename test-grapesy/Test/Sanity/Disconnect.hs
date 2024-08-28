@@ -22,13 +22,14 @@ import Control.Monad
 import Data.ByteString.Lazy qualified as Lazy (ByteString)
 import Data.Either
 import Data.IORef
+import Data.Maybe
 import Data.Word
 import Foreign.C.Types (CInt(..))
 import Network.Socket
 import System.Posix
 import Test.Tasty
 import Test.Tasty.HUnit
-import Text.Read
+import Text.Read hiding (step)
 
 import Network.GRPC.Client qualified as Client
 import Network.GRPC.Client.Binary qualified as Binary
@@ -82,63 +83,59 @@ test_clientDisconnect = do
 
     -- Wait for the server to signal its port
     serverPort <- readMVar portSignal
-
-    -- Start a client in a separate process
     let serverAddress =
           Client.ServerInsecure Client.Address {
               addressHost      = "127.0.0.1"
             , addressPort      = serverPort
             , addressAuthority = Nothing
             }
+
+
+    -- Start a client in a separate process
+    let numCalls = 50
     void $ forkProcess $
       Client.withConnection def serverAddress $ \conn -> do
         -- Make 50 concurrent calls. 49 of them sending infinite messages. One
         -- of them kills this client process after 100 messages.
-        let numCalls   = 50
-            predicate  = pure . const False
-            predicates =
-              replicate (numCalls - 1) predicate ++
-                [ \n -> do
-                    when (n == 100) $ c_exit 1
-                    return False
-                ]
         mapConcurrently_
-          (   Client.withRPC conn def (Proxy @RPC1)
-            . countUntil
-          )
-          predicates
+            (   Client.withRPC conn def (Proxy @RPC1)
+              . runSteps
+            )
+          $ replicate (numCalls - 1) stepsInfinite ++
+              [ mkClientSteps Nothing [ (100, c_exit 1) ] ]
 
     -- Start two more clients that make 50 calls to each handler, all calls
-    -- counting up to 1000
-    let numCalls   = 50
-        countTo    = 100
-        predicate  = pure . (>= countTo)
-        predicates = replicate numCalls predicate
+    -- counting up to 100
+    let numSteps = 100
+        steps    = replicate numCalls $ stepsN numSteps
     (result1, result2) <- concurrently
       ( Client.withConnection def serverAddress $ \conn -> do
           sum <$> mapConcurrently
             (   Client.withRPC conn def (Proxy @RPC1)
-              . countUntil
+              . runSteps
             )
-            predicates
+            steps
       )
       ( Client.withConnection def serverAddress $ \conn -> do
           sum <$> mapConcurrently
             (   Client.withRPC conn def (Proxy @RPC2)
-              . countUntil
+              . runSteps
             )
-            predicates
+            steps
       )
 
-    -- All calls should have finished with a results of 'countTo', for both
-    -- clients
-    assertBool "" (result1 + result2 == 2 * sum (replicate numCalls countTo))
+    -- All calls by clients in /this/ process (not the ones we killed) should
+    -- have finished with a result of 'countTo'
+    assertEqual ""
+      (2 * sum (replicate numCalls numSteps))
+      (fromIntegral $ result1 + result2)
 
     -- We should also see only 50 client disconnects for the first handler and
     -- none for the second
     clientDisconnects1 <- readIORef disconnectCounter1
     clientDisconnects2 <- readIORef disconnectCounter2
-    assertBool "" (clientDisconnects1 == 50 && clientDisconnects2 == 0)
+    assertEqual "" 50 clientDisconnects1
+    assertEqual "" 0  clientDisconnects2
 
 -- | Client makes many concurrent calls, server disconnects
 test_serverDisconnect :: Assertion
@@ -221,30 +218,26 @@ test_serverDisconnect = withTemporaryFile $ \ipcFile -> do
     Client.withConnection connParams (serverAddress port1) $ \conn -> do
       -- Make 50 concurrent calls. 49 of them sending infinite messages. One
       -- of them kills the server after 100 messages.
-      let numCalls   = 50
-          predicate  = pure . const False
-          predicates =
-            replicate (numCalls - 1) predicate ++
-              [ \n -> do
-                  when (n == 100) killServer
-                  return False
-              ]
+      let numCalls = 50
       results <-
         mapConcurrently
-          (   try @Client.ServerDisconnected
-            . Client.withRPC conn def (Proxy @Trivial)
-            . countUntil
-          )
-          predicates
+            (   try @Client.ServerDisconnected
+              . Client.withRPC conn def (Proxy @Trivial)
+              . runSteps
+            )
+          $ replicate (numCalls - 1) stepsInfinite ++
+              [ mkClientSteps Nothing [(100, killServer)] ]
 
       -- All calls should have failed
-      assertBool "" (null (rights results) && length (lefts results) == numCalls)
+      assertBool "" (null (rights results))
+      assertEqual "" numCalls (length (lefts results))
 
       -- New calls should succeed (after reconnection)
       killRestarted <- takeMVar signalRestart
-      result <- Client.withRPC conn def (Proxy @Trivial) $
-        countUntil (pure . (>= 100))
-      assertEqual "" 100 result
+      result <-
+        Client.withRPC conn def (Proxy @Trivial) $
+          runSteps (stepsN numCalls)
+      assertEqual "" numCalls (fromIntegral result)
 
       -- Do not leave the server process hanging around
       killRestarted
@@ -253,26 +246,27 @@ test_serverDisconnect = withTemporaryFile $ \ipcFile -> do
   Client and handler functions
 -------------------------------------------------------------------------------}
 
--- | Send increasing numbers to the server until it responds with one that
--- satisfies the given predicate.
-countUntil :: forall rpc.
+-- | Execute the client steps
+runSteps :: forall rpc.
   ( Input  rpc ~ Lazy.ByteString
   , Output rpc ~ Lazy.ByteString
   , ResponseTrailingMetadata rpc ~ NoMetadata
-  ) => (Word64 -> IO Bool) -> Client.Call rpc -> IO Word64
-countUntil = go 0
+  ) => ClientStep -> Client.Call rpc -> IO Word64
+runSteps =
+    go 0
   where
-    go :: Word64 -> (Word64 -> IO Bool) -> Client.Call rpc -> IO Word64
-    go next p call = do
-        sat <- p next
-        if sat then do
-          Binary.sendFinalInput @Word64 call next
-          (final, NoMetadata) <- Binary.recvFinalOutput @Word64 call
-          return final
-        else do
-          Binary.sendNextInput @Word64 call next
-          next' <- Binary.recvNextOutput @Word64 call
-          go (succ next') p call
+    go :: Word64 -> ClientStep -> Client.Call rpc -> IO Word64
+    go n step call = do
+        case step of
+          KeepGoing mact next -> do
+            fromMaybe (return ()) mact
+            Binary.sendNextInput @Word64 call n
+            _ <- Binary.recvNextOutput @Word64 call
+            go (n + 1) next call
+          Done -> do
+            Binary.sendFinalInput @Word64 call n
+            (_, NoMetadata) <- Binary.recvFinalOutput @Word64 call
+            return n
 
 -- | Echos any input
 echoHandler ::
@@ -303,3 +297,21 @@ echoHandler disconnectCounter call = trackDisconnects disconnectCounter $ do
 -------------------------------------------------------------------------------}
 
 foreign import ccall unsafe "exit" c_exit :: CInt -> IO ()
+
+data ClientStep = KeepGoing (Maybe (IO ())) ClientStep | Done
+
+mkClientSteps :: Maybe Int -> [(Int, IO ())] -> ClientStep
+mkClientSteps = go 0
+  where
+    go !i mn acts
+        | maybe False (i >=) mn
+        = Done
+        | otherwise
+        = KeepGoing (lookup i acts) $ go (i + 1) mn acts
+
+stepsN :: Int -> ClientStep
+stepsN n = mkClientSteps (Just n) []
+
+{-# INLINE stepsInfinite #-}
+stepsInfinite :: ClientStep
+stepsInfinite = mkClientSteps Nothing []

@@ -9,9 +9,12 @@
 -- call (on either the server or client, e.g. inside either 'mkRpcHandler' or
 -- 'withRPC'):
 --
--- 1. Other ongoing calls on that connection are not terminated, and
--- 2. future calls are still possible.
-module Test.Sanity.Exception where
+-- 1. Other ongoing calls on that connection are not terminated (client), and
+--    handlers dealing with other calls on that connection are not terminated
+--    (server), and
+-- 2. future calls are still possible (client), and more handlers can be started
+--    to deal with future calls (server).
+module Test.Sanity.Exception (tests) where
 
 import Control.Concurrent.Async
 import Control.Exception
