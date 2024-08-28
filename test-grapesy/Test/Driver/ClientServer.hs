@@ -533,7 +533,7 @@ runTestClient cfg firstTestFailure port clientRun = do
               -- This avoids a race condition between the server starting first
               -- and the client starting first.
             , connReconnectPolicy =
-                  Client.ReconnectAfter $ do
+                  Client.ReconnectAfter Nothing $ do
                     threadDelay 100_000
                     return Client.DontReconnect
             }

@@ -24,6 +24,7 @@ import Data.Either
 import Data.IORef
 import Data.Word
 import Foreign.C.Types (CInt(..))
+import Network.Socket
 import System.Posix
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -59,7 +60,7 @@ test_clientDisconnect = do
         ]
 
     portSignal <- newEmptyMVar
-    void $ forkIO $ rawTestServer (pure Nothing) (putMVar portSignal) server
+    void $ forkIO $ rawTestServer (putMVar portSignal) server
 
     -- Start server
     serverPort <- readMVar portSignal
@@ -126,24 +127,19 @@ test_serverDisconnect :: Assertion
 test_serverDisconnect = withTemporaryFile $ \ipcFile -> do
     -- We use a temporary file as a very rudimentary means of inter-process
     -- communication so the server (which runs in a separate process) can make
-    -- the client aware of the port it is assigned by the OS. This also helps us
-    -- make sure the server binds to the same port when it comes back up for
-    -- reconnect purposes.
-    let ipcWrite :: String -> IO ()
-        ipcWrite msg = do
-          writeFile ipcFile ""
-          writeFile ipcFile msg
+    -- the client aware of the port it is assigned by the OS.
+    let ipcWrite :: PortNumber -> IO ()
+        ipcWrite port = do
+          writeFile ipcFile (show port)
 
-        ipcRead :: IO String
-        ipcRead = readFile ipcFile
-
-        ipcWaitRead :: IO String
-        ipcWaitRead = do
-          ipcRead >>= \case
-            "" -> do
-              threadDelay 10000 >> ipcWaitRead
-            msg -> do
-              return msg
+        ipcRead :: IO PortNumber
+        ipcRead = do
+          fmap (readMaybe @PortNumber) (readFile ipcFile) >>= \case
+            Nothing -> do
+              ipcRead
+            Just p -> do
+              writeFile ipcFile ""
+              return p
 
     -- Create the server
     server <-
@@ -153,22 +149,22 @@ test_serverDisconnect = withTemporaryFile $ \ipcFile -> do
         ]
 
     let -- Starts the server in a new process. Gives back an action that kills
-        -- the server process.
+        -- the created server process.
         startServer :: IO (IO ())
         startServer = do
           serverPid <-
             forkProcess $
-              rawTestServer (readMaybe <$> ipcRead) (ipcWrite . show) server
-          return $ c_kill (fromIntegral serverPid) sigKILL
+              rawTestServer ipcWrite server
+          return $ signalProcess sigKILL serverPid
 
     -- Start server, get the port
     killServer    <- startServer
-    serverPort    <- read <$> ipcWaitRead
+    port1         <- ipcRead
     signalRestart <- newEmptyMVar
-    let serverAddress =
+    let serverAddress port =
           Client.ServerInsecure Client.Address {
               addressHost      = "127.0.0.1"
-            , addressPort      = serverPort
+            , addressPort      = port
             , addressAuthority = Nothing
             }
 
@@ -178,19 +174,23 @@ test_serverDisconnect = withTemporaryFile $ \ipcFile -> do
             go :: Int -> Client.ReconnectPolicy
             go n
               | n == 5
-              = Client.ReconnectAfter $ do
+              = Client.ReconnectAfter Nothing $ do
                   killRestarted <- startServer
+                  port2 <- ipcRead
                   putMVar signalRestart killRestarted
-                  return $ Client.exponentialBackoff threadDelay 1 (1, 1) 100
+                  return $
+                    Client.ReconnectAfter
+                      (Just $ serverAddress port2)
+                      (pure Client.DontReconnect)
               | otherwise
-              = Client.ReconnectAfter $ do
+              = Client.ReconnectAfter Nothing $ do
                   threadDelay 10000
                   return $ go (n + 1)
 
         connParams :: Client.ConnParams
         connParams = def { Client.connReconnectPolicy = reconnectPolicy }
 
-    Client.withConnection connParams serverAddress $ \conn -> do
+    Client.withConnection connParams (serverAddress port1) $ \conn -> do
       -- Make 50 concurrent calls. 49 of them sending infinite messages. One
       -- of them kills the server after 100 messages.
       let numCalls   = 50
@@ -216,7 +216,7 @@ test_serverDisconnect = withTemporaryFile $ \ipcFile -> do
       killRestarted <- takeMVar signalRestart
       result <- Client.withRPC conn def (Proxy @Trivial) $
         countUntil (pure . (>= 100))
-      assertBool "" (result == 100)
+      assertEqual "" 100 result
 
       -- Do not leave the server process hanging around
       killRestarted
@@ -274,7 +274,6 @@ echoHandler disconnectCounter call = trackDisconnects disconnectCounter $ do
   Auxiliary
 -------------------------------------------------------------------------------}
 
-foreign import ccall unsafe "kill" c_kill :: CInt -> CInt -> IO ()
 foreign import ccall unsafe "exit" c_exit :: CInt -> IO ()
 
 type Trivial  = RawRpc "trivial" "trivial"

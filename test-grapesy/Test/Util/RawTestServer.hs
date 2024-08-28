@@ -16,7 +16,6 @@ import Network.Socket
 import Network.GRPC.Client qualified as Client
 import Network.HTTP.Types qualified as HTTP
 import Network.GRPC.Common
-import Data.Maybe
 
 {-------------------------------------------------------------------------------
   Raw test server
@@ -35,10 +34,9 @@ import Data.Maybe
 -- This also allows us to avoid binding to a specific port in the tests (which
 -- might already be in use on the machine running the tests, leading to spurious
 -- test failures).
-rawTestServer :: IO (Maybe PortNumber) -> (PortNumber -> IO ()) -> HTTP2.Server -> IO ()
-rawTestServer getPort signalPort server = do
-    mPortIn <- fromMaybe 0 <$> getPort
-    addr <- NetworkRun.resolve Stream (Just "127.0.0.1") (show mPortIn) [AI_PASSIVE]
+rawTestServer :: (PortNumber -> IO ()) -> HTTP2.Server -> IO ()
+rawTestServer signalPort server = do
+    addr <- NetworkRun.resolve Stream (Just "127.0.0.1") "0" [AI_PASSIVE]
     bracket (NetworkRun.openTCPServerSocket addr) close $ \listenSock -> do
       addr'   <- getSocketName listenSock
       portOut <- case addr' of
@@ -56,7 +54,7 @@ rawTestServer getPort signalPort server = do
 withTestServer :: HTTP2.Server -> (Client.Address -> IO a) -> IO a
 withTestServer server k = do
     serverPort <- newEmptyMVar
-    withAsync (rawTestServer (pure Nothing) (putMVar serverPort) server) $
+    withAsync (rawTestServer (putMVar serverPort) server) $
       \_serverThread -> do
           port <- readMVar serverPort
           let addr :: Client.Address

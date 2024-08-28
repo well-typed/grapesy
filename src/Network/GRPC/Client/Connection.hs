@@ -29,6 +29,7 @@ import Control.Concurrent.STM
 import Control.Monad
 import Control.Monad.Catch
 import Data.Default
+import Data.Maybe
 import GHC.Stack
 import Network.HPACK qualified as HPACK
 import Network.HTTP2.Client qualified as HTTP2.Client
@@ -165,13 +166,18 @@ data ReconnectPolicy =
     -- connection), do not attempt to connect again.
     DontReconnect
 
-    -- | Reconnect after random delay after the IO action returns
+    -- | Reconnect to the (potentially different) server after the IO action
+    -- returns
+    --
+    -- If the 'Maybe' is 'Just', we'll attempt to reconnect to a server at the
+    -- new address. If 'Nothing', we'll attempt to connect to the original
+    -- server that 'withConnection' was given.
     --
     -- This is a very general API: typically the IO action will call
     -- 'threadDelay' after some amount of time (which will typically involve
     -- some randomness), but it can be used to do things such as display a
     -- message to the user somewhere that the client is reconnecting.
-  | ReconnectAfter (IO ReconnectPolicy)
+  | ReconnectAfter (Maybe Server) (IO ReconnectPolicy)
 
 -- | The default policy is 'DontReconnect'
 --
@@ -207,7 +213,7 @@ exponentialBackoff waitFor e = go
   where
     go :: (Double, Double) -> Word -> ReconnectPolicy
     go _        0 = DontReconnect
-    go (lo, hi) n = ReconnectAfter $ do
+    go (lo, hi) n = ReconnectAfter Nothing $ do
         delay <- randomRIO (lo, hi)
         waitFor $ round $ delay * 1_000_000
         return $ go (lo * e, hi * e) (pred n)
@@ -378,11 +384,11 @@ stayConnected ::
   -> TVar ConnectionState
   -> MVar ()
   -> IO ()
-stayConnected connParams server connStateVar connOutOfScope =
-    loop (connReconnectPolicy connParams)
+stayConnected connParams initialServer connStateVar connOutOfScope = do
+    loop initialServer (connReconnectPolicy connParams)
   where
-    loop :: ReconnectPolicy -> IO ()
-    loop remainingReconnectPolicy = do
+    loop :: Server -> ReconnectPolicy -> IO ()
+    loop server remainingReconnectPolicy = do
         -- Start new attempt (this just allocates some internal state)
         attempt <- newConnectionAttempt connParams connStateVar connOutOfScope
 
@@ -425,9 +431,9 @@ stayConnected connParams server connStateVar connOutOfScope =
                 atomically $ writeTVar connStateVar $ ConnectionAbandoned err
               (False, DontReconnect) -> do
                 atomically $ writeTVar connStateVar $ ConnectionAbandoned err
-              (False, ReconnectAfter f) -> do
+              (False, ReconnectAfter mNewServer f) -> do
                 atomically $ writeTVar connStateVar $ ConnectionNotReady
-                loop =<< f
+                loop (fromMaybe initialServer mNewServer) =<< f
 
 -- | Insecure connection (no TLS)
 connectInsecure :: ConnParams -> Attempt -> Address -> IO ()
