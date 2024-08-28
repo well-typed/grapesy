@@ -329,6 +329,7 @@ test-suite test-grapesy
 
       Proto.API.Interop
       Proto.API.Ping
+      Proto.API.Trivial
       Proto.Empty
       Proto.Messages
       Proto.Ping

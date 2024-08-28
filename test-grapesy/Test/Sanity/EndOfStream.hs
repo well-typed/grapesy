@@ -101,7 +101,7 @@ test_recvTrailers = testClientServer $ ClientServerTest {
       config = def
     , server = [Server.fromMethod nonStreamingHandler]
     , client = simpleTestClient $ \conn ->
-        Client.withRPC conn def (Proxy @Trivial) $ \call -> do
+        Client.withRPC conn def (Proxy @Poke) $ \call -> do
           Client.sendFinalInput call BS.Lazy.empty
 
           resp <- Client.recvNextOutput call
@@ -123,7 +123,7 @@ test_recvTrailers = testClientServer $ ClientServerTest {
 -------------------------------------------------------------------------------}
 
 -- | Receive any string, respond with a single 'mempty'
-type Trivial = RawRpc "Test" "trivial"
+type Poke = RawRpc "Test" "trivial"
 
 -- | Service that simply absorbs all messages and then returns with 'mempty'
 type Absorb = RawRpc "Test" "absorb"
@@ -132,7 +132,7 @@ type Absorb = RawRpc "Test" "absorb"
 -- client with a bunch of 'mempty' messages
 type Spam = RawRpc "Test" "spam"
 
-nonStreamingHandler :: ServerHandler' NonStreaming IO Trivial
+nonStreamingHandler :: ServerHandler' NonStreaming IO Poke
 nonStreamingHandler = Server.mkNonStreaming $ \_inp ->
     return BS.Lazy.empty
 
@@ -161,13 +161,13 @@ test_recvInput = testClientServer $ ClientServerTest {
       config = def
     , server = [Server.someRpcHandler handler]
     , client = simpleTestClient $ \conn ->
-        Client.withRPC conn def (Proxy @Trivial) $ \call -> do
+        Client.withRPC conn def (Proxy @Poke) $ \call -> do
           Client.sendFinalInput call BS.Lazy.empty
           _resp <- Client.recvFinalOutput call
           return ()
     }
   where
-    handler :: Server.RpcHandler IO Trivial
+    handler :: Server.RpcHandler IO Poke
     handler = Server.mkRpcHandler $ \call -> do
         x <- Server.recvInput call
 
@@ -189,13 +189,13 @@ test_recvEndOfInput = testClientServer $ ClientServerTest {
       config = def
     , server = [Server.someRpcHandler handler]
     , client = simpleTestClient $ \conn ->
-        Client.withRPC conn def (Proxy @Trivial) $ \call -> do
+        Client.withRPC conn def (Proxy @Poke) $ \call -> do
           Client.sendFinalInput call BS.Lazy.empty
           _resp <- Client.recvFinalOutput call
           return ()
     }
   where
-    handler :: Server.RpcHandler IO Trivial
+    handler :: Server.RpcHandler IO Poke
     handler = Server.mkRpcHandler $ \call -> do
         resp <- Server.recvNextInput call
         assertEqual "resp" BS.Lazy.empty $ resp

@@ -28,7 +28,7 @@ import Network.GRPC.Client.Binary qualified as Binary
 import Network.GRPC.Common
 import Network.GRPC.Server qualified as Server
 import Network.GRPC.Server.Binary qualified as Binary
-import Network.GRPC.Spec
+import Proto.API.Trivial
 import Test.Driver.ClientServer
 import Test.Util.Exception
 
@@ -184,13 +184,3 @@ incUntilFinal call = do
         -- ticket above.
         Server.sendTrailers call NoMetadata
         return ()
-
-{-------------------------------------------------------------------------------
-  Auxiliary
--------------------------------------------------------------------------------}
-
-type Trivial = RawRpc "trivial" "trivial"
-
-type instance RequestMetadata          Trivial = NoMetadata
-type instance ResponseInitialMetadata  Trivial = NoMetadata
-type instance ResponseTrailingMetadata Trivial = NoMetadata

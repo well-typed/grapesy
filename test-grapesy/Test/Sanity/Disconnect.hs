@@ -13,7 +13,7 @@
 -- 1. The handlers dealing with that client (i.e. on that connection) should
 --    fail with 'Server.ClientDisonnected'
 -- 2. Future calls (after reconnection) succeed
-module Test.Sanity.Disconnect where
+module Test.Sanity.Disconnect (tests) where
 
 import Control.Concurrent
 import Control.Concurrent.Async
@@ -36,6 +36,7 @@ import Network.GRPC.Common
 import Network.GRPC.Server qualified as Server
 import Network.GRPC.Server.Binary qualified as Binary
 import Network.GRPC.Spec
+import Proto.API.Trivial
 import Test.Util
 import Test.Util.RawTestServer
 
@@ -44,6 +45,13 @@ tests = testGroup "Test.Sanity.Disconnect" [
       testCase "client" test_clientDisconnect
     , testCase "server" test_serverDisconnect
     ]
+
+-- | We want two distinct handlers running at the same time, so we have two
+-- trivial RPCs
+type RPC1 = Trivial' "rpc1"
+
+-- | See 'RPC1'
+type RPC2 = Trivial' "rpc2"
 
 -- | Two separate clients make many concurrent calls, one of them disconnects.
 test_clientDisconnect :: Assertion
@@ -54,9 +62,9 @@ test_clientDisconnect = do
     server <-
       Server.mkGrpcServer def [
           Server.someRpcHandler $
-              Server.mkRpcHandler @Trivial  $ echoHandler (Just disconnectCounter1)
+              Server.mkRpcHandler @RPC1 $ echoHandler (Just disconnectCounter1)
         , Server.someRpcHandler $
-              Server.mkRpcHandler @Trivial' $ echoHandler (Just disconnectCounter2)
+              Server.mkRpcHandler @RPC2 $ echoHandler (Just disconnectCounter2)
         ]
 
     portSignal <- newEmptyMVar
@@ -85,7 +93,7 @@ test_clientDisconnect = do
                     return False
                 ]
         mapConcurrently_
-          (   Client.withRPC conn def (Proxy @Trivial)
+          (   Client.withRPC conn def (Proxy @RPC1)
             . countUntil
           )
           predicates
@@ -99,14 +107,14 @@ test_clientDisconnect = do
     (result1, result2) <- concurrently
       ( Client.withConnection def serverAddress $ \conn -> do
           sum <$> mapConcurrently
-            (   Client.withRPC conn def (Proxy @Trivial)
+            (   Client.withRPC conn def (Proxy @RPC1)
               . countUntil
             )
             predicates
       )
       ( Client.withConnection def serverAddress $ \conn -> do
           sum <$> mapConcurrently
-            (   Client.withRPC conn def (Proxy @Trivial')
+            (   Client.withRPC conn def (Proxy @RPC2)
               . countUntil
             )
             predicates
@@ -275,13 +283,3 @@ echoHandler disconnectCounter call = trackDisconnects disconnectCounter $ do
 -------------------------------------------------------------------------------}
 
 foreign import ccall unsafe "exit" c_exit :: CInt -> IO ()
-
-type Trivial  = RawRpc "trivial" "trivial"
-type Trivial' = RawRpc "trivial" "trivial'"
-
-type instance RequestMetadata          Trivial  = NoMetadata
-type instance ResponseInitialMetadata  Trivial  = NoMetadata
-type instance ResponseTrailingMetadata Trivial  = NoMetadata
-type instance RequestMetadata          Trivial' = NoMetadata
-type instance ResponseInitialMetadata  Trivial' = NoMetadata
-type instance ResponseTrailingMetadata Trivial' = NoMetadata
