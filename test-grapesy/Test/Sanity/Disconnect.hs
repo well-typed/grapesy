@@ -199,16 +199,16 @@ test_serverDisconnect = withTemporaryFile $ \ipcFile -> do
             go :: Int -> Client.ReconnectPolicy
             go n
               | n == 5
-              = Client.ReconnectAfter Nothing $ do
+              = Client.ReconnectAfter def $ do
                   killRestarted <- startServer
                   port2 <- ipcRead
                   putMVar signalRestart killRestarted
                   return $
                     Client.ReconnectAfter
-                      (Just $ serverAddress port2)
+                      (Client.ReconnectToNew $ serverAddress port2)
                       (pure Client.DontReconnect)
               | otherwise
-              = Client.ReconnectAfter Nothing $ do
+              = Client.ReconnectAfter def $ do
                   threadDelay 10000
                   return $ go (n + 1)
 
@@ -296,6 +296,9 @@ echoHandler disconnectCounter call = trackDisconnects disconnectCounter $ do
   Auxiliary
 -------------------------------------------------------------------------------}
 
+-- We need to use this to properly simulate the execution environment crashing
+-- in an unrecoverable way. In particular, we don't want to give the program a
+-- chance to do any of its normal exception handling/cleanup behavior.
 foreign import ccall unsafe "exit" c_exit :: CInt -> IO ()
 
 data ClientStep = KeepGoing (Maybe (IO ())) ClientStep | Done
