@@ -16,6 +16,7 @@ module Network.GRPC.Client.Connection (
   , SslKeyLog(..)
   , ConnParams(..)
   , ReconnectPolicy(..)
+  , ReconnectTo(..)
   , exponentialBackoff
     -- * Using the connection
   , connParams
@@ -165,13 +166,30 @@ data ReconnectPolicy =
     -- connection), do not attempt to connect again.
     DontReconnect
 
-    -- | Reconnect after random delay after the IO action returns
+    -- | Reconnect to the (potentially different) server after the IO action
+    -- returns
+    --
+    -- The 'ReconnectTo' can be used to implement a rudimentary redundancy
+    -- scheme. For example, you could decide to reconnect to a known fallback
+    -- server after connection to a main server fails a certain number of times.
     --
     -- This is a very general API: typically the IO action will call
     -- 'threadDelay' after some amount of time (which will typically involve
     -- some randomness), but it can be used to do things such as display a
     -- message to the user somewhere that the client is reconnecting.
-  | ReconnectAfter (IO ReconnectPolicy)
+  | ReconnectAfter ReconnectTo (IO ReconnectPolicy)
+
+-- | What server should we attempt to reconnect to?
+--
+-- * 'ReconnectToPrevious' will attempt to reconnect to the last server we
+--   attempted to connect to, whether or not that attempt was successful.
+-- * 'ReconnectToOriginal' will attempt to reconnect to the original server that
+--   'withConnection' was given.
+-- * 'ReconnectToNew' will attempt to connect to the newly specified server.
+data ReconnectTo =
+      ReconnectToPrevious
+    | ReconnectToOriginal
+    | ReconnectToNew Server
 
 -- | The default policy is 'DontReconnect'
 --
@@ -179,6 +197,9 @@ data ReconnectPolicy =
 -- <https://github.com/grpc/grpc/blob/master/doc/wait-for-ready.md>.
 instance Default ReconnectPolicy where
   def = DontReconnect
+
+instance Default ReconnectTo where
+  def = ReconnectToPrevious
 
 -- | Exponential backoff
 --
@@ -207,7 +228,7 @@ exponentialBackoff waitFor e = go
   where
     go :: (Double, Double) -> Word -> ReconnectPolicy
     go _        0 = DontReconnect
-    go (lo, hi) n = ReconnectAfter $ do
+    go (lo, hi) n = ReconnectAfter def $ do
         delay <- randomRIO (lo, hi)
         waitFor $ round $ delay * 1_000_000
         return $ go (lo * e, hi * e) (pred n)
@@ -378,11 +399,11 @@ stayConnected ::
   -> TVar ConnectionState
   -> MVar ()
   -> IO ()
-stayConnected connParams server connStateVar connOutOfScope =
-    loop (connReconnectPolicy connParams)
+stayConnected connParams initialServer connStateVar connOutOfScope = do
+    loop initialServer (connReconnectPolicy connParams)
   where
-    loop :: ReconnectPolicy -> IO ()
-    loop remainingReconnectPolicy = do
+    loop :: Server -> ReconnectPolicy -> IO ()
+    loop server remainingReconnectPolicy = do
         -- Start new attempt (this just allocates some internal state)
         attempt <- newConnectionAttempt connParams connStateVar connOutOfScope
 
@@ -425,9 +446,16 @@ stayConnected connParams server connStateVar connOutOfScope =
                 atomically $ writeTVar connStateVar $ ConnectionAbandoned err
               (False, DontReconnect) -> do
                 atomically $ writeTVar connStateVar $ ConnectionAbandoned err
-              (False, ReconnectAfter f) -> do
+                atomically $ writeTVar connStateVar $ ConnectionAbandoned err
+              (False, ReconnectAfter to f) -> do
+                let
+                  nextServer =
+                    case to of
+                      ReconnectToPrevious -> server
+                      ReconnectToOriginal -> initialServer
+                      ReconnectToNew new  -> new
                 atomically $ writeTVar connStateVar $ ConnectionNotReady
-                loop =<< f
+                loop nextServer =<< f
 
 -- | Insecure connection (no TLS)
 connectInsecure :: ConnParams -> Attempt -> Address -> IO ()

@@ -429,16 +429,16 @@ close Channel{channelOutbound} reason = do
     -- We leave the inbound thread running. Although the channel is closed,
     -- there might still be unprocessed messages in the queue. The inbound
     -- thread will terminate once it reaches the end of the queue
-     outbound <- cancelThread channelOutbound channelClosed
-     case outbound of
-       AlreadyTerminated _ ->
-         return $ Nothing
-       AlreadyAborted _err ->
-         -- Connection_ to the peer was lost prior to closing
-         return $ Nothing
-       Cancelled ->
-         -- Proper procedure for outbound messages was not followed
-         return $ Just channelClosed
+    outbound <- cancelThread channelOutbound channelClosed
+    case outbound of
+      AlreadyTerminated _ ->
+        return $ Nothing
+      AlreadyAborted _err ->
+        -- Connection_ to the peer was lost prior to closing
+        return $ Nothing
+      Cancelled ->
+        -- Proper procedure for outbound messages was not followed
+        return $ Just channelClosed
   where
     channelClosed :: SomeException
     channelClosed =
@@ -522,7 +522,7 @@ linkOutboundToInbound allowHalfClosed channel inbound = do
   threads, using the 'Thread' API from "Network.GRPC.Util.Thread". We are
   therefore not particularly worried about these loops being interrupted by
   asynchronous exceptions: this only happens if the threads are explicitly
-  terminated (when the corrresponding channels are closed), in which case any
+  terminated (when the corresponding channels are closed), in which case any
   attempt to interact with them after they have been killed will be handled by
   'getThreadInterface' throwing 'ThreadInterfaceUnavailable'.
 -------------------------------------------------------------------------------}

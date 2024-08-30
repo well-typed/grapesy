@@ -20,7 +20,6 @@ module Test.Driver.Dialogue.Definition (
   , hasEarlyTermination
   ) where
 
-import Control.Exception
 import Control.Monad.State (StateT, execStateT, modify)
 import Data.Bifunctor
 import Data.ByteString qualified as Strict (ByteString)
@@ -28,6 +27,7 @@ import Data.ByteString qualified as Strict (ByteString)
 import Network.GRPC.Common
 
 import Test.Driver.Dialogue.TestClock qualified as TestClock
+import Test.Util.Exception
 import Control.Monad.Catch
 import GHC.Show (appPrec1, showCommaSpace)
 
@@ -153,25 +153,6 @@ newtype GlobalSteps = GlobalSteps {
       getGlobalSteps :: [LocalSteps]
     }
   deriving stock (Show)
-
-{-------------------------------------------------------------------------------
-  User exceptions
-
-  When a test calls for the client or the server to throw an exception, we throw
-  one of these. Their sole purpose is to be "any" kind of exception (not a
-  specific one).
--------------------------------------------------------------------------------}
-
-data SomeServerException = SomeServerException ExceptionId
-  deriving stock (Show, Eq)
-  deriving anyclass (Exception)
-
-data SomeClientException = SomeClientException ExceptionId
-  deriving stock (Show, Eq)
-  deriving anyclass (Exception)
-
--- | We distinguish exceptions from each other simply by a number
-type ExceptionId = Int
 
 {-------------------------------------------------------------------------------
   Utility

@@ -1,4 +1,4 @@
-module Main where
+module Main (main) where
 
 import GHC.Conc (setUncaughtExceptionHandler)
 import System.IO

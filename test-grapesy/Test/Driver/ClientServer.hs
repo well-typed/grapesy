@@ -40,6 +40,7 @@ import Network.GRPC.Common
 import Network.GRPC.Common.Compression qualified as Compr
 import Network.GRPC.Server qualified as Server
 import Network.GRPC.Server.Run qualified as Server
+import Test.Util.Exception
 
 import Paths_grapesy
 
@@ -168,12 +169,6 @@ data TlsFail =
     we don't see these exceptions server-side.
 -------------------------------------------------------------------------------}
 
--- | Exception thrown by client or handler to test exception handling
-data DeliberateException = forall e. Exception e => DeliberateException e
-  deriving anyclass (Exception)
-
-deriving stock instance Show DeliberateException
-
 isExpectedServerException :: ClientServerConfig -> SomeException -> Bool
 isExpectedServerException cfg e
   --
@@ -232,7 +227,7 @@ isExpectedClientException cfg e
   | Just (DeliberateException _) <- fromException e
   = True
 
-  -- Server threw deliberat exception
+  -- Server threw deliberate exception
   | Just grpcException <- fromException e
   , Just msg <- grpcErrorMessage grpcException
   , "DeliberateException" `Text.isInfixOf` msg
@@ -538,7 +533,7 @@ runTestClient cfg firstTestFailure port clientRun = do
               -- This avoids a race condition between the server starting first
               -- and the client starting first.
             , connReconnectPolicy =
-                  Client.ReconnectAfter $ do
+                  Client.ReconnectAfter def $ do
                     threadDelay 100_000
                     return Client.DontReconnect
             }

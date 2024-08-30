@@ -181,7 +181,18 @@ setupRequestChannel sess
         threadBody "grapesy:clientOutbound" (channelOutbound channel) $ \markReady _debugId -> do
           markReady $ FlowStateRegular regular
           stream <- clientOutputStream iface
-          Client.outBodyUnmask iface $ sendMessageLoop sess regular stream
+          -- Unlike the client inbound thread, or the inbound/outbound threads
+          -- of the server, http2 knows about this particular thread and may
+          -- raise an exception on it when the server dies. This results in a
+          -- race condition between that exception and the exception we get from
+          -- attempting to read the next message. No matter who wins that race,
+          -- we need to mark that as 'ServerDisconnected'.
+          --
+          -- We don't have this top-level exception handler in other places
+          -- because we don't want to mark /our own/ exceptions as
+          -- 'ServerDisconnected' or 'ClientDisconnected'.
+          wrapStreamExceptionsWith ServerDisconnected $
+            Client.outBodyUnmask iface $ sendMessageLoop sess regular stream
 
 {-------------------------------------------------------------------------------
    Auxiliary http2

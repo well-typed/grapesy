@@ -4,6 +4,9 @@ module Test.Util (
     -- * Timeouts
     Timeout(..)
   , within
+
+    -- * Files
+  , withTemporaryFile
   ) where
 
 import Control.Concurrent
@@ -11,6 +14,8 @@ import Control.Exception
 import Control.Monad.Catch
 import Control.Monad.IO.Class
 import GHC.Stack
+import System.IO
+import System.IO.Temp
 
 {-------------------------------------------------------------------------------
   Timeouts
@@ -45,4 +50,6 @@ within t info io = do
     fmap fst $
       generalBracket startTimer stopTimer $ \_ -> io
 
-
+withTemporaryFile :: (FilePath -> IO a) -> IO a
+withTemporaryFile k =
+    withSystemTempFile "grapesy-test-suite.txt" (\fp h -> hClose h >> k fp)

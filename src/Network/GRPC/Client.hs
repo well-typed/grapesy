@@ -9,6 +9,7 @@ module Network.GRPC.Client (
 
     -- ** Reconnection policy
   , ReconnectPolicy(..)
+  , ReconnectTo(..)
   , exponentialBackoff
 
     -- ** Connection parameters
