@@ -293,13 +293,14 @@ runInsecure params cfg socketTMVar server = do
         serverHTTP2Settings
         socketTMVar
         (insecureHost cfg)
-        (insecurePort cfg) $ \listenSock -> do
-      Run.runTCPServerWithSocket listenSock $ \clientSock -> do
-        when (http2TcpNoDelay serverHTTP2Settings) $
-          -- See description of 'withServerSocket'
-          setSockOpt clientSock NoDelay True
-        withConfigForInsecure clientSock $ \config ->
-          HTTP2.run serverConfig config server
+        (insecurePort cfg) $ \listenSock ->
+      withTimeManager $ \mgr ->
+        Run.runTCPServerWithSocket listenSock $ \clientSock -> do
+          when (http2TcpNoDelay serverHTTP2Settings) $
+            -- See description of 'withServerSocket'
+            setSockOpt clientSock NoDelay True
+          withConfigForInsecure mgr clientSock $ \config ->
+            HTTP2.run serverConfig config server
   where
     ServerParams{
         serverOverrideNumberOfWorkers
