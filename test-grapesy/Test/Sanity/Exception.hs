@@ -46,7 +46,7 @@ tests = testGroup "Test.Sanity.Exception" [
 -- | Client makes many concurrent calls, throws an exception during one of them.
 test_clientException :: IO ()
 test_clientException = testClientServer $ ClientServerTest {
-      config = def
+      config = def { expectEarlyClientTermination = True }
     , client = simpleTestClient $ \conn -> do
         -- Make 100 concurrent calls. 99 of them counting to 50, and one
         -- more that throws an exception once it reaches 10.
@@ -129,22 +129,23 @@ test_serverException = do
 -- does not wait for client termination.
 test_earlyTerminationNoWait :: IO ()
 test_earlyTerminationNoWait = testClientServer $ ClientServerTest {
-      config = def
+      config = def { expectEarlyClientTermination = True }
     , client = simpleTestClient $ \conn -> do
         _mResult <-
           try @DeliberateException $
             Client.withRPC conn def (Proxy @Trivial) $ \_call ->
               throwIO (DeliberateException $ SomeServerException 0)
 
-        Client.withRPC conn def (Proxy @Trivial) $ \call -> do
+        result <- Client.withRPC conn def (Proxy @Trivial) $ \call -> do
           Binary.sendFinalInput @Word8 call 0
-          _output <- Binary.recvOutput @Word8 call
-          return ()
+          Binary.recvFinalOutput @Word8 call
+
+        assertEqual "" (1, NoMetadata) result
     , server = [
           Server.someRpcHandler $
             Server.mkRpcHandler @Trivial $ \call ->
               Binary.recvInput @Word8 call >>= \case
-                _ -> Server.sendTrailers call NoMetadata
+                _ -> Binary.sendFinalOutput @Word8 call (1, NoMetadata)
         ]
     }
 
@@ -180,10 +181,5 @@ incUntilFinal call = do
       FinalElem n _ -> do
         Binary.sendFinalOutput @Word64 call (succ n, NoMetadata)
       NoMoreElems _ -> do
-        -- TODO: <https://github.com/well-typed/grapesy/issues/209>
-        --
-        -- We shouldn't need to handle this case, since our client never
-        -- explicitly sends 'NoMoreElems'. However, see discussion in the
-        -- ticket above.
-        Server.sendTrailers call NoMetadata
-        return ()
+        -- This is never hit, since our client never sends 'NoMoreElems'.
+        error "Test.Sanity.Exception.incUntilFinal: unexpected NoMoreElems"

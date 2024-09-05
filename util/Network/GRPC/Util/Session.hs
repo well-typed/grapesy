@@ -44,6 +44,7 @@ module Network.GRPC.Util.Session (
     -- ** Construction
     -- *** Client
   , ConnectionToServer(..)
+  , CancelRequest
   , setupRequestChannel
     -- *** Server
   , ConnectionToClient(..)

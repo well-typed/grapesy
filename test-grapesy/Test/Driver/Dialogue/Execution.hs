@@ -2,7 +2,8 @@
 {-# OPTIONS_GHC -Wno-orphans #-}
 
 module Test.Driver.Dialogue.Execution (
-    execGlobalSteps
+    ConnUsage(..)
+  , execGlobalSteps
   ) where
 
 import Control.Concurrent
@@ -16,6 +17,7 @@ import Data.Proxy
 import Data.Text qualified as Text
 import GHC.Stack
 import GHC.TypeLits
+import Network.HTTP2.Client qualified as HTTP2.Client
 
 import Network.GRPC.Client qualified as Client
 import Network.GRPC.Client.Binary qualified as Client.Binary
@@ -271,21 +273,17 @@ clientLocal clock call = \(LocalSteps steps) ->
 
 clientGlobal ::
      TestClock
-  -> Bool
+  -> ConnUsage
      -- ^ Use new connection for each RPC call?
      --
      -- Multiple RPC calls on a single connection /ought/ to be independent of
-     -- each other, with something going wrong on one should not affect another.
-     -- This is currently however not the case, I /think/ due to limitations of
-     -- @http2@.
-     --
-     -- See <https://github.com/well-typed/grapesy/issues/102>.
+     -- each other. Something going wrong on one should not affect another.
   -> GlobalSteps
   -> TestClient
-clientGlobal clock connPerRPC global connParams testServer delimitTestScope =
-    if connPerRPC
-      then                  go Nothing  [] (getGlobalSteps global)
-      else withConn $ \c -> go (Just c) [] (getGlobalSteps global)
+clientGlobal clock connUsage global connParams testServer delimitTestScope =
+    case connUsage of
+      ConnPerRPC ->                  go Nothing  [] (getGlobalSteps global)
+      SharedConn -> withConn $ \c -> go (Just c) [] (getGlobalSteps global)
   where
     withConn :: (Client.Connection -> IO ()) -> IO ()
     withConn = Client.withConnection connParams testServer
@@ -413,12 +411,7 @@ serverLocal clock call = \(LocalSteps steps) -> do
           Terminate mErr -> do
             mInp <- liftIO $ try $ within timeoutReceive action $
                       Server.Binary.recvInput call
-            -- TODO: <https://github.com/well-typed/grapesy/issues/209>
-            --
-            -- On the server side we cannot distinguish regular client
-            -- termination from an exception when receiving.
-            let expectation = isExpectedElem $ NoMoreElems NoMetadata
-            expect (tick, action) expectation mInp
+            expect (tick, action) isClientDisconnected mInp
             modify $ ifPeerAlive $ PeerTerminated $ DeliberateException <$> mErr
 
     -- Wait for the client disconnect to become visible
@@ -428,12 +421,6 @@ serverLocal clock call = \(LocalSteps steps) -> do
     -- terminate more-or-less immediately, this does not necessarily indicate
     -- any kind of failure: the client may simply have put the call in
     -- half-closed mode.
-    --
-    -- TODO: <https://github.com/well-typed/grapesy/issues/209>
-    -- However, when the client terminates early and we are not using one
-    -- connection per RPC (i.e. we are sharing a connection), the server will
-    -- /never/ realize that the client has disappeared. See the discussion in
-    -- the issue above.
     waitForClientDisconnect :: IO ()
     waitForClientDisconnect =
         within timeoutFailure () $ loop
@@ -456,6 +443,16 @@ serverLocal clock call = \(LocalSteps steps) -> do
       -> Bool
     isExpectedElem _ (Left _) = False
     isExpectedElem expectedElem (Right streamElem) = expectedElem == streamElem
+
+    isClientDisconnected ::
+         Either Server.ClientDisconnected (StreamElem NoMetadata Int)
+      -> Bool
+    isClientDisconnected (Left (Server.ClientDisconnected e _))
+      | Just HTTP2.Client.ConnectionIsClosed <- fromException e
+      = True
+      | otherwise
+      = False
+    isClientDisconnected _ = False
 
 serverGlobal ::
      HasCallStack
@@ -495,8 +492,10 @@ serverGlobal clock globalStepsVar call = do
   Top-level
 -------------------------------------------------------------------------------}
 
-execGlobalSteps :: GlobalSteps -> IO ClientServerTest
-execGlobalSteps steps = do
+data ConnUsage = SharedConn | ConnPerRPC
+
+execGlobalSteps :: ConnUsage -> GlobalSteps -> IO ClientServerTest
+execGlobalSteps connUsage steps = do
     globalStepsVar <- newMVar (order steps)
     clock          <- TestClock.new
 
@@ -513,7 +512,7 @@ execGlobalSteps steps = do
             expectEarlyClientTermination = clientTerminatesEarly
           , expectEarlyServerTermination = serverTerminatesEarly
           }
-      , client = clientGlobal clock connPerRPC steps
+      , client = clientGlobal clock connUsage steps
       , server = [
             handler (Proxy @TestRpc1)
           , handler (Proxy @TestRpc2)
@@ -523,9 +522,6 @@ execGlobalSteps steps = do
   where
     clientTerminatesEarly, serverTerminatesEarly :: Bool
     (clientTerminatesEarly, serverTerminatesEarly) = hasEarlyTermination steps
-
-    connPerRPC :: Bool
-    connPerRPC = serverTerminatesEarly || clientTerminatesEarly
 
     -- For 'clientGlobal' the order doesn't matter, because it spawns a thread
     -- for each 'LocalSteps'. The server however doesn't get this option; the

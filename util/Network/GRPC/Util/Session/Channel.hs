@@ -106,7 +106,7 @@ data Channel sess = Channel {
     }
 
 data RecvFinal flow =
-    -- | We have not yet delivered the final message to the clinet
+    -- | We have not yet delivered the final message to the client
     RecvNotFinal
 
     -- | We delivered the final message, but not yet the trailers
@@ -394,7 +394,7 @@ data RecvAfterFinal =
 -- | Wait for the outbound thread to terminate
 --
 -- See 'close' for discussion.
-waitForOutbound :: Channel sess -> IO (FlowState (Outbound sess))
+waitForOutbound :: Channel sess -> IO ()
 waitForOutbound Channel{channelOutbound} = atomically $
     waitForNormalThreadTermination channelOutbound
 
@@ -416,7 +416,7 @@ waitForOutbound Channel{channelOutbound} = atomically $
 -- 2. Proper procedure for outbound messages was not followed (see above)
 --
 -- In the case of (2) this is bug in the caller, and so 'close' will return an
--- exception. In the case of (1), howvever, very likely an exception will
+-- exception. In the case of (1), however, very likely an exception will
 -- /already/ have been thrown when a communication attempt was made, and 'close'
 -- will return 'Nothing'. This matches the design philosophy in @grapesy@ that
 -- exceptions are thrown \"lazily\" rather than \"strictly\".
@@ -434,7 +434,7 @@ close Channel{channelOutbound} reason = do
       AlreadyTerminated _ ->
         return $ Nothing
       AlreadyAborted _err ->
-        -- Connection_ to the peer was lost prior to closing
+        -- Connection to the peer was lost prior to closing
         return $ Nothing
       Cancelled ->
         -- Proper procedure for outbound messages was not followed
@@ -449,7 +449,7 @@ close Channel{channelOutbound} reason = do
 
 -- | Channel was closed because it was discarded
 --
--- This typically corresponds to leaving the scope of 'acceptCall' or
+-- This typically corresponds to leaving the scope of 'runHandler' or
 -- 'withRPC' (without throwing an exception).
 data ChannelDiscarded = ChannelDiscarded CallStack
   deriving stock (Show)
@@ -544,7 +544,6 @@ sendMessageLoop sess st stream = do
     loop :: IO (Trailers (Outbound sess))
     loop = do
         msg <- atomically $ takeTMVar (flowMsg st)
-
         case msg of
           StreamElem x -> do
             writeChunk stream $ build x
@@ -554,6 +553,13 @@ sendMessageLoop sess st stream = do
             writeChunkFinal stream $ build x
             return trailers
           NoMoreElems trailers -> do
+            -- It is crucial to still 'writeChunkFinal' here to guarantee that
+            -- cancellation is a no-op. Without it, cancellation may result in a
+            -- @RST_STREAM@ frame may being sent to the peer.
+            --
+            -- This does not necessarily write a DATA frame, since http2 avoids
+            -- writing empty data frames unless they are marked @END_OF_STREAM@.
+            writeChunkFinal stream $ mempty
             return trailers
 
 -- | Receive all messages sent by the node's peer
@@ -618,9 +624,9 @@ outboundTrailersMaker sess Channel{channelOutbound} regular = go
     go :: HTTP2.TrailersMaker
     go (Just _) = return $ HTTP2.NextTrailersMaker go
     go Nothing  = do
-        mFlowState <- atomically $ do
-                   (Right <$> readTMVar (flowTerminated regular))
-          `orElse` (Left <$> waitForAbnormalThreadTermination channelOutbound)
+        mFlowState <- atomically $
+          unlessAbnormallyTerminated channelOutbound $
+            readTMVar (flowTerminated regular)
         case mFlowState of
             Right trailers ->
               return $ HTTP2.Trailers $ buildOutboundTrailers sess trailers

@@ -15,7 +15,7 @@ import Proto.API.Interop
 -- cancellation gets reported by the grapesy client library itself.
 runTest :: Cmdline -> IO ()
 runTest cmdline =
-    withConnection def (testServer cmdline) $ \conn -> do
+    withConnection def (testServer cmdline) $ \conn ->
       assertThrows (assertEqual GrpcCancelled . grpcError) $
         withRPC conn def (Proxy @StreamingInputCall) $ \_call ->
           -- Immediately cancel request
