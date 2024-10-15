@@ -168,7 +168,7 @@ defaultHTTP2Settings :: HTTP2Settings
 defaultHTTP2Settings = HTTP2Settings {
       http2MaxConcurrentStreams        = defMaxConcurrentStreams
     , http2StreamWindowSize            = defInitialStreamWindowSize
-    , http2ConnectionWindowSize        = defMaxConcurrentStreams * defInitialStreamWindowSize
+    , http2ConnectionWindowSize        = defInitialConnectionWindowSize
     , http2TcpNoDelay                  = True
     , http2OverridePingRateLimit       = Just 100
     , http2OverrideEmptyFrameRateLimit = Nothing
@@ -176,8 +176,9 @@ defaultHTTP2Settings = HTTP2Settings {
     , http2OverrideRstRateLimit        = Nothing
     }
   where
-    defMaxConcurrentStreams    = 128
-    defInitialStreamWindowSize = 1024 * 64
+    defMaxConcurrentStreams        = 128
+    defInitialStreamWindowSize     = 256 * 1024        -- 256KiB
+    defInitialConnectionWindowSize = 2   * 1024 * 1024 -- 2MiB
 
 instance Default HTTP2Settings where
   def = defaultHTTP2Settings
