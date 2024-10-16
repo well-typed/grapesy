@@ -310,6 +310,7 @@ test-suite test-grapesy
       Test.Prop.IncrementalParsing
       Test.Prop.Serialization
       Test.Sanity.BrokenDeployments
+      Test.Sanity.Compression
       Test.Sanity.Disconnect
       Test.Sanity.EndOfStream
       Test.Sanity.Exception
@@ -328,10 +329,12 @@ test-suite test-grapesy
 
       Paths_grapesy
 
+      Proto.API.Helloworld
       Proto.API.Interop
       Proto.API.Ping
       Proto.API.Trivial
       Proto.Empty
+      Proto.Helloworld
       Proto.Messages
       Proto.Ping
       Proto.Test

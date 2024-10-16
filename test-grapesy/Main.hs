@@ -17,6 +17,7 @@ import Test.Prop.Dialogue                     qualified as Dialogue
 import Test.Prop.IncrementalParsing           qualified as IncrementalParsing
 import Test.Prop.Serialization                qualified as Serialization
 import Test.Sanity.BrokenDeployments          qualified as BrokenDeployments
+import Test.Sanity.Compression                qualified as Compression
 import Test.Sanity.Disconnect                 qualified as Disconnect
 import Test.Sanity.EndOfStream                qualified as EndOfStream
 import Test.Sanity.Exception                  qualified as Exception
@@ -36,6 +37,7 @@ main = do
                 StreamingType.NonStreaming.tests
               , StreamingType.CustomFormat.tests
               ]
+          , Compression.tests
           , Exception.tests
           , Interop.tests
           , BrokenDeployments.tests
