@@ -44,25 +44,25 @@ tests = testGroup "Test.Sanity.EndOfStream" [
 -- | Test that we get SendAfterFinal when we call 'sendInput' after the final
 test_sendAfterFinal :: Assertion
 test_sendAfterFinal = testClientServer $ ClientServerTest {
-        config = def
-      , server = [Server.fromMethod clientStreamingHandler]
-      , client = simpleTestClient $ \conn -> do
-          Client.withRPC conn def (Proxy @Absorb) $ \call -> do
-            replicateM_ 10 $ Client.sendNextInput call BS.Lazy.empty
-            Client.sendEndOfInput call
+      config = def
+    , server = [Server.fromMethod clientStreamingHandler]
+    , client = simpleTestClient $ \conn -> do
+        Client.withRPC conn def (Proxy @Absorb) $ \call -> do
+          replicateM_ 10 $ Client.sendNextInput call BS.Lazy.empty
+          Client.sendEndOfInput call
 
-            -- The purpose of this test:
-            mRes <- try $ Client.sendNextInput call BS.Lazy.empty
-            case mRes of
-              Left SendAfterFinal{} ->
-                return ()
-              _otherwise ->
-                assertFailure "Expected SendAfterFinal"
+          -- The purpose of this test:
+          mRes <- try $ Client.sendNextInput call BS.Lazy.empty
+          case mRes of
+            Left SendAfterFinal{} ->
+              return ()
+            _otherwise ->
+              assertFailure "Expected SendAfterFinal"
 
-            -- Communication with the server is unaffected
-            (res, _) <- Client.recvFinalOutput call
-            assertEqual "response" BS.Lazy.empty $ res
-      }
+          -- Communication with the server is unaffected
+          (res, _) <- Client.recvFinalOutput call
+          assertEqual "response" BS.Lazy.empty $ res
+    }
 
 -- | Test that we get RecvAfterFinal if we call 'recvOutput' after the final
 test_recvAfterFinal :: Assertion
