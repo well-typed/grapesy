@@ -41,9 +41,9 @@ isEmpty ras = withRAS ras $ Set.null
 getRandomKey :: RandomAccessSet a -> IO a
 getRandomKey ras = do
     gen  <- Random.new
-    size <- withRAS ras $ Set.size
-    n    <- Random.nextInt gen size
-    withRAS ras $ Set.elemAt n
+    withRASIO ras $ \s -> do
+      n <- Random.nextInt gen (Set.size s)
+      return $ Set.elemAt n s
 
 add :: Ord a => RandomAccessSet a -> a -> IO Bool
 add ras value =
@@ -67,3 +67,10 @@ modifyRAS ras f = modifyMVar (unwrap ras) $ return . f
 
 modifyRAS_ :: RandomAccessSet a -> (Set a -> Set a) -> IO ()
 modifyRAS_ ras f = modifyMVar_ (unwrap ras) $ return . f
+
+{-------------------------------------------------------------------------------
+  Internal: wrap IO operations
+-------------------------------------------------------------------------------}
+
+withRASIO :: RandomAccessSet a -> (Set a -> IO b) -> IO b
+withRASIO ras = withMVar (unwrap ras)

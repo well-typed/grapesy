@@ -20,6 +20,7 @@ data Cmdline = Cmdline {
     , cmdSecure            :: Bool
     , cmdDisableTcpNoDelay :: Bool
     , cmdPingRateLimit     :: Maybe Int
+    , cmdSemaphoreLimit    :: Maybe Int
     }
 
 data Mode =
@@ -75,6 +76,13 @@ parseCmdline =
               Opt.long "ping-rate-limit"
             , Opt.metavar "PINGs/sec"
             , Opt.help "Allow at most this many pings per second from the peer"
+            ]
+          )
+      <*> (Opt.optional $
+            Opt.option Opt.auto $ mconcat [
+              Opt.long "semaphore-limit"
+            , Opt.metavar "NUM_TOKENS"
+            , Opt.help "Allow at most this many clients to run concurrently"
             ]
           )
 
