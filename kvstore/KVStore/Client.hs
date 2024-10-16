@@ -1,10 +1,12 @@
 module KVStore.Client (runKeyValueClient) where
 
+import Control.Concurrent
 import Control.Exception
 import Control.Monad
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.IORef
+import Data.Maybe
 import System.Timeout
 import Text.Printf
 
@@ -60,11 +62,11 @@ statsTotal stats = sum [
     , statsNumDelete   stats
     ]
 
-incNumCreate, incNumUpdate, incNumRetrieve, incNumDelete :: Stats -> Stats
-incNumCreate   stats = stats{statsNumCreate   = statsNumCreate   stats + 1}
-incNumUpdate   stats = stats{statsNumUpdate   = statsNumUpdate   stats + 1}
-incNumRetrieve stats = stats{statsNumRetrieve = statsNumRetrieve stats + 1}
-incNumDelete   stats = stats{statsNumDelete   = statsNumDelete   stats + 1}
+incNumCreate, incNumUpdate, incNumRetrieve, incNumDelete :: Stats -> (Stats, ())
+incNumCreate   stats = (stats{statsNumCreate   = statsNumCreate   stats + 1}, ())
+incNumUpdate   stats = (stats{statsNumUpdate   = statsNumUpdate   stats + 1}, ())
+incNumRetrieve stats = (stats{statsNumRetrieve = statsNumRetrieve stats + 1}, ())
+incNumDelete   stats = (stats{statsNumDelete   = statsNumDelete   stats + 1}, ())
 
 showStats :: Cmdline -> Stats -> String
 showStats Cmdline{cmdDuration} stats = unlines [
@@ -94,9 +96,11 @@ client Cmdline{
          , cmdSecure
          , cmdDisableTcpNoDelay
          , cmdPingRateLimit
+         , cmdSemaphoreLimit
          } statsVar = do
     knownKeys <- RandomAccessSet.new
     random    <- RandomGen.new
+    limiter   <- newQSem (fromMaybe 1 cmdSemaphoreLimit)
 
     withConnection params server $ \conn -> do
       let kvstore :: KVStore
@@ -105,24 +109,9 @@ client Cmdline{
             | otherwise = Protobuf.client conn
 
       forever $ do
-        -- Pick a random CRUD action to take
-        command <- RandomGen.nextInt random 4
-
-        if command == 0 then do
-          doCreate kvstore knownKeys
-          modifyIORef' statsVar incNumCreate
-        else do
-          -- If we don't know about any keys, retry with a new random action
-          noKnownKeys <- RandomAccessSet.isEmpty knownKeys
-          unless noKnownKeys $ do
-            case command of
-              1 -> do doRetrieve kvstore knownKeys
-                      modifyIORef' statsVar incNumRetrieve
-              2 -> do doUpdate kvstore knownKeys
-                      modifyIORef' statsVar incNumUpdate
-              3 -> do doDelete kvstore knownKeys
-                      modifyIORef' statsVar incNumDelete
-              _ -> error "impossible"
+        waitQSem limiter
+        forkIO $
+          doRandomCRUD random knownKeys kvstore `finally` signalQSem limiter
   where
     params :: ConnParams
     params = def {
@@ -150,6 +139,31 @@ client Cmdline{
            , addressPort      = defaultInsecurePort
            , addressAuthority = Nothing
            }
+
+    doRandomCRUD ::
+         RandomGen.RandomGen
+      -> RandomAccessSet Key
+      -> KVStore
+      -> IO ()
+    doRandomCRUD random knownKeys kvstore = do
+        -- Pick a random CRUD action to take
+        command <- RandomGen.nextInt random 4
+
+        if command == 0 then do
+          doCreate kvstore knownKeys
+          atomicModifyIORef' statsVar incNumCreate
+        else do
+          -- If we don't know about any keys, retry with a new random action
+          noKnownKeys <- RandomAccessSet.isEmpty knownKeys
+          unless noKnownKeys $ do
+            case command of
+              1 -> do doRetrieve kvstore knownKeys
+                      atomicModifyIORef' statsVar incNumRetrieve
+              2 -> do doUpdate kvstore knownKeys
+                      atomicModifyIORef' statsVar incNumUpdate
+              3 -> do doDelete kvstore knownKeys
+                      atomicModifyIORef' statsVar incNumDelete
+              _ -> error "impossible"
 
 {-------------------------------------------------------------------------------
   Access the various server features
