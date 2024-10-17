@@ -32,7 +32,7 @@ type family Output (rpc :: k) :: Type
 -- Note on encoding: the gRPC specification does not say anything about text
 -- encoding issues for paths (service names and method names) or message types.
 -- The Protobuf compiler (by far the most common instantation of gRPC) does not
--- allow for non-ASCII character at all ("nterpreting non ascii codepoint").
+-- allow for non-ASCII character at all ("interpreting non ascii codepoint").
 -- We therefore punt on the encoding issue here, and use bytestrings. /If/
 -- applications want to use non-ASCII characters, they can choose their own
 -- encoding.
