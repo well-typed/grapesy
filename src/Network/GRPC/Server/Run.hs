@@ -61,6 +61,7 @@ data ServerConfig = ServerConfig {
       -- Set to 'Nothing' to disable.
     , serverSecure :: Maybe SecureConfig
     }
+  deriving (Show)
 
 -- | Offer insecure connection (no TLS)
 data InsecureConfig = InsecureConfig {
@@ -296,9 +297,12 @@ runInsecure params cfg socketTMVar server = do
         (insecurePort cfg) $ \listenSock ->
       withTimeManager $ \mgr ->
         Run.runTCPServerWithSocket listenSock $ \clientSock -> do
-          when (http2TcpNoDelay serverHTTP2Settings) $
+          when (http2TcpNoDelay serverHTTP2Settings) $ do
             -- See description of 'withServerSocket'
-            setSockOpt clientSock NoDelay True
+            setSocketOption clientSock NoDelay 1
+          when (http2TcpAbortiveClose serverHTTP2Settings) $ do
+            setSockOpt clientSock Linger
+              (StructLinger { sl_onoff = 1, sl_linger = 0 })
           withConfigForInsecure mgr clientSock $ \config ->
             HTTP2.run serverConfig config server
   where
@@ -359,7 +363,10 @@ runSecure params cfg socketTMVar server = do
           "h2" $ \mgr backend -> do
         when (http2TcpNoDelay serverHTTP2Settings) $
           -- See description of 'withServerSocket'
-          setSockOpt (HTTP2.TLS.requestSock backend) NoDelay True
+          setSocketOption (HTTP2.TLS.requestSock backend) NoDelay 1
+        when (http2TcpAbortiveClose serverHTTP2Settings) $ do
+          setSockOpt (HTTP2.TLS.requestSock backend) Linger
+            (StructLinger { sl_onoff = 1, sl_linger = 0 })
         withConfigForSecure mgr backend $ \config ->
           HTTP2.run serverConfig config server
   where

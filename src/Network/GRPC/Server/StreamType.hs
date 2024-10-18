@@ -111,7 +111,7 @@ class FromStreamingHandler (styp :: StreamingType) where
   -- | Construct 'RpcHandler' from streaming type specific handler
   --
   -- Most applications will probably not need to call this function directly,
-  -- instead relying on 'fromMethods'/'fromServices'. If however you want to
+  -- instead relying on 'fromMethods'\/'fromServices'. If however you want to
   -- construct a list of 'RpcHandler's manually, without a type-level
   -- specification of the server's API, you can use 'fromStreamingHandler'.
   fromStreamingHandler :: forall k (rpc :: k) m.

@@ -70,6 +70,22 @@ data HTTP2Settings = HTTP2Settings {
       -- TL;DR: leave this at the default unless you know what you are doing.
     , http2TcpNoDelay :: Bool
 
+      -- | Set @SO_LINGER@ to a value of 0
+      --
+      -- Instead of following the normal shutdown sequence to close the TCP
+      -- connection, this will just send a @RST@ packet and immediately discard
+      -- the connection, freeing the local port.
+      --
+      -- This should /not/ be enabled in the vast majority of cases. It is only
+      -- useful in specific scenarios, such as stress testing, where resource
+      -- (e.g. port) exhaustion is a greater concern than protocol adherence.
+      -- Even in such scenarios scenarios, it probably only makes sense to
+      -- enable this option on the client since they will be using a new
+      -- ephemeral port for each connection (unlike the server).
+      --
+      -- TL;DR: leave this at the default unless you know what you are doing.
+    , http2TcpAbortiveClose :: Bool
+
       -- | Ping rate limit
       --
       -- This setting is specific to the [@http2@
@@ -169,6 +185,7 @@ defaultHTTP2Settings = HTTP2Settings {
       http2MaxConcurrentStreams        = defMaxConcurrentStreams
     , http2StreamWindowSize            = defInitialStreamWindowSize
     , http2ConnectionWindowSize        = defInitialConnectionWindowSize
+    , http2TcpAbortiveClose            = False
     , http2TcpNoDelay                  = True
     , http2OverridePingRateLimit       = Just 100
     , http2OverrideEmptyFrameRateLimit = Nothing
