@@ -175,7 +175,7 @@ class MkStreamingHandler (styp :: StreamingType) where
 --
 -- > rpc @Ping @NonStreaming
 --
--- though in most cases the streamting ype should be clear from the context or
+-- though in most cases the streaming type should be clear from the context or
 -- from the choice of @rpc@.
 --
 -- See 'Network.GRPC.Client.StreamType.IO.nonStreaming' and co for examples.
