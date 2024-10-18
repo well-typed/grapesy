@@ -1,11 +1,9 @@
-packages: .
+packages: ./grapesy
 
 package grapesy
   tests: True
   benchmarks: True
   flags: +build-demo +build-stress-test +snappy
-
-constraints: network-control==0.1.3
 
 --
 -- ghc 9.10
