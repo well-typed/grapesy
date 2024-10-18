@@ -11,6 +11,7 @@ module Network.GRPC.Common.Protobuf (
   , (.~)
   , (^.)
     -- ** "Data.ProtoLens"
+  , StreamingType(..)
   , HasField(..)
   , FieldDefault(..)
   , defMessage

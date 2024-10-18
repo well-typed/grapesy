@@ -63,6 +63,8 @@ import Network.GRPC.Util.TLS qualified as Util.TLS
 
 -- | Open connection to server
 --
+-- See 'withConnection'.
+--
 -- Before we can send RPC requests, we have to connect to a specific server
 -- first. Once we have opened a connection to that server, we can send as many
 -- RPC requests over that one connection as we wish. 'Connection' abstracts over
@@ -262,6 +264,9 @@ data Server =
 -------------------------------------------------------------------------------}
 
 -- | Open connection to the server
+--
+-- See 'Network.GRPC.Client.withRPC' for making individual RPCs on the new
+-- connection.
 --
 -- The connection to the server is set up asynchronously; the first call to
 -- 'withRPC' will block until the connection has been established.

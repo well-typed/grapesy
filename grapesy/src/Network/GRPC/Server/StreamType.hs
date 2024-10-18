@@ -209,15 +209,20 @@ fromNextElem _ = NextElem.toStreamElem def
 --
 -- This will reveal types such as this:
 --
--- > _getFeature :: NonStreamingHandler IO (Protobuf RouteGuide "getFeature")
+-- > _getFeature :: ServerHandler' NonStreaming IO (Protobuf RouteGuide "getFeature")
 --
--- Finally, if we then refine the skeleton to
+-- which we can simplify to
+--
+-- > _getFeature :: ServerHandler IO (Protobuf RouteGuide "getFeature")
+--
+-- (the non-primed version of 'ServerHandler' infers the streaming type from
+-- the RPC, when possible). Finally, if we then refine the skeleton to
 --
 -- > Method (mkNonStreaming $ _getFeature)
 --
 -- ghc will tell us
 --
--- > _getFeature :: Point -> IO Feature
+-- > _getFeature :: Proto Point -> IO (Proto Feature)
 data Methods (m :: Type -> Type) (rpcs :: [k]) where
   -- | All methods of the service handled
   NoMoreMethods :: Methods m '[]
@@ -298,6 +303,15 @@ fromMethod =
       SServerStreaming -> someRpcHandler . fromStreamingHandler
       SBiDiStreaming   -> someRpcHandler . fromStreamingHandler
 
+-- | List handlers for all methods of a given service.
+--
+-- This can be used to verify at the type level that all methods of the given
+-- service are handled. A typical definition of the 'Methods' might have a type
+-- such as this:
+--
+-- > methods :: Methods IO (ProtobufMethodsOf RouteGuide)
+--
+-- See also 'fromServices' if you are defining more than one service.
 fromMethods :: forall m rpcs.
      MonadIO m
   => Methods m rpcs -> [SomeRpcHandler m]
@@ -309,6 +323,15 @@ fromMethods = go
     go (RawMethod m ms)       = someRpcHandler m : go ms
     go (UnsupportedMethod ms) =                    go ms
 
+-- | List handlers for all methods of all services.
+--
+-- This can be used to verify at the type level that all methods of all services
+-- are handled. A typical definition of the 'Services' might have a type such as
+-- this:
+--
+-- > services :: Services IO (ProtobufServices '[Greeter, RouteGuide])
+--
+-- See also 'fromMethods' if you are only defining one service.
 fromServices :: forall m servs.
      MonadIO m
   => Services m servs -> [SomeRpcHandler m]

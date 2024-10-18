@@ -70,6 +70,13 @@ import Network.GRPC.Util.HTTP2.Stream (ClientDisconnected(..))
 -- The server can be run using the standard infrastructure offered by the
 -- @http2@ package, but "Network.GRPC.Server.Run" provides some convenience
 -- functions.
+--
+-- If you are using Protobuf (or if you have another way to compute a list of
+-- methods at the type level), you may wish to use the infrastructure from
+-- "Network.GRPC.Server.StreamType" (in particular,
+-- 'Network.GRPC.Server.StreamType.fromMethods' or
+-- 'Network.GRPC.Server.StreamType.fromServices') to construct the set of
+-- handlers.
 mkGrpcServer :: ServerParams -> [SomeRpcHandler IO] -> IO HTTP2.Server
 mkGrpcServer params@ServerParams{serverTopLevel} handlers = do
     ctxt <- newServerContext params

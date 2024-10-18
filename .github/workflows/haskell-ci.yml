@@ -74,7 +74,7 @@ jobs:
           "$HOME/.ghcup/bin/ghcup" install ghc "$HCVER" || (cat "$HOME"/.ghcup/logs/*.* && false)
           "$HOME/.ghcup/bin/ghcup" install cabal 3.12.1.0 || (cat "$HOME"/.ghcup/logs/*.* && false)
           apt-get update
-          apt-get install -y libsnappy-dev
+          apt-get install -y libsnappy-dev protobuf-compiler
         env:
           HCKIND: ${{ matrix.compilerKind }}
           HCNAME: ${{ matrix.compiler }}
@@ -156,6 +156,7 @@ jobs:
         run: |
           touch cabal.project
           echo "packages: $GITHUB_WORKSPACE/source/./grapesy" >> cabal.project
+          if [ $((HCNUMVER < 91000)) -ne 0 ] ; then echo "packages: $GITHUB_WORKSPACE/source/./tutorials/quickstart" >> cabal.project ; fi
           cat cabal.project
       - name: sdist
         run: |
@@ -169,12 +170,17 @@ jobs:
         run: |
           PKGDIR_grapesy="$(find "$GITHUB_WORKSPACE/unpacked" -maxdepth 1 -type d -regex '.*/grapesy-[0-9.]*')"
           echo "PKGDIR_grapesy=${PKGDIR_grapesy}" >> "$GITHUB_ENV"
+          PKGDIR_quickstart="$(find "$GITHUB_WORKSPACE/unpacked" -maxdepth 1 -type d -regex '.*/quickstart-[0-9.]*')"
+          echo "PKGDIR_quickstart=${PKGDIR_quickstart}" >> "$GITHUB_ENV"
           rm -f cabal.project cabal.project.local
           touch cabal.project
           touch cabal.project.local
           echo "packages: ${PKGDIR_grapesy}" >> cabal.project
+          if [ $((HCNUMVER < 91000)) -ne 0 ] ; then echo "packages: ${PKGDIR_quickstart}" >> cabal.project ; fi
           echo "package grapesy" >> cabal.project
           echo "    ghc-options: -Werror=missing-methods" >> cabal.project
+          if [ $((HCNUMVER < 91000)) -ne 0 ] ; then echo "package quickstart" >> cabal.project ; fi
+          if [ $((HCNUMVER < 91000)) -ne 0 ] ; then echo "    ghc-options: -Werror=missing-methods" >> cabal.project ; fi
           cat >> cabal.project <<EOF
           allow-newer: proto-lens:base
           allow-newer: proto-lens-runtime:base
@@ -184,7 +190,7 @@ jobs:
             benchmarks: True
             flags:      +build-demo +build-stress-test +snappy
           EOF
-          $HCPKG list --simple-output --names-only | perl -ne 'for (split /\s+/) { print "constraints: any.$_ installed\n" unless /^(grapesy)$/; }' >> cabal.project.local
+          $HCPKG list --simple-output --names-only | perl -ne 'for (split /\s+/) { print "constraints: any.$_ installed\n" unless /^(grapesy|quickstart)$/; }' >> cabal.project.local
           cat cabal.project
           cat cabal.project.local
       - name: dump install plan
@@ -214,9 +220,11 @@ jobs:
         run: |
           cd ${PKGDIR_grapesy} || false
           ${CABAL} -vnormal check
+          if [ $((HCNUMVER < 91000)) -ne 0 ] ; then cd ${PKGDIR_quickstart} || false ; fi
+          if [ $((HCNUMVER < 91000)) -ne 0 ] ; then ${CABAL} -vnormal check ; fi
       - name: haddock
         run: |
-          $CABAL v2-haddock --disable-documentation --haddock-all $ARG_COMPILER --with-haddock $HADDOCK $ARG_TESTS $ARG_BENCH all
+          $CABAL v2-haddock --disable-documentation $ARG_COMPILER --with-haddock $HADDOCK $ARG_TESTS $ARG_BENCH all
       - name: unconstrained build
         run: |
           rm -f cabal.project.local

@@ -1,3 +1,8 @@
 branches: main
 copy-fields: all
-apt: libsnappy-dev
+apt: libsnappy-dev protobuf-compiler
+haddock-components: libs
+
+-- the quickstart tutorial uses proto-lens-setup,
+-- which doesn't compile with ghc 9.10 currently
+jobs-selection: any
