@@ -76,6 +76,10 @@ data Call rpc = SupportsClientRpc rpc => Call {
 
 -- | Scoped RPC call
 --
+-- This is the low-level API for making RPC calls, providing full flexibility.
+-- You may wish to consider using the infrastructure from
+-- "Network.GRPC.Client.StreamType.IO" instead.
+--
 -- Typical usage:
 --
 -- > withRPC conn def (Proxy @ListFeatures) $ \call -> do
@@ -99,7 +103,7 @@ data Call rpc = SupportsClientRpc rpc => Call {
 -- considered closed and the cancellation exception is not raised. Under normal
 -- circumstances (with well-behaved server handlers) this should not arise.
 -- (The gRPC specification itself is not very specific about this case; see
--- discussion at https://stackoverflow.com/questions/55511528/should-grpc-server-side-half-closing-implicitly-terminate-the-client.)
+-- discussion at <https://stackoverflow.com/questions/55511528/should-grpc-server-side-half-closing-implicitly-terminate-the-client>.)
 --
 -- If there are still /inbound/ messages upon leaving the scope of 'withRPC' no
 -- exception is raised (but the call is nonetheless still closed, and the server

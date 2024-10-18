@@ -1,4 +1,4 @@
-packages: ./grapesy
+packages: ./grapesy, ./tutorials/quickstart
 
 package grapesy
   tests: True
