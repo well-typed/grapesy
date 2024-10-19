@@ -96,8 +96,93 @@ did not consider them any further. The full list is:
 
 ## Memory profiles
 
-TODO
+Screenshots of the "Area Chart" display of the
+[`eventlog2html`](https://github.com/mpickering/eventlog2html) output for
+selected RPC communication patterns.
+
+### Many connections
+
+Client opens many connections and does a single non-streaming RPC.
+
+Client profile:
+
+![Client many connections
+profile](../assets/profiles/many-connections-100000-client.png)
+
+Server profile:
+
+![Server many connections
+profile](../assets/profiles/many-connections-100000-server.png)
+
+### Many calls
+
+Client opens a single connection and does many RPCs.
+
+Client profile:
+
+![Client many connections
+profile](../assets/profiles/many-calls-client.png)
+
+Server profile:
+
+![Server many connections
+profile](../assets/profiles/many-calls-server.png)
+
+### Many messages
+
+Client opens a single connection and does a single RPC that sends many messages.
+
+Client profile:
+
+![Client many connections
+profile](../assets/profiles/many-messages-client.png)
+
+Server profile:
+
+![Server many connections
+profile](../assets/profiles/many-messages-server.png)
 
 ## Benchmarks
 
-TODO
+<table>
+  <tr>
+    <td><strong>Run type</strong></td>
+    <td colspan=2 style="text-align: center"><strong>Linux (RPCs/s)</strong></td>
+    <td colspan=2 style="text-align: center"><strong>OSX (RPCs/s)</strong></td>
+  </tr>
+  <tr>
+    <td></td>
+    <td><strong>Grapesy</strong></td>
+    <td><strong>Java</strong></td>
+    <td><strong>Grapesy</strong></td>
+    <td><strong>Java</strong></td>
+  </tr>
+  <tr>
+    <td>sequential protobuf</td>
+    <td>4654.500</td>
+    <td>7169.283</td>
+    <td>2919.783</td>
+    <td>1907.350</td>
+  </tr>
+  <tr>
+    <td>concurrent protobuf</td>
+    <td>3326.283</td>
+    <td>10908.650</td>
+    <td>5032.950</td>
+    <td>4571.750</td>
+  </tr>
+  <tr>
+    <td>sequential json</td>
+    <td>2371.233</td>
+    <td>2427.900</td>
+    <td>909.417</td>
+    <td>1574.817</td>
+  </tr>
+  <tr>
+    <td>concurrent json</td>
+    <td>3019.733</td>
+    <td>6143.567</td>
+    <td>1151.017</td>
+    <td>3563.867</td>
+  </tr>
+</table>
