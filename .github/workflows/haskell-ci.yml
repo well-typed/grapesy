@@ -157,6 +157,7 @@ jobs:
           touch cabal.project
           echo "packages: $GITHUB_WORKSPACE/source/./grapesy" >> cabal.project
           if [ $((HCNUMVER < 91000)) -ne 0 ] ; then echo "packages: $GITHUB_WORKSPACE/source/./tutorials/quickstart" >> cabal.project ; fi
+          if [ $((HCNUMVER < 91000)) -ne 0 ] ; then echo "packages: $GITHUB_WORKSPACE/source/./tutorials/basics" >> cabal.project ; fi
           cat cabal.project
       - name: sdist
         run: |
@@ -172,14 +173,19 @@ jobs:
           echo "PKGDIR_grapesy=${PKGDIR_grapesy}" >> "$GITHUB_ENV"
           PKGDIR_quickstart="$(find "$GITHUB_WORKSPACE/unpacked" -maxdepth 1 -type d -regex '.*/quickstart-[0-9.]*')"
           echo "PKGDIR_quickstart=${PKGDIR_quickstart}" >> "$GITHUB_ENV"
+          PKGDIR_basics="$(find "$GITHUB_WORKSPACE/unpacked" -maxdepth 1 -type d -regex '.*/basics-[0-9.]*')"
+          echo "PKGDIR_basics=${PKGDIR_basics}" >> "$GITHUB_ENV"
           rm -f cabal.project cabal.project.local
           touch cabal.project
           touch cabal.project.local
           echo "packages: ${PKGDIR_grapesy}" >> cabal.project
           if [ $((HCNUMVER < 91000)) -ne 0 ] ; then echo "packages: ${PKGDIR_quickstart}" >> cabal.project ; fi
+          if [ $((HCNUMVER < 91000)) -ne 0 ] ; then echo "packages: ${PKGDIR_basics}" >> cabal.project ; fi
           echo "package grapesy" >> cabal.project
           echo "    ghc-options: -Werror=missing-methods" >> cabal.project
           if [ $((HCNUMVER < 91000)) -ne 0 ] ; then echo "package quickstart" >> cabal.project ; fi
+          if [ $((HCNUMVER < 91000)) -ne 0 ] ; then echo "    ghc-options: -Werror=missing-methods" >> cabal.project ; fi
+          if [ $((HCNUMVER < 91000)) -ne 0 ] ; then echo "package basics" >> cabal.project ; fi
           if [ $((HCNUMVER < 91000)) -ne 0 ] ; then echo "    ghc-options: -Werror=missing-methods" >> cabal.project ; fi
           cat >> cabal.project <<EOF
           allow-newer: proto-lens:base
@@ -190,7 +196,7 @@ jobs:
             benchmarks: True
             flags:      +build-demo +build-stress-test +snappy
           EOF
-          $HCPKG list --simple-output --names-only | perl -ne 'for (split /\s+/) { print "constraints: any.$_ installed\n" unless /^(grapesy|quickstart)$/; }' >> cabal.project.local
+          $HCPKG list --simple-output --names-only | perl -ne 'for (split /\s+/) { print "constraints: any.$_ installed\n" unless /^(basics|grapesy|quickstart)$/; }' >> cabal.project.local
           cat cabal.project
           cat cabal.project.local
       - name: dump install plan
@@ -221,6 +227,8 @@ jobs:
           cd ${PKGDIR_grapesy} || false
           ${CABAL} -vnormal check
           if [ $((HCNUMVER < 91000)) -ne 0 ] ; then cd ${PKGDIR_quickstart} || false ; fi
+          if [ $((HCNUMVER < 91000)) -ne 0 ] ; then ${CABAL} -vnormal check ; fi
+          if [ $((HCNUMVER < 91000)) -ne 0 ] ; then cd ${PKGDIR_basics} || false ; fi
           if [ $((HCNUMVER < 91000)) -ne 0 ] ; then ${CABAL} -vnormal check ; fi
       - name: haddock
         run: |

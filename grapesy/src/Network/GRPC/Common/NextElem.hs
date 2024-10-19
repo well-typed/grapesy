@@ -10,6 +10,7 @@ module Network.GRPC.Common.NextElem (
     NextElem(..)
     -- * API
   , mapM_
+  , forM_
   , collect
   , whileNext_
   , toStreamElem
@@ -39,6 +40,9 @@ mapM_ f = go
     go :: [a] -> m ()
     go []     = f NoNextElem
     go (x:xs) = f (NextElem x) >> go xs
+
+forM_ :: Monad m => [a] -> (NextElem a -> m ()) -> m ()
+forM_ = flip mapM_
 
 collect :: forall m a. Monad m => m (NextElem a) -> m [a]
 collect f = go []
