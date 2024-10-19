@@ -107,12 +107,12 @@ Client opens many connections and does a single non-streaming RPC.
 Client profile:
 
 ![Client many connections
-profile](../assets/profiles/many-connections-100000-client.png)
+profile](/assets/profiles/many-connections-100000-client.png)
 
 Server profile:
 
 ![Server many connections
-profile](../assets/profiles/many-connections-100000-server.png)
+profile](/assets/profiles/many-connections-100000-server.png)
 
 ### Many calls
 
@@ -121,12 +121,12 @@ Client opens a single connection and does many RPCs.
 Client profile:
 
 ![Client many connections
-profile](../assets/profiles/many-calls-client.png)
+profile](/assets/profiles/many-calls-client.png)
 
 Server profile:
 
 ![Server many connections
-profile](../assets/profiles/many-calls-server.png)
+profile](/assets/profiles/many-calls-server.png)
 
 ### Many messages
 
@@ -135,12 +135,12 @@ Client opens a single connection and does a single RPC that sends many messages.
 Client profile:
 
 ![Client many connections
-profile](../assets/profiles/many-messages-client.png)
+profile](/assets/profiles/many-messages-client.png)
 
 Server profile:
 
 ![Server many connections
-profile](../assets/profiles/many-messages-server.png)
+profile](/assets/profiles/many-messages-server.png)
 
 ## Benchmarks
 
