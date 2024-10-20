@@ -236,7 +236,7 @@ servers = [
         , componentPort   = 50000
         , componentSecure = False
         , componentStable = False
-        , componentLimit  = Just 60
+        , componentLimit  = Just 400
         , componentName   = "server-unstable-insecure"
         }
     , Component {
@@ -244,7 +244,7 @@ servers = [
         , componentPort   = 50001
         , componentSecure = True
         , componentStable = False
-        , componentLimit  = Just 100
+        , componentLimit  = Just 400
         , componentName   = "server-unstable-secure"
         }
     , Component {
@@ -252,7 +252,7 @@ servers = [
         , componentPort   = 50002
         , componentSecure = False
         , componentStable = True
-        , componentLimit  = Just 60
+        , componentLimit  = Just 400
         , componentName   = "server-stable-insecure"
         }
     , Component {
@@ -260,7 +260,7 @@ servers = [
         , componentPort   = 50003
         , componentSecure = True
         , componentStable = True
-        , componentLimit  = Just 100
+        , componentLimit  = Just 400
         , componentName   = "server-stable-secure"
         }
     ]
