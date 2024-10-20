@@ -8,6 +8,7 @@ module KVStore.API (
   , KVStore(..)
   ) where
 
+import Control.DeepSeq (NFData)
 import Control.Monad
 import Data.Aeson.Types qualified as Aeson
 import Data.ByteString (ByteString)
@@ -25,13 +26,14 @@ newtype Key = Key {
        getKey :: ByteString
      }
   deriving stock (Show, Eq, Ord)
-  deriving newtype (Hashable)
+  deriving newtype (Hashable, NFData)
   deriving (ToJSON, FromJSON) via Base64
 
 newtype Value = Value {
       getValue :: ByteString
     }
   deriving stock (Show, Eq, Ord)
+  deriving newtype (NFData)
   deriving (ToJSON, FromJSON) via Base64
 
 {-------------------------------------------------------------------------------

@@ -34,11 +34,13 @@ module Network.GRPC.Util.Session.Channel (
   ) where
 
 import Control.Concurrent.STM
+import Control.DeepSeq (NFData, force)
 import Control.Exception
 import Control.Monad
 import Control.Monad.Catch (ExitCase(..))
 import Data.Bifunctor
 import Data.ByteString.Builder (Builder)
+import Data.ByteString.Lazy qualified as BS.Lazy
 import GHC.Stack
 
 -- Doesn't really matter if we import from .Client or .Server
@@ -55,7 +57,6 @@ import Network.GRPC.Util.RedundantConstraint
 import Network.GRPC.Util.Session.API
 import Network.GRPC.Util.Thread
 import Network.GRPC.Util.Parser qualified as Parser
-import Data.ByteString.Lazy qualified as BS.Lazy
 
 {-------------------------------------------------------------------------------
   Definitions
@@ -237,15 +238,19 @@ getInboundHeaders Channel{channelInbound} =
 -- which 'StreamElem.whenDefinitelyFinal' considers to be final). Doing so will
 -- result in a 'SendAfterFinal' exception.
 send :: forall sess.
-     HasCallStack
+     (HasCallStack, NFData (Message (Outbound sess)))
   => Channel sess
   -> StreamElem (Trailers (Outbound sess)) (Message (Outbound sess))
   -> IO ()
-send Channel{channelOutbound, channelSentFinal} msg =
-    withThreadInterface channelOutbound aux
+send Channel{channelOutbound, channelSentFinal} = \msg -> do
+    msg' <- evaluate $ force <$> msg
+    withThreadInterface channelOutbound $ aux msg'
   where
-    aux :: FlowState (Outbound sess) -> STM ()
-    aux st = do
+    aux ::
+         StreamElem (Trailers (Outbound sess)) (Message (Outbound sess))
+      -> FlowState (Outbound sess)
+      -> STM ()
+    aux msg st = do
         -- By checking that we haven't sent the final message yet, we know that
         -- this call to 'putMVar' will not block indefinitely: the thread that
         -- sends messages to the peer will get to it eventually (unless it dies,

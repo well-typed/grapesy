@@ -4,8 +4,10 @@ module Network.GRPC.Spec.MessageMeta (
   , InboundMeta(..)
   ) where
 
+import Control.DeepSeq (NFData)
 import Data.Default
 import Data.Word
+import GHC.Generics (Generic)
 
 {-------------------------------------------------------------------------------
   Outbound messages
@@ -18,7 +20,8 @@ data OutboundMeta = OutboundMeta {
       -- smaller message.
       outboundEnableCompression :: Bool
     }
-  deriving stock (Show)
+  deriving stock (Show, Generic)
+  deriving anyclass (NFData)
 
 instance Default OutboundMeta where
   def = OutboundMeta {

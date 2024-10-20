@@ -9,6 +9,7 @@ module Network.GRPC.Spec.RPC.JSON (
   , Optional(..)
   ) where
 
+import Control.DeepSeq (NFData(..))
 import Data.Aeson (ToJSON(..), FromJSON(..), (.=), (.:), (.:?))
 import Data.Aeson qualified as Aeson
 import Data.Aeson.Types qualified as Aeson
@@ -58,6 +59,10 @@ data JsonRpc (serv :: Symbol) (meth :: Symbol)
 
 instance ( KnownSymbol serv
          , KnownSymbol meth
+
+           -- Serialization
+         , NFData (Input  (JsonRpc serv meth))
+         , NFData (Output (JsonRpc serv meth))
 
            -- Debugging constraints
          , Show (Input  (JsonRpc serv meth))
@@ -129,11 +134,19 @@ instance (Show x, Show (JsonObject fs))
       . showString " :* "
       . showsPrec 6 xs
 
+instance NFData (JsonObject '[]) where
+  rnf JsonObject = ()
+
+instance (NFData x, NFData (JsonObject fs))
+      => NFData (JsonObject ('(f, x) : fs)) where
+  rnf (x :* xs) = rnf (x, xs)
+
 -- | Required field
 newtype Required a = Required {
      getRequired :: a
    }
- deriving (Show)
+ deriving stock (Show)
+ deriving newtype (NFData)
 
 -- | Optional field
 --
@@ -141,7 +154,8 @@ newtype Required a = Required {
 newtype Optional a = Optional {
       getOptional :: Maybe a
     }
-  deriving (Show)
+ deriving stock (Show)
+ deriving newtype (NFData)
 
 infixr 5 :*
 

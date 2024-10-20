@@ -9,6 +9,7 @@ module Network.GRPC.Spec.RPC.Protobuf (
   , getProto
   ) where
 
+import Control.DeepSeq (NFData)
 import Control.Lens hiding (lens)
 import Data.ByteString qualified as Strict (ByteString)
 import Data.ByteString.Char8 qualified as BS.Char8
@@ -51,8 +52,14 @@ type instance Input  (Protobuf serv meth) = Proto (MethodInput  serv meth)
 type instance Output (Protobuf serv meth) = Proto (MethodOutput serv meth)
 
 instance ( HasMethodImpl      serv meth
+
+           -- Debugging
          , Show (MethodInput  serv meth)
          , Show (MethodOutput serv meth)
+
+           -- Serialization
+         , NFData (MethodInput  serv meth)
+         , NFData (MethodOutput serv meth)
 
            -- Metadata constraints
          , Show (RequestMetadata (Protobuf serv meth))
@@ -144,6 +151,7 @@ newtype Proto msg = Proto msg
     , Enum
     , FieldDefault
     , MessageEnum
+    , NFData
     )
 
 -- | Field accessor for 'Proto'

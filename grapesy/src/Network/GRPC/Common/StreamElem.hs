@@ -45,12 +45,12 @@ data StreamElem b a =
     --
     --   In this case, this element is /not/ final (and the final element, when
     --   we receive it, will be tagged as 'Final').
-    StreamElem a
+    StreamElem !a
 
     -- | We received the final element
     --
     -- The final element is annotated with some additional information.
-  | FinalElem a b
+  | FinalElem !a !b
 
     -- | There are no more elements
     --
@@ -59,7 +59,7 @@ data StreamElem b a =
     -- * The stream didn't contain any elements at all.
     -- * The final element was not marked as final.
     --   See 'StreamElem' for detailed additional discussion.
-  | NoMoreElems b
+  | NoMoreElems !b
   deriving stock (Show, Eq, Functor, Foldable, Traversable)
 
 instance Bifunctor StreamElem where
