@@ -2,9 +2,10 @@ module Proto.API.Helloworld (
     module Proto.Helloworld
   ) where
 
-import Proto.Helloworld
-import Network.GRPC.Common.Protobuf
 import Network.GRPC.Common
+import Network.GRPC.Common.Protobuf
+
+import Proto.Helloworld
 
 {-------------------------------------------------------------------------------
   Metadata

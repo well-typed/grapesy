@@ -8,15 +8,23 @@ import Network.GRPC.Server.StreamType
 
 import Proto.API.Helloworld
 
-methods :: Methods IO (ProtobufMethodsOf Greeter)
-methods =
-      Method (mkNonStreaming sayHello)
-    $ NoMoreMethods
+{-------------------------------------------------------------------------------
+  Individual handlers
+-------------------------------------------------------------------------------}
 
 sayHello :: Proto HelloRequest -> IO (Proto HelloReply)
 sayHello req = do
     let resp = defMessage & #message .~ "Hello, " <> req ^. #name
     return resp
+
+{-------------------------------------------------------------------------------
+  Server top-level
+-------------------------------------------------------------------------------}
+
+methods :: Methods IO (ProtobufMethodsOf Greeter)
+methods =
+      Method (mkNonStreaming sayHello)
+    $ NoMoreMethods
 
 main :: IO ()
 main =
