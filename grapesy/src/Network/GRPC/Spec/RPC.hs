@@ -9,6 +9,7 @@ module Network.GRPC.Spec.RPC (
   , defaultRpcContentType
   ) where
 
+import Control.DeepSeq (NFData)
 import Data.ByteString qualified as Strict (ByteString)
 import Data.ByteString.Lazy qualified as Lazy
 import Data.Kind
@@ -36,13 +37,22 @@ type family Output (rpc :: k) :: Type
 -- We therefore punt on the encoding issue here, and use bytestrings. /If/
 -- applications want to use non-ASCII characters, they can choose their own
 -- encoding.
-class ( -- Debug constraints
+class ( -- Serialization
+        --
+        -- We force messages to NF before enqueueing them. This ensures that
+        -- if those messages contain any pure exceptions (due to a bug in a
+        -- client or a server), we detect the problem when the message is
+        -- enqueued, and can throw an appropriate exception.
+        NFData (Input rpc)
+      , NFData (Output rpc)
+
+        -- Debug constraints
         --
         -- For debugging it is useful when we have 'Show' instances in scope.
         -- This is not that strong a requirement; after all, we must be able
         -- to serialize inputs and deserialize outputs, so they must also be
         -- 'Show'able.
-        Show (Input rpc)
+      , Show (Input rpc)
       , Show (Output rpc)
       , Show (RequestMetadata rpc)
       , Show (ResponseInitialMetadata rpc)

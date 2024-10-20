@@ -4,6 +4,7 @@ module Test.Sanity.StreamingType.CustomFormat (tests) where
 
 import Codec.Serialise qualified as Cbor
 import Control.Concurrent.Async (concurrently)
+import Control.DeepSeq (NFData)
 import Data.Bifunctor
 import Data.ByteString qualified as Strict (ByteString)
 import Data.Kind
@@ -59,6 +60,8 @@ data Function =
 class ( Typeable fun
       , Show (CalcInput  fun)
       , Show (CalcOutput fun)
+      , NFData (CalcInput  fun)
+      , NFData (CalcOutput fun)
       , Cbor.Serialise (CalcInput  fun)
       , Cbor.Serialise (CalcOutput fun)
       ) => CalculatorFunction (fun :: Function) where

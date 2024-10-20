@@ -288,6 +288,14 @@ data Services m (servs :: [[k]]) where
 --
 -- > Server.fromMethod @EmptyCall $ ServerHandler $ \(_ ::Empty) ->
 -- >   return (defMessage :: Empty)
+--
+-- If the streaming type cannot be deduced, you might need to specify that also:
+--
+-- > Server.fromMethod @Ping @NonStreaming $ ServerHandler $ ..
+--
+-- Alternatively, use one of the handler construction functions, such as
+--
+-- > Server.fromMethod @Ping $ Server.mkNonStreaming $ ..
 fromMethod :: forall rpc styp m.
      ( SupportsServerRpc rpc
      , ValidStreamingType styp

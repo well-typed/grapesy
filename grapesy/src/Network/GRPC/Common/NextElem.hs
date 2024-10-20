@@ -26,7 +26,7 @@ import Network.GRPC.Common.StreamElem (StreamElem(..))
 -- | Is there a next element in a stream?
 --
 -- Does not record metadata, unlike 'Network.GRPC.Common.StreamElem.StreamElem'.
-data NextElem a = NoNextElem | NextElem a
+data NextElem a = NoNextElem | NextElem !a
   deriving stock (Show, Eq, Functor, Foldable, Traversable)
 
 {-------------------------------------------------------------------------------

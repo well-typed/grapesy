@@ -1,19 +1,26 @@
 -- Intentionally /NOT/ enabling OverloadedStrings.
 -- This forces us to be precise about encoding issues.
 
+{-# LANGUAGE OverloadedLabels #-}
+
 module Test.Sanity.BrokenDeployments (tests) where
 
 import Control.Exception
 import Data.ByteString.Char8 qualified as BS.Strict.Char8
 import Data.ByteString.UTF8 qualified as BS.Strict.UTF8
+import Data.IORef
 import Data.Text qualified as Text
 import Network.HTTP.Types qualified as HTTP
 import Test.Tasty
 import Test.Tasty.HUnit
 
 import Network.GRPC.Client qualified as Client
+import Network.GRPC.Client.StreamType.IO qualified as Client
 import Network.GRPC.Common
 import Network.GRPC.Common.Protobuf
+import Network.GRPC.Server.StreamType qualified as Server
+
+import Test.Driver.ClientServer
 import Test.Util.RawTestServer
 
 import Proto.API.Ping
@@ -43,6 +50,9 @@ tests = testGroup "Test.Sanity.BrokenDeployments" [
           testCase "statusMessage"   test_invalidStatusMessage
         , testCase "requestMetadata" test_invalidRequestMetadata
         , testCase "trailerMetadata" test_invalidTrailerMetadata
+        ]
+    , testGroup "Undefined" [
+          testCase "output" test_undefinedOutput
         ]
     ]
 
@@ -324,3 +334,48 @@ grpcMessageContains GrpcException{grpcErrorMessage} str =
     case grpcErrorMessage of
       Just msg -> Text.pack str `Text.isInfixOf` msg
       Nothing  -> False
+
+{-------------------------------------------------------------------------------
+  Undefined values
+-------------------------------------------------------------------------------}
+
+test_undefinedOutput :: Assertion
+test_undefinedOutput = do
+    st <- newIORef 0
+    testClientServer $ ClientServerTest {
+        config = def
+      , server = [Server.fromMethod @Ping $ Server.mkNonStreaming (handler st)]
+      , client = simpleTestClient $ \conn -> do
+
+          -- The first time the handler is invoked, it attempts to enqueue a
+          -- an undefined message (one containing a pure exception). Prior to
+          -- #235 this would result in undefined behaviour, probably the server
+          -- disconnecting. What should happen instead is that this exception
+          -- is thrown in the handler, caught, sent to the client as a
+          -- 'GrpcException', and re-raised in the client.
+          mResp1 :: Either GrpcException (Proto PongMessage) <- try $
+            Client.nonStreaming conn (Client.rpc @Ping) (defMessage & #id .~ 1)
+          case mResp1 of
+            Left err | Just msg <- grpcErrorMessage err ->
+              assertBool "" $ Text.pack "uhoh" `Text.isInfixOf` msg
+            _otherwise ->
+              assertFailure "Unexpected response"
+
+          -- Meanwhile, the server should just continue running; the /second/
+          -- invocation of the handler should succeed normally.
+          mResp2 :: Either GrpcException (Proto PongMessage) <- try $
+            Client.nonStreaming conn (Client.rpc @Ping) (defMessage & #id .~ 2)
+          case mResp2 of
+            Right resp ->
+              assertEqual "" 2 $ resp ^. #id
+            _otherwise ->
+              assertFailure "Unexpected response"
+      }
+  where
+    -- Server handler attempts to enqueue an undefined message
+    handler :: IORef Int -> Proto PingMessage -> IO (Proto PongMessage)
+    handler st req = do
+        isFirst <- atomicModifyIORef st $ \i -> (succ i, i == 0)
+        if isFirst
+          then return $ throw $ DeliberateException (userError "uhoh")
+          else return $ defMessage & #id .~ req ^. #id
