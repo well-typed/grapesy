@@ -53,10 +53,6 @@ module Network.GRPC.Client (
   , recvFinalOutput
   , recvTrailers
 
-    -- ** Repeated send/recv
-  , sendAllInputs
-  , recvAllOutputs
-
     -- ** Low-level\/specialized API
   , ResponseHeaders_(..)
   , ResponseHeaders

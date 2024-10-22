@@ -8,6 +8,7 @@ import Control.Exception
 import Network.GRPC.Client
 import Network.GRPC.Common
 import Network.GRPC.Common.Protobuf
+import Network.GRPC.Common.StreamElem qualified as StreamElem
 
 import Demo.Client.Util.DelayOr (DelayOr)
 import Demo.Client.Util.DelayOr qualified as DelayOr
@@ -32,7 +33,7 @@ sayHelloStreamReply conn name =
 
       -- For completeness, we also show the final metadata, although the
       -- example does not include any.
-      finalMetadata <- recvAllOutputs call logMsg
+      finalMetadata <- StreamElem.whileNext_ (recvOutput call) logMsg
       logMsg finalMetadata
 
 sayHelloBidiStream :: Connection -> [DelayOr (Proto HelloRequest)] -> IO ()

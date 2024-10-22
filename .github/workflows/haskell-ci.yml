@@ -158,6 +158,7 @@ jobs:
           echo "packages: $GITHUB_WORKSPACE/source/./grapesy" >> cabal.project
           if [ $((HCNUMVER < 91000)) -ne 0 ] ; then echo "packages: $GITHUB_WORKSPACE/source/./tutorials/quickstart" >> cabal.project ; fi
           if [ $((HCNUMVER < 91000)) -ne 0 ] ; then echo "packages: $GITHUB_WORKSPACE/source/./tutorials/basics" >> cabal.project ; fi
+          if [ $((HCNUMVER < 91000)) -ne 0 ] ; then echo "packages: $GITHUB_WORKSPACE/source/./tutorials/lowlevel" >> cabal.project ; fi
           cat cabal.project
       - name: sdist
         run: |
@@ -175,15 +176,20 @@ jobs:
           echo "PKGDIR_quickstart=${PKGDIR_quickstart}" >> "$GITHUB_ENV"
           PKGDIR_basics="$(find "$GITHUB_WORKSPACE/unpacked" -maxdepth 1 -type d -regex '.*/basics-[0-9.]*')"
           echo "PKGDIR_basics=${PKGDIR_basics}" >> "$GITHUB_ENV"
+          PKGDIR_basics="$(find "$GITHUB_WORKSPACE/unpacked" -maxdepth 1 -type d -regex '.*/basics-[0-9.]*')"
+          echo "PKGDIR_basics=${PKGDIR_basics}" >> "$GITHUB_ENV"
           rm -f cabal.project cabal.project.local
           touch cabal.project
           touch cabal.project.local
           echo "packages: ${PKGDIR_grapesy}" >> cabal.project
           if [ $((HCNUMVER < 91000)) -ne 0 ] ; then echo "packages: ${PKGDIR_quickstart}" >> cabal.project ; fi
           if [ $((HCNUMVER < 91000)) -ne 0 ] ; then echo "packages: ${PKGDIR_basics}" >> cabal.project ; fi
+          if [ $((HCNUMVER < 91000)) -ne 0 ] ; then echo "packages: ${PKGDIR_basics}" >> cabal.project ; fi
           echo "package grapesy" >> cabal.project
           echo "    ghc-options: -Werror=missing-methods" >> cabal.project
           if [ $((HCNUMVER < 91000)) -ne 0 ] ; then echo "package quickstart" >> cabal.project ; fi
+          if [ $((HCNUMVER < 91000)) -ne 0 ] ; then echo "    ghc-options: -Werror=missing-methods" >> cabal.project ; fi
+          if [ $((HCNUMVER < 91000)) -ne 0 ] ; then echo "package basics" >> cabal.project ; fi
           if [ $((HCNUMVER < 91000)) -ne 0 ] ; then echo "    ghc-options: -Werror=missing-methods" >> cabal.project ; fi
           if [ $((HCNUMVER < 91000)) -ne 0 ] ; then echo "package basics" >> cabal.project ; fi
           if [ $((HCNUMVER < 91000)) -ne 0 ] ; then echo "    ghc-options: -Werror=missing-methods" >> cabal.project ; fi
@@ -227,6 +233,8 @@ jobs:
           cd ${PKGDIR_grapesy} || false
           ${CABAL} -vnormal check
           if [ $((HCNUMVER < 91000)) -ne 0 ] ; then cd ${PKGDIR_quickstart} || false ; fi
+          if [ $((HCNUMVER < 91000)) -ne 0 ] ; then ${CABAL} -vnormal check ; fi
+          if [ $((HCNUMVER < 91000)) -ne 0 ] ; then cd ${PKGDIR_basics} || false ; fi
           if [ $((HCNUMVER < 91000)) -ne 0 ] ; then ${CABAL} -vnormal check ; fi
           if [ $((HCNUMVER < 91000)) -ne 0 ] ; then cd ${PKGDIR_basics} || false ; fi
           if [ $((HCNUMVER < 91000)) -ne 0 ] ; then ${CABAL} -vnormal check ; fi
