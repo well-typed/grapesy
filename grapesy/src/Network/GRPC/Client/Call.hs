@@ -21,10 +21,6 @@ module Network.GRPC.Client.Call (
   , recvFinalOutput
   , recvTrailers
 
-    -- ** Repeated send/recv
-  , sendAllInputs
-  , recvAllOutputs
-
     -- ** Low-level\/specialized API
   , sendInputWithMeta
   , recvNextOutputElem
@@ -568,49 +564,6 @@ recvTrailers call@Call{} = liftIO $ do
   where
     err :: ProtocolException rpc -> IO a
     err = throwM . ProtocolException
-
-{-------------------------------------------------------------------------------
-  Repeated send/recv
--------------------------------------------------------------------------------}
-
--- | Send all inputs returned by the specified action
---
--- Terminates after the action returns 'FinalElem' or 'NoMoreElems'
-sendAllInputs :: forall m rpc.
-     MonadIO m
-  => Call rpc
-  -> m (StreamElem NoMetadata (Input rpc))
-  -> m ()
-sendAllInputs call produceInput = loop
-  where
-    loop :: m ()
-    loop = do
-        inp <- produceInput
-        sendInput call inp
-        case inp of
-          StreamElem{}  -> loop
-          FinalElem{}   -> return ()
-          NoMoreElems{} -> return ()
-
-recvAllOutputs :: forall m rpc.
-     MonadIO m
-  => Call rpc
-  -> (Output rpc -> m ())
-  -> m (ResponseTrailingMetadata rpc)
-recvAllOutputs call processOutput = loop
-  where
-    loop :: m (ResponseTrailingMetadata rpc)
-    loop = do
-        mOut <- recvOutput call
-        case mOut of
-          StreamElem out -> do
-            processOutput out
-            loop
-          NoMoreElems trailers ->
-            return trailers
-          FinalElem out trailers -> do
-            processOutput out
-            return trailers
 
 {-------------------------------------------------------------------------------
   Internal auxiliary: deal with final message

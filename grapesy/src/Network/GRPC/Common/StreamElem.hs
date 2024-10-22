@@ -8,16 +8,24 @@
 -- @StreamElem(..)@, but none of the operations on 'StreamElem'.
 module Network.GRPC.Common.StreamElem (
     StreamElem(..)
-    -- * API
+    -- * Conversion
   , value
+    -- * Iteration
+    -- * Iteration
+  , mapM_
+  , forM_
+  , whileNext_
+  , collect
   , whenDefinitelyFinal
   ) where
 
 import Prelude hiding (mapM_)
 
+import Control.Monad.State (StateT, runStateT, lift, modify)
 import Data.Bifoldable
 import Data.Bifunctor
 import Data.Bitraversable
+import Data.Tuple (swap)
 
 {-------------------------------------------------------------------------------
   Definition
@@ -78,7 +86,7 @@ instance Bitraversable StreamElem where
   bitraverse _ f (StreamElem  a  ) = StreamElem  <$> f a
 
 {-------------------------------------------------------------------------------
-  API
+  Conversion
 -------------------------------------------------------------------------------}
 
 -- | Value of the element, if one is present
@@ -93,10 +101,58 @@ value = \case
     FinalElem  a _ -> Just a
     NoMoreElems  _ -> Nothing
 
+{-------------------------------------------------------------------------------
+  Iteration
+-------------------------------------------------------------------------------}
+
+-- | Invoke the callback for each element
+--
+-- The final element is marked using 'FinalElem'; the callback is only invoked
+-- on 'NoMoreElems' if the list is empty.
+--
+-- >    mapM_ f ([1,2,3], b)
+-- > == do f (StreamElem 1)
+-- >       f (StreamElem 2)
+-- >       f (FinalElem 3 b)
+-- >
+-- >    mapM_ f ([], b)
+-- > == do f (NoMoreElems b)
+mapM_ :: forall m a b. Monad m => (StreamElem b a -> m ()) -> [a] -> b -> m ()
+mapM_ f = go
+  where
+    go :: [a] -> b -> m ()
+    go []     b = f (NoMoreElems b)
+    go [a]    b = f (FinalElem a b)
+    go (a:as) b = f (StreamElem a) >> go as b
+
+-- | Like 'mapM_', but with the arguments in opposite order
+forM_ :: Monad m => [a] -> b -> (StreamElem b a -> m ()) -> m ()
+forM_ as b f = mapM_ f as b
+
+-- | Invoke a function on each 'NextElem', until 'FinalElem' or 'NoMoreElems'
+whileNext_ :: forall m a b. Monad m => m (StreamElem b a) -> (a -> m ()) -> m b
+whileNext_ f g = go
+  where
+    go :: m b
+    go = do
+        ma <- f
+        case ma of
+          StreamElem  a   -> g a >> go
+          FinalElem   a b -> g a >> return b
+          NoMoreElems   b -> return b
+
+-- | Invoke the callback until it returns 'NoNextElem', collecting results
+collect :: forall m b a. Monad m => m (StreamElem b a) -> m ([a], b)
+collect f =
+    first reverse . swap <$> flip runStateT [] aux
+  where
+    aux :: StateT [a] m b
+    aux = whileNext_ (lift f) $ modify . (:)
+
 -- | Do we have evidence that this element is the final one?
 --
--- A 'False' result does not mean the element is not final; see 'StreamElem' for
--- detailed discussion.
+-- The callback is not called on 'StreamElem'; this does /not/ mean that the
+-- element was not final; see 'StreamElem' for detailed discussion.
 whenDefinitelyFinal :: Applicative m => StreamElem b a -> (b -> m ()) -> m ()
 whenDefinitelyFinal msg k =
     case msg of

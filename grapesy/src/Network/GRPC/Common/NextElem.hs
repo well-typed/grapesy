@@ -8,15 +8,18 @@
 -- @NextElem(..)@, but none of the operations on 'NextElem'.
 module Network.GRPC.Common.NextElem (
     NextElem(..)
-    -- * API
+    -- * Conversion
+  , toStreamElem
+    -- * Iteration
   , mapM_
   , forM_
-  , collect
   , whileNext_
-  , toStreamElem
+  , collect
   ) where
 
 import Prelude hiding (mapM_)
+
+import Control.Monad.State (StateT, execStateT, lift, modify)
 
 import Network.GRPC.Common.StreamElem (StreamElem(..))
 
@@ -31,9 +34,24 @@ data NextElem a = NoNextElem | NextElem !a
   deriving stock (Show, Eq, Functor, Foldable, Traversable)
 
 {-------------------------------------------------------------------------------
-  API
+  Conversion
 -------------------------------------------------------------------------------}
 
+toStreamElem :: b -> NextElem a -> StreamElem b a
+toStreamElem b NoNextElem   = NoMoreElems b
+toStreamElem _ (NextElem a) = StreamElem a
+
+{-------------------------------------------------------------------------------
+  Iteration
+-------------------------------------------------------------------------------}
+
+-- | Invoke the callback for each element, and then once more with 'NoNextElem'
+--
+-- >    mapM_ f [1,2,3]
+-- > == do f (NextElem 1)
+-- >       f (NextElem 2)
+-- >       f (NextElem 3)
+-- >       f NoNextElem
 mapM_ :: forall m a. Monad m => (NextElem a -> m ()) -> [a] -> m ()
 mapM_ f = go
   where
@@ -41,20 +59,14 @@ mapM_ f = go
     go []     = f NoNextElem
     go (x:xs) = f (NextElem x) >> go xs
 
+-- | Like 'mapM_', but with the arguments in opposite order
 forM_ :: Monad m => [a] -> (NextElem a -> m ()) -> m ()
 forM_ = flip mapM_
 
-collect :: forall m a. Monad m => m (NextElem a) -> m [a]
-collect f = go []
-  where
-    go :: [a] -> m [a]
-    go acc = do
-         ma <- f
-         case ma of
-           NoNextElem -> return (reverse acc)
-           NextElem a -> go (a:acc)
-
-whileNext_ :: forall m a b. Monad m => m (NextElem a) -> (a -> m b) -> m ()
+-- | Invoke a function on each 'NextElem', until 'NoNextElem'
+--
+-- See also 'collect'.
+whileNext_ :: forall m a. Monad m => m (NextElem a) -> (a -> m ()) -> m ()
 whileNext_ f g = go
   where
     go :: m ()
@@ -64,6 +76,11 @@ whileNext_ f g = go
           NoNextElem -> return ()
           NextElem a -> g a >> go
 
-toStreamElem :: b -> NextElem a -> StreamElem b a
-toStreamElem b NoNextElem   = NoMoreElems b
-toStreamElem _ (NextElem a) = StreamElem a
+-- | Invoke the callback until it returns 'NoNextElem', collecting results
+collect :: forall m a. Monad m => m (NextElem a) -> m [a]
+collect f =
+    reverse <$> flip execStateT [] aux
+  where
+    aux :: StateT [a] m ()
+    aux = whileNext_ (lift f) $ modify . (:)
+

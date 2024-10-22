@@ -5,6 +5,7 @@ module Demo.Client.API.Core.RouteGuide (
 import Network.GRPC.Client
 import Network.GRPC.Common
 import Network.GRPC.Common.Protobuf
+import Network.GRPC.Common.StreamElem qualified as StreamElem
 
 import Demo.Client.Util.Logging
 
@@ -27,7 +28,7 @@ listFeatures conn r = do
       initMetadata <- recvResponseInitialMetadata call
       logMsg initMetadata
 
-      finalMetadata <- recvAllOutputs call $ logMsg
+      finalMetadata <- StreamElem.whileNext_ (recvOutput call) logMsg
       logMsg finalMetadata
 
 
