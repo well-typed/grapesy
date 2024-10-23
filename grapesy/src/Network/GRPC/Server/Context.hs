@@ -81,32 +81,18 @@ data ServerParams = ServerParams {
       -- only in scenarios where we really cannot continue.
     , serverVerifyHeaders :: Bool
 
-      -- | Number of threads that will be spawned to process incoming frames
-      -- on the currently active HTTP\/2 streams
-      --
-      -- This setting is specific to the
-      -- [http2](https://hackage.haskell.org/package/http2) package's
-      -- implementation of the HTTP\/2 specification for servers. Set to
-      -- 'Nothing' if you don't want to override the default.
-      --
-      -- __Note__: If a lower 'http2ConnectionWindowSize' is desired, the
-      -- number of workers should be increased to avoid a potential HTTP\/2
-      -- control flow deadlock.
-    , serverOverrideNumberOfWorkers :: Maybe Word
-
       -- | HTTP\/2 settings
     , serverHTTP2Settings :: HTTP2Settings
     }
 
 instance Default ServerParams where
   def = ServerParams {
-        serverCompression             = def
-      , serverTopLevel                = defaultServerTopLevel
-      , serverExceptionToClient       = defaultServerExceptionToClient
-      , serverContentType             = Just ContentTypeDefault
-      , serverVerifyHeaders           = False
-      , serverOverrideNumberOfWorkers = Nothing
-      , serverHTTP2Settings           = def
+        serverCompression       = def
+      , serverTopLevel          = defaultServerTopLevel
+      , serverExceptionToClient = defaultServerExceptionToClient
+      , serverContentType       = Just ContentTypeDefault
+      , serverVerifyHeaders     = False
+      , serverHTTP2Settings     = def
       }
 
 defaultServerTopLevel :: RequestHandler () -> RequestHandler ()

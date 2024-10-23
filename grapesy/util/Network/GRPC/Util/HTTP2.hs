@@ -18,7 +18,6 @@ module Network.GRPC.Util.HTTP2 (
 import Control.Exception
 import Data.Bifunctor
 import Data.ByteString qualified as Strict (ByteString)
-import Data.Maybe (fromMaybe)
 import Foreign (mallocBytes, free)
 import Network.HPACK (BufferSize)
 import Network.HPACK qualified as HPACK
@@ -133,17 +132,10 @@ withConfig mgr send recv mysa peersa k =
   'allocConfigForInsecure'.
 -------------------------------------------------------------------------------}
 
-mkServerConfig ::
-     HTTP2Settings
-  -> Maybe Word  -- ^ Override number of workers
-  -> Server.ServerConfig
-mkServerConfig http2Settings numberOfWorkers =
+mkServerConfig :: HTTP2Settings -> Server.ServerConfig
+mkServerConfig http2Settings =
     Server.defaultServerConfig {
-        Server.numberOfWorkers =
-          fromMaybe
-            (Server.numberOfWorkers Server.defaultServerConfig)
-            (fromIntegral <$> numberOfWorkers)
-      , Server.connectionWindowSize = fromIntegral $
+        Server.connectionWindowSize = fromIntegral $
           http2ConnectionWindowSize http2Settings
       , Server.settings =
           Server.defaultSettings {
@@ -178,19 +170,14 @@ mkServerConfig http2Settings numberOfWorkers =
 -- for completeness and in case @http2-tls@ decides to use them elsewhere.
 mkTlsSettings ::
      HTTP2Settings
-  -> Maybe Word         -- ^ Override number of workers
   -> (String -> IO ())  -- ^ Key logger
   -> Server.TLS.Settings
-mkTlsSettings http2Settings numberOfWorkers keyLogger =
+mkTlsSettings http2Settings keyLogger =
     Server.TLS.defaultSettings {
         Server.TLS.settingsKeyLogger =
           keyLogger
       , Server.TLS.settingsTimeout =
           disableTimeout
-      , Server.TLS.settingsNumberOfWorkers =
-          fromMaybe
-            (Server.TLS.settingsNumberOfWorkers Server.TLS.defaultSettings)
-            (fromIntegral <$> numberOfWorkers)
       , Server.TLS.settingsConnectionWindowSize = fromIntegral $
           http2ConnectionWindowSize http2Settings
       , Server.TLS.settingsStreamWindowSize = fromIntegral $
