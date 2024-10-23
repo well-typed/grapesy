@@ -306,16 +306,10 @@ runInsecure params cfg socketTMVar server = do
           withConfigForInsecure mgr clientSock $ \config ->
             HTTP2.run serverConfig config server
   where
-    ServerParams{
-        serverOverrideNumberOfWorkers
-      , serverHTTP2Settings
-      } = params
+    ServerParams{serverHTTP2Settings} = params
 
     serverConfig :: HTTP2.ServerConfig
-    serverConfig =
-        mkServerConfig
-          serverHTTP2Settings
-          serverOverrideNumberOfWorkers
+    serverConfig = mkServerConfig serverHTTP2Settings
 
 {-------------------------------------------------------------------------------
   Secure (over TLS)
@@ -339,17 +333,10 @@ runSecure params cfg socketTMVar server = do
 
     keyLogger <- Util.TLS.keyLogger (secureSslKeyLog cfg)
     let serverConfig :: HTTP2.ServerConfig
-        serverConfig =
-          mkServerConfig
-            serverHTTP2Settings
-            serverOverrideNumberOfWorkers
+        serverConfig = mkServerConfig serverHTTP2Settings
 
         tlsSettings :: HTTP2.TLS.Settings
-        tlsSettings =
-          mkTlsSettings
-            serverHTTP2Settings
-            serverOverrideNumberOfWorkers
-            keyLogger
+        tlsSettings = mkTlsSettings serverHTTP2Settings keyLogger
 
     withServerSocket
         serverHTTP2Settings
@@ -370,10 +357,7 @@ runSecure params cfg socketTMVar server = do
         withConfigForSecure mgr backend $ \config ->
           HTTP2.run serverConfig config server
   where
-    ServerParams{
-        serverOverrideNumberOfWorkers
-      , serverHTTP2Settings
-      } = params
+    ServerParams{serverHTTP2Settings} = params
 
 data CouldNotLoadCredentials =
     -- | Failed to load server credentials
