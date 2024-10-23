@@ -134,6 +134,9 @@ data ProtocolException rpc =
     -- | We expected trailers, but got an output instead
   | TooManyOutputs (Output rpc)
 
+    -- | The server unexpectedly used the Trailers-Only case
+  | UnexpectedTrailersOnly (ResponseTrailingMetadata rpc)
+
 deriving stock instance IsRPC rpc => Show (ProtocolException rpc)
 
 -- | Existential wrapper around 'ProtocolException'

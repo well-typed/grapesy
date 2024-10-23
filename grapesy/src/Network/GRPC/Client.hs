@@ -43,12 +43,13 @@ module Network.GRPC.Client (
     -- $openRequest
   , sendInput
   , recvOutput
-  , recvResponseInitialMetadata
+  , recvResponseMetadata
 
     -- ** Protocol specific wrappers
   , sendNextInput
   , sendFinalInput
   , sendEndOfInput
+  , recvResponseInitialMetadata
   , recvNextOutput
   , recvFinalOutput
   , recvTrailers

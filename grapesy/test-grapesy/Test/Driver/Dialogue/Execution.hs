@@ -205,8 +205,7 @@ clientLocal clock call = \(LocalSteps steps) ->
           Initiate expectedMetadata -> liftIO $ do
             receivedMetadata <- within timeoutReceive action $
                                   Client.recvResponseInitialMetadata call
-            expect (tick, action) (== ResponseInitialMetadata expectedMetadata) $
-              receivedMetadata
+            expect (tick, action) (== expectedMetadata) receivedMetadata
           Send (FinalElem a b) -> do
             -- On the client side, when the server sends the final message, we
             -- will receive that final message in one HTTP data frame, and then

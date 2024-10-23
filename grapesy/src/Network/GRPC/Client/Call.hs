@@ -11,12 +11,13 @@ module Network.GRPC.Client.Call (
     -- * Open (ongoing) call
   , sendInput
   , recvOutput
-  , recvResponseInitialMetadata
+  , recvResponseMetadata
 
     -- ** Protocol specific wrappers
   , sendNextInput
   , sendFinalInput
   , sendEndOfInput
+  , recvResponseInitialMetadata
   , recvNextOutput
   , recvFinalOutput
   , recvTrailers
@@ -433,6 +434,9 @@ recvOutputWithMeta = recvBoth
 -- fact of type 'ResponseTrailingMetadata' instead. The 'ResponseMetadata' type
 -- distinguishes between these two cases.
 --
+-- If the \"Trailers-Only\" case can be ruled out (that is, if it would amount
+-- to a protocol error), you can use 'recvResponseInitialMetadata' instead.
+--
 -- This can block: we need to wait until we receive the metadata. The precise
 -- communication pattern will depend on the specifics of each server:
 --
@@ -440,8 +444,8 @@ recvOutputWithMeta = recvBoth
 --   returns any replies.
 -- * The response metadata /will/ be available before the first output from the
 --   server, and may indeed be available /well/ before.
-recvResponseInitialMetadata :: forall rpc. Call rpc -> IO (ResponseMetadata rpc)
-recvResponseInitialMetadata call@Call{} =
+recvResponseMetadata :: forall rpc. Call rpc -> IO (ResponseMetadata rpc)
+recvResponseMetadata call@Call{} =
     recvInitialResponse call >>= aux
   where
     aux ::
@@ -505,6 +509,27 @@ sendFinalInput call input =
 -- See 'sendFinalInput' for additional discussion.
 sendEndOfInput :: MonadIO m => Call rpc -> m ()
 sendEndOfInput call = sendInput call $ NoMoreElems NoMetadata
+
+-- | Receive /initial/ metadata
+--
+-- This is a specialization of 'recvResponseMetadata' which can be used if a use
+-- of \"Trailers-Only\" amounts to a protocol error; if the server /does/ use
+-- \"Trailers-Only\", this throws a 'ProtoclException'
+-- ('UnexpectedTrailersOnly').
+recvResponseInitialMetadata :: forall m rpc.
+     MonadIO m
+  => Call rpc
+  -> m (ResponseInitialMetadata rpc)
+recvResponseInitialMetadata call@Call{} = liftIO $ do
+    md <- recvResponseMetadata call
+    case md of
+      ResponseInitialMetadata md' ->
+        return md'
+      ResponseTrailingMetadata md' ->
+        err $ UnexpectedTrailersOnly md'
+  where
+    err :: ProtocolException rpc -> IO a
+    err = throwM . ProtocolException
 
 -- | Receive the next output
 --
