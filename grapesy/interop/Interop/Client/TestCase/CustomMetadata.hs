@@ -57,13 +57,12 @@ runTest cmdline = do
         mkStreamingOutputCallRequest [(False, 314159)] (Just 271828)
 
 verifyRespMetadata ::
-     ResponseMetadata (Protobuf TestService meth)
-     -- ^ This /could/ be trailing (if the server responded with Trailers-Only)
+     ResponseInitialMetadata (Protobuf TestService meth)
   -> ResponseTrailingMetadata (Protobuf TestService meth)
   -> IO ()
 verifyRespMetadata initMeta trailMeta = do
     assertEqual initMeta $
-      ResponseInitialMetadata $ InteropRespInitMeta (Just expectInitVal)
+      InteropRespInitMeta (Just expectInitVal)
     assertEqual trailMeta $
       InteropRespTrailMeta (Just expectTrailVal)
 
