@@ -380,7 +380,7 @@ serverLocal clock call = \(LocalSteps steps) -> do
         case action of
           Initiate metadata -> liftIO $ do
             Server.setResponseInitialMetadata call metadata
-            void $ Server.initiateResponse call
+            Server.initiateResponse call
             return True
           Send x -> do
             peerHealth <- get

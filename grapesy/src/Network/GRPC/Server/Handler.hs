@@ -6,7 +6,7 @@ module Network.GRPC.Server.Handler (
   , hoistRpcHandler
     -- * Construction
   , mkRpcHandler
-  , mkRpcHandlerNoInitialMetadata
+  , mkRpcHandlerNoDefMetadata
     -- * Hide type argument
   , SomeRpcHandler(..)
   , someRpcHandler
@@ -21,15 +21,14 @@ import Control.Concurrent.Async
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
-import Data.Default
 import Data.Kind
 import Data.Proxy
 import GHC.Stack
 import Network.HTTP2.Internal qualified as HTTP2
 
+import Network.GRPC.Common
 import Network.GRPC.Server.Call
 import Network.GRPC.Server.Context
-import Network.GRPC.Spec
 import Network.GRPC.Util.GHC
 import Network.GRPC.Util.HTTP2.Stream (ClientDisconnected(..))
 import Network.GRPC.Util.Session qualified as Session
@@ -105,7 +104,7 @@ hoistRpcHandler f (RpcHandler h) = RpcHandler (f . h)
 --
 -- For RPCs where a sensible default does not exist (perhaps the initial
 -- response metadata needs the request metadata from the client, or even some
--- messages from the client), you can use 'mkRpcHandlerNoInitialMetadata'.
+-- messages from the client), you can use 'mkRpcHandlerNoDefMetadata'.
 mkRpcHandler ::
      ( Default (ResponseInitialMetadata rpc)
      , MonadIO m
@@ -119,8 +118,8 @@ mkRpcHandler k = RpcHandler $ \call -> do
 --
 -- You /must/ call 'setResponseInitialMetadata' before sending the first
 -- message. See 'mkRpcHandler' for additional discussion.
-mkRpcHandlerNoInitialMetadata :: (Call rpc -> m ()) -> RpcHandler m rpc
-mkRpcHandlerNoInitialMetadata = RpcHandler
+mkRpcHandlerNoDefMetadata :: (Call rpc -> m ()) -> RpcHandler m rpc
+mkRpcHandlerNoDefMetadata = RpcHandler
 
 {-------------------------------------------------------------------------------
   Hide the type argument

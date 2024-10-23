@@ -11,7 +11,7 @@ module Network.GRPC.Server (
   , Call       -- opaque
   , RpcHandler -- opaque
   , mkRpcHandler
-  , mkRpcHandlerNoInitialMetadata
+  , mkRpcHandlerNoDefMetadata
   , hoistRpcHandler
 
     -- ** Hide @rpc@ type variable

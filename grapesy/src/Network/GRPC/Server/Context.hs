@@ -10,7 +10,6 @@ module Network.GRPC.Server.Context (
   ) where
 
 import Control.Exception
-import Data.Default
 import System.IO
 
 import Network.GRPC.Common

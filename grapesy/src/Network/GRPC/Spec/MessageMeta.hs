@@ -5,7 +5,7 @@ module Network.GRPC.Spec.MessageMeta (
   ) where
 
 import Control.DeepSeq (NFData)
-import Data.Default
+import Data.Default.Class
 import Data.Word
 import GHC.Generics (Generic)
 

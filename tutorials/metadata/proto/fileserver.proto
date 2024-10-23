@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package fileserver;
+
+service Fileserver {
+  rpc Download (File) returns (stream Partial) {}
+}
+
+message File {
+  string name = 1;
+}
+
+message Partial {
+  bytes chunk = 1;
+}

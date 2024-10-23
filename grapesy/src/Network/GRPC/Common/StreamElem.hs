@@ -141,7 +141,7 @@ whileNext_ f g = go
           FinalElem   a b -> g a >> return b
           NoMoreElems   b -> return b
 
--- | Invoke the callback until it returns 'NoNextElem', collecting results
+-- | Invoke the callback until 'FinalElem' or 'NoMoreElems', collecting results
 collect :: forall m b a. Monad m => m (StreamElem b a) -> m ([a], b)
 collect f =
     first reverse . swap <$> flip runStateT [] aux

@@ -7,7 +7,7 @@ module Network.GRPC.Common.HTTP2Settings
   , defaultHTTP2Settings
   ) where
 
-import Data.Default
+import Data.Default.Class
 import Data.Word
 
 -- | HTTP\/2 settings

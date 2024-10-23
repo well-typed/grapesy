@@ -12,7 +12,7 @@ module Network.GRPC.Spec.TraceContext (
 import Data.ByteString qualified as Strict (ByteString)
 import Data.ByteString.Base16 qualified as BS.Strict.Base16
 import Data.ByteString.Char8 qualified as BS.Strict.Char8
-import Data.Default
+import Data.Default.Class
 import Data.String
 import GHC.Generics (Generic)
 

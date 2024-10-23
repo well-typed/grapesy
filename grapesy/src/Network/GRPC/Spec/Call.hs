@@ -5,7 +5,7 @@ module Network.GRPC.Spec.Call (
   , callRequestMetadata
   ) where
 
-import Data.Default
+import Data.Default.Class
 import Data.Functor.Const
 
 import Network.GRPC.Spec.CustomMetadata.Typed

@@ -46,7 +46,6 @@ import Control.Exception (throwIO)
 import Control.Monad
 import Control.Monad.Catch
 import Data.Bitraversable
-import Data.Default
 import Data.List.NonEmpty (NonEmpty)
 import Data.Void
 import GHC.Stack
@@ -401,8 +400,8 @@ sendOutputWithMeta :: forall rpc.
   -> StreamElem (ResponseTrailingMetadata rpc) (OutboundMeta, Output rpc)
   -> IO ()
 sendOutputWithMeta call@Call{callChannel} msg = do
-    _updated <- initiateResponse call
-    msg'     <- bitraverse mkTrailers return msg
+    initiateResponse call
+    msg' <- bitraverse mkTrailers return msg
     Session.send callChannel msg'
 
     -- This /must/ be called before leaving the scope of 'runHandler' (or we
@@ -485,9 +484,11 @@ setResponseInitialMetadata Call{ callResponseMetadata
 -- This will cause the initial response metadata to be sent
 -- (see also 'setResponseMetadata').
 --
--- Returns 'False' if the response was already initiated.
-initiateResponse :: HasCallStack => Call rpc -> IO Bool
-initiateResponse Call{callResponseKickoff} =
+-- Does nothing if the response was already initated (that is, the response
+-- headers, or trailers in the case of 'sendTrailersOnly', have already been
+-- sent).
+initiateResponse :: HasCallStack => Call rpc -> IO ()
+initiateResponse Call{callResponseKickoff} = void $
     atomically $ tryPutTMVar callResponseKickoff $ KickoffRegular callStack
 
 -- | Use the gRPC @Trailers-Only@ case for non-error responses
