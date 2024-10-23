@@ -6,6 +6,11 @@ module Network.GRPC.Util.Session.Server (
 
 import Network.HTTP2.Server qualified as Server
 
+import Control.Concurrent
+import Control.Exception
+import Control.Monad
+import Data.IORef
+
 import Network.GRPC.Util.HTTP2.Stream
 import Network.GRPC.Util.Session.API
 import Network.GRPC.Util.Session.Channel
@@ -76,15 +81,17 @@ setupResponseChannel sess
           FlowStartRegular headers -> do
             regular <- initFlowStateRegular headers
             markReady $ FlowStateRegular regular
+            (waitForWorker, wrapWorker) <- joinWithWorker
             let resp :: Server.Response
                 resp = setResponseTrailers sess channel regular
                      $ Server.responseStreamingIface
                              (responseStatus  responseInfo)
                              (responseHeaders responseInfo)
-                     $ \iface -> do
+                     $ \iface -> wrapWorker $ do
                           stream <- serverOutputStream iface
                           sendMessageLoop sess regular stream
             respond conn resp
+            waitForWorker
           FlowStartNoMessages trailers -> do
             markReady $ FlowStateNoMessages trailers
             let resp :: Server.Response
@@ -94,6 +101,57 @@ setupResponseChannel sess
             respond conn $ resp
 
     return channel
+
+{-------------------------------------------------------------------------------
+  Auxiliary: join two threads
+-------------------------------------------------------------------------------}
+
+data WorkerStatus =
+    -- | The thread ID of the worker thread is not yet known
+    WorkerUnknown
+
+    -- | The worker thread is known, and has installed an exception handler
+  | WorkerReady ThreadId
+
+    -- | We don't need the worker anymore, but its identity is not yet known
+  | WorkerPreventStart
+
+-- | Join current thread with worker thread
+--
+-- The result of the parent thread will be the result of the worker thread;
+-- any exception thrown to the parent will also interrupt the worker, and
+-- any exception raised in the worker will be also be raised in the parent.
+joinWithWorker :: forall a. IO (IO a, IO a -> IO ())
+joinWithWorker = do
+    sync   :: MVar (Either SomeException a) <- newEmptyMVar
+    cancel :: IORef WorkerStatus <- newIORef WorkerUnknown
+
+    let waitForWorker :: IO a
+        waitForWorker = do
+            handle cancelWorker $
+              either throwIO return =<< readMVar sync
+          where
+            cancelWorker :: SomeException -> IO a
+            cancelWorker e = do
+                mWorker <- atomicModifyIORef cancel $ \case
+                  WorkerUnknown      -> (WorkerPreventStart, Nothing)
+                  WorkerReady tid    -> (undefined, Just tid)
+                  WorkerPreventStart -> error "impossible"
+                forM_ mWorker $ \worker -> throwTo worker e
+                throwIO e
+
+        wrapWorker :: IO a -> IO ()
+        wrapWorker k = do
+            workerId <- myThreadId
+            handle (putMVar sync . Left) $ do
+              preventStart <- atomicModifyIORef cancel $ \case
+                WorkerUnknown      -> (WorkerReady workerId, False)
+                WorkerPreventStart -> (undefined, True)
+                WorkerReady _tid   -> error "impossible"
+              unless preventStart $
+                putMVar sync =<< (Right <$> k)
+
+    return (waitForWorker, wrapWorker)
 
 {-------------------------------------------------------------------------------
   Auxiliary http2

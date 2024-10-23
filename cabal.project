@@ -1,4 +1,4 @@
-packages: 
+packages:
     ./grpc-spec
   , ./grapesy
   , ./tutorials/quickstart
@@ -16,7 +16,17 @@ package grpc-spec
 package grapesy
   tests: True
   benchmarks: True
-  flags: +build-demo +build-stress-test 
+  flags: +build-demo +build-stress-test
+
+source-repository-package
+  type: git
+  location: https://github.com/kazu-yamamoto/http2
+  tag: 620687bea826b76436db9475c8566775592b4f18
+
+source-repository-package
+  type: git
+  location: https://github.com/kazu-yamamoto/http2-tls
+  tag: 2d4725c16f7dc887c5792d46fae5b67a0907ca6d
 
 --
 -- ghc 9.10
