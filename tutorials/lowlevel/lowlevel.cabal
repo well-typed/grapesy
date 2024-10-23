@@ -60,10 +60,10 @@ library
       Proto.API.RouteGuide
   other-modules:
       Proto.RouteGuide
-      Paths_basics
+      Paths_lowlevel
   autogen-modules:
       Proto.RouteGuide
-      Paths_basics
+      Paths_lowlevel
 
 executable route_guide_server
   import:          lang
@@ -73,7 +73,7 @@ executable route_guide_server
 
   build-depends:
       -- internal
-    , basics
+    , lowlevel
   build-depends:
       -- inherited
     , grapesy
@@ -87,7 +87,7 @@ executable route_guide_client
 
   build-depends:
       -- internal
-    , basics
+    , lowlevel
   build-depends:
       -- inherited
     , grapesy
