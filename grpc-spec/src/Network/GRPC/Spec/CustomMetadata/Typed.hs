@@ -9,8 +9,6 @@ module Network.GRPC.Spec.CustomMetadata.Typed (
   , StaticMetadata(..)
   , ParseMetadata(..)
   , buildMetadataIO
-    -- * Escape hatch: raw metadata
-  , RawMetadata(..)
   ) where
 
 import Control.DeepSeq (force)
@@ -18,8 +16,6 @@ import Control.Exception
 import Control.Monad.Catch
 import Data.Kind
 import Data.Proxy
-import Data.String
-import GHC.TypeLits
 
 import Network.GRPC.Spec.CustomMetadata.Raw
 
@@ -117,38 +113,3 @@ class BuildMetadata a => StaticMetadata a where
 class ParseMetadata a where
   parseMetadata :: MonadThrow m => [CustomMetadata] -> m a
 
-{-------------------------------------------------------------------------------
-  Clients that want access to all raw, unparsed, custom metadata
--------------------------------------------------------------------------------}
-
--- | Raw metadata
---
--- This can be used with 'OverrideMetadata' to provide essentially an untyped
--- interface to custom metadata, and get access to the raw metadata without
--- any serialization.
-newtype RawMetadata (md :: [Symbol]) = RawMetadata {
-      getRawMetadata :: [CustomMetadata]
-    }
-  deriving stock (Show, Eq)
-
-instance BuildMetadata (RawMetadata md) where
-  buildMetadata = getRawMetadata
-
-instance KnownSymbols md => StaticMetadata (RawMetadata md) where
-  metadataHeaderNames _ = map fromString (symbolVals (Proxy @md))
-
-instance ParseMetadata (RawMetadata md) where
-  parseMetadata = return . RawMetadata
-
-{-------------------------------------------------------------------------------
-  Auxiliary: extend 'KnownSymbol' to a list of symbols
--------------------------------------------------------------------------------}
-
-class KnownSymbols (ns :: [Symbol]) where
-  symbolVals :: Proxy ns -> [String]
-
-instance KnownSymbols '[] where
-  symbolVals _ = []
-
-instance (KnownSymbol n, KnownSymbols ns) => KnownSymbols (n:ns) where
-  symbolVals _ = symbolVal (Proxy @n) : symbolVals (Proxy @ns)

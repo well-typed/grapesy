@@ -23,10 +23,10 @@ module Network.GRPC.Spec (
   , JsonObject(..)
   , Required(..)
   , Optional(..)
+  , DecodeFields -- opaque
+  , EncodeFields -- opaque
     -- *** Raw
   , RawRpc
-    -- *** Unknown
-  , UnknownRpc
     -- * Streaming types
   , StreamingType(..)
   , SStreamingType(..)
@@ -131,7 +131,6 @@ module Network.GRPC.Spec (
   , ResponseInitialMetadata
   , ResponseTrailingMetadata
   , ResponseMetadata(..)
-  , RawMetadata(..)
     -- ** Serialization
   , BuildMetadata(..)
   , ParseMetadata(..)
@@ -159,7 +158,9 @@ module Network.GRPC.Spec (
   , statusInvalidHeaders
     -- * Common infrastructure to all headers
   , ContentType(..)
+  , chooseContentType
   , MessageType(..)
+  , chooseMessageType
     -- * OpenTelemetry
   , TraceContext(..)
   , TraceId(..)
@@ -187,7 +188,6 @@ import Network.GRPC.Spec.RPC.JSON
 import Network.GRPC.Spec.RPC.Protobuf
 import Network.GRPC.Spec.RPC.Raw
 import Network.GRPC.Spec.RPC.StreamType
-import Network.GRPC.Spec.RPC.Unknown
 import Network.GRPC.Spec.Status
 import Network.GRPC.Spec.Timeout
 import Network.GRPC.Spec.TraceContext

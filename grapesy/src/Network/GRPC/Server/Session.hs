@@ -97,7 +97,7 @@ data CallSetupFailure =
     -- has the concept of a "method" (a method, or gRPC call, supported by a
     -- particular service); it's these methods that
     -- 'CallSetupUnimplementedMethod' is referring to.
-  | forall rpc. IsRPC rpc => CallSetupUnimplementedMethod (Proxy rpc) Path
+  | CallSetupUnimplementedMethod Path
 
 deriving stock    instance Show      CallSetupFailure
 deriving anyclass instance Exception CallSetupFailure

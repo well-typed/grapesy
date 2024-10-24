@@ -200,7 +200,7 @@ buildResponseHeaders proxy
                             , responseMetadata
                             , responseContentType
                             } = concat [
-      [ buildContentType proxy x
+      [ buildContentType $ Just (chooseContentType proxy x)
       | Just x <- [responseContentType]
       ]
     , [ buildMessageEncoding x
@@ -345,9 +345,6 @@ buildTrailer _ = (
         ]
 
 -- | Build trailers (see 'buildTrailersOnly' for the Trailers-Only case)
---
--- NOTE: If we add additional (reserved) headers here, we also need to add them
--- to 'buildTrailer'.
 buildProperTrailers :: ProperTrailers -> [HTTP.Header]
 buildProperTrailers ProperTrailers{
                         properTrailersGrpcStatus
@@ -356,6 +353,8 @@ buildProperTrailers ProperTrailers{
                       , properTrailersPushback
                       , properTrailersOrcaLoadReport
                       } = concat [
+    -- NOTE: If we add additional (reserved) headers here, we also need to add
+    -- them to 'buildTrailer'.
       [ ( "grpc-status"
         , BS.Strict.C8.pack $ show $ buildGrpcStatus properTrailersGrpcStatus
         )
@@ -379,12 +378,29 @@ buildProperTrailers ProperTrailers{
     ]
 
 -- | Build trailers for the Trailers-Only case
-buildTrailersOnly :: IsRPC rpc => Proxy rpc -> TrailersOnly -> [HTTP.Header]
-buildTrailersOnly proxy TrailersOnly{
+buildTrailersOnly ::
+     (ContentType -> Maybe BS.Strict.C8.ByteString)
+     -- ^ Interpret 'ContentType'
+     --
+     -- Under normal circumstances this should be @Just .@ 'chooseContentType'.
+     -- In some cases, however, the content-type might not be known. For
+     -- example, when a request comes in for an unknown method, the gRPC server
+     -- is supposed to respond with a @Trailers-Only@ message, with an
+     -- @UNIMPLEMENTED@ error code. Frustratingly, @Trailers-Only@ requires a
+     -- @Content-Type@ header, /even though there is no content/. This
+     -- @Content-Type@ header normally indicates the serialization format (e.g.,
+     -- @application/grpc+proto@), but this format depends on the specific
+     -- method, which was not found!
+     --
+     -- To resolve this catch-22, this function is allowed to return @Nothing@,
+     -- in which case the @Content-Type@ we will use @application/grpc@, with no
+     -- format specifier. Fortunately, this is allowed by the spec.
+  -> TrailersOnly -> [HTTP.Header]
+buildTrailersOnly f TrailersOnly{
                             trailersOnlyContentType
                           , trailersOnlyProper
                           } = concat [
-      [ buildContentType proxy x
+      [ buildContentType $ f x
       | Just x <- [trailersOnlyContentType]
       ]
     , buildProperTrailers trailersOnlyProper

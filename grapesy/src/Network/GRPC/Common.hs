@@ -32,7 +32,6 @@ module Network.GRPC.Common (
   , ResponseInitialMetadata
   , ResponseTrailingMetadata
   , ResponseMetadata(..)
-  , RawMetadata(..)
     -- ** Serialization
   , BuildMetadata(..)
   , ParseMetadata(..)

@@ -268,9 +268,13 @@ startOutbound serverParams metadataVar kickoffVar cOut = do
         , responseHeaders =
             case start of
               Session.FlowStartRegular headers ->
-                buildResponseHeaders (Proxy @rpc) (outHeaders headers)
+                buildResponseHeaders
+                  (Proxy @rpc)
+                  (outHeaders headers)
               Session.FlowStartNoMessages trailers ->
-                buildTrailersOnly (Proxy @rpc) trailers
+                buildTrailersOnly
+                  (Just . chooseContentType (Proxy @rpc))
+                  trailers
         , responseBody = Nothing
         }
 

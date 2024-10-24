@@ -7,6 +7,8 @@ module Network.GRPC.Spec.RPC.JSON (
   , JsonObject(..)
   , Required(..)
   , Optional(..)
+  , DecodeFields -- opaque
+  , EncodeFields -- opaque
   ) where
 
 import Control.DeepSeq (NFData(..))
@@ -159,8 +161,12 @@ newtype Optional a = Optional {
 
 infixr 5 :*
 
+-- | Auxiliary class used for the 'ToJSON' instance for 'JsonObject'
+--
+-- It is not possible (nor necessary) to define additional instances.
 class EncodeFields fs where
   encodeFields :: JsonObject fs -> [Aeson.Pair]
+  encodeFields = undefined
 
 instance EncodeFields '[] where
   encodeFields JsonObject = []
@@ -181,8 +187,12 @@ instance (KnownSymbol f, ToJSON x, EncodeFields fs)
 instance EncodeFields fs => ToJSON (JsonObject fs) where
   toJSON = Aeson.object . encodeFields
 
+-- | Auxiliary class used for the 'FromJSON' instance for 'JsonObject'
+--
+-- It is not possible (nor necessary) to define additional instances.
 class DecodeFields fs where
   decodeFields :: Aeson.Object -> Aeson.Parser (JsonObject fs)
+  decodeFields = undefined
 
 instance DecodeFields '[] where
   decodeFields _ = return JsonObject
