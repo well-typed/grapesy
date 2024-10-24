@@ -51,8 +51,8 @@ import Network.GRPC.Common
 import Network.GRPC.Common.Compression qualified as Compression
 import Network.GRPC.Common.StreamElem qualified as StreamElem
 import Network.GRPC.Spec
+import Network.GRPC.Spec.Util.HKD qualified as HKD
 import Network.GRPC.Util.GHC
-import Network.GRPC.Util.HKD qualified as HKD
 import Network.GRPC.Util.HTTP2.Stream (ServerDisconnected(..))
 import Network.GRPC.Util.Session qualified as Session
 import Network.GRPC.Util.Thread qualified as Thread

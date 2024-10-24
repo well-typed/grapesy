@@ -1,0 +1,206 @@
+cabal-version:      3.0
+name:               grpc-spec
+version:            0.1.0
+synopsis:           Implementation of the pure part of the gRPC spec
+description:        This is an implementation of the pure part of the core gRPC
+                    spec at <https://github.com/grpc/grpc/blob/master/doc/PROTOCOL-HTTP2.md>.
+                    This is by no means a full gRPC implementation, but can be
+                    used as the basis for one; see @grapesy@ for a full
+                    implementation.
+license:            BSD-3-Clause
+license-file:       LICENSE
+author:             Edsko de Vries
+maintainer:         edsko@well-typed.com
+category:           Network
+build-type:         Simple
+extra-doc-files:    CHANGELOG.md
+tested-with:        GHC==8.10.7
+                  , GHC==9.2.8
+                  , GHC==9.4.8
+                  , GHC==9.6.4
+                  , GHC==9.8.2
+                  , GHC==9.10.1
+
+source-repository head
+  type:     git
+  location: https://github.com/well-typed/grapesy
+
+common lang
+  ghc-options:
+      -Wall
+      -Wredundant-constraints
+      -Wno-unticked-promoted-constructors
+      -Wprepositive-qualified-module
+      -Widentities
+      -Wmissing-export-lists
+  build-depends:
+      base >= 4.14 && < 4.21
+  default-language:
+      Haskell2010
+  default-extensions:
+      ConstraintKinds
+      DataKinds
+      DeriveAnyClass
+      DeriveGeneric
+      DeriveTraversable
+      DerivingStrategies
+      DerivingVia
+      DisambiguateRecordFields
+      EmptyCase
+      FlexibleContexts
+      FlexibleInstances
+      GADTs
+      GeneralizedNewtypeDeriving
+      ImportQualifiedPost
+      KindSignatures
+      LambdaCase
+      MultiParamTypeClasses
+      NamedFieldPuns
+      NumericUnderscores
+      PatternSynonyms
+      PolyKinds
+      RankNTypes
+      ScopedTypeVariables
+      StandaloneDeriving
+      TupleSections
+      TypeApplications
+      TypeFamilies
+      TypeOperators
+      UndecidableInstances
+
+  if impl(ghc >= 9.0)
+    ghc-options:
+      -- This was introduced in 8.10, but it does not work reliably until 9.0.
+      -- In 8.10 you might get spurious warnings when using re-exported modules
+      -- (e.g. in proto-lens-runtime).
+      -Wunused-packages
+
+  if flag(snappy)
+    cpp-options: -DSNAPPY
+
+library
+  import:         lang
+  hs-source-dirs: src, proto
+
+  exposed-modules:
+      Network.GRPC.Spec
+      Network.GRPC.Spec.Serialization
+      Network.GRPC.Spec.Util.HKD
+      Network.GRPC.Spec.Util.Parser
+  other-modules:
+      Network.GRPC.Spec.Call
+      Network.GRPC.Spec.Compression
+      Network.GRPC.Spec.CustomMetadata.Map
+      Network.GRPC.Spec.CustomMetadata.NoMetadata
+      Network.GRPC.Spec.CustomMetadata.Raw
+      Network.GRPC.Spec.CustomMetadata.Typed
+      Network.GRPC.Spec.Headers.Common
+      Network.GRPC.Spec.Headers.Invalid
+      Network.GRPC.Spec.Headers.PseudoHeaders
+      Network.GRPC.Spec.Headers.Request
+      Network.GRPC.Spec.Headers.Response
+      Network.GRPC.Spec.MessageMeta
+      Network.GRPC.Spec.OrcaLoadReport
+      Network.GRPC.Spec.PercentEncoding
+      Network.GRPC.Spec.RPC
+      Network.GRPC.Spec.RPC.JSON
+      Network.GRPC.Spec.RPC.Protobuf
+      Network.GRPC.Spec.RPC.Raw
+      Network.GRPC.Spec.RPC.StreamType
+      Network.GRPC.Spec.RPC.Unknown
+      Network.GRPC.Spec.Serialization.Base64
+      Network.GRPC.Spec.Serialization.CustomMetadata
+      Network.GRPC.Spec.Serialization.Headers.Common
+      Network.GRPC.Spec.Serialization.Headers.PseudoHeaders
+      Network.GRPC.Spec.Serialization.Headers.Request
+      Network.GRPC.Spec.Serialization.Headers.Response
+      Network.GRPC.Spec.Serialization.LengthPrefixed
+      Network.GRPC.Spec.Serialization.Status
+      Network.GRPC.Spec.Serialization.Timeout
+      Network.GRPC.Spec.Serialization.TraceContext
+      Network.GRPC.Spec.Status
+      Network.GRPC.Spec.Timeout
+      Network.GRPC.Spec.TraceContext
+      Network.GRPC.Spec.Util.ByteString
+      Network.GRPC.Spec.Util.Protobuf
+      Proto.OrcaLoadReport
+  build-depends:
+    , aeson               >= 1.5     && < 2.3
+    , base16-bytestring   >= 1.0     && < 1.1
+    , base64-bytestring   >= 1.2     && < 1.3
+    , binary              >= 0.8     && < 0.9
+    , bytestring          >= 0.10.12 && < 0.13
+    , case-insensitive    >= 1.2     && < 1.3
+    , containers          >= 0.6     && < 0.8
+    , data-default-class  >= 0.1     && < 0.2
+    , deepseq             >= 1.4     && < 1.6
+    , exceptions          >= 0.10    && < 0.11
+    , hashable            >= 1.3     && < 1.5
+    , http-types          >= 0.12    && < 0.13
+    , lens                >= 5.0     && < 5.4
+    , mtl                 >= 2.2     && < 2.4
+    , network             >= 3.2.4   && < 3.3
+    , proto-lens          >= 0.7     && < 0.8
+    , proto-lens-runtime  >= 0.7     && < 0.8
+    , record-hasfield     >= 1.0     && < 1.1
+    , text                >= 1.2     && < 2.2
+    , utf8-string         >= 1.0     && < 1.1
+    , vector              >= 0.13    && < 0.14
+    , zlib                >= 0.6     && < 0.8
+
+  -- Snappy can be a bit tricky to install on some systems, so we make it an
+  -- optional dependency. Snappy support can be explicitly disabled by clearing
+  -- the @snappy@ flag manually
+  --
+  -- > package grpc-spec
+  -- >    flags: -snappy
+  --
+  -- or by setting an unsatisfiable constraint on @snappy-c@
+  --
+  -- > constraints: snappy-c<0
+  --
+  -- It can be explicitly /enabled/ by setting the @snappy@ flag manually.
+  if flag(snappy)
+    build-depends:
+      , snappy-c >= 0.1 && < 0.2
+
+test-suite test-grpc-spec
+  import:         lang
+  type:           exitcode-stdio-1.0
+  hs-source-dirs: test-grpc-spec
+  main-is:        Main.hs
+  build-depends:  grpc-spec
+
+  other-modules:
+      Test.Prop.IncrementalParsing
+      Test.Prop.Serialization
+      Test.Util.Awkward
+      Test.Util.Orphans
+      Test.Util.Protobuf
+
+  build-depends:
+      -- Inherited dependencies
+    , base64-bytestring
+    , bytestring
+    , case-insensitive
+    , containers
+    , http-types
+    , lens
+    , mtl
+    , proto-lens
+    , text
+
+  build-depends:
+      -- Additional dependencies
+    , prettyprinter               >= 1.7   && < 1.8
+    , prettyprinter-ansi-terminal >= 1.1   && < 1.2
+    , QuickCheck                  >= 2.14  && < 2.16
+    , quickcheck-instances        >= 0.3   && < 0.4
+    , tasty                       >= 1.4   && < 1.6
+    , tasty-quickcheck            >= 0.10  && < 0.12
+    , tree-diff                   >= 0.3   && < 0.4
+
+Flag snappy
+  description: Enable snappy compression capabilities
+  default: True
+  manual: False

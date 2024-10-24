@@ -7,9 +7,8 @@
 -- "Network.GRPC.Common" (intended for unqualified import) exports
 -- @NextElem(..)@, but none of the operations on 'NextElem'.
 module Network.GRPC.Common.NextElem (
-    NextElem(..)
     -- * Conversion
-  , toStreamElem
+    toStreamElem
     -- * Iteration
   , mapM_
   , forM_
@@ -22,16 +21,7 @@ import Prelude hiding (mapM_)
 import Control.Monad.State (StateT, execStateT, lift, modify)
 
 import Network.GRPC.Common.StreamElem (StreamElem(..))
-
-{-------------------------------------------------------------------------------
-  Definition
--------------------------------------------------------------------------------}
-
--- | Is there a next element in a stream?
---
--- Does not record metadata, unlike 'Network.GRPC.Common.StreamElem.StreamElem'.
-data NextElem a = NoNextElem | NextElem !a
-  deriving stock (Show, Eq, Functor, Foldable, Traversable)
+import Network.GRPC.Spec (NextElem(..))
 
 {-------------------------------------------------------------------------------
   Conversion
