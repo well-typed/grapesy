@@ -3,6 +3,7 @@ packages:
   , ./tutorials/quickstart
   , ./tutorials/basics
   , ./tutorials/lowlevel
+  , ./tutorials/metadata
 
 package grapesy
   tests: True

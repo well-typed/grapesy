@@ -28,7 +28,7 @@ module Network.GRPC.Common.Compression (
   , insist
   ) where
 
-import Data.Default
+import Data.Default.Class
 import Data.Foldable (toList)
 import Data.List.NonEmpty (NonEmpty(..))
 import Data.List.NonEmpty qualified as NE

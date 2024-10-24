@@ -29,7 +29,7 @@ import Control.Concurrent
 import Control.Concurrent.STM
 import Control.Monad
 import Control.Monad.Catch
-import Data.Default
+import Data.Default.Class
 import GHC.Stack
 import Network.HPACK qualified as HPACK
 import Network.HTTP2.Client qualified as HTTP2.Client

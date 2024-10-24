@@ -19,7 +19,7 @@ module Network.GRPC.Spec.Headers.Common (
   ) where
 
 import Data.ByteString qualified as Strict (ByteString)
-import Data.Default
+import Data.Default.Class
 import GHC.Generics (Generic)
 
 {-------------------------------------------------------------------------------

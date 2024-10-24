@@ -37,11 +37,11 @@ sayHello req = return $ defMessage & #message .~ msg
     msg = "Hello, " <> req ^. #name <> "!"
 
 sayHelloStreamReply :: RpcHandler IO SayHelloStreamReply
-sayHelloStreamReply = mkRpcHandlerNoInitialMetadata $ \call -> do
+sayHelloStreamReply = mkRpcHandlerNoDefMetadata $ \call -> do
     setResponseInitialMetadata call $ SayHelloMetadata (Just "initial-md-value")
 
     -- The client expects the metadata well before the first output
-    _ <- initiateResponse call
+    initiateResponse call
 
     req <- recvFinalInput call
 

@@ -68,6 +68,16 @@ methods db =
     $ RawMethod (mkRpcHandler $ routeChat      )
     $ NoMoreMethods
 
+
+-- Alternative way to define the handlers, avoiding 'fromMethods'
+_handlers :: DB -> [SomeRpcHandler IO]
+_handlers db = [
+      someRpcHandler . mkRpcHandler $ getFeature   db
+    , someRpcHandler . mkRpcHandler $ listFeatures db
+    , someRpcHandler . mkRpcHandler $ recordRoute  db
+    , someRpcHandler . mkRpcHandler $ routeChat
+    ]
+
 main :: IO ()
 main = do
     db <- getDB

@@ -36,7 +36,6 @@ import Control.Monad.IO.Class
 import Data.Bifunctor
 import Data.Bitraversable
 import Data.ByteString.Char8 qualified as BS.Strict.C8
-import Data.Default
 import Data.Foldable (asum)
 import Data.List (intersperse)
 import Data.Maybe (fromMaybe)
@@ -105,7 +104,7 @@ data Call rpc = SupportsClientRpc rpc => Call {
 -- If there are still /inbound/ messages upon leaving the scope of 'withRPC' no
 -- exception is raised (but the call is nonetheless still closed, and the server
 -- handler will be informed that the client has disappeared).
-withRPC :: forall m rpc a.
+withRPC :: forall rpc m a.
      (MonadMask m, MonadIO m, SupportsClientRpc rpc, HasCallStack)
   => Connection -> CallParams rpc -> Proxy rpc -> (Call rpc -> m a) -> m a
 withRPC conn callParams proxy k = fmap fst $
@@ -386,7 +385,7 @@ sendInputWithMeta Call{callChannel} msg = liftIO $ do
 -- 'GrpcStatus' here: a status of 'GrpcOk' carries no information, and any other
 -- status will result in a 'GrpcException'. Calling 'recvOutput' again after
 -- receiving the trailers is a bug and results in a 'RecvAfterFinal' exception.
-recvOutput :: forall m rpc.
+recvOutput :: forall rpc m.
      (MonadIO m, HasCallStack)
   => Call rpc
   -> m (StreamElem (ResponseTrailingMetadata rpc) (Output rpc))
@@ -444,8 +443,10 @@ recvOutputWithMeta = recvBoth
 --   returns any replies.
 -- * The response metadata /will/ be available before the first output from the
 --   server, and may indeed be available /well/ before.
-recvResponseMetadata :: forall rpc. Call rpc -> IO (ResponseMetadata rpc)
-recvResponseMetadata call@Call{} =
+recvResponseMetadata :: forall rpc m.
+     MonadIO m
+  => Call rpc -> m (ResponseMetadata rpc)
+recvResponseMetadata call@Call{} = liftIO $
     recvInitialResponse call >>= aux
   where
     aux ::
@@ -472,12 +473,13 @@ recvResponseMetadata call@Call{} =
 -- rather than thrown as an exception.
 --
 -- Most applications will never need to use this function.
-recvInitialResponse ::
-     Call rpc
-  -> IO ( Either (TrailersOnly'    HandledSynthesized)
+recvInitialResponse :: forall rpc m.
+     MonadIO m
+  => Call rpc
+  -> m ( Either (TrailersOnly'    HandledSynthesized)
                  (ResponseHeaders' HandledSynthesized)
         )
-recvInitialResponse Call{callChannel} =
+recvInitialResponse Call{callChannel} = liftIO $
     fmap inbHeaders <$> Session.getInboundHeaders callChannel
 
 {-------------------------------------------------------------------------------
@@ -516,7 +518,7 @@ sendEndOfInput call = sendInput call $ NoMoreElems NoMetadata
 -- of \"Trailers-Only\" amounts to a protocol error; if the server /does/ use
 -- \"Trailers-Only\", this throws a 'ProtoclException'
 -- ('UnexpectedTrailersOnly').
-recvResponseInitialMetadata :: forall m rpc.
+recvResponseInitialMetadata :: forall rpc m.
      MonadIO m
   => Call rpc
   -> m (ResponseInitialMetadata rpc)
@@ -534,7 +536,7 @@ recvResponseInitialMetadata call@Call{} = liftIO $ do
 -- | Receive the next output
 --
 -- Throws 'ProtocolException' if there are no more outputs.
-recvNextOutput :: forall m rpc.
+recvNextOutput :: forall rpc m.
      (MonadIO m, HasCallStack)
   => Call rpc -> m (Output rpc)
 recvNextOutput call@Call{} = liftIO $ do
@@ -555,7 +557,7 @@ recvNextOutput call@Call{} = liftIO $ do
 --
 -- NOTE: If the first output we receive from the server is not marked as final,
 -- we will block until we receive the end-of-stream indication.
-recvFinalOutput :: forall m rpc.
+recvFinalOutput :: forall rpc m.
      (MonadIO m, HasCallStack)
   => Call rpc
   -> m (Output rpc, ResponseTrailingMetadata rpc)
@@ -577,7 +579,7 @@ recvFinalOutput call@Call{} = liftIO $ do
 -- | Receive trailers
 --
 -- Throws 'ProtocolException' if we received an output.
-recvTrailers :: forall m rpc.
+recvTrailers :: forall rpc m.
      (MonadIO m, HasCallStack)
   => Call rpc -> m (ResponseTrailingMetadata rpc)
 recvTrailers call@Call{} = liftIO $ do
@@ -594,7 +596,7 @@ recvTrailers call@Call{} = liftIO $ do
   Internal auxiliary: deal with final message
 -------------------------------------------------------------------------------}
 
-recvBoth :: forall m rpc.
+recvBoth :: forall rpc m.
      (HasCallStack, MonadIO m)
   => Call rpc
   -> m (StreamElem ProperTrailers' (InboundMeta, Output rpc))
@@ -612,7 +614,7 @@ recvBoth Call{callChannel} = liftIO $
     flatten (Right streamElem) =
         streamElem
 
-recvEither :: forall m rpc.
+recvEither :: forall rpc m.
      (HasCallStack, MonadIO m)
   => Call rpc
   -> m (Either ProperTrailers' (InboundMeta, Output rpc))

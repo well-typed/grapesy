@@ -21,7 +21,6 @@ module Network.GRPC.Client.StreamType (
 import Control.Monad.Catch
 import Control.Monad.IO.Class
 import Control.Monad.Reader
-import Data.Default
 import Data.Proxy
 
 import Network.GRPC.Client.Call

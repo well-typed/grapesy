@@ -41,7 +41,7 @@ constructResponseMetadata call = do
 
     -- Send initial metadata
     setResponseInitialMetadata call initMeta
-    _initiated <- initiateResponse call
+    initiateResponse call
 
     -- Return the final metadata to be sent at the end of the call
     return trailMeta

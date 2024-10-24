@@ -5,7 +5,7 @@ module Network.GRPC.Spec.CustomMetadata.NoMetadata (
 
 import Control.Exception
 import Control.Monad.Catch
-import Data.Default
+import Data.Default.Class
 
 import Network.GRPC.Spec.CustomMetadata.Raw
 import Network.GRPC.Spec.CustomMetadata.Typed
