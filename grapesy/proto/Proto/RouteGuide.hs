@@ -1,9 +1,9 @@
+{-# OPTIONS_GHC -Wno-prepositive-qualified-module -Wno-identities #-}
 {- This file was auto-generated from route_guide.proto by the proto-lens-protoc program. -}
 {-# LANGUAGE ScopedTypeVariables, DataKinds, TypeFamilies, UndecidableInstances, GeneralizedNewtypeDeriving, MultiParamTypeClasses, FlexibleContexts, FlexibleInstances, PatternSynonyms, MagicHash, NoImplicitPrelude, DataKinds, BangPatterns, TypeApplications, OverloadedStrings, DerivingStrategies#-}
 {-# OPTIONS_GHC -Wno-unused-imports#-}
 {-# OPTIONS_GHC -Wno-duplicate-exports#-}
 {-# OPTIONS_GHC -Wno-dodgy-exports#-}
-{-# OPTIONS_GHC -Wno-prepositive-qualified-module #-}
 module Proto.RouteGuide (
         RouteGuide(..), Feature(), Point(), Rectangle(), RouteNote(),
         RouteSummary()
@@ -34,7 +34,7 @@ import qualified Data.ProtoLens.Runtime.Data.Vector.Generic as Data.Vector.Gener
 import qualified Data.ProtoLens.Runtime.Data.Vector.Unboxed as Data.Vector.Unboxed
 import qualified Data.ProtoLens.Runtime.Text.Read as Text.Read
 {- | Fields :
-
+     
          * 'Proto.RouteGuide_Fields.name' @:: Lens' Feature Data.Text.Text@
          * 'Proto.RouteGuide_Fields.location' @:: Lens' Feature Point@
          * 'Proto.RouteGuide_Fields.maybe'location' @:: Lens' Feature (Prelude.Maybe Point)@ -}
@@ -193,7 +193,7 @@ instance Control.DeepSeq.NFData Feature where
                 (_Feature'name x__)
                 (Control.DeepSeq.deepseq (_Feature'location x__) ()))
 {- | Fields :
-
+     
          * 'Proto.RouteGuide_Fields.latitude' @:: Lens' Point Data.Int.Int32@
          * 'Proto.RouteGuide_Fields.longitude' @:: Lens' Point Data.Int.Int32@ -}
 data Point
@@ -340,7 +340,7 @@ instance Control.DeepSeq.NFData Point where
                 (_Point'latitude x__)
                 (Control.DeepSeq.deepseq (_Point'longitude x__) ()))
 {- | Fields :
-
+     
          * 'Proto.RouteGuide_Fields.lo' @:: Lens' Rectangle Point@
          * 'Proto.RouteGuide_Fields.maybe'lo' @:: Lens' Rectangle (Prelude.Maybe Point)@
          * 'Proto.RouteGuide_Fields.hi' @:: Lens' Rectangle Point@
@@ -505,7 +505,7 @@ instance Control.DeepSeq.NFData Rectangle where
                 (_Rectangle'lo x__)
                 (Control.DeepSeq.deepseq (_Rectangle'hi x__) ()))
 {- | Fields :
-
+     
          * 'Proto.RouteGuide_Fields.location' @:: Lens' RouteNote Point@
          * 'Proto.RouteGuide_Fields.maybe'location' @:: Lens' RouteNote (Prelude.Maybe Point)@
          * 'Proto.RouteGuide_Fields.message' @:: Lens' RouteNote Data.Text.Text@ -}
@@ -666,7 +666,7 @@ instance Control.DeepSeq.NFData RouteNote where
                 (_RouteNote'location x__)
                 (Control.DeepSeq.deepseq (_RouteNote'message x__) ()))
 {- | Fields :
-
+     
          * 'Proto.RouteGuide_Fields.pointCount' @:: Lens' RouteSummary Data.Int.Int32@
          * 'Proto.RouteGuide_Fields.featureCount' @:: Lens' RouteSummary Data.Int.Int32@
          * 'Proto.RouteGuide_Fields.distance' @:: Lens' RouteSummary Data.Int.Int32@

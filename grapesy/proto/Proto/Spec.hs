@@ -1,10 +1,9 @@
+{-# OPTIONS_GHC -Wno-prepositive-qualified-module -Wno-identities #-}
 {- This file was auto-generated from spec.proto by the proto-lens-protoc program. -}
 {-# LANGUAGE ScopedTypeVariables, DataKinds, TypeFamilies, UndecidableInstances, GeneralizedNewtypeDeriving, MultiParamTypeClasses, FlexibleContexts, FlexibleInstances, PatternSynonyms, MagicHash, NoImplicitPrelude, DataKinds, BangPatterns, TypeApplications, OverloadedStrings, DerivingStrategies#-}
 {-# OPTIONS_GHC -Wno-unused-imports#-}
 {-# OPTIONS_GHC -Wno-duplicate-exports#-}
 {-# OPTIONS_GHC -Wno-dodgy-exports#-}
-{-# OPTIONS_GHC -Wno-prepositive-qualified-module #-}
-{-# OPTIONS_GHC -Wno-identities #-}
 module Proto.Spec (
         ExampleService(..), AnotherMessage(), Empty(), ExampleEnum(..),
         ExampleEnum(), ExampleEnum'UnrecognizedValue, ExampleMessage(),
@@ -254,7 +253,7 @@ instance Data.ProtoLens.FieldDefault ExampleEnum where
 instance Control.DeepSeq.NFData ExampleEnum where
   rnf x__ = Prelude.seq x__ ()
 {- | Fields :
-
+     
          * 'Proto.Spec_Fields.defaultScalar01' @:: Lens' ExampleMessage Prelude.Double@
          * 'Proto.Spec_Fields.defaultScalar02' @:: Lens' ExampleMessage Prelude.Float@
          * 'Proto.Spec_Fields.defaultScalar03' @:: Lens' ExampleMessage Data.Int.Int32@
@@ -7708,7 +7707,7 @@ _ExampleMessage'OneofEnum
               (ExampleMessage'OneofEnum p__val) -> Prelude.Just p__val
               _otherwise -> Prelude.Nothing)
 {- | Fields :
-
+     
          * 'Proto.Spec_Fields.key' @:: Lens' ExampleMessage'MapAnotherEntry Data.Text.Text@
          * 'Proto.Spec_Fields.value' @:: Lens' ExampleMessage'MapAnotherEntry AnotherMessage@
          * 'Proto.Spec_Fields.maybe'value' @:: Lens' ExampleMessage'MapAnotherEntry (Prelude.Maybe AnotherMessage)@ -}
@@ -7874,7 +7873,7 @@ instance Control.DeepSeq.NFData ExampleMessage'MapAnotherEntry where
                 (Control.DeepSeq.deepseq
                    (_ExampleMessage'MapAnotherEntry'value x__) ()))
 {- | Fields :
-
+     
          * 'Proto.Spec_Fields.key' @:: Lens' ExampleMessage'MapEnumEntry Data.Text.Text@
          * 'Proto.Spec_Fields.value' @:: Lens' ExampleMessage'MapEnumEntry ExampleEnum@ -}
 data ExampleMessage'MapEnumEntry
@@ -8032,7 +8031,7 @@ instance Control.DeepSeq.NFData ExampleMessage'MapEnumEntry where
                 (Control.DeepSeq.deepseq
                    (_ExampleMessage'MapEnumEntry'value x__) ()))
 {- | Fields :
-
+     
          * 'Proto.Spec_Fields.key' @:: Lens' ExampleMessage'MapNestedEntry Data.Text.Text@
          * 'Proto.Spec_Fields.value' @:: Lens' ExampleMessage'MapNestedEntry ExampleMessage'NestedMessage@
          * 'Proto.Spec_Fields.maybe'value' @:: Lens' ExampleMessage'MapNestedEntry (Prelude.Maybe ExampleMessage'NestedMessage)@ -}
@@ -8198,7 +8197,7 @@ instance Control.DeepSeq.NFData ExampleMessage'MapNestedEntry where
                 (Control.DeepSeq.deepseq
                    (_ExampleMessage'MapNestedEntry'value x__) ()))
 {- | Fields :
-
+     
          * 'Proto.Spec_Fields.key' @:: Lens' ExampleMessage'MapScalar01Entry Data.Text.Text@
          * 'Proto.Spec_Fields.value' @:: Lens' ExampleMessage'MapScalar01Entry Prelude.Double@ -}
 data ExampleMessage'MapScalar01Entry
@@ -8353,7 +8352,7 @@ instance Control.DeepSeq.NFData ExampleMessage'MapScalar01Entry where
                 (Control.DeepSeq.deepseq
                    (_ExampleMessage'MapScalar01Entry'value x__) ()))
 {- | Fields :
-
+     
          * 'Proto.Spec_Fields.key' @:: Lens' ExampleMessage'MapScalar02Entry Data.Text.Text@
          * 'Proto.Spec_Fields.value' @:: Lens' ExampleMessage'MapScalar02Entry Prelude.Float@ -}
 data ExampleMessage'MapScalar02Entry
@@ -8508,7 +8507,7 @@ instance Control.DeepSeq.NFData ExampleMessage'MapScalar02Entry where
                 (Control.DeepSeq.deepseq
                    (_ExampleMessage'MapScalar02Entry'value x__) ()))
 {- | Fields :
-
+     
          * 'Proto.Spec_Fields.key' @:: Lens' ExampleMessage'MapScalar03Entry Data.Text.Text@
          * 'Proto.Spec_Fields.value' @:: Lens' ExampleMessage'MapScalar03Entry Data.Int.Int32@ -}
 data ExampleMessage'MapScalar03Entry
@@ -8662,7 +8661,7 @@ instance Control.DeepSeq.NFData ExampleMessage'MapScalar03Entry where
                 (Control.DeepSeq.deepseq
                    (_ExampleMessage'MapScalar03Entry'value x__) ()))
 {- | Fields :
-
+     
          * 'Proto.Spec_Fields.key' @:: Lens' ExampleMessage'MapScalar04Entry Data.Text.Text@
          * 'Proto.Spec_Fields.value' @:: Lens' ExampleMessage'MapScalar04Entry Data.Int.Int64@ -}
 data ExampleMessage'MapScalar04Entry
@@ -8816,7 +8815,7 @@ instance Control.DeepSeq.NFData ExampleMessage'MapScalar04Entry where
                 (Control.DeepSeq.deepseq
                    (_ExampleMessage'MapScalar04Entry'value x__) ()))
 {- | Fields :
-
+     
          * 'Proto.Spec_Fields.key' @:: Lens' ExampleMessage'MapScalar05Entry Data.Text.Text@
          * 'Proto.Spec_Fields.value' @:: Lens' ExampleMessage'MapScalar05Entry Data.Word.Word32@ -}
 data ExampleMessage'MapScalar05Entry
@@ -8970,7 +8969,7 @@ instance Control.DeepSeq.NFData ExampleMessage'MapScalar05Entry where
                 (Control.DeepSeq.deepseq
                    (_ExampleMessage'MapScalar05Entry'value x__) ()))
 {- | Fields :
-
+     
          * 'Proto.Spec_Fields.key' @:: Lens' ExampleMessage'MapScalar06Entry Data.Text.Text@
          * 'Proto.Spec_Fields.value' @:: Lens' ExampleMessage'MapScalar06Entry Data.Word.Word64@ -}
 data ExampleMessage'MapScalar06Entry
@@ -9120,7 +9119,7 @@ instance Control.DeepSeq.NFData ExampleMessage'MapScalar06Entry where
                 (Control.DeepSeq.deepseq
                    (_ExampleMessage'MapScalar06Entry'value x__) ()))
 {- | Fields :
-
+     
          * 'Proto.Spec_Fields.key' @:: Lens' ExampleMessage'MapScalar07Entry Data.Text.Text@
          * 'Proto.Spec_Fields.value' @:: Lens' ExampleMessage'MapScalar07Entry Data.Int.Int32@ -}
 data ExampleMessage'MapScalar07Entry
@@ -9278,7 +9277,7 @@ instance Control.DeepSeq.NFData ExampleMessage'MapScalar07Entry where
                 (Control.DeepSeq.deepseq
                    (_ExampleMessage'MapScalar07Entry'value x__) ()))
 {- | Fields :
-
+     
          * 'Proto.Spec_Fields.key' @:: Lens' ExampleMessage'MapScalar08Entry Data.Text.Text@
          * 'Proto.Spec_Fields.value' @:: Lens' ExampleMessage'MapScalar08Entry Data.Int.Int64@ -}
 data ExampleMessage'MapScalar08Entry
@@ -9436,7 +9435,7 @@ instance Control.DeepSeq.NFData ExampleMessage'MapScalar08Entry where
                 (Control.DeepSeq.deepseq
                    (_ExampleMessage'MapScalar08Entry'value x__) ()))
 {- | Fields :
-
+     
          * 'Proto.Spec_Fields.key' @:: Lens' ExampleMessage'MapScalar09Entry Data.Text.Text@
          * 'Proto.Spec_Fields.value' @:: Lens' ExampleMessage'MapScalar09Entry Data.Word.Word32@ -}
 data ExampleMessage'MapScalar09Entry
@@ -9586,7 +9585,7 @@ instance Control.DeepSeq.NFData ExampleMessage'MapScalar09Entry where
                 (Control.DeepSeq.deepseq
                    (_ExampleMessage'MapScalar09Entry'value x__) ()))
 {- | Fields :
-
+     
          * 'Proto.Spec_Fields.key' @:: Lens' ExampleMessage'MapScalar10Entry Data.Text.Text@
          * 'Proto.Spec_Fields.value' @:: Lens' ExampleMessage'MapScalar10Entry Data.Word.Word64@ -}
 data ExampleMessage'MapScalar10Entry
@@ -9736,7 +9735,7 @@ instance Control.DeepSeq.NFData ExampleMessage'MapScalar10Entry where
                 (Control.DeepSeq.deepseq
                    (_ExampleMessage'MapScalar10Entry'value x__) ()))
 {- | Fields :
-
+     
          * 'Proto.Spec_Fields.key' @:: Lens' ExampleMessage'MapScalar11Entry Data.Text.Text@
          * 'Proto.Spec_Fields.value' @:: Lens' ExampleMessage'MapScalar11Entry Data.Int.Int32@ -}
 data ExampleMessage'MapScalar11Entry
@@ -9890,7 +9889,7 @@ instance Control.DeepSeq.NFData ExampleMessage'MapScalar11Entry where
                 (Control.DeepSeq.deepseq
                    (_ExampleMessage'MapScalar11Entry'value x__) ()))
 {- | Fields :
-
+     
          * 'Proto.Spec_Fields.key' @:: Lens' ExampleMessage'MapScalar12Entry Data.Text.Text@
          * 'Proto.Spec_Fields.value' @:: Lens' ExampleMessage'MapScalar12Entry Data.Int.Int64@ -}
 data ExampleMessage'MapScalar12Entry
@@ -10044,7 +10043,7 @@ instance Control.DeepSeq.NFData ExampleMessage'MapScalar12Entry where
                 (Control.DeepSeq.deepseq
                    (_ExampleMessage'MapScalar12Entry'value x__) ()))
 {- | Fields :
-
+     
          * 'Proto.Spec_Fields.key' @:: Lens' ExampleMessage'MapScalar13Entry Data.Text.Text@
          * 'Proto.Spec_Fields.value' @:: Lens' ExampleMessage'MapScalar13Entry Prelude.Bool@ -}
 data ExampleMessage'MapScalar13Entry
@@ -10198,7 +10197,7 @@ instance Control.DeepSeq.NFData ExampleMessage'MapScalar13Entry where
                 (Control.DeepSeq.deepseq
                    (_ExampleMessage'MapScalar13Entry'value x__) ()))
 {- | Fields :
-
+     
          * 'Proto.Spec_Fields.key' @:: Lens' ExampleMessage'MapScalar14Entry Data.Text.Text@
          * 'Proto.Spec_Fields.value' @:: Lens' ExampleMessage'MapScalar14Entry Data.Text.Text@ -}
 data ExampleMessage'MapScalar14Entry
@@ -10357,7 +10356,7 @@ instance Control.DeepSeq.NFData ExampleMessage'MapScalar14Entry where
                 (Control.DeepSeq.deepseq
                    (_ExampleMessage'MapScalar14Entry'value x__) ()))
 {- | Fields :
-
+     
          * 'Proto.Spec_Fields.key' @:: Lens' ExampleMessage'MapScalar15Entry Data.Text.Text@
          * 'Proto.Spec_Fields.value' @:: Lens' ExampleMessage'MapScalar15Entry Data.ByteString.ByteString@ -}
 data ExampleMessage'MapScalar15Entry

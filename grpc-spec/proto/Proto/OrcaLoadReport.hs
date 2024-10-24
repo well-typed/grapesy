@@ -1,9 +1,9 @@
+{-# OPTIONS_GHC -Wno-prepositive-qualified-module -Wno-identities #-}
 {- This file was auto-generated from orca_load_report.proto by the proto-lens-protoc program. -}
 {-# LANGUAGE ScopedTypeVariables, DataKinds, TypeFamilies, UndecidableInstances, GeneralizedNewtypeDeriving, MultiParamTypeClasses, FlexibleContexts, FlexibleInstances, PatternSynonyms, MagicHash, NoImplicitPrelude, DataKinds, BangPatterns, TypeApplications, OverloadedStrings, DerivingStrategies#-}
 {-# OPTIONS_GHC -Wno-unused-imports#-}
 {-# OPTIONS_GHC -Wno-duplicate-exports#-}
 {-# OPTIONS_GHC -Wno-dodgy-exports#-}
-{-# OPTIONS_GHC -Wno-prepositive-qualified-module #-}
 module Proto.OrcaLoadReport (
         OrcaLoadReport(), OrcaLoadReport'NamedMetricsEntry(),
         OrcaLoadReport'RequestCostEntry(),
@@ -35,7 +35,7 @@ import qualified Data.ProtoLens.Runtime.Data.Vector.Generic as Data.Vector.Gener
 import qualified Data.ProtoLens.Runtime.Data.Vector.Unboxed as Data.Vector.Unboxed
 import qualified Data.ProtoLens.Runtime.Text.Read as Text.Read
 {- | Fields :
-
+     
          * 'Proto.OrcaLoadReport_Fields.cpuUtilization' @:: Lens' OrcaLoadReport Prelude.Double@
          * 'Proto.OrcaLoadReport_Fields.memUtilization' @:: Lens' OrcaLoadReport Prelude.Double@
          * 'Proto.OrcaLoadReport_Fields.rps' @:: Lens' OrcaLoadReport Data.Word.Word64@
@@ -566,7 +566,7 @@ instance Control.DeepSeq.NFData OrcaLoadReport where
                                      (Control.DeepSeq.deepseq
                                         (_OrcaLoadReport'applicationUtilization x__) ())))))))))
 {- | Fields :
-
+     
          * 'Proto.OrcaLoadReport_Fields.key' @:: Lens' OrcaLoadReport'NamedMetricsEntry Data.Text.Text@
          * 'Proto.OrcaLoadReport_Fields.value' @:: Lens' OrcaLoadReport'NamedMetricsEntry Prelude.Double@ -}
 data OrcaLoadReport'NamedMetricsEntry
@@ -723,7 +723,7 @@ instance Control.DeepSeq.NFData OrcaLoadReport'NamedMetricsEntry where
                 (Control.DeepSeq.deepseq
                    (_OrcaLoadReport'NamedMetricsEntry'value x__) ()))
 {- | Fields :
-
+     
          * 'Proto.OrcaLoadReport_Fields.key' @:: Lens' OrcaLoadReport'RequestCostEntry Data.Text.Text@
          * 'Proto.OrcaLoadReport_Fields.value' @:: Lens' OrcaLoadReport'RequestCostEntry Prelude.Double@ -}
 data OrcaLoadReport'RequestCostEntry
@@ -879,7 +879,7 @@ instance Control.DeepSeq.NFData OrcaLoadReport'RequestCostEntry where
                 (Control.DeepSeq.deepseq
                    (_OrcaLoadReport'RequestCostEntry'value x__) ()))
 {- | Fields :
-
+     
          * 'Proto.OrcaLoadReport_Fields.key' @:: Lens' OrcaLoadReport'UtilizationEntry Data.Text.Text@
          * 'Proto.OrcaLoadReport_Fields.value' @:: Lens' OrcaLoadReport'UtilizationEntry Prelude.Double@ -}
 data OrcaLoadReport'UtilizationEntry

@@ -1,9 +1,9 @@
+{-# OPTIONS_GHC -Wno-prepositive-qualified-module -Wno-identities #-}
 {- This file was auto-generated from test.proto by the proto-lens-protoc program. -}
 {-# LANGUAGE ScopedTypeVariables, DataKinds, TypeFamilies, UndecidableInstances, GeneralizedNewtypeDeriving, MultiParamTypeClasses, FlexibleContexts, FlexibleInstances, PatternSynonyms, MagicHash, NoImplicitPrelude, DataKinds, BangPatterns, TypeApplications, OverloadedStrings, DerivingStrategies#-}
 {-# OPTIONS_GHC -Wno-unused-imports#-}
 {-# OPTIONS_GHC -Wno-duplicate-exports#-}
 {-# OPTIONS_GHC -Wno-dodgy-exports#-}
-{-# OPTIONS_GHC -Wno-prepositive-qualified-module #-}
 module Proto.Test (
         TestService(..), UnimplementedService(..), ReconnectService(..),
         LoadBalancerStatsService(..), HookService(..),
