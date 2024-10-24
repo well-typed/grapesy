@@ -3,6 +3,7 @@
 
 module Test.Sanity.Compression (tests) where
 
+import Control.Monad
 import Data.IORef
 import Data.Maybe (isJust)
 import Data.Text (Text)
@@ -18,7 +19,6 @@ import Network.GRPC.Server qualified as Server
 import Test.Driver.ClientServer
 
 import Proto.API.Helloworld
-import Control.Monad
 
 {-------------------------------------------------------------------------------
   Top-level

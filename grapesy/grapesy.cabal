@@ -47,14 +47,11 @@ common lang
       ConstraintKinds
       DataKinds
       DeriveAnyClass
-      DeriveFoldable
       DeriveFunctor
-      DeriveGeneric
       DeriveTraversable
       DerivingStrategies
       DerivingVia
       DisambiguateRecordFields
-      EmptyCase
       FlexibleContexts
       FlexibleInstances
       GADTs
@@ -66,11 +63,8 @@ common lang
       MultiWayIf
       NamedFieldPuns
       NumericUnderscores
-      PatternSynonyms
       PolyKinds
-      QuantifiedConstraints
       RankNTypes
-      RoleAnnotations
       ScopedTypeVariables
       StandaloneDeriving
       TupleSections
@@ -86,17 +80,16 @@ common lang
       -- (e.g. in proto-lens-runtime).
       -Wunused-packages
 
-  if flag(snappy)
-    cpp-options: -DSNAPPY
-
 common common-executable-flags
   ghc-options:
       -threaded
       -rtsopts
 
 library
-  import:
-      lang
+  import:          lang
+  autogen-modules: Paths_grapesy
+  hs-source-dirs:  src, proto
+
   exposed-modules:
       Network.GRPC.Client
       Network.GRPC.Client.Binary
@@ -120,8 +113,6 @@ library
       Network.GRPC.Server.Run
       Network.GRPC.Server.StreamType
       Network.GRPC.Server.StreamType.Binary
-      Network.GRPC.Spec
-      Network.GRPC.Spec.Serialization
   other-modules:
       Network.GRPC.Client.Call
       Network.GRPC.Client.Connection
@@ -135,47 +126,10 @@ library
       Network.GRPC.Server.RequestHandler
       Network.GRPC.Server.RequestHandler.API
       Network.GRPC.Server.Session
-      Network.GRPC.Spec.Call
-      Network.GRPC.Spec.Compression
-      Network.GRPC.Spec.CustomMetadata.Map
-      Network.GRPC.Spec.CustomMetadata.NoMetadata
-      Network.GRPC.Spec.CustomMetadata.Raw
-      Network.GRPC.Spec.CustomMetadata.Typed
-      Network.GRPC.Spec.Headers.Common
-      Network.GRPC.Spec.Headers.Invalid
-      Network.GRPC.Spec.Headers.PseudoHeaders
-      Network.GRPC.Spec.Headers.Request
-      Network.GRPC.Spec.Headers.Response
-      Network.GRPC.Spec.MessageMeta
-      Network.GRPC.Spec.OrcaLoadReport
-      Network.GRPC.Spec.PercentEncoding
-      Network.GRPC.Spec.RPC
-      Network.GRPC.Spec.RPC.JSON
-      Network.GRPC.Spec.RPC.Protobuf
-      Network.GRPC.Spec.RPC.Raw
-      Network.GRPC.Spec.RPC.StreamType
-      Network.GRPC.Spec.RPC.Unknown
-      Network.GRPC.Spec.Serialization.Base64
-      Network.GRPC.Spec.Serialization.CustomMetadata
-      Network.GRPC.Spec.Serialization.Headers.Common
-      Network.GRPC.Spec.Serialization.Headers.PseudoHeaders
-      Network.GRPC.Spec.Serialization.Headers.Request
-      Network.GRPC.Spec.Serialization.Headers.Response
-      Network.GRPC.Spec.Serialization.LengthPrefixed
-      Network.GRPC.Spec.Serialization.Status
-      Network.GRPC.Spec.Serialization.Timeout
-      Network.GRPC.Spec.Serialization.TraceContext
-      Network.GRPC.Spec.Status
-      Network.GRPC.Spec.Timeout
-      Network.GRPC.Spec.TraceContext
       Network.GRPC.Util.AccumulatedByteString
-      Network.GRPC.Util.ByteString
       Network.GRPC.Util.GHC
-      Network.GRPC.Util.HKD
       Network.GRPC.Util.HTTP2
       Network.GRPC.Util.HTTP2.Stream
-      Network.GRPC.Util.Parser
-      Network.GRPC.Util.Protobuf
       Network.GRPC.Util.RedundantConstraint
       Network.GRPC.Util.Session
       Network.GRPC.Util.Session.API
@@ -186,22 +140,11 @@ library
       Network.GRPC.Util.TLS
 
       Paths_grapesy
-
-      Proto.OrcaLoadReport
-  autogen-modules:
-      Paths_grapesy
-  hs-source-dirs:
-      src
-      util
-      proto
   build-depends:
     , aeson                >= 1.5     && < 2.3
     , async                >= 2.2     && < 2.3
-    , base16-bytestring    >= 1.0     && < 1.1
-    , base64-bytestring    >= 1.2     && < 1.3
     , binary               >= 0.8     && < 0.9
     , bytestring           >= 0.10.12 && < 0.13
-    , case-insensitive     >= 1.2     && < 1.3
     , conduit              >= 1.3     && < 1.4
     , containers           >= 0.6     && < 0.8
     , crypton-x509         >= 1.7     && < 1.8
@@ -210,7 +153,7 @@ library
     , data-default-class   >= 0.1     && < 0.2
     , deepseq              >= 1.4     && < 1.6
     , exceptions           >= 0.10    && < 0.11
-    , hashable             >= 1.3     && < 1.5
+    , grpc-spec            >= 0.1     && < 0.2
     , http-types           >= 0.12    && < 0.13
     , http2                >= 5.3.4   && < 5.4
     , http2-tls            >= 0.4.1   && < 0.5
@@ -219,9 +162,7 @@ library
     , network              >= 3.2.4   && < 3.3
     , network-run          >= 0.4.1   && < 0.5
     , proto-lens           >= 0.7     && < 0.8
-    , proto-lens-runtime   >= 0.7     && < 0.8
     , random               >= 1.2     && < 1.3
-    , record-hasfield      >= 1.0     && < 1.1
     , recv                 >= 0.1     && < 0.2
     , stm                  >= 2.5     && < 2.6
     , text                 >= 1.2     && < 2.2
@@ -230,51 +171,30 @@ library
     , unbounded-delays     >= 0.1.1   && < 0.2
     , unordered-containers >= 0.2     && < 0.3
     , utf8-string          >= 1.0     && < 1.1
-    , vector               >= 0.13    && < 0.14
-    , zlib                 >= 0.6     && < 0.8
-
-  -- Snappy can be a bit tricky to install on some systems, so we make it an
-  -- optional dependency. Snappy support can be explicitly disabled by clearing
-  -- the @snappy@ flag manually
-  --
-  -- > package grapesy
-  -- >    flags: -snappy
-  --
-  -- or by setting an unsatisfiable constraint on @snappy-c@
-  --
-  -- > constraints: snappy-c<0
-  --
-  -- It can be explicitly /enabled/ by setting the @snappy@ flag manually.
-  if flag(snappy)
-    build-depends:
-      , snappy-c >= 0.1 && < 0.2
 
 test-suite test-record-dot
-  import:
-    , lang
-    , common-executable-flags
-  type:
-      exitcode-stdio-1.0
-  hs-source-dirs:
-      test-record-dot
-      proto
-  main-is:
-      Main.hs
+  import:         lang, common-executable-flags
+  type:           exitcode-stdio-1.0
+  hs-source-dirs: test-record-dot, proto
+  main-is:        Main.hs
+  build-depends:  grapesy
+
   other-modules:
       Test.OverloadedRecordDot
       Test.OverloadedRecordUpdate
       Proto.Spec
+
   build-depends:
-      -- Internal dependencies
-    , grapesy
+      -- Inherited dependencies
+    , bytestring
+    , containers
+    , text
+
   build-depends:
-      -- External dependencies
-    , bytestring         >= 0.10 && < 0.13
-    , containers         >= 0.6  && < 0.8
+      -- Additional dependencies
     , proto-lens-runtime >= 0.7  && < 0.8
     , tasty              >= 1.4  && < 1.6
     , tasty-hunit        >= 0.10 && < 0.11
-    , text               >= 1.2  && < 2.2
     , vector             >= 0.13 && < 0.14
     , record-hasfield    >= 1.0  && < 1.1
 
@@ -282,23 +202,13 @@ test-suite test-record-dot
     buildable: False
 
 test-suite test-grapesy
-  import:
-    , lang
-    , common-executable-flags
-  type:
-      exitcode-stdio-1.0
-  hs-source-dirs:
-      test-grapesy
-      proto
+  import:          lang, common-executable-flags
+  type:            exitcode-stdio-1.0
+  hs-source-dirs:  test-grapesy, proto
+  main-is:         Main.hs
+  autogen-modules: Paths_grapesy
+  build-depends:   grapesy
 
-      -- Testing internals
-      --
-      -- This is the reason the Util.* modules live in a separate directory; if
-      -- we included @src@ here, then any import from @Network.GRPC.*@ would
-      -- be a direct import rather than an import from the library.
-      util
-  main-is:
-      Main.hs
   other-modules:
       Test.Driver.ClientServer
       Test.Driver.Dialogue
@@ -307,8 +217,6 @@ test-suite test-grapesy
       Test.Driver.Dialogue.Generation
       Test.Driver.Dialogue.TestClock
       Test.Prop.Dialogue
-      Test.Prop.IncrementalParsing
-      Test.Prop.Serialization
       Test.Sanity.BrokenDeployments
       Test.Sanity.Compression
       Test.Sanity.Disconnect
@@ -318,14 +226,8 @@ test-suite test-grapesy
       Test.Sanity.StreamingType.CustomFormat
       Test.Sanity.StreamingType.NonStreaming
       Test.Util
-      Test.Util.Awkward
       Test.Util.Exception
-      Test.Util.Orphans
-      Test.Util.Protobuf
       Test.Util.RawTestServer
-
-      -- Internals we're testing
-      Network.GRPC.Util.Parser
 
       Paths_grapesy
 
@@ -338,53 +240,42 @@ test-suite test-grapesy
       Proto.Messages
       Proto.Ping
       Proto.Test
-  autogen-modules:
-      Paths_grapesy
+
   build-depends:
-      -- Internal dependencies
-    , grapesy
+      -- Inherited dependencies
+    , async
+    , bytestring
+    , containers
+    , deepseq
+    , exceptions
+    , grpc-spec
+    , http-types
+    , http2
+    , mtl
+    , network
+    , stm
+    , text
+    , tls
+    , utf8-string
+
   build-depends:
-      -- External dependencies
-    , async                       >= 2.2   && < 2.3
-    , base64-bytestring           >= 1.2   && < 1.3
-    , binary                      >= 0.8   && < 0.9
-    , bytestring                  >= 0.10  && < 0.13
-    , case-insensitive            >= 1.2   && < 1.3
-    , containers                  >= 0.6   && < 0.8
-    , deepseq                     >= 1.4   && < 1.6
-    , exceptions                  >= 0.10  && < 0.11
-    , http-types                  >= 0.12  && < 0.13
-    , http2                       >= 5.3.4 && < 5.4
-    , lens                        >= 5.0   && < 5.4
-    , mtl                         >= 2.2   && < 2.4
-    , network                     >= 3.2.4 && < 3.3
-    , prettyprinter               >= 1.7   && < 1.8
-    , prettyprinter-ansi-terminal >= 1.1   && < 1.2
-    , proto-lens                  >= 0.7   && < 0.8
-    , proto-lens-runtime          >= 0.7   && < 0.8
-    , QuickCheck                  >= 2.14  && < 2.16
-    , quickcheck-instances        >= 0.3   && < 0.4
-    , serialise                   >= 0.2   && < 0.3
-    , stm                         >= 2.5   && < 2.6
-    , tasty                       >= 1.4   && < 1.6
-    , tasty-hunit                 >= 0.10  && < 0.11
-    , tasty-quickcheck            >= 0.10  && < 0.12
-    , temporary                   >= 1.3   && < 1.4
-    , text                        >= 1.2   && < 2.2
-    , tls                         >= 1.7   && < 2.2
-    , tree-diff                   >= 0.3   && < 0.4
-    , unix                        >= 2.7   && < 2.9
-    , utf8-string                 >= 1.0   && < 1.1
+      -- Additional dependencies
+    , proto-lens-runtime >= 0.7   && < 0.8
+    , QuickCheck         >= 2.14  && < 2.16
+    , serialise          >= 0.2   && < 0.3
+    , tasty              >= 1.4   && < 1.6
+    , tasty-hunit        >= 0.10  && < 0.11
+    , tasty-quickcheck   >= 0.10  && < 0.12
+    , temporary          >= 1.3   && < 1.4
+    , unix               >= 2.7   && < 2.9
 
 executable demo-client
-  import:
-    , lang
-    , common-executable-flags
-  hs-source-dirs:
-      demo-client
-      proto
-  main-is:
-      Main.hs
+  import:          lang, common-executable-flags
+  hs-source-dirs:  demo-client, proto
+  main-is:         Main.hs
+  autogen-modules: Paths_grapesy
+  build-depends:   grapesy
+
   other-modules:
       Demo.Client.API.Core.Greeter
       Demo.Client.API.Core.NoFinal.Greeter
@@ -406,22 +297,21 @@ executable demo-client
       Proto.Helloworld
       Proto.Ping
       Proto.RouteGuide
-  autogen-modules:
-      Paths_grapesy
+
   build-depends:
-      -- Internal dependencies
-    , grapesy
+      -- Inherited dependencies
+    , async
+    , bytestring
+    , conduit
+    , exceptions
+    , network
+    , text
+
   build-depends:
-      -- External dependencies
-    , async                >= 2.2   && < 2.3
-    , bytestring           >= 0.10  && < 0.13
-    , conduit              >= 1.3   && < 1.4
+      -- Additional dependencies
     , contra-tracer        >= 0.2   && < 0.3
-    , exceptions           >= 0.10  && < 0.11
-    , network              >= 3.2.4 && < 3.3
     , optparse-applicative >= 0.16  && < 0.19
     , proto-lens-runtime   >= 0.7   && < 0.8
-    , text                 >= 1.2   && < 2.2
     , transformers         >= 0.5   && < 0.7
 
   if !flag(build-demo)
@@ -429,14 +319,12 @@ executable demo-client
       False
 
 executable demo-server
-  import:
-    , lang
-    , common-executable-flags
-  hs-source-dirs:
-      demo-server
-      proto
-  main-is:
-      Main.hs
+  import:          lang, common-executable-flags
+  hs-source-dirs:  demo-server, proto
+  main-is:         Main.hs
+  autogen-modules: Paths_grapesy
+  build-depends:   grapesy
+
   other-modules:
       Demo.Server.Aux.RouteGuide
       Demo.Server.Cmdline
@@ -452,41 +340,36 @@ executable demo-server
       Proto.RouteGuide
 
       Paths_grapesy
-  autogen-modules:
-      Paths_grapesy
+
   build-depends:
-      -- Internal dependencies
-    , grapesy
+      -- Inherited dependencies
+    , aeson
+    , bytestring
+    , containers
+    , exceptions
+    , network
+    , text
+
   build-depends:
-      -- External dependencies
-    , aeson                >= 1.5   && < 2.3
-    , bytestring           >= 0.10  && < 0.13
-    , containers           >= 0.6   && < 0.8
-    , exceptions           >= 0.10  && < 0.11
-    , network              >= 3.2.4 && < 3.3
-    , optparse-applicative >= 0.16  && < 0.19
-    , proto-lens-runtime   >= 0.7   && < 0.8
-    , text                 >= 1.2   && < 2.2
-    , time                 >= 1.9   && < 1.13
-    , transformers         >= 0.5   && < 0.7
+      -- Additional dependencies
+    , optparse-applicative >= 0.16 && < 0.19
+    , proto-lens-runtime   >= 0.7  && < 0.8
+    , time                 >= 1.9  && < 1.13
+    , transformers         >= 0.5  && < 0.7
 
   if !flag(build-demo)
     buildable:
       False
 
 test-suite test-stress
-  import:
-    , common-executable-flags
-    , lang
-  default-extensions:
-    RecordWildCards
-  type:
-      exitcode-stdio-1.0
-  hs-source-dirs:
-      test-stress
-    , proto
-  main-is:
-      Main.hs
+  import:             lang, common-executable-flags
+  type:               exitcode-stdio-1.0
+  hs-source-dirs:     test-stress, proto
+  main-is:            Main.hs
+  autogen-modules:    Paths_grapesy
+  build-depends:      grapesy
+  default-extensions: RecordWildCards
+
   other-modules:
       Test.Stress.Client
       Test.Stress.Cmdline
@@ -498,48 +381,41 @@ test-suite test-stress
       Proto.API.Trivial
 
       Paths_grapesy
-  autogen-modules:
-      Paths_grapesy
+
   build-depends:
-      -- Internal dependencies
-    , grapesy
+      -- Inherited dependencies
+    , async
+    , bytestring
+    , exceptions
+    , grpc-spec
+    , http2
+    , network
+    , tls
+
   build-depends:
-      -- External dependencies
-    , async                >= 2.2     && < 2.3
-    , bytestring           >= 0.10    && < 0.13
+      -- Additional dependencies
     , Chart                >= 1.9     && < 1.10
     , Chart-diagrams       >= 1.9     && < 1.10
     , directory            >= 1.3     && < 1.4
-    , exceptions           >= 0.10    && < 0.11
     , filepath             >= 1.4.2.1 && < 1.6
     , ghc-events           >= 0.17    && < 0.20
-    , http2                >= 5.3.4   && < 5.4
-    , network              >= 3.2.4   && < 3.3
     , optparse-applicative >= 0.16    && < 0.19
     , process              >= 1.6.12  && < 1.7
-    , tls                  >= 1.7     && < 2.2
     , random               >= 1.2     && < 1.3
 
   if !flag(build-stress-test)
     buildable:
       False
 
-  if flag(snappy)
-    cpp-options: -DSNAPPY
-
 test-suite grapesy-interop
-  import:
-    , lang
-    , common-executable-flags
-  default-extensions:
-      OverloadedLabels
-  type:
-      exitcode-stdio-1.0
-  hs-source-dirs:
-      interop
-      proto
-  main-is:
-      Main.hs
+  import:             lang, common-executable-flags
+  type:               exitcode-stdio-1.0
+  hs-source-dirs:     interop, proto
+  main-is:            Main.hs
+  autogen-modules:    Paths_grapesy
+  build-depends:      grapesy
+  default-extensions: OverloadedLabels
+
   other-modules:
       Interop.Client
       Interop.Client.Common
@@ -585,33 +461,31 @@ test-suite grapesy-interop
       Proto.Messages
       Proto.Ping
       Proto.Test
-  autogen-modules:
-      Paths_grapesy
+
   build-depends:
-    , grapesy
+      -- Inherited dependencies
+    , bytestring
+    , exceptions
+    , grpc-spec
+    , mtl
+    , network
+    , text
+
   build-depends:
-    , ansi-terminal        >= 1.1   && < 1.2
-    , bytestring           >= 0.10  && < 0.13
-    , exceptions           >= 0.10  && < 0.11
-    , mtl                  >= 2.2   && < 2.4
-    , network              >= 3.2.4 && < 3.3
-    , optparse-applicative >= 0.16  && < 0.19
-    , proto-lens-runtime   >= 0.7   && < 0.8
-    , text                 >= 1.2   && < 2.2
+      -- Additional dependencies
+    , ansi-terminal        >= 1.1  && < 1.2
+    , optparse-applicative >= 0.16 && < 0.19
+    , proto-lens-runtime   >= 0.7  && < 0.8
 
 benchmark grapesy-kvstore
-  import:
-    , lang
-    , common-executable-flags
-  default-extensions:
-      OverloadedLabels
-  type:
-      exitcode-stdio-1.0
-  main-is:
-      Main.hs
-  hs-source-dirs:
-      kvstore
-      proto
+  import:             lang, common-executable-flags
+  type:               exitcode-stdio-1.0
+  main-is:            Main.hs
+  hs-source-dirs:     kvstore, proto
+  autogen-modules:    Paths_grapesy
+  build-depends:      grapesy
+  default-extensions: OverloadedLabels
+
   other-modules:
       KVStore.API
       KVStore.API.JSON
@@ -627,23 +501,24 @@ benchmark grapesy-kvstore
       Proto.Kvstore
 
       Paths_grapesy
-  autogen-modules:
-      Paths_grapesy
+
   build-depends:
-      grapesy
+      -- Inherited dependencies
+    , aeson
+    , bytestring
+    , containers
+    , deepseq
+    , text
+    , unordered-containers
+
   build-depends:
-    , aeson                >= 1.5  && < 2.3
+      -- Additional dependencies
     , base16-bytestring    >= 1.0  && < 1.1
     , base64-bytestring    >= 1.2  && < 1.3
-    , bytestring           >= 0.10 && < 0.13
-    , containers           >= 0.6  && < 0.8
-    , deepseq              >= 1.4  && < 1.6
     , hashable             >= 1.3  && < 1.5
     , optparse-applicative >= 0.16 && < 0.19
     , proto-lens-runtime   >= 0.7  && < 0.8
     , splitmix             >= 0.1  && < 0.2
-    , text                 >= 1.2  && < 2.2
-    , unordered-containers >= 0.2  && < 0.3
 
   if flag(strace)
     cpp-options: -DSTRACE
@@ -659,12 +534,7 @@ Flag build-stress-test
   default: False
   manual: True
 
-Flag snappy
-  description: Enable snappy compression capabilities
-  default: True
-  manual: False
-
 Flag strace
-  description: Write events to /dev/null so that they show up in strace
+  description: Write events to /dev/null in @grapesy-kvstore@ so that they show up in strace
   default: False
   manual: True

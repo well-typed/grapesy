@@ -14,8 +14,6 @@ import GHC.Conc.Sync (threadLabel)
 #endif
 
 import Test.Prop.Dialogue                     qualified as Dialogue
-import Test.Prop.IncrementalParsing           qualified as IncrementalParsing
-import Test.Prop.Serialization                qualified as Serialization
 import Test.Sanity.BrokenDeployments          qualified as BrokenDeployments
 import Test.Sanity.Compression                qualified as Compression
 import Test.Sanity.Disconnect                 qualified as Disconnect
@@ -43,9 +41,7 @@ main = do
           , BrokenDeployments.tests
           ]
       , testGroup "Prop" [
-            IncrementalParsing.tests
-          , Serialization.tests
-          , Dialogue.tests
+            Dialogue.tests
           ]
       ]
 

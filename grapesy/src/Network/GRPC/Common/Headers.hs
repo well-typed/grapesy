@@ -12,8 +12,8 @@ import Data.Kind
 import Data.Void
 
 import Network.GRPC.Spec
-import Network.GRPC.Util.HKD (Undecorated, Checked)
-import Network.GRPC.Util.HKD qualified as HKD
+import Network.GRPC.Spec.Util.HKD (Undecorated, Checked)
+import Network.GRPC.Spec.Util.HKD qualified as HKD
 
 {-------------------------------------------------------------------------------
   Definition
