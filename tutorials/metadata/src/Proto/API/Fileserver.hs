@@ -1,3 +1,5 @@
+{-# OPTIONS_GHC -Wno-orphans #-}
+
 module Proto.API.Fileserver (
     module Proto.Fileserver
     -- * Metadata

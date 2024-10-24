@@ -86,11 +86,8 @@ findHandler handlers req = do
     let path = resourcePath resourceHeaders
     handler <- do
       case HandlerMap.lookup path handlers of
-        Just h  ->
-          return h
-        Nothing -> do
-          let unknown = Proxy @(UnknownRpc Nothing Nothing)
-          throwM $ CallSetupUnimplementedMethod unknown path
+        Just h  -> return h
+        Nothing -> throwM $ CallSetupUnimplementedMethod path
 
     return handler
   where
@@ -153,12 +150,18 @@ failureResponse (CallSetupInvalidRequestHeaders invalid) =
 failureResponse (CallSetupUnsupportedCompression cid) =
     HTTP2.responseBuilder HTTP.badRequest400 [] . Builder.byteString $
       "Unsupported compression: " <> BS.UTF8.fromString (show cid)
-failureResponse (CallSetupUnimplementedMethod proxy path) =
-    HTTP2.responseNoBody HTTP.ok200 . buildTrailersOnly proxy $
+failureResponse (CallSetupUnimplementedMethod path) =
+    HTTP2.responseNoBody HTTP.ok200 . buildTrailersOnly chooseContentType' $
       properTrailersToTrailersOnly (
           grpcExceptionToTrailers $ grpcUnimplemented path
         , Just ContentTypeDefault
         )
+  where
+    -- We cannot use the regular 'chooseContentType' here because we don't know
+    -- which @rpc@ this is (given that it's an unimplemented method).
+    chooseContentType' :: ContentType -> Maybe BS.UTF8.ByteString
+    chooseContentType' ContentTypeDefault       = Nothing
+    chooseContentType' (ContentTypeOverride ct) = Just ct
 
 grpcUnimplemented :: Path -> GrpcException
 grpcUnimplemented path = GrpcException {

@@ -219,6 +219,18 @@ jobs:
             benchmarks:  True
             flags:       +build-demo +build-stress-test 
             ghc-options: -Werror
+
+          package quickstart
+            ghc-options: -Werror
+
+          package basics
+            ghc-options: -Werror
+
+          package lowlevel
+            ghc-options: -Werror
+
+          package metadata
+            ghc-options: -Werror
           EOF
           $HCPKG list --simple-output --names-only | perl -ne 'for (split /\s+/) { print "constraints: any.$_ installed\n" unless /^(basics|grapesy|grpc-spec|lowlevel|metadata|quickstart)$/; }' >> cabal.project.local
           cat cabal.project

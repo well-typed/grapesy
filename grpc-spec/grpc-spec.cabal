@@ -107,7 +107,6 @@ library
       Network.GRPC.Spec.RPC.Protobuf
       Network.GRPC.Spec.RPC.Raw
       Network.GRPC.Spec.RPC.StreamType
-      Network.GRPC.Spec.RPC.Unknown
       Network.GRPC.Spec.Serialization.Base64
       Network.GRPC.Spec.Serialization.CustomMetadata
       Network.GRPC.Spec.Serialization.Headers.Common

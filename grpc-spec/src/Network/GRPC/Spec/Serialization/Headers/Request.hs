@@ -76,7 +76,8 @@ callDefinition :: forall rpc.
 callDefinition proxy = \hdrs -> catMaybes [
       hdrTimeout <$> requestTimeout hdrs
     , guard (requestIncludeTE hdrs) $> buildTe
-    , buildContentType proxy <$> requestContentType hdrs
+    , buildContentType . Just . chooseContentType proxy <$>
+        requestContentType hdrs
     , join $ buildMessageType proxy <$> requestMessageType hdrs
     , buildMessageEncoding <$> requestCompression hdrs
     , buildMessageAcceptEncoding <$> requestAcceptCompression hdrs

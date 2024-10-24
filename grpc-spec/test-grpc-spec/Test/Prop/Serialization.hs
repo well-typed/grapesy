@@ -62,65 +62,65 @@ tests = testGroup "Test.Prop.Serialization" [
         , testProperty "Pushback" $
             roundtrip @Void buildPushback parsePushback
         , testProperty "RequestHeaders" $
-            roundtrip (buildRequestHeaders unknown)
-                      (parseRequestHeaders unknown)
+            roundtrip (buildRequestHeaders rpc)
+                      (parseRequestHeaders rpc)
         , testProperty "ResponseHeaders" $
-            roundtrip (buildResponseHeaders unknown)
-                      (parseResponseHeaders unknown)
+            roundtrip (buildResponseHeaders rpc)
+                      (parseResponseHeaders rpc)
         , testProperty "ProperTrailers" $
             roundtrip buildProperTrailers
-                      (parseProperTrailers unknown)
+                      (parseProperTrailers rpc)
         , testProperty "TrailersOnly" $
-            roundtrip (buildTrailersOnly unknown)
-                      (parseTrailersOnly unknown)
+            roundtrip (buildTrailersOnly' rpc)
+                      (parseTrailersOnly  rpc)
         ]
     , testGroup "Duplicates" [
           testProperty "RequestHeaders" $ \dups ->
             roundtripWith
               (showIntermediate .*. labelDups)
-              (introduceDups dups . buildRequestHeaders unknown)
-              (                     parseRequestHeaders unknown)
+              (introduceDups dups . buildRequestHeaders rpc)
+              (                     parseRequestHeaders rpc)
         , testProperty "ResponseHeaders" $ \dups ->
             roundtripWith
               (showIntermediate .*. labelDups)
-              (introduceDups dups . buildResponseHeaders unknown)
-              (                     parseResponseHeaders unknown)
+              (introduceDups dups . buildResponseHeaders rpc)
+              (                     parseResponseHeaders rpc)
         , testProperty "ProperTrailers" $ \dups ->
             roundtripWith
               (showIntermediate .*. labelDups)
               (introduceDups dups . buildProperTrailers)
-              (                     parseProperTrailers unknown)
+              (                     parseProperTrailers rpc)
         , testProperty "TrailersOnly" $ \dups ->
             roundtripWith
               (showIntermediate .*. labelDups)
-              (introduceDups dups . buildTrailersOnly unknown)
-              (                     parseTrailersOnly unknown)
+              (introduceDups dups . buildTrailersOnly' rpc)
+              (                     parseTrailersOnly  rpc)
         ]
     , testGroup "Padding" [
           testProperty "RequestHeaders" $ \padding ->
             roundtripWith
               (showIntermediate .*. labelPadding)
-              (introducePadding padding . buildRequestHeaders unknown)
-              (                           parseRequestHeaders unknown)
+              (introducePadding padding . buildRequestHeaders rpc)
+              (                           parseRequestHeaders rpc)
         , testProperty "ResponseHeaders" $ \padding ->
             roundtripWith
               (showIntermediate .*. labelPadding)
-              (introducePadding padding . buildResponseHeaders unknown)
-              (                           parseResponseHeaders unknown)
+              (introducePadding padding . buildResponseHeaders rpc)
+              (                           parseResponseHeaders rpc)
         , testProperty "ProperTrailers" $ \padding ->
             roundtripWith
               (showIntermediate .*. labelPadding)
               (introducePadding padding . buildProperTrailers)
-              (                           parseProperTrailers unknown)
+              (                           parseProperTrailers rpc)
         , testProperty "TrailersOnly" $ \padding ->
             roundtripWith
               (showIntermediate .*. labelPadding)
-              (introducePadding padding . buildTrailersOnly unknown)
-              (                           parseTrailersOnly unknown)
+              (introducePadding padding . buildTrailersOnly' rpc)
+              (                           parseTrailersOnly  rpc)
         ]
     ]
   where
-    unknown = Proxy @(UnknownRpc (Just "serv") (Just "meth"))
+    rpc = Proxy @(RawRpc "serv" "meth")
 
 {-------------------------------------------------------------------------------
   Binary headers
@@ -403,7 +403,7 @@ instance Arbitrary (Awkward RequestHeaders) where
       requestCompression         <- awkward
       requestAcceptCompression   <- awkward
       requestContentType         <- Just <$> awkward -- cannot be missing
-      requestMessageType         <- awkward
+      requestMessageType         <- Just <$> awkward -- cannot be missing
       requestUserAgent           <- awkward
       requestIncludeTE           <- arbitrary
       requestTraceContext        <- awkward
@@ -426,8 +426,6 @@ instance Arbitrary (Awkward RequestHeaders) where
         shrinkAwkward (\x -> h'{requestTimeout             = x}) requestTimeout             h
       , shrinkAwkward (\x -> h'{requestCompression         = x}) requestCompression         h
       , shrinkAwkward (\x -> h'{requestAcceptCompression   = x}) requestAcceptCompression   h
-      , shrinkAwkward (\x -> h'{requestContentType         = x}) requestContentType         h
-      , shrinkAwkward (\x -> h'{requestMessageType         = x}) requestMessageType         h
       , shrinkAwkward (\x -> h'{requestUserAgent           = x}) requestUserAgent           h
       , shrinkRegular (\x -> h'{requestIncludeTE           = x}) requestIncludeTE           h
       , shrinkAwkward (\x -> h'{requestTraceContext        = x}) requestTraceContext        h
@@ -453,7 +451,6 @@ instance Arbitrary (Awkward ResponseHeaders) where
         shrinkAwkward (\x -> h'{responseCompression       = x}) responseCompression       h
       , shrinkAwkward (\x -> h'{responseAcceptCompression = x}) responseAcceptCompression h
       , shrinkAwkward (\x -> h'{responseMetadata          = x}) responseMetadata          h
-      , shrinkAwkward (\x -> h'{responseContentType       = x}) responseContentType       h
       ]
 
 instance Arbitrary (Awkward ProperTrailers) where
@@ -695,3 +692,10 @@ renderDoc =
     -- Reset the vivid red from tasty
     resetTerminal :: PP.SimpleDocStream AnsiStyle -> PP.SimpleDocStream AnsiStyle
     resetTerminal = PP.SAnnPush $ PP.Ansi.color PP.Ansi.Black
+
+buildTrailersOnly' :: IsRPC rpc => Proxy rpc -> TrailersOnly -> [HTTP.Header]
+buildTrailersOnly' rpc = buildTrailersOnly (Just . chooseContentType rpc)
+
+type instance RequestMetadata          (RawRpc "serv" "meth") = NoMetadata
+type instance ResponseInitialMetadata  (RawRpc "serv" "meth") = NoMetadata
+type instance ResponseTrailingMetadata (RawRpc "serv" "meth") = NoMetadata

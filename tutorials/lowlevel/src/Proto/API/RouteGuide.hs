@@ -1,3 +1,5 @@
+{-# OPTIONS_GHC -Wno-orphans #-}
+
 module Proto.API.RouteGuide (
     module Proto.RouteGuide
   ) where

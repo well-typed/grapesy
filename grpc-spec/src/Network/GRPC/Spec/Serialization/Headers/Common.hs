@@ -39,19 +39,14 @@ import Network.GRPC.Spec.Util.ByteString
 -------------------------------------------------------------------------------}
 
 buildContentType ::
-     IsRPC rpc
-  => Proxy rpc
-  -> ContentType
+     Maybe Strict.ByteString -- ^ Content-type, if known
   -> HTTP.Header
-buildContentType proxy contentType = (
+buildContentType mContentType = (
       "content-type"
-    , case contentType of
-       ContentTypeDefault    -> defaultContentType
-       ContentTypeOverride x -> x
+    , case mContentType of
+       Nothing -> "application/grpc"
+       Just ct -> ct
     )
-  where
-    defaultContentType :: Strict.ByteString
-    defaultContentType = rpcContentType proxy
 
 -- | Parse @content-type@ header
 --
@@ -102,10 +97,7 @@ parseContentType proxy invalid (_name, value) = do
     err :: String -> m a
     err reason = throwError . invalid . concat $ [
           reason
-        , " Expected \""
-        , BS.Strict.C8.unpack $
-            rpcContentType (Proxy @(UnknownRpc Nothing Nothing))
-        , "\" or \""
+        , " Expected \"application/grpc\" or \""
         , BS.Strict.C8.unpack $
             rpcContentType proxy
         , "\", with \""
@@ -123,13 +115,8 @@ buildMessageType ::
   -> MessageType
   -> Maybe HTTP.Header
 buildMessageType proxy messageType =
-    case messageType of
-      MessageTypeDefault    -> mkHeader <$> defaultMessageType
-      MessageTypeOverride x -> Just $ mkHeader x
+    mkHeader <$> chooseMessageType proxy messageType
   where
-    defaultMessageType :: Maybe Strict.ByteString
-    defaultMessageType = rpcMessageType proxy
-
     mkHeader :: Strict.ByteString -> HTTP.Header
     mkHeader = ("grpc-message-type",)
 

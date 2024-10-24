@@ -17,6 +17,18 @@ package grapesy
   flags: +build-demo +build-stress-test 
   ghc-options: -Werror
 
+package quickstart
+  ghc-options: -Werror
+
+package basics
+  ghc-options: -Werror
+
+package lowlevel
+  ghc-options: -Werror
+
+package metadata
+  ghc-options: -Werror
+
 --
 -- ghc 9.10
 --

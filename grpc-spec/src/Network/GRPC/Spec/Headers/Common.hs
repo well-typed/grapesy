@@ -13,14 +13,20 @@
 --
 -- Intended for unqualified import.
 module Network.GRPC.Spec.Headers.Common (
-    -- * Definition
+    -- * Content type
     ContentType(..)
+  , chooseContentType
+    -- * Message type
   , MessageType(..)
+  , chooseMessageType
   ) where
 
 import Data.ByteString qualified as Strict (ByteString)
 import Data.Default.Class
+import Data.Proxy
 import GHC.Generics (Generic)
+
+import Network.GRPC.Spec.RPC
 
 {-------------------------------------------------------------------------------
   ContentType
@@ -47,6 +53,10 @@ data ContentType =
 instance Default ContentType where
   def = ContentTypeDefault
 
+chooseContentType :: IsRPC rpc => Proxy rpc -> ContentType -> Strict.ByteString
+chooseContentType p ContentTypeDefault       = rpcContentType p
+chooseContentType _ (ContentTypeOverride ct) = ct
+
 {-------------------------------------------------------------------------------
   MessageType
 -------------------------------------------------------------------------------}
@@ -67,3 +77,8 @@ data MessageType =
 instance Default MessageType where
   def = MessageTypeDefault
 
+chooseMessageType ::
+     IsRPC rpc
+  => Proxy rpc -> MessageType -> Maybe Strict.ByteString
+chooseMessageType p MessageTypeDefault       = rpcMessageType p
+chooseMessageType _ (MessageTypeOverride mt) = Just mt
