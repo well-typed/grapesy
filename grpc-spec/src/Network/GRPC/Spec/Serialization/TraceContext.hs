@@ -13,7 +13,7 @@ import Data.Binary.Get qualified as Get
 import Data.Binary.Put qualified as Put
 import Data.ByteString qualified as Strict (ByteString)
 import Data.ByteString.Lazy qualified as BS.Lazy
-import Data.Default.Class
+import Data.Default
 import Data.Maybe (maybeToList)
 import Data.Word
 

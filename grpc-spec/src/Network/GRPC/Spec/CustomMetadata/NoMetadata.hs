@@ -3,7 +3,7 @@ module Network.GRPC.Spec.CustomMetadata.NoMetadata (
   ) where
 
 import Control.Monad.Catch
-import Data.Default.Class
+import Data.Default
 
 import Network.GRPC.Spec.CustomMetadata.Typed
 
