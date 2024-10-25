@@ -6,6 +6,7 @@ packages:
   , ./tutorials/lowlevel
   , ./tutorials/metadata
   , ./tutorials/monadstack
+  , ./tutorials/conduit
 
 package grpc-spec
   tests: True

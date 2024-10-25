@@ -6,6 +6,7 @@ packages:
   , ./tutorials/lowlevel
   , ./tutorials/metadata
   , ./tutorials/monadstack
+  , ./tutorials/conduit
 
 package grpc-spec
   tests: True
@@ -18,19 +19,22 @@ package grapesy
   flags: +build-demo +build-stress-test 
   ghc-options: -Werror
 
-package quickstart
+package quickstart-tutorial
   ghc-options: -Werror
 
-package basics
+package basics-tutorial
   ghc-options: -Werror
 
-package lowlevel
+package lowlevel-tutorial
   ghc-options: -Werror
 
-package metadata
+package metadata-tutorial
   ghc-options: -Werror
 
-package monadstack
+package monadstack-tutorial
+  ghc-options: -Werror
+
+package conduit-tutorial
   ghc-options: -Werror
 
 --
