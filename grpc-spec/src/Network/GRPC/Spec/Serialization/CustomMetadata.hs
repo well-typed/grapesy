@@ -63,6 +63,7 @@ parseAsciiValue bs = do
   BinaryValue
 -------------------------------------------------------------------------------}
 
+-- | Serialize binary value (base-64 encoding)
 buildBinaryValue :: Strict.ByteString -> Strict.ByteString
 buildBinaryValue = encodeBase64
 
@@ -115,12 +116,14 @@ parseBinaryValue bs = do
   CustomMetadata
 -------------------------------------------------------------------------------}
 
+-- | Serialize t'CustomMetadata'
 buildCustomMetadata :: CustomMetadata -> HTTP.Header
 buildCustomMetadata (CustomMetadata name value) =
     case name of
       BinaryHeader _ -> (buildHeaderName name, buildBinaryValue value)
       AsciiHeader  _ -> (buildHeaderName name, buildAsciiValue  value)
 
+-- | Parse t'CustomMetadata'
 parseCustomMetadata ::
      MonadError (InvalidHeaders GrpcException) m
   => HTTP.Header -> m CustomMetadata

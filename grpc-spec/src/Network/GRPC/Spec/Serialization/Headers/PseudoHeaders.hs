@@ -18,17 +18,22 @@ import Network.GRPC.Spec.Util.ByteString
   Serialization
 -------------------------------------------------------------------------------}
 
+-- | Raw (serialized) form of t'ResourceHeaders'
 data RawResourceHeaders = RawResourceHeaders {
-      rawPath   :: Strict.ByteString
-    , rawMethod :: Strict.ByteString
+      rawPath   :: Strict.ByteString  -- ^ Serialized 'resourcePath'
+    , rawMethod :: Strict.ByteString  -- ^ Serialized 'resourceMethod'
     }
   deriving (Show)
 
+-- | Invalid resource headers
+--
+-- See 'parseResourceHeaders'
 data InvalidResourceHeaders =
     InvalidMethod Strict.ByteString
   | InvalidPath Strict.ByteString
   deriving stock (Show)
 
+-- | Serialize t'ResourceHeaders' (pseudo headers)
 buildResourceHeaders :: ResourceHeaders -> RawResourceHeaders
 buildResourceHeaders ResourceHeaders{resourcePath, resourceMethod} =
     RawResourceHeaders {
@@ -41,7 +46,7 @@ buildResourceHeaders ResourceHeaders{resourcePath, resourceMethod} =
                       ]
       }
 
--- | Parse pseudo headers
+-- | Parse t'ResourceHeaders' (pseudo headers)
 parseResourceHeaders ::
      RawResourceHeaders
   -> Either InvalidResourceHeaders ResourceHeaders

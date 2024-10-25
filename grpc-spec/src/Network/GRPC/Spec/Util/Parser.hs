@@ -30,6 +30,12 @@ import Data.Int
   Definition
 -------------------------------------------------------------------------------}
 
+-- | Simple incremental parser
+--
+-- This is used to parse a stream of values, where we know ahead of time for
+-- each value how much data to expect (perhaps based on the previous value).
+-- Individual values are not parsed incrementally; see 'consumeExactly' or
+-- 'getExactly'.
 newtype Parser e a = Parser {
       runParser :: Accumulator -> Result e a
     }
@@ -38,7 +44,7 @@ data Result e a =
     -- | Parsing failed
     --
     -- This implies that we can stop parsing: getting more data won't fix the
-    -- problem (see also 'InsufficientData')
+    -- problem (see also 'NeedData')
     Failed e
 
     -- | We make some partial progress, but we need more data to continue
@@ -129,6 +135,13 @@ split n acc
   Construction
 -------------------------------------------------------------------------------}
 
+-- | Consume a specified number of bytes
+--
+-- In order to use the t'Parser' interface we must know for each value exactly
+-- how big it will be ahead of time. Typically this will be done by first
+-- calling 'consumeExactly' for some kind of fixed size header, indicating how
+-- big the value actual value is, which will then inform the next call to
+-- 'consumeExactly'.
 consumeExactly :: forall e a.
      Int64                           -- ^ Length
   -> (Lazy.ByteString -> Either e a) -- ^ Parser
@@ -159,9 +172,15 @@ getExactly len get =
   Execution
 -------------------------------------------------------------------------------}
 
-type IsFinal  = Bool
+-- | Is this the final chunk in the input?
+type IsFinal = Bool
+
+-- | Leftover data
 type Leftover = Lazy.ByteString
 
+-- | Result from processing all chunks in the input
+--
+-- See 'processAll'.
 data ProcessResult e b =
     -- | Parse error during processing
     ProcessError e
@@ -186,8 +205,8 @@ data ProcessResult e b =
     -- > empty chunk  -- marked final
     --
     -- In the former case, we know that we are processing the final message /as/
-    -- we are processing it ('ProcessedFinal'); in the latter case, we realize
-    -- this only after we receive the final empty chunk.
+    -- we are processing it ('ProcessedWithFinal'); in the latter case, we
+    -- realize this only after we receive the final empty chunk.
   | ProcessedWithoutFinal Leftover
 
 -- | Process all incoming data

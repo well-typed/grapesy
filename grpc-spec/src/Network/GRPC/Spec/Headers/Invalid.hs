@@ -54,7 +54,7 @@ newtype InvalidHeaders e = InvalidHeaders {
 --
 -- This corresponds to a single \"raw\" HTTP header. It is possible that a
 -- particular field of, say, 'Network.GRPC.Spec.Headers.Request.RequestHeaders'
--- corresponds to /multiple/ 'InvalidHeader', when the value of that field is
+-- corresponds to /multiple/ t'InvalidHeader', when the value of that field is
 -- determined by combining multiple HTTP headers. A special case of this is the
 -- field for unrecognized headers (see
 -- 'Network.GRPC.Spec.Headers.Request.requestUnrecognized',
@@ -90,21 +90,26 @@ data InvalidHeader e =
   Construction
 -------------------------------------------------------------------------------}
 
+-- | Convenience constructor around v'InvalidHeader'
 invalidHeader :: Maybe HTTP.Status -> HTTP.Header -> String -> InvalidHeaders e
 invalidHeader status hdr err = wrapOne $ InvalidHeader status hdr err
 
+-- | Convenience constructor around v'MissingHeader'
 missingHeader :: Maybe HTTP.Status -> HTTP.HeaderName -> InvalidHeaders e
 missingHeader status name = wrapOne $ MissingHeader status name
 
+-- | Convenience constructor around v'UnexpectedHeader'
 unexpectedHeader :: HTTP.HeaderName -> InvalidHeaders e
 unexpectedHeader name = wrapOne $ UnexpectedHeader name
 
+-- | Convenience constructor around v'InvalidHeaderSynthesize'
 invalidHeaderSynthesize ::
      e
   -> InvalidHeader HandledSynthesized
   -> InvalidHeaders e
 invalidHeaderSynthesize e orig = wrapOne $ InvalidHeaderSynthesize e orig
 
+-- | Convenience function for throwing an 'invalidHeader' exception.
 throwInvalidHeader ::
      MonadError (InvalidHeaders e) m
   => HTTP.Header
@@ -136,6 +141,7 @@ instance Show HandledSynthesized where
 instance Eq HandledSynthesized where
   x == _ = handledSynthesized x
 
+-- | Evidence that 'HandledSynthesized' is an empty type
 handledSynthesized :: HandledSynthesized -> a
 handledSynthesized x = case x of {}
 
@@ -154,6 +160,7 @@ dropSynthesized = \(InvalidHeaders es) ->
     aux (InvalidHeaderSynthesize _ orig) =
         orig
 
+-- | Map over the errors
 mapSynthesizedM :: forall m e e'.
      Monad m
   => (e -> m e')
@@ -176,9 +183,13 @@ mapSynthesizedM f = \(InvalidHeaders es) ->
             e' <- f e
             go (InvalidHeaderSynthesize e' orig : acc) xs
 
+-- | Pure version of 'mapSynthesizedM'
 mapSynthesized :: (e -> e') -> InvalidHeaders e -> InvalidHeaders e'
 mapSynthesized f = runIdentity . mapSynthesizedM (Identity . f)
 
+-- | Throw all synthesized errors
+--
+-- After this we are guaranteed that the synthesized errors have been handlded.
 throwSynthesized ::
      (HKD.Traversable h, Monad m)
   => (forall a. GrpcException -> m a)
@@ -206,6 +217,7 @@ invalidHeaders = \invalid ->
     aux UnexpectedHeader{}            = Nothing
     aux (InvalidHeaderSynthesize e _) = handledSynthesized e
 
+-- | Render t'InvalidHeaders'
 prettyInvalidHeaders :: InvalidHeaders HandledSynthesized -> ByteString.Builder
 prettyInvalidHeaders = mconcat . map go . getInvalidHeaders
   where

@@ -27,6 +27,7 @@ import Network.GRPC.Spec
   > Nanosecond   → "n"
 -------------------------------------------------------------------------------}
 
+-- | Serialize t'Timeout'
 buildTimeout :: Timeout -> Strict.ByteString
 buildTimeout (Timeout unit val) = mconcat [
       BS.Strict.C8.pack $ show $ getTimeoutValue val
@@ -39,9 +40,8 @@ buildTimeout (Timeout unit val) = mconcat [
         Nanosecond  -> "n"
     ]
 
-parseTimeout :: forall m.
-     MonadError String m
-  => Strict.ByteString -> m Timeout
+-- | Parse t'Timeout'
+parseTimeout :: forall m. MonadError String m => Strict.ByteString -> m Timeout
 parseTimeout bs = do
     let (bsVal, bsUnit) = BS.Strict.C8.span isDigit bs
 

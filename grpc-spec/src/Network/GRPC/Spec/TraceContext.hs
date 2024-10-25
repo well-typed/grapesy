@@ -1,6 +1,6 @@
 -- | Trace context
 --
--- See documentation of 'TraceContext'.
+-- See documentation of t'TraceContext'.
 module Network.GRPC.Spec.TraceContext (
     -- * Definition
     TraceContext(..)
@@ -12,7 +12,7 @@ module Network.GRPC.Spec.TraceContext (
 import Data.ByteString qualified as Strict (ByteString)
 import Data.ByteString.Base16 qualified as BS.Strict.Base16
 import Data.ByteString.Char8 qualified as BS.Strict.Char8
-import Data.Default.Class
+import Data.Default
 import Data.String
 import GHC.Generics (Generic)
 
@@ -40,12 +40,12 @@ import GHC.Generics (Generic)
 --
 -- * The Haskell @opentelemetry@ package calls this a @SpanContext@, but
 --    provides no binary @PropagationFormat@, and does not support
---    'TraceOptions'.
+--    t'TraceOptions'.
 --
 --   <https://hackage.haskell.org/package/opentelemetry>
 --
 -- * The Haskell @hs-opentelemetry@ ecosystem defines @SpanContext@, which is
---   the combination of the W3C @traceparent@ header (our 'TraceContext') and
+--   the combination of the W3C @traceparent@ header (our t'TraceContext') and
 --   the W3C @tracestate@ header (which we do not support). It too does not
 --   support the @grpc-trace-bin@ binary format.
 --

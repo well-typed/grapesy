@@ -1,13 +1,10 @@
 module Network.GRPC.Spec.CustomMetadata.NoMetadata (
     NoMetadata(..)
-  , UnexpectedMetadata(..)
   ) where
 
-import Control.Exception
 import Control.Monad.Catch
-import Data.Default.Class
+import Data.Default
 
-import Network.GRPC.Spec.CustomMetadata.Raw
 import Network.GRPC.Spec.CustomMetadata.Typed
 
 -- | Indicate the absence of custom metadata
@@ -26,8 +23,3 @@ instance ParseMetadata NoMetadata where
 
 instance StaticMetadata NoMetadata where
   metadataHeaderNames _ = []
-
-data UnexpectedMetadata = UnexpectedMetadata [CustomMetadata]
-  deriving stock (Show)
-  deriving anyclass (Exception)
-

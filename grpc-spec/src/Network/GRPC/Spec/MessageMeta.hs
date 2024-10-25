@@ -5,7 +5,7 @@ module Network.GRPC.Spec.MessageMeta (
   ) where
 
 import Control.DeepSeq (NFData)
-import Data.Default.Class
+import Data.Default
 import Data.Word
 import GHC.Generics (Generic)
 
@@ -13,6 +13,7 @@ import GHC.Generics (Generic)
   Outbound messages
 -------------------------------------------------------------------------------}
 
+-- | Meta-information for outbound messages
 data OutboundMeta = OutboundMeta {
       -- | Enable compression for this message
       --
@@ -32,6 +33,7 @@ instance Default OutboundMeta where
   Inbound messages
 -------------------------------------------------------------------------------}
 
+-- | Meta-information about inbound messages
 data InboundMeta = InboundMeta {
       -- | Size of the message in compressed form, /if/ it was compressed
       inboundCompressedSize :: Maybe Word32

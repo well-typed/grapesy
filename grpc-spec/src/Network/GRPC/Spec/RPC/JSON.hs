@@ -53,7 +53,7 @@ import Network.GRPC.Spec.RPC.StreamType
 --
 -- On the client, you will need 'ToJSON' instances for inputs and 'FromJSON'
 -- instances for outputs; on the server the situation is dual. You may find it
--- convenient to use 'JsonObject' (but this is certainly not required).
+-- convenient to use t'JsonObject' (but this is certainly not required).
 --
 -- TODO: <https://github.com/well-typed/grapesy/issues/166>
 -- We don't currently offer explicit support for "Protobuf JSON".
@@ -161,7 +161,7 @@ newtype Optional a = Optional {
 
 infixr 5 :*
 
--- | Auxiliary class used for the 'ToJSON' instance for 'JsonObject'
+-- | Auxiliary class used for the 'ToJSON' instance for t'JsonObject'
 --
 -- It is not possible (nor necessary) to define additional instances.
 class EncodeFields fs where
@@ -187,7 +187,7 @@ instance (KnownSymbol f, ToJSON x, EncodeFields fs)
 instance EncodeFields fs => ToJSON (JsonObject fs) where
   toJSON = Aeson.object . encodeFields
 
--- | Auxiliary class used for the 'FromJSON' instance for 'JsonObject'
+-- | Auxiliary class used for the 'FromJSON' instance for t'JsonObject'
 --
 -- It is not possible (nor necessary) to define additional instances.
 class DecodeFields fs where

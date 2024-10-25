@@ -23,7 +23,7 @@ module Network.GRPC.Util.TLS (
   ) where
 
 import Control.Exception
-import Data.Default.Class
+import Data.Default
 import Data.X509 qualified as X509
 import Data.X509.CertificateStore qualified as X509
 import System.Environment

@@ -13,7 +13,7 @@ import Data.Binary.Get qualified as Get
 import Data.Binary.Put qualified as Put
 import Data.ByteString qualified as Strict (ByteString)
 import Data.ByteString.Lazy qualified as BS.Lazy
-import Data.Default.Class
+import Data.Default
 import Data.Maybe (maybeToList)
 import Data.Word
 
@@ -23,9 +23,11 @@ import Network.GRPC.Spec
   Serialization
 -------------------------------------------------------------------------------}
 
+-- | Serialize t'TraceContext'
 buildTraceContext :: TraceContext -> Strict.ByteString
 buildTraceContext = BS.Lazy.toStrict . Binary.encode
 
+-- | Parse t'TraceContext'
 parseTraceContext :: MonadError String m => Strict.ByteString -> m TraceContext
 parseTraceContext bs =
     case Binary.decodeOrFail (BS.Lazy.fromStrict bs) of

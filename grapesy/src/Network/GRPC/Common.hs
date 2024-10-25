@@ -80,7 +80,7 @@ module Network.GRPC.Common (
   , Default(..)
   ) where
 
-import Data.Default.Class
+import Data.Default
 import Data.Proxy
 import Network.Socket (PortNumber)
 

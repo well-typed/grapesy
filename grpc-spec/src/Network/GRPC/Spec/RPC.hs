@@ -99,6 +99,7 @@ class ( -- Serialization
 defaultRpcContentType :: Strict.ByteString -> Strict.ByteString
 defaultRpcContentType format = "application/grpc+" <> format
 
+-- | Client-side RPC
 class ( IsRPC rpc
 
         -- Serialization
@@ -115,18 +116,19 @@ class ( IsRPC rpc
   -- anything.
   --
   -- We use the terms \"serialize\" and \"deserialize\" here, and
-  -- \"compress\"/\"decompress\" for compression here, rather than
+  -- \"compress\"/\"decompress\" for compression, rather than
   -- \"encode\"/\"decode\", which could refer to either process.
   rpcSerializeInput :: Proxy rpc -> Input rpc -> Lazy.ByteString
 
   -- | Deserialize RPC output
   --
-  -- Discussion of 'deserializeInput' applies here, also.
+  -- Discussion of 'rpcDeserializeInput' applies here, also.
   rpcDeserializeOutput ::
        Proxy rpc
     -> Lazy.ByteString
     -> Either String (Output rpc)
 
+-- | Server-side RPC
 class ( IsRPC rpc
 
         -- Serialization

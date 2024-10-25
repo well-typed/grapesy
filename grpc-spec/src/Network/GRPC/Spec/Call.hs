@@ -5,7 +5,7 @@ module Network.GRPC.Spec.Call (
   , callRequestMetadata
   ) where
 
-import Data.Default.Class
+import Data.Default
 import Data.Functor.Const
 
 import Network.GRPC.Spec.CustomMetadata.Typed
@@ -47,7 +47,7 @@ data CallParams rpc = CallParams {
 
 deriving instance (Show (RequestMetadata rpc)) => Show (CallParams rpc)
 
--- | Default 'CallParams'
+-- | Default t'CallParams'
 instance Default (RequestMetadata rpc) => Default (CallParams rpc) where
   def = CallParams {
         callTimeout         = Nothing
