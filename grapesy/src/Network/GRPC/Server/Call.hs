@@ -448,10 +448,37 @@ sendGrpcException call = sendProperTrailers call . grpcExceptionToTrailers
 -- first make the request, and is therefore available immediately to the handler
 -- (even if the first /message/ from the client may not yet have been sent).
 --
--- NOTE: If the client sends custom metadata that we cannot parse (perhaps it
--- uses a reserved name, or the binary encoding is invalid, etc.), they will not
--- be included here. If you want access to these headers, use
--- 'getRequestHeaders' and then extract 'requestUnrecognized'.
+-- == Dealing with invalid metadata
+--
+-- Metadata can be \"invalid\" to varying degrees, and we deal with this in
+-- different ways:
+--
+-- * The header could be syntactically invalid (e.g. binary data in an ASCII
+--   header), or could use a reserved name. If 'serverVerifyHeaders' is enabled,
+--   such a request will be rejected; if not, 'getRequestMetadata' will throw an
+--   exception in this case. If you need access to these ill-formed headers, be
+--   sure to /disable/ 'serverVerifyHeaders', call 'getRequestHeaders' to get
+--   the full set of request headers, and then inspect 'requestUnrecognized'.
+--
+-- * The headers might be valid, but we might be unable to parse them as the
+--   @rpc@ specific 'RequestMetadata' (that is, 'parseMetadata' throws an
+--   exception). In this case 'getRequestMetadata' will throw an exception
+--   /if called/, but the request will not be rejected even if
+--   'serverVerifyHeaders' is enabled. If you want access to the raw headers,
+--   call 'getRequestHeaders' and then inspect 'requestMetadata'.
+--
+-- * There might be some additional metadata present. This is really a special
+--   case of the previous point: it depends on the 'ParseMetadata' instance
+--   whether these additional headers result in an exception or whether they
+--   are simply ignored. As above, the full set (including any ignored headers)
+--   is always available through 'getRequestHeaders'/'requestMetadata'.
+--
+-- Note: the 'ParseMetadata' instance for 'NoMetadata' is defined to throw an
+-- exception if /any/ metadata is present. The rationale here is that for @rpc@
+-- without 'Metadata', there is no need to call 'getRequestMetadata' and co; if
+-- these functions are not called, then any metadata that is present will simply
+-- be ignored. If 'getRequestMetadata' /is/ called, this amounts to check that
+-- no metadata is present.
 getRequestMetadata :: Call rpc -> IO (RequestMetadata rpc)
 getRequestMetadata Call{callRequestHeaders} =
     parseMetadata . customMetadataMapToList $

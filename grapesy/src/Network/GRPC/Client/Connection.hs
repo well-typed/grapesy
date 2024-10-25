@@ -118,14 +118,14 @@ data ConnParams = ConnParams {
       -- | Should we verify all request headers?
       --
       -- This is the client analogue of
-      -- 'Network.GRPC.Server.Context.serverVerifyHeaders'.
+      -- 'Network.GRPC.Server.Context.serverVerifyHeaders'; see detailed
+      -- discussion there.
       --
       -- Arguably, it is less essential to verify headers on the client: a
       -- server must deal with all kinds of different clients, and might want to
       -- know if any of those clients has expectations that it cannot fulfill. A
       -- client however connects to a known server, and knows what information
-      -- it wants from the server. It is also a bit more awkward to implement,
-      -- since the client is more asynchronous than the server handler.
+      -- it wants from the server.
     , connVerifyHeaders :: Bool
 
       -- | Optionally set the initial compression algorithm

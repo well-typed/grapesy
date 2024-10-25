@@ -108,9 +108,18 @@ class BuildMetadata a => StaticMetadata a where
 
 -- | Parse metadata from custom metadata headers
 --
--- This method is allowed to assume the list of headers does not contain any
--- duplicates (the gRPC spec does allow for duplicate headers and specifies how
--- to process them, but this be taken care of before calling 'parseMetadata').
+-- Some guidelines for defining instances:
+--
+-- * You can assume that the list of headers will not contain duplicates. The
+--   gRPC spec /does/ allow for duplicate headers and specifies how to process
+--   them, but this will be taken care of before 'parseMetadata' is called.
+-- * However, you should assume no particular /order/.
+-- * If there are unexpected headers present, you have a choice whether you want
+--   to consider this a error and throw an exception, or regard the additional
+--   headers as merely additional information and simply ignore them. There is
+--   no single right answer here: ignoring additional metadata runs the risk of
+--   not realizing that the peer is trying to tell you something important, but
+--   throwing an error runs the risk of unnecessarily aborting an RPC.
 class ParseMetadata a where
   parseMetadata :: MonadThrow m => [CustomMetadata] -> m a
 
