@@ -51,16 +51,11 @@ module Network.GRPC.Spec (
     -- * Compression
   , CompressionId(..)
   , Compression(..)
-  , serializeCompressionId
-  , deserializeCompressionId
-    -- ** Compression algorithms
   , noCompression
   , gzip
-  , deflate
-#ifdef SNAPPY
-  , snappy
-#endif
   , allSupportedCompression
+  , serializeCompressionId
+  , deserializeCompressionId
     -- * Message metadata
   , OutboundMeta(..)
   , InboundMeta(..)

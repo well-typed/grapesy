@@ -11,12 +11,7 @@ module Network.GRPC.Common.Compression (
     Compression(..)
   , CompressionId(..)
     -- * Standard compression schemes
-  , noCompression
   , gzip
-  , deflate
-#ifdef SNAPPY
-  , snappy
-#endif
   , allSupportedCompression
     -- * Negotation
   , Negotation(..)

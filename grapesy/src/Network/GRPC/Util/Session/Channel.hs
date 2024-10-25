@@ -141,9 +141,6 @@ data RegularFlowState flow = RegularFlowState {
       -- This TMVar is written to for incoming messages ('recvMessageLoop') and
       -- read from for outgoing messages ('sendMessageLoop'). It acts as a
       -- one-place buffer, providing backpressure in both directions.
-      --
-      -- TODO: <https://github.com/well-typed/grapesy/issues/118>.
-      -- It might make sense to generalize this to an @N@-place buffer.
     , flowMsg :: TMVar (StreamElem (Trailers flow) (Message flow))
 
       -- | Trailers

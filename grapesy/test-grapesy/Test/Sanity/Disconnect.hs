@@ -37,7 +37,6 @@ import Network.GRPC.Common
 import Network.GRPC.Server qualified as Server
 import Network.GRPC.Server.Binary qualified as Binary
 import Network.GRPC.Server.Run
-import Network.GRPC.Spec
 
 import Proto.API.Trivial
 

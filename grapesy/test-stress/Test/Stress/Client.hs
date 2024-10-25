@@ -29,7 +29,7 @@ client ::
      Bool
   -> Maybe ServerValidation
   -> PortNumber
-  -> Compression
+  -> Maybe Compression
   -> [Connect]
   -> IO ()
 client v mServerValidation serverPort compr =
@@ -39,7 +39,7 @@ runConnect ::
      Bool
   -> Maybe ServerValidation
   -> PortNumber
-  -> Compression
+  -> Maybe Compression
   -> Connect
   -> IO ()
 runConnect v mServerValidation serverPort compr Connect{..} = do
@@ -60,14 +60,14 @@ runCalls ::
      Bool
   -> Maybe ServerValidation
   -> PortNumber
-  -> Compression
+  -> Maybe Compression
   -> Int
   -> (Int, [Call])
   -> IO ()
 runCalls v mServerValidation serverPort compr callNum (connNum, calls) = do
     say' v serverPort msg
     let connParams = def {
-            connCompression = Compr.insist compr
+            connCompression = maybe Compr.none Compr.insist compr
           , connHTTP2Settings = def {
                 http2TcpAbortiveClose = True
               }
@@ -127,7 +127,7 @@ runCalls v mServerValidation serverPort compr callNum (connNum, calls) = do
              Just _ -> "secure "
              Nothing -> "insecure "
         ++ "server at port " ++ show serverPort ++ " with compression "
-        ++ show (Compr.compressionId compr)
+        ++ maybe "none" (show . Compr.compressionId) compr
 
 runCall :: Bool -> PortNumber -> Connection -> Call -> IO ()
 runCall v p conn =

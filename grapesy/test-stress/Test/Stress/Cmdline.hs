@@ -19,14 +19,16 @@ module Test.Stress.Cmdline
   , getCmdline
   ) where
 
-import Control.Applicative
+import Control.Applicative ((<|>))
+import Data.Foldable (asum, toList)
 import Network.Socket (HostName, PortNumber)
 import Options.Applicative qualified as Opt
 
 import Network.GRPC.Client qualified as Client
 import Network.GRPC.Common
+import Network.GRPC.Common.Compression (Compression)
+import Network.GRPC.Common.Compression qualified as Compr
 import Network.GRPC.Server.Run
-import Network.GRPC.Spec qualified as Spec
 
 import Paths_grapesy
 
@@ -51,7 +53,7 @@ data Role =
         , clientConnects   :: [Connect]
 
           -- | Insist on this compression scheme for all messages
-        , clientCompression :: Spec.Compression
+        , clientCompression :: Maybe Compression
         }
 
       -- | Run the server
@@ -184,7 +186,7 @@ parseClientRole defaultPub =
       <$> parseClientSecurity defaultPub
       <*> parseClientPort
       <*> parseClientConnects
-      <*> parseCompression
+      <*> Opt.optional parseCompression
 
 parseClientSecurity :: FilePath -> Opt.Parser (Maybe Client.ServerValidation)
 parseClientSecurity defaultPub =
@@ -302,36 +304,17 @@ parseCall =
                 , Opt.metavar "N"
                 ])
 
-parseCompression :: Opt.Parser Spec.Compression
-parseCompression =
-        gzip
-    <|> deflate
-#ifdef SNAPPY
-    <|> snappy
-#endif
-    <|> pure Spec.noCompression
+parseCompression :: Opt.Parser Compression
+parseCompression = asum $ map go (toList Compr.allSupportedCompression)
   where
-    gzip :: Opt.Parser Spec.Compression
-    gzip =
-        Opt.flag' Spec.gzip $ mconcat [
-            Opt.long "gzip"
-          , Opt.help "Insist on gzip compression"
-          ]
-
-    deflate :: Opt.Parser Spec.Compression
-    deflate =
-        Opt.flag' Spec.deflate $ mconcat [
-            Opt.long "deflate"
-          , Opt.help "Insist on deflate compression"
-          ]
-#ifdef SNAPPY
-    snappy :: Opt.Parser Spec.Compression
-    snappy =
-        Opt.flag' Spec.snappy $ mconcat [
-            Opt.long "snappy"
-          , Opt.help "Insist on snappy compression"
-          ]
-#endif
+    go :: Compression -> Opt.Parser Compression
+    go compr = Opt.flag' compr $ mconcat [
+          Opt.long comprId
+        , Opt.help $ "Insist on " ++ comprId ++ " compression "
+        ]
+      where
+        comprId :: String
+        comprId = show (Compr.compressionId compr)
 
 -------------------------------------------------------------------------------
 -- Server option parsers

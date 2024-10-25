@@ -18,6 +18,7 @@ import Network.GRPC.Server.StreamType qualified as Server
 import Network.GRPC.Server.StreamType.Binary qualified as Binary
 
 import Test.Driver.ClientServer
+import Data.Foldable (toList)
 
 tests :: TestTree
 tests = testGroup "Test.Sanity.StreamingType.NonStreaming" [
@@ -79,33 +80,29 @@ tests = testGroup "Test.Sanity.StreamingType.NonStreaming" [
                 ]
             ]
         , testGroup "compression" [
-              testCase "gzip" $
-                test_increment def {
-                    clientCompr = Compr.only Compr.gzip
-                  , serverCompr = Compr.only Compr.gzip
-                  }
-            , testCase "deflate" $
-                test_increment def {
-                    clientCompr = Compr.only Compr.deflate
-                  , serverCompr = Compr.only Compr.deflate
-                  }
-#ifdef SNAPPY
-            , testCase "snappy" $
-                test_increment def {
-                    clientCompr = Compr.only Compr.snappy
-                  , serverCompr = Compr.only Compr.snappy
-                  }
-#endif
-            , testCase "clientChoosesUnsupported" $
-                test_increment def {
-                    clientInitCompr = Just Compr.gzip
-                  , serverCompr     = Compr.none
-                  }
-            , testCase "serverChoosesUnsupported" $
-                test_increment def {
-                    clientCompr = Compr.only   Compr.gzip
-                  , serverCompr = Compr.insist Compr.deflate
-                  }
+              testGroup "supported" $
+                let mkTest :: Compr.Compression -> TestTree
+                    mkTest compr = testCase comprId $
+                        test_increment def {
+                            clientCompr = Compr.only compr
+                          , serverCompr = Compr.only compr
+                          }
+                      where
+                        comprId :: String
+                        comprId = show (Compr.compressionId compr)
+                in map mkTest (toList Compr.allSupportedCompression)
+            , testGroup "unsupported" [
+                  testCase "clientChoosesUnsupported" $
+                    test_increment def {
+                        clientInitCompr = Just Compr.gzip
+                      , serverCompr     = Compr.none
+                      }
+                , testCase "serverChoosesUnsupported" $
+                    test_increment def {
+                        clientCompr = Compr.none
+                      , serverCompr = Compr.insist Compr.gzip
+                      }
+                ]
             ]
         ]
     ]

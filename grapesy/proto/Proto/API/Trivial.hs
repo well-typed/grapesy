@@ -7,7 +7,7 @@ module Proto.API.Trivial
   ) where
 
 import Network.GRPC.Common
-import Network.GRPC.Spec
+import Network.GRPC.Common.Binary
 
 {-------------------------------------------------------------------------------
   Trivial RPC

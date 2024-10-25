@@ -22,7 +22,7 @@ data-files:         route_guide_db.json
 tested-with:        GHC==8.10.7
                   , GHC==9.2.8
                   , GHC==9.4.8
-                  , GHC==9.6.4
+                  , GHC==9.6.6
                   , GHC==9.8.2
                   , GHC==9.10.1
 
@@ -248,7 +248,6 @@ test-suite test-grapesy
     , containers
     , deepseq
     , exceptions
-    , grpc-spec
     , http-types
     , http2
     , mtl
@@ -387,7 +386,6 @@ test-suite test-stress
     , async
     , bytestring
     , exceptions
-    , grpc-spec
     , http2
     , network
     , tls
