@@ -56,13 +56,19 @@ import Network.GRPC.Spec.Util.ByteString (strip, ascii)
 -- with duplicate header names. Duplicate header names may have their values
 -- joined with "," as the delimiter and be considered semantically equivalent.
 data CustomMetadata = UnsafeCustomMetadata {
-      customMetadataName  :: HeaderName
+      -- | Header name
+      --
+      -- The header name determines if this is an ASCII header or a binary
+      -- header; see the t'CustomMetadata' pattern synonym.
+      customMetadataName :: HeaderName
+
+      -- | Header value
     , customMetadataValue :: Strict.ByteString
     }
   deriving stock (Eq, Generic)
   deriving anyclass (NFData)
 
--- | 'Show' instance relies on the 'CustomMetadata' pattern synonym
+-- | 'Show' instance relies on the v'CustomMetadata' pattern synonym
 instance Show CustomMetadata where
   showsPrec p (UnsafeCustomMetadata name value) = showParen (p >= appPrec1) $
          showString "CustomMetadata "
@@ -81,6 +87,10 @@ instance Show CustomMetadata where
 isValidAsciiValue :: Strict.ByteString -> Bool
 isValidAsciiValue bs = BS.Strict.all (\c -> 0x20 <= c && c <= 0x7E) bs
 
+-- | Construct t'CustomMetadata'
+--
+-- Returns 'Nothing' if the 'HeaderName' indicates an ASCII header but the
+-- value is not valid ASCII (consider using a binary header instead).
 safeCustomMetadata :: HeaderName -> Strict.ByteString -> Maybe CustomMetadata
 safeCustomMetadata name value =
     case name of

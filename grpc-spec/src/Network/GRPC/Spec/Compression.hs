@@ -95,6 +95,7 @@ data CompressionId =
   | Custom String
   deriving stock (Eq, Ord, Generic)
 
+-- | Serialize compression ID
 serializeCompressionId :: CompressionId -> Strict.ByteString
 serializeCompressionId Identity   = "identity"
 serializeCompressionId GZip       = "gzip"
@@ -102,6 +103,7 @@ serializeCompressionId Deflate    = "deflate"
 serializeCompressionId Snappy     = "snappy"
 serializeCompressionId (Custom i) = BS.Strict.UTF8.fromString i
 
+-- | Parse compression ID
 deserializeCompressionId :: Strict.ByteString -> CompressionId
 deserializeCompressionId "identity" = Identity
 deserializeCompressionId "gzip"     = GZip
@@ -122,6 +124,7 @@ compressionIsIdentity = (== Identity) . compressionId
   Compression algorithms
 -------------------------------------------------------------------------------}
 
+-- | Disable compression (referred to as @identity@ in the gRPC spec)
 noCompression :: Compression
 noCompression = Compression {
       compressionId             = Identity
@@ -130,6 +133,7 @@ noCompression = Compression {
     , uncompressedSizeThreshold = const False
     }
 
+-- | @gzip@
 gzip :: Compression
 gzip = Compression {
       compressionId = GZip
@@ -141,7 +145,7 @@ gzip = Compression {
     , uncompressedSizeThreshold = (>= 27)
     }
 
--- | zlib deflate compression
+-- | @zlib@ (aka @deflate@) compression
 --
 -- Note: The gRPC spec calls this "deflate", but it is /not/ raw deflate
 -- format. The expected format (at least by the python server) is just zlib

@@ -45,7 +45,7 @@ data GrpcError =
     -- | Invalid argument
     --
     -- The client specified an invalid argument. Note that this differs from
-    -- 'GrpcFailedPrecondition': 'GrpcInvalidArgument'` indicates arguments that
+    -- 'GrpcFailedPrecondition': 'GrpcInvalidArgument' indicates arguments that
     -- are problematic regardless of the state of the system (e.g., a malformed
     -- file name).
   | GrpcInvalidArgument
@@ -190,6 +190,7 @@ data GrpcException = GrpcException {
   deriving stock (Show, Eq)
   deriving anyclass (Exception)
 
+-- | Convenience function to throw an t'GrpcException' with the specified error
 throwGrpcError :: GrpcError -> IO a
 throwGrpcError grpcError = throwIO $ GrpcException {
       grpcError

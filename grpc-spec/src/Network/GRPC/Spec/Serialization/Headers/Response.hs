@@ -221,6 +221,10 @@ parseResponseHeaders :: forall rpc m.
   => Proxy rpc -> [HTTP.Header] -> m ResponseHeaders
 parseResponseHeaders proxy = HKD.sequenceChecked . parseResponseHeaders' proxy
 
+-- | Generalization of 'parseResponseHeaders' that does not throw errors
+--
+-- See also 'Network.GRPC.Spec.parseRequestHeaders' versus
+-- ''Network.GRPC.Spec.parseRequestHeaders'' for a similar pair of functions.
 parseResponseHeaders' :: forall rpc.
      IsRPC rpc
   => Proxy rpc -> [HTTP.Header] -> ResponseHeaders' GrpcException
@@ -311,7 +315,7 @@ invalidContentType err = invalidHeaderSynthesize GrpcException {
   > Trailers → Status [Status-Message] *Custom-Metadata
 -------------------------------------------------------------------------------}
 
--- | Construct the HTTP 'Trailer' header
+-- | Construct the HTTP @Trailer@ header
 --
 -- This lists all headers that /might/ be present in the trailers.
 --
@@ -420,6 +424,13 @@ parseProperTrailers :: forall rpc m.
   => Proxy rpc -> [HTTP.Header] -> m ProperTrailers
 parseProperTrailers proxy = HKD.sequenceChecked . parseProperTrailers' proxy
 
+-- | Generalization of 'parseProperTrailers' that does not throw errors.
+--
+-- See also 'Network.GRPC.Spec.parseRequestHeaders' versus
+-- ''Network.GRPC.Spec.parseRequestHeaders'' for a similar pair of functions.
+-- See t'ProperTrailers'' for a discussion of why 'ProperTrailers'' is not
+-- parameterized (unlike t'ResponseHeaders'' and
+-- t'Network.GRPC.Spec.RequestHeaders'').
 parseProperTrailers' :: forall rpc.
      IsRPC rpc
   => Proxy rpc -> [HTTP.Header] -> ProperTrailers'
@@ -453,11 +464,16 @@ parseProperTrailers' proxy hdrs =
     trailersOnly :: TrailersOnly' GrpcException
     trailersOnly = parseTrailersOnly' proxy hdrs
 
+-- | Parse t'TrailersOnly'
 parseTrailersOnly :: forall m rpc.
      (IsRPC rpc, MonadError (InvalidHeaders GrpcException) m)
   => Proxy rpc -> [HTTP.Header] -> m TrailersOnly
 parseTrailersOnly proxy = HKD.sequenceChecked . parseTrailersOnly' proxy
 
+-- | Generalization of 'parseTrailersOnly' does that not throw errors.
+--
+-- See also 'Network.GRPC.Spec.parseRequestHeaders' versus
+-- ''Network.GRPC.Spec.parseRequestHeaders'' for a similar pair of functions.
 parseTrailersOnly' :: forall rpc.
      IsRPC rpc
   => Proxy rpc -> [HTTP.Header] -> TrailersOnly' GrpcException
@@ -542,11 +558,12 @@ parseTrailersOnly' proxy =
   Pushback
 -------------------------------------------------------------------------------}
 
+-- | Serialize t'Pushback'
 buildPushback :: Pushback -> Strict.ByteString
 buildPushback (RetryAfter n) = BS.Strict.C8.pack $ show n
 buildPushback DoNotRetry     = "-1"
 
--- | Parse 'Pushback'
+-- | Parse t'Pushback'
 --
 -- Parsing a pushback cannot fail; the spec mandates:
 --

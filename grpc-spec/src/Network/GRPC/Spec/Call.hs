@@ -47,7 +47,7 @@ data CallParams rpc = CallParams {
 
 deriving instance (Show (RequestMetadata rpc)) => Show (CallParams rpc)
 
--- | Default 'CallParams'
+-- | Default t'CallParams'
 instance Default (RequestMetadata rpc) => Default (CallParams rpc) where
   def = CallParams {
         callTimeout         = Nothing

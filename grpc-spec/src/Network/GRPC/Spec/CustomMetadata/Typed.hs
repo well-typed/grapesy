@@ -8,6 +8,7 @@ module Network.GRPC.Spec.CustomMetadata.Typed (
   , BuildMetadata(..)
   , StaticMetadata(..)
   , ParseMetadata(..)
+  , UnexpectedMetadata(..)
   , buildMetadataIO
   ) where
 
@@ -112,4 +113,12 @@ class BuildMetadata a => StaticMetadata a where
 -- to process them, but this be taken care of before calling 'parseMetadata').
 class ParseMetadata a where
   parseMetadata :: MonadThrow m => [CustomMetadata] -> m a
+
+-- | Unexpected metadata
+--
+-- This exception can be thrown in 'ParseMetadata' instances. See 'ParseMetadata'
+-- for discussion.
+data UnexpectedMetadata = UnexpectedMetadata [CustomMetadata]
+  deriving stock (Show)
+  deriving anyclass (Exception)
 

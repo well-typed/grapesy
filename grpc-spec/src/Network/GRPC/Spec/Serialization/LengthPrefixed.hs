@@ -129,6 +129,7 @@ buildMsg build compr (meta, x) = mconcat [
   Parsing
 -------------------------------------------------------------------------------}
 
+-- | Parse input
 parseInput ::
      SupportsServerRpc rpc
   => Proxy rpc
@@ -136,6 +137,7 @@ parseInput ::
   -> Parser String (InboundMeta, Input rpc)
 parseInput = parseMsg . rpcDeserializeInput
 
+-- | Parse output
 parseOutput ::
      SupportsClientRpc rpc
   => Proxy rpc

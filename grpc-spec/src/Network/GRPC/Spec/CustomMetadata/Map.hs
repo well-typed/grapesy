@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Map of 'CustomMetadata', handling joining values
+-- | Map of t'CustomMetadata', handling joining values
 module Network.GRPC.Spec.CustomMetadata.Map (
     CustomMetadataMap -- opaque
     -- * Conversion
@@ -53,14 +53,14 @@ instance Semigroup CustomMetadataMap where
   Conversion
 -------------------------------------------------------------------------------}
 
--- | Construct 'CustomMetadataMap', joining duplicates
+-- | Construct t'CustomMetadataMap', joining duplicates
 customMetadataMapFromList :: [CustomMetadata] -> CustomMetadataMap
 customMetadataMapFromList =
       CustomMetadataMap
     . Map.fromListWith joinHeaderValue
     . map unpairCustomMetadata
 
--- | Flatten 'CustomMetadataMap' to a list
+-- | Flatten t'CustomMetadataMap' to a list
 --
 -- Precondition: the map must be valid.
 customMetadataMapToList :: CustomMetadataMap -> [CustomMetadata]
@@ -74,7 +74,7 @@ customMetadataMapToList mds =
   Construction
 -------------------------------------------------------------------------------}
 
--- | Insert value into 'CustomMetadataMap'
+-- | Insert value into t'CustomMetadataMap'
 --
 -- If a header with the same name already exists, the value is appended to
 -- (the end of) the existing value.

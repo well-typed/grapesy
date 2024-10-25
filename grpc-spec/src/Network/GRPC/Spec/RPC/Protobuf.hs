@@ -116,8 +116,8 @@ instance ValidStreamingType (MethodStreamingType serv meth)
 --
 -- Protobuf messages and enums behave differently to normal Haskell datatypes.
 -- Fields in messages always have defaults, enums can have unknown values, etc.
--- We therefore mark them at the type-level with this 'Proto' wrapper. Most of
--- the time you can work with 'Proto' values as if the wrapper is not there,
+-- We therefore mark them at the type-level with this t'Proto' wrapper. Most of
+-- the time you can work with t'Proto' values as if the wrapper is not there,
 -- because @Proto msg@ inherits 'Message' and @Data.ProtoLens.Field@
 -- 'ProtoLens.HasField' instances from @msg@. For example, you can create a
 -- 'Proto Point' value as
@@ -132,7 +132,7 @@ instance ValidStreamingType (MethodStreamingType serv meth)
 --
 -- as per usual.
 --
--- One advantage of the 'Proto' wrapper is that we can give blanket instances
+-- One advantage of the t'Proto' wrapper is that we can give blanket instances
 -- for /all/ Protobuf messages; we use this to provide @GHC.Records@
 -- 'GHC.HasField' and @GHC.Records.Compat@ 'GHC.Compat.HasField' instances.
 -- This means that you can also use @OverloadedRecordDot@ to access fields
@@ -154,7 +154,7 @@ newtype Proto msg = Proto msg
     , NFData
     )
 
--- | Field accessor for 'Proto'
+-- | Field accessor for t'Proto'
 getProto :: Proto msg -> msg
 -- Implementation note: This /must/ be defined separately from the 'Proto'
 -- newtype, otherwise ghc won't let us define a 'GHC.HasField' instance.

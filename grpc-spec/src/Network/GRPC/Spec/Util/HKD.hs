@@ -39,7 +39,14 @@ import Unsafe.Coerce (unsafeCoerce)
   Definition
 -------------------------------------------------------------------------------}
 
-data Undecorated                       (x :: Type)
+-- | Marker for undecorated fields
+--
+-- @HKD Undecorated x@ is equivalent to simply @x@. See 'HKD' for details.
+data Undecorated (x :: Type)
+
+-- | Marker for fields decorated with type constructor @f@
+--
+-- @HKD (DecoratedWith f) x@ is equivalent to @(f x)@. See 'HKD' for details.
 data DecoratedWith (f :: Type -> Type) (x :: Type)
 
 -- | Marker for fields of HKD types
@@ -53,7 +60,7 @@ data DecoratedWith (f :: Type -> Type) (x :: Type)
 -- >   }
 --
 -- The downside of such an approach is that if we don't need that type
--- constructor, we must instantiate @f@ to 'Identity', which results in
+-- constructor, we must instantiate @f@ to t'Identity', which results in
 -- syntactic overhead.
 -- (See also
 -- [The Haskell Unfolder episode 14: Higher-kinded types]

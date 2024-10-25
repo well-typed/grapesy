@@ -150,6 +150,7 @@ data SStreamingType :: StreamingType -> Type where
   SServerStreaming :: SStreamingType ServerStreaming
   SBiDiStreaming   :: SStreamingType BiDiStreaming
 
+-- | Valid streaming types
 class ValidStreamingType (styp :: StreamingType) where
   -- | Obtain singleton
   validStreamingType :: Proxy styp -> SStreamingType styp
@@ -185,6 +186,7 @@ instance HoistServerHandler BiDiStreaming where
   hoistServerHandler' f (ServerHandler h) = ServerHandler $ \(recv, send) ->
       f $ h (recv, send)
 
+-- | Hoist server handler from one monad to another
 hoistServerHandler :: forall styp m n rpc.
      ValidStreamingType styp
   => (forall a. m a -> n a)

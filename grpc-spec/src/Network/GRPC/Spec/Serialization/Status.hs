@@ -9,6 +9,9 @@ import Network.GRPC.Spec
   Serialization
 -------------------------------------------------------------------------------}
 
+-- | Translate 'GrpcStatus to numerical code
+--
+-- See <https://grpc.github.io/grpc/core/md_doc_statuscodes.html>
 buildGrpcStatus :: GrpcStatus -> Word
 buildGrpcStatus  GrpcOk                            =  0
 buildGrpcStatus (GrpcError GrpcCancelled)          =  1
@@ -28,6 +31,7 @@ buildGrpcStatus (GrpcError GrpcUnavailable)        = 14
 buildGrpcStatus (GrpcError GrpcDataLoss)           = 15
 buildGrpcStatus (GrpcError GrpcUnauthenticated)    = 16
 
+-- | Inverse to 'buildGrpcStatus'
 parseGrpcStatus :: Word -> Maybe GrpcStatus
 parseGrpcStatus  0 = Just $ GrpcOk
 parseGrpcStatus  1 = Just $ GrpcError $ GrpcCancelled

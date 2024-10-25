@@ -2,7 +2,13 @@
 
 module Network.GRPC.Spec.Serialization.Headers.Request (
     buildRequestHeaders
+    --
+    -- Throws an error if any headers fail to parse; if this is not desired, see
+    -- 'parseRequestHeaders'' instead.
   , parseRequestHeaders
+  --
+  -- Throws an error if any headers fail to parse; if this is not desired, see
+  -- 'parseRequestHeaders'' instead.
   , parseRequestHeaders'
   ) where
 
@@ -69,7 +75,7 @@ buildRequestHeaders proxy callParams@RequestHeaders{requestMetadata} = concat [
 -- <https://www.rfc-editor.org/rfc/rfc7540#section-8.1.2.1>.) This means
 -- @TE@ should come /after/ @Authority@ (if using). However, we will not include
 -- the reserved headers here /at all/, as they are automatically added by
--- `http2`.
+-- @http2@.
 callDefinition :: forall rpc.
      IsRPC rpc
   => Proxy rpc -> RequestHeaders -> [HTTP.Header]
@@ -132,6 +138,10 @@ callDefinition proxy = \hdrs -> catMaybes [
   Parsing
 -------------------------------------------------------------------------------}
 
+-- | Parse t'RequestHeaders'
+--
+-- Throws an error if any headers fail to parse; if this is not desired, see
+-- 'parseRequestHeaders'' instead.
 parseRequestHeaders :: forall rpc m.
      (IsRPC rpc, MonadError (InvalidHeaders GrpcException) m)
   => Proxy rpc

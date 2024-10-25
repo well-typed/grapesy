@@ -15,6 +15,7 @@ import GHC.Show
   Timeouts
 -------------------------------------------------------------------------------}
 
+-- | Timeout
 data Timeout = Timeout TimeoutUnit TimeoutValue
   deriving stock (Show, Eq, Generic)
 
@@ -25,7 +26,7 @@ newtype TimeoutValue = UnsafeTimeoutValue {
   deriving newtype (Eq)
   deriving stock (Generic)
 
--- | 'Show' instance relies on the 'TimeoutValue' pattern synonym
+-- | 'Show' instance relies on the v'TimeoutValue' pattern synonym
 instance Show TimeoutValue where
   showsPrec p (UnsafeTimeoutValue val) = showParen (p >= appPrec1) $
         showString "TimeoutValue "
@@ -40,23 +41,32 @@ pattern TimeoutValue t <- UnsafeTimeoutValue t
 
 {-# COMPLETE TimeoutValue #-}
 
+-- | Valid timeout values
+--
+-- Timeout values cannot exceed 8 digits. If you need a longer timeout, consider
+-- using a different 'TimeoutUnit' instead.
 isValidTimeoutValue :: Word -> Bool
 isValidTimeoutValue t = length (show t) <= 8
 
+-- | Timeout unit
 data TimeoutUnit =
-    Hour
-  | Minute
-  | Second
-  | Millisecond
-  | Microsecond
-  | Nanosecond
+    Hour        -- ^ Hours
+  | Minute      -- ^ Minutes
+  | Second      -- ^ Seconds
+  | Millisecond -- ^ Milliseconds
+  | Microsecond -- ^ Microseconds
+  | Nanosecond  -- ^ Nanoseconds
+                --
+                -- Although some servers may be able to interpret this in a
+                -- meaningful way, /we/ cannot, and round this up to the nearest
+                -- microsecond.
   deriving stock (Show, Eq, Generic)
 
 {-------------------------------------------------------------------------------
   Translation
 -------------------------------------------------------------------------------}
 
--- | Translate 'Timeout' to microseconds
+-- | Translate t'Timeout' to microseconds
 --
 -- For 'Nanosecond' timeout we round up.
 --

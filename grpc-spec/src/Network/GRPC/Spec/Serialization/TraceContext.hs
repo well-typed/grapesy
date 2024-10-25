@@ -23,9 +23,11 @@ import Network.GRPC.Spec
   Serialization
 -------------------------------------------------------------------------------}
 
+-- | Serialize t'TraceContext'
 buildTraceContext :: TraceContext -> Strict.ByteString
 buildTraceContext = BS.Lazy.toStrict . Binary.encode
 
+-- | Parse t'TraceContext'
 parseTraceContext :: MonadError String m => Strict.ByteString -> m TraceContext
 parseTraceContext bs =
     case Binary.decodeOrFail (BS.Lazy.fromStrict bs) of

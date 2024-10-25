@@ -73,12 +73,13 @@ data ResponseHeaders_ f = ResponseHeaders {
 
 -- | Response headers (without allowing for invalid headers)
 --
--- See 'RequestHeaders' for an explanation of @Undecorated@.
+-- See t'Network.GRPC.Spec.RequestHeaders' for an explanation of 'Undecorated'.
 type ResponseHeaders = ResponseHeaders_ Undecorated
 
 -- | Response headers allowing for invalid headers
 --
--- See 'RequestHeaders'' for an explanation of @Checked@ and the purpose of @e@.
+-- See t'Network.GRPC.Spec.RequestHeaders'' for an explanation of 'Checked' and
+-- the purpose of @e@.
 type ResponseHeaders' e =  ResponseHeaders_ (Checked (InvalidHeaders e))
 
 deriving stock instance Show    ResponseHeaders
@@ -132,7 +133,7 @@ data ProperTrailers_ f = ProperTrailers {
     }
   deriving anyclass (HKD.Coerce)
 
--- | Default constructor for 'ProperTrailers'
+-- | Default constructor for t'ProperTrailers'
 simpleProperTrailers :: forall f.
      HKD.ValidDecoration Applicative f
   => HKD f GrpcStatus
@@ -209,7 +210,7 @@ instance HKD.Traversable TrailersOnly_ where
         <$> (f              $ trailersOnlyContentType x)
         <*> (HKD.traverse f $ trailersOnlyProper      x)
 
--- | 'ProperTrailers' is a subset of 'TrailersOnly'
+-- | t'ProperTrailers' is a subset of t'TrailersOnly'
 properTrailersToTrailersOnly ::
      (ProperTrailers_ f, HKD f (Maybe ContentType))
   -> TrailersOnly_ f
@@ -218,7 +219,7 @@ properTrailersToTrailersOnly (proper, ct) = TrailersOnly {
     , trailersOnlyContentType = ct
     }
 
--- | 'TrailersOnly' is a superset of 'ProperTrailers'
+-- | t'TrailersOnly' is a superset of t'ProperTrailers'
 trailersOnlyToProperTrailers ::
       TrailersOnly_ f
    -> (ProperTrailers_ f, HKD f (Maybe ContentType))
@@ -268,7 +269,7 @@ data GrpcNormalTermination = GrpcNormalTermination {
 --
 -- However, in practice gRPC servers can also respond with @Trailers-Only@ in
 -- non-error cases, simply indicating that the server considers the
--- conversation over. To distinguish, we look at 'trailerGrpcStatus'.
+-- conversation over. To distinguish, we look at 'properTrailersGrpcStatus'.
 grpcClassifyTermination ::
      ProperTrailers'
   -> Either GrpcException GrpcNormalTermination

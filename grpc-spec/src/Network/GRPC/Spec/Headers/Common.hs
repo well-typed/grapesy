@@ -53,6 +53,7 @@ data ContentType =
 instance Default ContentType where
   def = ContentTypeDefault
 
+-- | Interpret 'ContentType'
 chooseContentType :: IsRPC rpc => Proxy rpc -> ContentType -> Strict.ByteString
 chooseContentType p ContentTypeDefault       = rpcContentType p
 chooseContentType _ (ContentTypeOverride ct) = ct
@@ -77,6 +78,7 @@ data MessageType =
 instance Default MessageType where
   def = MessageTypeDefault
 
+-- | Interpret 'MessageType'
 chooseMessageType ::
      IsRPC rpc
   => Proxy rpc -> MessageType -> Maybe Strict.ByteString

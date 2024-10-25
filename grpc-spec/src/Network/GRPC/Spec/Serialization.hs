@@ -1,3 +1,10 @@
+-- | Serialization functions
+--
+-- We collect these functions in a separate module, rather than exporting them
+-- from "Network.GRPC.Spec", because while the functions in "Network.GRPC.Spec"
+-- /may/ be needed in some user code (albeit rarely), the serialization
+-- functions from this module really should only be needed in gRPC
+-- implementations such as @grapesy@.
 module Network.GRPC.Spec.Serialization (
     -- * Messages
     -- ** Inputs
