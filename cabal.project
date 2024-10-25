@@ -5,6 +5,7 @@ packages:
   , ./tutorials/basics
   , ./tutorials/lowlevel
   , ./tutorials/metadata
+  , ./tutorials/monadstack
 
 package grpc-spec
   tests: True
