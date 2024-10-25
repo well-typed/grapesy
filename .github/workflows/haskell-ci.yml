@@ -161,6 +161,7 @@ jobs:
           if [ $((HCNUMVER < 91000)) -ne 0 ] ; then echo "packages: $GITHUB_WORKSPACE/source/./tutorials/basics" >> cabal.project ; fi
           if [ $((HCNUMVER < 91000)) -ne 0 ] ; then echo "packages: $GITHUB_WORKSPACE/source/./tutorials/lowlevel" >> cabal.project ; fi
           if [ $((HCNUMVER < 91000)) -ne 0 ] ; then echo "packages: $GITHUB_WORKSPACE/source/./tutorials/metadata" >> cabal.project ; fi
+          if [ $((HCNUMVER < 91000)) -ne 0 ] ; then echo "packages: $GITHUB_WORKSPACE/source/./tutorials/monadstack" >> cabal.project ; fi
           cat cabal.project
       - name: sdist
         run: |
@@ -184,6 +185,8 @@ jobs:
           echo "PKGDIR_lowlevel=${PKGDIR_lowlevel}" >> "$GITHUB_ENV"
           PKGDIR_metadata="$(find "$GITHUB_WORKSPACE/unpacked" -maxdepth 1 -type d -regex '.*/metadata-[0-9.]*')"
           echo "PKGDIR_metadata=${PKGDIR_metadata}" >> "$GITHUB_ENV"
+          PKGDIR_monadstack="$(find "$GITHUB_WORKSPACE/unpacked" -maxdepth 1 -type d -regex '.*/monadstack-[0-9.]*')"
+          echo "PKGDIR_monadstack=${PKGDIR_monadstack}" >> "$GITHUB_ENV"
           rm -f cabal.project cabal.project.local
           touch cabal.project
           touch cabal.project.local
@@ -193,6 +196,7 @@ jobs:
           if [ $((HCNUMVER < 91000)) -ne 0 ] ; then echo "packages: ${PKGDIR_basics}" >> cabal.project ; fi
           if [ $((HCNUMVER < 91000)) -ne 0 ] ; then echo "packages: ${PKGDIR_lowlevel}" >> cabal.project ; fi
           if [ $((HCNUMVER < 91000)) -ne 0 ] ; then echo "packages: ${PKGDIR_metadata}" >> cabal.project ; fi
+          if [ $((HCNUMVER < 91000)) -ne 0 ] ; then echo "packages: ${PKGDIR_monadstack}" >> cabal.project ; fi
           echo "package grpc-spec" >> cabal.project
           echo "    ghc-options: -Werror=missing-methods" >> cabal.project
           echo "package grapesy" >> cabal.project
@@ -204,6 +208,8 @@ jobs:
           if [ $((HCNUMVER < 91000)) -ne 0 ] ; then echo "package lowlevel" >> cabal.project ; fi
           if [ $((HCNUMVER < 91000)) -ne 0 ] ; then echo "    ghc-options: -Werror=missing-methods" >> cabal.project ; fi
           if [ $((HCNUMVER < 91000)) -ne 0 ] ; then echo "package metadata" >> cabal.project ; fi
+          if [ $((HCNUMVER < 91000)) -ne 0 ] ; then echo "    ghc-options: -Werror=missing-methods" >> cabal.project ; fi
+          if [ $((HCNUMVER < 91000)) -ne 0 ] ; then echo "package monadstack" >> cabal.project ; fi
           if [ $((HCNUMVER < 91000)) -ne 0 ] ; then echo "    ghc-options: -Werror=missing-methods" >> cabal.project ; fi
           cat >> cabal.project <<EOF
           allow-newer: proto-lens:base
@@ -231,8 +237,11 @@ jobs:
 
           package metadata
             ghc-options: -Werror
+
+          package monadstack
+            ghc-options: -Werror
           EOF
-          $HCPKG list --simple-output --names-only | perl -ne 'for (split /\s+/) { print "constraints: any.$_ installed\n" unless /^(basics|grapesy|grpc-spec|lowlevel|metadata|quickstart)$/; }' >> cabal.project.local
+          $HCPKG list --simple-output --names-only | perl -ne 'for (split /\s+/) { print "constraints: any.$_ installed\n" unless /^(basics|grapesy|grpc-spec|lowlevel|metadata|monadstack|quickstart)$/; }' >> cabal.project.local
           cat cabal.project
           cat cabal.project.local
       - name: dump install plan
@@ -271,6 +280,8 @@ jobs:
           if [ $((HCNUMVER < 91000)) -ne 0 ] ; then cd ${PKGDIR_lowlevel} || false ; fi
           if [ $((HCNUMVER < 91000)) -ne 0 ] ; then ${CABAL} -vnormal check ; fi
           if [ $((HCNUMVER < 91000)) -ne 0 ] ; then cd ${PKGDIR_metadata} || false ; fi
+          if [ $((HCNUMVER < 91000)) -ne 0 ] ; then ${CABAL} -vnormal check ; fi
+          if [ $((HCNUMVER < 91000)) -ne 0 ] ; then cd ${PKGDIR_monadstack} || false ; fi
           if [ $((HCNUMVER < 91000)) -ne 0 ] ; then ${CABAL} -vnormal check ; fi
       - name: haddock
         run: |

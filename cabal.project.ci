@@ -5,6 +5,7 @@ packages:
   , ./tutorials/basics
   , ./tutorials/lowlevel
   , ./tutorials/metadata
+  , ./tutorials/monadstack
 
 package grpc-spec
   tests: True
@@ -27,6 +28,9 @@ package lowlevel
   ghc-options: -Werror
 
 package metadata
+  ghc-options: -Werror
+
+package monadstack
   ghc-options: -Werror
 
 --
