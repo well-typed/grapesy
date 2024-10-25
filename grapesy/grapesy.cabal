@@ -248,7 +248,6 @@ test-suite test-grapesy
     , containers
     , deepseq
     , exceptions
-    , grpc-spec
     , http-types
     , http2
     , mtl
@@ -387,7 +386,6 @@ test-suite test-stress
     , async
     , bytestring
     , exceptions
-    , grpc-spec
     , http2
     , network
     , tls

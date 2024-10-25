@@ -26,8 +26,9 @@ import Options.Applicative qualified as Opt
 
 import Network.GRPC.Client qualified as Client
 import Network.GRPC.Common
+import Network.GRPC.Common.Compression (Compression)
+import Network.GRPC.Common.Compression qualified as Compr
 import Network.GRPC.Server.Run
-import Network.GRPC.Spec qualified as Spec
 
 import Paths_grapesy
 
@@ -52,7 +53,7 @@ data Role =
         , clientConnects   :: [Connect]
 
           -- | Insist on this compression scheme for all messages
-        , clientCompression :: Maybe Spec.Compression
+        , clientCompression :: Maybe Compression
         }
 
       -- | Run the server
@@ -303,17 +304,17 @@ parseCall =
                 , Opt.metavar "N"
                 ])
 
-parseCompression :: Opt.Parser Spec.Compression
-parseCompression = asum $ map go (toList Spec.allSupportedCompression)
+parseCompression :: Opt.Parser Compression
+parseCompression = asum $ map go (toList Compr.allSupportedCompression)
   where
-    go :: Spec.Compression -> Opt.Parser Spec.Compression
+    go :: Compression -> Opt.Parser Compression
     go compr = Opt.flag' compr $ mconcat [
           Opt.long comprId
         , Opt.help $ "Insist on " ++ comprId ++ " compression "
         ]
       where
         comprId :: String
-        comprId = show (Spec.compressionId compr)
+        comprId = show (Compr.compressionId compr)
 
 -------------------------------------------------------------------------------
 -- Server option parsers
