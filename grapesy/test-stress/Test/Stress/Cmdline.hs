@@ -19,7 +19,8 @@ module Test.Stress.Cmdline
   , getCmdline
   ) where
 
-import Control.Applicative
+import Control.Applicative ((<|>))
+import Data.Foldable (asum, toList)
 import Network.Socket (HostName, PortNumber)
 import Options.Applicative qualified as Opt
 
@@ -51,7 +52,7 @@ data Role =
         , clientConnects   :: [Connect]
 
           -- | Insist on this compression scheme for all messages
-        , clientCompression :: Spec.Compression
+        , clientCompression :: Maybe Spec.Compression
         }
 
       -- | Run the server
@@ -184,7 +185,7 @@ parseClientRole defaultPub =
       <$> parseClientSecurity defaultPub
       <*> parseClientPort
       <*> parseClientConnects
-      <*> parseCompression
+      <*> Opt.optional parseCompression
 
 parseClientSecurity :: FilePath -> Opt.Parser (Maybe Client.ServerValidation)
 parseClientSecurity defaultPub =
@@ -303,35 +304,16 @@ parseCall =
                 ])
 
 parseCompression :: Opt.Parser Spec.Compression
-parseCompression =
-        gzip
-    <|> deflate
-#ifdef SNAPPY
-    <|> snappy
-#endif
-    <|> pure Spec.noCompression
+parseCompression = asum $ map go (toList Spec.allSupportedCompression)
   where
-    gzip :: Opt.Parser Spec.Compression
-    gzip =
-        Opt.flag' Spec.gzip $ mconcat [
-            Opt.long "gzip"
-          , Opt.help "Insist on gzip compression"
-          ]
-
-    deflate :: Opt.Parser Spec.Compression
-    deflate =
-        Opt.flag' Spec.deflate $ mconcat [
-            Opt.long "deflate"
-          , Opt.help "Insist on deflate compression"
-          ]
-#ifdef SNAPPY
-    snappy :: Opt.Parser Spec.Compression
-    snappy =
-        Opt.flag' Spec.snappy $ mconcat [
-            Opt.long "snappy"
-          , Opt.help "Insist on snappy compression"
-          ]
-#endif
+    go :: Spec.Compression -> Opt.Parser Spec.Compression
+    go compr = Opt.flag' compr $ mconcat [
+          Opt.long comprId
+        , Opt.help $ "Insist on " ++ comprId ++ " compression "
+        ]
+      where
+        comprId :: String
+        comprId = show (Spec.compressionId compr)
 
 -------------------------------------------------------------------------------
 -- Server option parsers

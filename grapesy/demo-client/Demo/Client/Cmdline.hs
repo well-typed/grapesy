@@ -16,7 +16,7 @@ module Demo.Client.Cmdline (
 
 import Prelude
 
-import Data.Foldable (asum)
+import Data.Foldable (asum, toList)
 import Data.Int
 import Data.Kind
 import Data.Maybe (fromMaybe)
@@ -181,22 +181,16 @@ parseServerValidation defaultPub =
             ]
 
 parseCompression :: Opt.Parser Compression
-parseCompression = asum [
-      Opt.flag' Compr.gzip $ mconcat [
-          Opt.long "gzip"
-        , Opt.help "Use GZip compression for all messages"
+parseCompression = asum $ map go (toList Compr.allSupportedCompression)
+  where
+    go :: Compression -> Opt.Parser Compression
+    go compr = Opt.flag' compr $ mconcat [
+          Opt.long comprId
+        , Opt.help $ "Use " ++ comprId ++ " compression for all messages"
         ]
-    , Opt.flag' Compr.deflate $ mconcat [
-          Opt.long "deflate"
-        , Opt.help "Use deflate compression for all messages"
-        ]
-#ifdef SNAPPY
-    , Opt.flag' Compr.snappy $ mconcat [
-          Opt.long "snappy"
-        , Opt.help "Use snappy compression for all messages"
-        ]
-#endif
-    ]
+      where
+        comprId :: String
+        comprId = show (Compr.compressionId compr)
 
 parseAPI :: Opt.Parser API
 parseAPI = asum [

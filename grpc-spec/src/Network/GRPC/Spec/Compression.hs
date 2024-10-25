@@ -7,19 +7,14 @@
 module Network.GRPC.Spec.Compression (
     -- * Definition
     Compression(..)
+  , noCompression
+  , gzip
   , allSupportedCompression
   , compressionIsIdentity
     -- ** ID
   , CompressionId(..)
   , serializeCompressionId
   , deserializeCompressionId
-    -- * Specific coders
-  , noCompression
-  , gzip
-  , deflate
-#ifdef SNAPPY
-  , snappy
-#endif
   ) where
 
 import Codec.Compression.GZip qualified as GZip
