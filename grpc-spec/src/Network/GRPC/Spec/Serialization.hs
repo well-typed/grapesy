@@ -6,7 +6,6 @@ module Network.GRPC.Spec.Serialization (
     -- ** Outputs
   , buildOutput
   , parseOutput
-    -- ** Inbound
     -- * Headers
     -- ** Status
   , buildGrpcStatus

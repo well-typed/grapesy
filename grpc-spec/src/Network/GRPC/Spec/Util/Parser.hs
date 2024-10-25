@@ -30,6 +30,12 @@ import Data.Int
   Definition
 -------------------------------------------------------------------------------}
 
+-- | Simple incremental parser
+--
+-- This is used to parse a stream of values, where we know ahead of time for
+-- each value how much data to expect (perhaps based on the previous value).
+-- Individual values are not parsed incrementally; see 'consumeExactly' or
+-- 'getExactly'.
 newtype Parser e a = Parser {
       runParser :: Accumulator -> Result e a
     }
