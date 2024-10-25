@@ -7,6 +7,7 @@ packages:
   , ./tutorials/metadata
   , ./tutorials/monadstack
   , ./tutorials/conduit
+  , ./tutorials/trailers-only
 
 package grpc-spec
   tests: True
@@ -35,6 +36,9 @@ package monadstack-tutorial
   ghc-options: -Werror
 
 package conduit-tutorial
+  ghc-options: -Werror
+
+package trailers-only-tutorial
   ghc-options: -Werror
 
 --

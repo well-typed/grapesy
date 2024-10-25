@@ -163,6 +163,7 @@ jobs:
           if [ $((HCNUMVER < 91000)) -ne 0 ] ; then echo "packages: $GITHUB_WORKSPACE/source/./tutorials/metadata" >> cabal.project ; fi
           if [ $((HCNUMVER < 91000)) -ne 0 ] ; then echo "packages: $GITHUB_WORKSPACE/source/./tutorials/monadstack" >> cabal.project ; fi
           if [ $((HCNUMVER < 91000)) -ne 0 ] ; then echo "packages: $GITHUB_WORKSPACE/source/./tutorials/conduit" >> cabal.project ; fi
+          if [ $((HCNUMVER < 91000)) -ne 0 ] ; then echo "packages: $GITHUB_WORKSPACE/source/./tutorials/trailers-only" >> cabal.project ; fi
           cat cabal.project
       - name: sdist
         run: |
@@ -190,6 +191,8 @@ jobs:
           echo "PKGDIR_monadstack_tutorial=${PKGDIR_monadstack_tutorial}" >> "$GITHUB_ENV"
           PKGDIR_conduit_tutorial="$(find "$GITHUB_WORKSPACE/unpacked" -maxdepth 1 -type d -regex '.*/conduit-tutorial-[0-9.]*')"
           echo "PKGDIR_conduit_tutorial=${PKGDIR_conduit_tutorial}" >> "$GITHUB_ENV"
+          PKGDIR_trailers_only_tutorial="$(find "$GITHUB_WORKSPACE/unpacked" -maxdepth 1 -type d -regex '.*/trailers-only-tutorial-[0-9.]*')"
+          echo "PKGDIR_trailers_only_tutorial=${PKGDIR_trailers_only_tutorial}" >> "$GITHUB_ENV"
           rm -f cabal.project cabal.project.local
           touch cabal.project
           touch cabal.project.local
@@ -201,6 +204,7 @@ jobs:
           if [ $((HCNUMVER < 91000)) -ne 0 ] ; then echo "packages: ${PKGDIR_metadata_tutorial}" >> cabal.project ; fi
           if [ $((HCNUMVER < 91000)) -ne 0 ] ; then echo "packages: ${PKGDIR_monadstack_tutorial}" >> cabal.project ; fi
           if [ $((HCNUMVER < 91000)) -ne 0 ] ; then echo "packages: ${PKGDIR_conduit_tutorial}" >> cabal.project ; fi
+          if [ $((HCNUMVER < 91000)) -ne 0 ] ; then echo "packages: ${PKGDIR_trailers_only_tutorial}" >> cabal.project ; fi
           echo "package grpc-spec" >> cabal.project
           echo "    ghc-options: -Werror=missing-methods" >> cabal.project
           echo "package grapesy" >> cabal.project
@@ -216,6 +220,8 @@ jobs:
           if [ $((HCNUMVER < 91000)) -ne 0 ] ; then echo "package monadstack-tutorial" >> cabal.project ; fi
           if [ $((HCNUMVER < 91000)) -ne 0 ] ; then echo "    ghc-options: -Werror=missing-methods" >> cabal.project ; fi
           if [ $((HCNUMVER < 91000)) -ne 0 ] ; then echo "package conduit-tutorial" >> cabal.project ; fi
+          if [ $((HCNUMVER < 91000)) -ne 0 ] ; then echo "    ghc-options: -Werror=missing-methods" >> cabal.project ; fi
+          if [ $((HCNUMVER < 91000)) -ne 0 ] ; then echo "package trailers-only-tutorial" >> cabal.project ; fi
           if [ $((HCNUMVER < 91000)) -ne 0 ] ; then echo "    ghc-options: -Werror=missing-methods" >> cabal.project ; fi
           cat >> cabal.project <<EOF
           allow-newer: proto-lens:base
@@ -249,8 +255,11 @@ jobs:
 
           package conduit-tutorial
             ghc-options: -Werror
+
+          package trailers-only-tutorial
+            ghc-options: -Werror
           EOF
-          $HCPKG list --simple-output --names-only | perl -ne 'for (split /\s+/) { print "constraints: any.$_ installed\n" unless /^(basics-tutorial|conduit-tutorial|grapesy|grpc-spec|lowlevel-tutorial|metadata-tutorial|monadstack-tutorial|quickstart-tutorial)$/; }' >> cabal.project.local
+          $HCPKG list --simple-output --names-only | perl -ne 'for (split /\s+/) { print "constraints: any.$_ installed\n" unless /^(basics-tutorial|conduit-tutorial|grapesy|grpc-spec|lowlevel-tutorial|metadata-tutorial|monadstack-tutorial|quickstart-tutorial|trailers-only-tutorial)$/; }' >> cabal.project.local
           cat cabal.project
           cat cabal.project.local
       - name: dump install plan
@@ -293,6 +302,8 @@ jobs:
           if [ $((HCNUMVER < 91000)) -ne 0 ] ; then cd ${PKGDIR_monadstack_tutorial} || false ; fi
           if [ $((HCNUMVER < 91000)) -ne 0 ] ; then ${CABAL} -vnormal check ; fi
           if [ $((HCNUMVER < 91000)) -ne 0 ] ; then cd ${PKGDIR_conduit_tutorial} || false ; fi
+          if [ $((HCNUMVER < 91000)) -ne 0 ] ; then ${CABAL} -vnormal check ; fi
+          if [ $((HCNUMVER < 91000)) -ne 0 ] ; then cd ${PKGDIR_trailers_only_tutorial} || false ; fi
           if [ $((HCNUMVER < 91000)) -ne 0 ] ; then ${CABAL} -vnormal check ; fi
       - name: haddock
         run: |
