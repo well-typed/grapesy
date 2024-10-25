@@ -1,13 +1,13 @@
 cabal-version:      3.0
-name:               quickstart
-synopsis:           Quickstart tutorial for grapesy
+name:               metadata-tutorial
+synopsis:           Metadata tutorial for grapesy
 version:            0.1.0
 license:            BSD-3-Clause
 license-file:       LICENSE
 author:             Edsko de Vries
 maintainer:         edsko@well-typed.com
 build-type:         Custom
-extra-source-files: proto/helloworld.proto
+extra-source-files: proto/fileserver.proto
 tested-with:        GHC==8.10.7
                   , GHC==9.2.8
                   , GHC==9.4.8
@@ -31,11 +31,18 @@ common lang
 
   default-extensions:
       DataKinds
+      DerivingStrategies
+      FlexibleInstances
+      GeneralizedNewtypeDeriving
       ImportQualifiedPost
+      MultiParamTypeClasses
+      NamedFieldPuns
       OverloadedLabels
       OverloadedStrings
+      ScopedTypeVariables
       TypeApplications
       TypeFamilies
+      UndecidableInstances
 
 library
   import:             lang
@@ -43,37 +50,52 @@ library
   build-tool-depends: proto-lens-protoc:proto-lens-protoc
 
   build-depends:
-    , grapesy            >= 0.1 && < 0.2
-    , proto-lens-runtime >= 0.7 && < 0.8
+    , bytestring         >= 0.10 && < 0.13
+    , exceptions         >= 0.10 && < 0.11
+    , grapesy            >= 0.1  && < 0.2
+    , proto-lens-runtime >= 0.7  && < 0.8
+    , time               >= 1.9  && < 1.13
   exposed-modules:
-      Proto.API.Helloworld
+      Proto.API.Fileserver
   other-modules:
-      Proto.Helloworld
+      Proto.Fileserver
   autogen-modules:
-      Proto.Helloworld
+      Proto.Fileserver
 
-executable greeter_server
+executable fileserver_server
   import:         lang
   main-is:        Server.hs
   hs-source-dirs: app
   ghc-options:    -main-is Server
+  build-depends:  metadata-tutorial
 
-  build-depends:
-      -- internal
-    , quickstart
   build-depends:
       -- inherited
+    , bytestring
+    , cryptohash-sha256
     , grapesy
+  build-depends:
+      -- additional
+    , cryptohash-sha256 >= 0.11 && < 0.12
+    , directory         >= 1.3  && < 1.4
+    , text              >= 1.2  && < 2.2
 
-executable greeter_client
+executable fileserver_client
   import:         lang
   main-is:        Client.hs
+  other-modules:  ProgressT
   hs-source-dirs: app
   ghc-options:    -main-is Client
+  build-depends:  metadata-tutorial
 
   build-depends:
-      -- internal
-    , quickstart
-  build-depends:
       -- inherited
+    , bytestring
+    , cryptohash-sha256
+    , exceptions
     , grapesy
+  build-depends:
+      -- additional
+    , cryptohash-sha256 >= 0.11 && < 0.12
+    , mtl               >= 2.2  && < 2.4
+    , text              >= 1.2  && < 2.2

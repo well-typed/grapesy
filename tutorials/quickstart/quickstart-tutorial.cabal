@@ -1,15 +1,13 @@
 cabal-version:      3.0
-name:               lowlevel
-synopsis:           gRPC basics tutorial for grapesy, low-level version
+name:               quickstart-tutorial
+synopsis:           Quickstart tutorial for grapesy
 version:            0.1.0
 license:            BSD-3-Clause
 license-file:       LICENSE
 author:             Edsko de Vries
 maintainer:         edsko@well-typed.com
 build-type:         Custom
-extra-source-files: proto/route_guide.proto
-data-dir:           data
-data-files:         route_guide_db.json
+extra-source-files: proto/helloworld.proto
 tested-with:        GHC==8.10.7
                   , GHC==9.2.8
                   , GHC==9.4.8
@@ -32,15 +30,9 @@ common lang
       -Wunused-packages
 
   default-extensions:
-      BangPatterns
       DataKinds
-      FlexibleInstances
-      ImportQualifiedPost
-      LambdaCase
-      NumericUnderscores
       OverloadedLabels
       OverloadedStrings
-      ScopedTypeVariables
       TypeApplications
       TypeFamilies
 
@@ -50,49 +42,33 @@ library
   build-tool-depends: proto-lens-protoc:proto-lens-protoc
 
   build-depends:
-    , aeson              >= 1.5 && < 2.3
-    , containers         >= 0.6 && < 0.8
     , grapesy            >= 0.1 && < 0.2
     , proto-lens-runtime >= 0.7 && < 0.8
-    , time               >= 1.9 && < 1.13
   exposed-modules:
-      RouteGuide
-      Proto.API.RouteGuide
+      Proto.API.Helloworld
   other-modules:
-      Proto.RouteGuide
-      Paths_lowlevel
+      Proto.Helloworld
   autogen-modules:
-      Proto.RouteGuide
-      Paths_lowlevel
+      Proto.Helloworld
 
-executable route_guide_server
-  import:          lang
-  main-is:         Server.hs
-  hs-source-dirs:  app
-  ghc-options:     -main-is Server
+executable greeter_server
+  import:         lang
+  main-is:        Server.hs
+  hs-source-dirs: app
+  ghc-options:    -main-is Server
+  build-depends:  quickstart-tutorial
 
-  build-depends:
-      -- internal
-    , lowlevel
   build-depends:
       -- inherited
     , grapesy
-    , time
 
-executable route_guide_client
+executable greeter_client
   import:         lang
   main-is:        Client.hs
   hs-source-dirs: app
   ghc-options:    -main-is Client
+  build-depends:  quickstart-tutorial
 
-  build-depends:
-      -- internal
-    , lowlevel
   build-depends:
       -- inherited
     , grapesy
-  build-depends:
-      -- additional
-    , random >= 1.2 && < 1.3
-    , text   >= 1.2 && < 2.2
-
