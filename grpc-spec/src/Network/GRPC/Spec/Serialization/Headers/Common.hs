@@ -53,7 +53,7 @@ buildContentType mContentType = (
 -- The gRPC spec mandates different behaviour here for requests and responses:
 -- when parsing a request (i.e., on the server), the spec requires that the
 -- server responds with @415 Unsupported Media Type@. When parsing a response,
--- however (i.e., on hte client), the spec mandates that we synthesize a
+-- however (i.e., on the client), the spec mandates that we synthesize a
 -- gRPC exception. We therefore take a function as parameter to construct the
 -- actual error.
 parseContentType :: forall m rpc.
