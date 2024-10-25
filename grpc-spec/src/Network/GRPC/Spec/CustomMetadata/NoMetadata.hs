@@ -8,6 +8,9 @@ import Data.Default
 import Network.GRPC.Spec.CustomMetadata.Typed
 
 -- | Indicate the absence of custom metadata
+--
+-- NOTE: The 'ParseMetadata' instance for 'NoMetadata' throws an exception if
+-- any metadata is present (that is, metadata is /not/ silently ignored).
 data NoMetadata = NoMetadata
   deriving stock (Show, Eq)
 

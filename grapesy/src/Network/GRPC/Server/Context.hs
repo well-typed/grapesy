@@ -78,6 +78,10 @@ data ServerParams = ServerParams {
       -- When enabled, we verify at the start of each request that all request
       -- headers are valid. By default we do /not/ do this, throwing an error
       -- only in scenarios where we really cannot continue.
+      --
+      -- Even if enabled, we will not attempt to parse @rpc@-specific metadata
+      -- (merely that the metadata is syntactically correct). See
+      -- 'Network.GRPC.Server.getRequestMetadata' for detailed discussion.
     , serverVerifyHeaders :: Bool
 
       -- | HTTP\/2 settings
