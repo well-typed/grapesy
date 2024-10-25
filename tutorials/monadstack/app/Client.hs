@@ -81,8 +81,8 @@ recordRoute = do
       replicateM_ 10 $ do
         i <- randomRIO (0, length db - 1)
         let p = (db !! i) ^. #location
-        send $ NextElem p
         threadDelay 500_000 -- 0.5 seconds
+        send $ NextElem p
       send NoNextElem
     liftIO $ print resp
 

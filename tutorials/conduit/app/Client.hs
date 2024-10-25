@@ -1,15 +1,16 @@
 module Client (main) where
 
+import Conduit
 import Control.Concurrent
-import Control.Monad
+import Data.Conduit.List
 import Data.Int
 import Data.Text (Text)
 import System.Random
 
 import Network.GRPC.Client
+import Network.GRPC.Client.StreamType.Conduit
 import Network.GRPC.Common
 import Network.GRPC.Common.Protobuf
-import Network.GRPC.Common.StreamElem qualified as StreamElem
 
 import RouteGuide
 
@@ -18,16 +19,6 @@ import Proto.API.RouteGuide
 {-------------------------------------------------------------------------------
   Call each of the methods of the RouteGuide service
 -------------------------------------------------------------------------------}
-
-getFeature :: Connection -> IO ()
-getFeature conn = do
-    let req = defMessage
-                & #latitude  .~  409146138
-                & #longitude .~ -746188906
-    withRPC conn def (Proxy @(Protobuf RouteGuide "getFeature")) $ \call -> do
-      sendFinalInput call req
-      resp <- recvFinalOutput call
-      print resp
 
 listFeatures :: Connection -> IO ()
 listFeatures conn = do
@@ -40,28 +31,40 @@ listFeatures conn = do
         req = defMessage
                 & #lo .~ lo
                 & #hi .~ hi
-    withRPC conn def (Proxy @(Protobuf RouteGuide "listFeatures")) $ \call -> do
-      sendFinalInput call req
-      void $ StreamElem.whileNext_ (recvOutput call) print
+
+    let sink :: ConduitT (Proto Feature) Void IO ()
+        sink = mapM_C print
+
+    serverStreaming conn (rpc @(Protobuf RouteGuide "listFeatures")) req $ \source ->
+      runConduit $ source .| sink
 
 recordRoute :: Connection -> IO ()
 recordRoute conn = do
     db <- getDB
-    withRPC conn def (Proxy @(Protobuf RouteGuide "recordRoute")) $ \call -> do
-      replicateM_ 10 $ do
-        i <- randomRIO (0, length db - 1)
-        let p = (db !! i) ^. #location
-        threadDelay 500_000 -- 0.5 seconds
-        sendNextInput call p
-      sendEndOfInput call
-      (resp, NoMetadata) <- recvFinalOutput call
-      print resp
+
+    let source :: ConduitT () (Proto Point) IO ()
+        source = replicateMC 10 $ do
+            i <- randomRIO (0, length db - 1)
+            let p = (db !! i) ^. #location
+            threadDelay 500_000 -- 0.5 seconds
+            return p
+
+    resp <- clientStreaming_ conn (rpc @(Protobuf RouteGuide "recordRoute")) $ \sink ->
+              runConduit $ source .| sink
+    print resp
 
 routeChat :: Connection -> IO ()
 routeChat conn = do
-    withRPC conn def (Proxy @(Protobuf RouteGuide "routeChat")) $ \call -> do
-      StreamElem.forM_ messages NoMetadata $ sendInput call
-      void $ StreamElem.whileNext_ (recvOutput call) print
+
+    let clientSource :: ConduitT () (Proto RouteNote) IO ()
+        clientSource = sourceList messages
+
+        clientSink :: ConduitT (Proto RouteNote) Void IO ()
+        clientSink = mapM_C print
+
+    biDiStreaming conn (rpc @(Protobuf RouteGuide "routeChat")) $ \serverSink serverSource -> do
+      runConduit $ clientSource .| serverSink
+      runConduit $ serverSource .| clientSink
   where
     messages :: [Proto RouteNote]
     messages = [
@@ -89,9 +92,6 @@ routeChat conn = do
 main :: IO ()
 main =
     withConnection def server $ \conn -> do
-      putStrLn "-------------- GetFeature --------------"
-      getFeature conn
-
       putStrLn "-------------- ListFeatures --------------"
       listFeatures conn
 
