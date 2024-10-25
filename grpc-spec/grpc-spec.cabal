@@ -17,7 +17,7 @@ extra-doc-files:    CHANGELOG.md
 tested-with:        GHC==8.10.7
                   , GHC==9.2.8
                   , GHC==9.4.8
-                  , GHC==9.6.4
+                  , GHC==9.6.6
                   , GHC==9.8.2
                   , GHC==9.10.1
 
