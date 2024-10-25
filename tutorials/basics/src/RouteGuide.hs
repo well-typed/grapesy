@@ -25,7 +25,7 @@ import Network.GRPC.Common.Protobuf
 
 import Proto.RouteGuide
 
-import Paths_basics
+import Paths_basics_tutorial
 
 {-------------------------------------------------------------------------------
   Querying the database

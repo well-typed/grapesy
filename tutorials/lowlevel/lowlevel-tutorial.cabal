@@ -1,0 +1,55 @@
+cabal-version:      3.0
+name:               lowlevel-tutorial
+synopsis:           gRPC basics tutorial for grapesy, low-level version
+version:            0.1.0
+license:            BSD-3-Clause
+license-file:       LICENSE
+author:             Edsko de Vries
+maintainer:         edsko@well-typed.com
+build-type:         Simple
+tested-with:        GHC==8.10.7
+                  , GHC==9.2.8
+                  , GHC==9.4.8
+                  , GHC==9.6.6
+                  , GHC==9.8.2
+
+common lang
+  build-depends:    base >= 4.14 && < 5
+  default-language: Haskell2010
+  ghc-options:      -Wall
+
+  if impl(ghc >= 9.0)
+    ghc-options:
+      -Wunused-packages
+
+  default-extensions:
+      DataKinds
+      ImportQualifiedPost
+      NumericUnderscores
+      OverloadedLabels
+      OverloadedStrings
+      ScopedTypeVariables
+      TypeApplications
+
+executable route_guide_server
+  import:          lang
+  main-is:         Server.hs
+  hs-source-dirs:  app
+  ghc-options:     -main-is Server
+  build-depends:   basics-tutorial
+
+  build-depends:
+    , grapesy >= 0.1 && < 0.2
+    , time    >= 1.9 && < 1.13
+
+executable route_guide_client
+  import:         lang
+  main-is:        Client.hs
+  hs-source-dirs: app
+  ghc-options:    -main-is Client
+  build-depends:   basics-tutorial
+
+  build-depends:
+    , grapesy >= 0.1 && < 0.2
+    , random  >= 1.2 && < 1.3
+    , text    >= 1.2 && < 2.2
