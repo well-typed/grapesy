@@ -268,98 +268,6 @@ test-suite test-grapesy
     , temporary          >= 1.3   && < 1.4
     , unix               >= 2.7   && < 2.9
 
-executable demo-client
-  import:          lang, common-executable-flags
-  hs-source-dirs:  demo-client, proto
-  main-is:         Main.hs
-  autogen-modules: Paths_grapesy
-  build-depends:   grapesy
-
-  other-modules:
-      Demo.Client.API.Core.Greeter
-      Demo.Client.API.Core.NoFinal.Greeter
-      Demo.Client.API.Core.RouteGuide
-      Demo.Client.API.StreamType.Conduit.RouteGuide
-      Demo.Client.API.StreamType.IO.Greeter
-      Demo.Client.API.StreamType.IO.Ping
-      Demo.Client.API.StreamType.IO.RouteGuide
-      Demo.Client.API.StreamType.MonadStack.Greeter
-      Demo.Client.Cmdline
-      Demo.Client.Util.DelayOr
-      Demo.Client.Util.Logging
-
-      Paths_grapesy
-
-      Proto.API.Helloworld
-      Proto.API.Ping
-      Proto.API.RouteGuide
-      Proto.Helloworld
-      Proto.Ping
-      Proto.RouteGuide
-
-  build-depends:
-      -- Inherited dependencies
-    , async
-    , bytestring
-    , conduit
-    , exceptions
-    , network
-    , text
-
-  build-depends:
-      -- Additional dependencies
-    , contra-tracer        >= 0.2   && < 0.3
-    , optparse-applicative >= 0.16  && < 0.19
-    , proto-lens-runtime   >= 0.7   && < 0.8
-    , transformers         >= 0.5   && < 0.7
-
-  if !flag(build-demo)
-    buildable:
-      False
-
-executable demo-server
-  import:          lang, common-executable-flags
-  hs-source-dirs:  demo-server, proto
-  main-is:         Main.hs
-  autogen-modules: Paths_grapesy
-  build-depends:   grapesy
-
-  other-modules:
-      Demo.Server.Aux.RouteGuide
-      Demo.Server.Cmdline
-      Demo.Server.Service.Greeter
-      Demo.Server.Service.Ping
-      Demo.Server.Service.RouteGuide
-
-      Proto.API.Helloworld
-      Proto.API.Ping
-      Proto.API.RouteGuide
-      Proto.Helloworld
-      Proto.Ping
-      Proto.RouteGuide
-
-      Paths_grapesy
-
-  build-depends:
-      -- Inherited dependencies
-    , aeson
-    , bytestring
-    , containers
-    , exceptions
-    , network
-    , text
-
-  build-depends:
-      -- Additional dependencies
-    , optparse-applicative >= 0.16 && < 0.19
-    , proto-lens-runtime   >= 0.7  && < 0.8
-    , time                 >= 1.9  && < 1.13
-    , transformers         >= 0.5  && < 0.7
-
-  if !flag(build-demo)
-    buildable:
-      False
-
 test-suite test-stress
   import:             lang, common-executable-flags
   type:               exitcode-stdio-1.0
@@ -521,11 +429,6 @@ benchmark grapesy-kvstore
   if flag(strace)
     cpp-options: -DSTRACE
     build-depends: unix >= 2.7 && < 2.9
-
-Flag build-demo
-  description: Build the demo
-  default: False
-  manual: True
 
 Flag build-stress-test
   description: Build the stress test
