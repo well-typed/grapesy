@@ -11,7 +11,7 @@
 -- When a client disconnects, we expect:
 --
 -- 1. The handlers dealing with that client (i.e. on that connection) should
---    fail with 'Server.ClientDisonnected'
+--    fail with 'Server.ClientDisconnected'
 -- 2. Future calls (after reconnection) succeed
 module Test.Sanity.Disconnect (tests) where
 

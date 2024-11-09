@@ -1,4 +1,4 @@
-packages: 
+packages:
     ./grpc-spec
   , ./grapesy
   , ./tutorials/quickstart
@@ -17,7 +17,7 @@ package grpc-spec
 package grapesy
   tests: True
   benchmarks: True
-  flags: +build-demo +build-stress-test 
+  flags: +build-demo +build-stress-test
   ghc-options: -Werror
 
 package quickstart-tutorial
@@ -40,6 +40,18 @@ package conduit-tutorial
 
 package trailers-only-tutorial
   ghc-options: -Werror
+
+-- TODO: Temporary
+-- <https://github.com/yesodweb/wai/pull/1016>
+source-repository-package
+  type: git
+  location: https://github.com/edsko/wai
+  tag: 5610f8d67c1fb5e5bec951cca1b3e810b03fc922
+  subdir: time-manager
+
+-- TODO: Temporary
+-- <https://github.com/google/ghc-source-gen/issues/109#issuecomment-2517622160>
+constraints: any.ghc-source-gen==0.4.5.0
 
 --
 -- ghc 9.10

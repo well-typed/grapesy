@@ -262,7 +262,7 @@ test_cancellation_server =
             Left err -> do
               assertEqual "grpcError" GrpcUnknown $
                 grpcError err
-              assertEqual "grpcErrorMessage" (Just "HandlerTerminated") $
+              assertEqual "grpcErrorMessage" (Just "Server-side exception: HandlerTerminated") $
                 grpcErrorMessage err
             Right _ ->
               assertFailure "Expected exception"

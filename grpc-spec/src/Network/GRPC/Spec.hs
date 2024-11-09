@@ -103,6 +103,11 @@ module Network.GRPC.Spec (
     -- * Status
   , GrpcStatus(..)
   , GrpcError(..)
+    -- ** Numerical status codes
+  , fromGrpcStatus
+  , fromGrpcError
+  , toGrpcStatus
+  , toGrpcError
     -- ** Exceptions
   , GrpcException(..)
   , throwGrpcError

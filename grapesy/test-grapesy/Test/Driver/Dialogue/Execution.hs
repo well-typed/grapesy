@@ -264,9 +264,12 @@ clientLocal clock call = \(LocalSteps steps) ->
       -> Bool
     isGrpcException mErr (Left err) = and [
           grpcError        err == GrpcUnknown
-        , grpcErrorMessage err == Just (case mErr of
-                                    Nothing   -> "HandlerTerminated"
-                                    Just err' -> Text.pack $ show err')
+        , grpcErrorMessage err == Just (mconcat [
+              "Server-side exception: "
+            , case mErr of
+                Nothing   -> "HandlerTerminated"
+                Just err' -> Text.pack $ show err'
+            ])
         ]
     isGrpcException _ (Right _) = False
 

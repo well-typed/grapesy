@@ -109,4 +109,4 @@ defaultServerTopLevel h unmask req resp =
 -- See <https://github.com/ghc-proposals/ghc-proposals/blob/master/proposals/0330-exception-backtraces.rst>.
 defaultServerExceptionToClient :: SomeException -> IO (Maybe Text)
 defaultServerExceptionToClient (SomeException e) =
-    return $ Just (Text.pack $ displayException e)
+    return $ Just (Text.pack $ "Server-side exception: " ++ displayException e)
