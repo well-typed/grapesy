@@ -114,7 +114,6 @@ library
       Network.GRPC.Spec.Serialization.Headers.Request
       Network.GRPC.Spec.Serialization.Headers.Response
       Network.GRPC.Spec.Serialization.LengthPrefixed
-      Network.GRPC.Spec.Serialization.Status
       Network.GRPC.Spec.Serialization.Timeout
       Network.GRPC.Spec.Serialization.TraceContext
       Network.GRPC.Spec.Status
