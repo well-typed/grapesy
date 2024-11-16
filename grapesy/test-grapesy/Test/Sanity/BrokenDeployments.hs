@@ -272,6 +272,7 @@ test_invalidRequestMetadata = respondWith response $ \addr -> do
                (Client.ResponseHeaders' HandledSynthesized) <-
       Client.withConnection connParams' (Client.ServerInsecure addr) $ \conn ->
         Client.withRPC conn def (Proxy @Ping) $ \call -> do
+          Client.sendEndOfInput call
           Client.recvInitialResponse call
     case mResp of
       Right headers
