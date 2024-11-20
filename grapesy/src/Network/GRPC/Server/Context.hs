@@ -83,9 +83,6 @@ data ServerParams = ServerParams {
       -- (merely that the metadata is syntactically correct). See
       -- 'Network.GRPC.Server.getRequestMetadata' for detailed discussion.
     , serverVerifyHeaders :: Bool
-
-      -- | HTTP\/2 settings
-    , serverHTTP2Settings :: HTTP2Settings
     }
 
 instance Default ServerParams where
@@ -95,7 +92,6 @@ instance Default ServerParams where
       , serverExceptionToClient = defaultServerExceptionToClient
       , serverContentType       = Just ContentTypeDefault
       , serverVerifyHeaders     = False
-      , serverHTTP2Settings     = def
       }
 
 defaultServerTopLevel :: RequestHandler () -> RequestHandler ()

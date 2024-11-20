@@ -57,20 +57,21 @@ withKeyValueServer cmdline@Cmdline{
           | otherwise = Protobuf.server $ handlers cmdline store
 
     server <- mkGrpcServer params rpcHandlers
-    forkServer params config server k
+    forkServer http2 config server k
   where
+    http2 :: HTTP2Settings
+    http2 = def {
+          http2TcpNoDelay            = not cmdDisableTcpNoDelay
+        , http2OverridePingRateLimit = cmdPingRateLimit
+        }
+
     params :: ServerParams
     params = def {
-          serverHTTP2Settings = def {
-              http2TcpNoDelay            = not cmdDisableTcpNoDelay
-            , http2OverridePingRateLimit = cmdPingRateLimit
-            }
-
           -- The Java benchmark does not use compression (unclear if the Java
           -- implementation supports compression at all; the compression Interop
           -- tests are also disabled for Java). For a fair comparison, we
           -- therefore disable compression here also.
-        , serverCompression = Compr.none
+          serverCompression = Compr.none
         }
 
 {-------------------------------------------------------------------------------

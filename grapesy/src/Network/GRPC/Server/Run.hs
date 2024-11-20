@@ -29,6 +29,7 @@ import Control.Concurrent.Async
 import Control.Concurrent.STM
 import Control.Exception
 import Control.Monad
+import Data.Default
 import Network.HTTP2.Server qualified as HTTP2
 import Network.HTTP2.TLS.Server qualified as HTTP2.TLS
 import Network.Run.TCP qualified as Run
@@ -122,10 +123,12 @@ data SecureConfig = SecureConfig {
 --
 -- See also 'runServerWithHandlers', which handles the creation of the
 -- 'HTTP2.Server' for you.
-runServer :: ServerParams -> ServerConfig -> HTTP2.Server -> IO ()
-runServer params cfg server = forkServer params cfg server $ waitServer
+runServer :: HTTP2Settings -> ServerConfig -> HTTP2.Server -> IO ()
+runServer http2 cfg server = forkServer http2 cfg server $ waitServer
 
 -- | Convenience function that combines 'runServer' with 'mkGrpcServer'
+--
+-- NOTE: If you want to override the 'HTTP2Settings', use 'runServer' instead.
 runServerWithHandlers ::
      ServerParams
   -> ServerConfig
@@ -133,7 +136,10 @@ runServerWithHandlers ::
   -> IO ()
 runServerWithHandlers params config handlers = do
     server <- mkGrpcServer params handlers
-    runServer params config server
+    runServer http2 config server
+  where
+    http2 :: HTTP2Settings
+    http2 = def
 
 {-------------------------------------------------------------------------------
   Full interface
@@ -168,12 +174,12 @@ data ServerTerminated = ServerTerminated
 
 -- | Start the server
 forkServer ::
-     ServerParams
+     HTTP2Settings
   -> ServerConfig
   -> HTTP2.Server
   -> (RunningServer -> IO a)
   -> IO a
-forkServer params ServerConfig{serverInsecure, serverSecure} server k = do
+forkServer http2 ServerConfig{serverInsecure, serverSecure} server k = do
     runningSocketInsecure <- newEmptyTMVarIO
     runningSocketSecure   <- newEmptyTMVarIO
 
@@ -181,11 +187,11 @@ forkServer params ServerConfig{serverInsecure, serverSecure} server k = do
         insecure =
           case serverInsecure of
             Nothing  -> return ()
-            Just cfg -> runInsecure params cfg runningSocketInsecure server
+            Just cfg -> runInsecure http2 cfg runningSocketInsecure server
         secure =
           case serverSecure of
             Nothing  -> return ()
-            Just cfg -> runSecure params cfg runningSocketSecure server
+            Just cfg -> runSecure http2 cfg runningSocketSecure server
 
     withAsync insecure $ \runningServerInsecure ->
       withAsync secure $ \runningServerSecure ->
@@ -284,44 +290,42 @@ getSocket serverAsync socketTMVar = do
 -------------------------------------------------------------------------------}
 
 runInsecure ::
-     ServerParams
+     HTTP2Settings
   -> InsecureConfig
   -> TMVar Socket
   -> HTTP2.Server
   -> IO ()
-runInsecure params cfg socketTMVar server = do
+runInsecure http2 cfg socketTMVar server = do
     withServerSocket
-        serverHTTP2Settings
+        http2
         socketTMVar
         (insecureHost cfg)
         (insecurePort cfg) $ \listenSock ->
       withTimeManager $ \mgr ->
         Run.runTCPServerWithSocket listenSock $ \clientSock -> do
-          when (http2TcpNoDelay serverHTTP2Settings) $ do
+          when (http2TcpNoDelay http2) $ do
             -- See description of 'withServerSocket'
             setSocketOption clientSock NoDelay 1
-          when (http2TcpAbortiveClose serverHTTP2Settings) $ do
+          when (http2TcpAbortiveClose http2) $ do
             setSockOpt clientSock Linger
               (StructLinger { sl_onoff = 1, sl_linger = 0 })
           withConfigForInsecure mgr clientSock $ \config ->
             HTTP2.run serverConfig config server
   where
-    ServerParams{serverHTTP2Settings} = params
-
     serverConfig :: HTTP2.ServerConfig
-    serverConfig = mkServerConfig serverHTTP2Settings
+    serverConfig = mkServerConfig http2
 
 {-------------------------------------------------------------------------------
   Secure (over TLS)
 -------------------------------------------------------------------------------}
 
 runSecure ::
-     ServerParams
+     HTTP2Settings
   -> SecureConfig
   -> TMVar Socket
   -> HTTP2.Server
   -> IO ()
-runSecure params cfg socketTMVar server = do
+runSecure http2 cfg socketTMVar server = do
     cred :: TLS.Credential <-
           TLS.credentialLoadX509Chain
             (securePubCert    cfg)
@@ -333,13 +337,13 @@ runSecure params cfg socketTMVar server = do
 
     keyLogger <- Util.TLS.keyLogger (secureSslKeyLog cfg)
     let serverConfig :: HTTP2.ServerConfig
-        serverConfig = mkServerConfig serverHTTP2Settings
+        serverConfig = mkServerConfig http2
 
         tlsSettings :: HTTP2.TLS.Settings
-        tlsSettings = mkTlsSettings serverHTTP2Settings keyLogger
+        tlsSettings = mkTlsSettings http2 keyLogger
 
     withServerSocket
-        serverHTTP2Settings
+        http2
         socketTMVar
         (Just $ secureHost cfg)
         (securePort cfg) $ \listenSock ->
@@ -348,16 +352,14 @@ runSecure params cfg socketTMVar server = do
           (TLS.Credentials [cred])
           listenSock
           "h2" $ \mgr backend -> do
-        when (http2TcpNoDelay serverHTTP2Settings) $
+        when (http2TcpNoDelay http2) $
           -- See description of 'withServerSocket'
           setSocketOption (HTTP2.TLS.requestSock backend) NoDelay 1
-        when (http2TcpAbortiveClose serverHTTP2Settings) $ do
+        when (http2TcpAbortiveClose http2) $ do
           setSockOpt (HTTP2.TLS.requestSock backend) Linger
             (StructLinger { sl_onoff = 1, sl_linger = 0 })
         withConfigForSecure mgr backend $ \config ->
           HTTP2.run serverConfig config server
-  where
-    ServerParams{serverHTTP2Settings} = params
 
 data CouldNotLoadCredentials =
     -- | Failed to load server credentials
