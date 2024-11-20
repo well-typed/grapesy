@@ -482,7 +482,7 @@ withTestServer cfg firstTestFailure handlerLock serverHandlers k = do
             }
 
     server <- Server.mkGrpcServer serverParams serverHandlers
-    Server.forkServer serverParams serverConfig server k
+    Server.forkServer def serverConfig server k
 
 {-------------------------------------------------------------------------------
   Client
