@@ -222,11 +222,11 @@ test-suite test-grapesy
       Test.Driver.Dialogue.Generation
       Test.Driver.Dialogue.TestClock
       Test.Prop.Dialogue
+      Test.Regression.Issue102
       Test.Sanity.BrokenDeployments
       Test.Sanity.Compression
       Test.Sanity.Disconnect
       Test.Sanity.EndOfStream
-      Test.Sanity.Exception
       Test.Sanity.Interop
       Test.Sanity.StreamingType.CustomFormat
       Test.Sanity.StreamingType.NonStreaming

@@ -14,7 +14,7 @@
 --    (server), and
 -- 2. future calls are still possible (client), and more handlers can be started
 --    to deal with future calls (server).
-module Test.Sanity.Exception (tests) where
+module Test.Regression.Issue102 (tests) where
 
 import Control.Concurrent.Async
 import Control.Exception
@@ -38,7 +38,7 @@ import Test.Driver.ClientServer
 import Test.Util.Exception
 
 tests :: TestTree
-tests = testGroup "Test.Sanity.Exception" [
+tests = testGroup "Issue102" [
       testCase "client" test_clientException
     , testCase "server" test_serverException
 
