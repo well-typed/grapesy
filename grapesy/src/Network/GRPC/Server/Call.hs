@@ -88,13 +88,27 @@ data Call rpc = SupportsServerRpc rpc => Call {
       --
       -- Can be updated until the first message (see 'callFirstMessage'), at
       -- which point it /must/ have been set (if not, an exception is thrown).
-    , callResponseMetadata :: TVar (Maybe (ResponseInitialMetadata rpc))
+    , callResponseMetadata :: TVar (CallInitialMetadata rpc)
 
       -- | What kicked off the response?
       --
       -- This is empty until the response /has/ in fact been kicked off.
     , callResponseKickoff :: TMVar Kickoff
     }
+
+-- | Initial metadata
+--
+-- See 'callResponseMetadata' for discussion.
+data CallInitialMetadata rpc =
+    -- | Initial metadata not yet set
+    CallInitialMetadataNotSet
+
+    -- | Initial metadata has been set
+    --
+    -- We record the 'CallStack' of where the metadata was set.
+  | CallInitialMetadataSet (ResponseInitialMetadata rpc) CallStack
+
+deriving stock instance IsRPC rpc => Show (CallInitialMetadata rpc)
 
 -- | What kicked off the response?
 --
@@ -136,7 +150,7 @@ setupCall :: forall rpc.
   -> ServerContext
   -> IO (Call rpc, Maybe Timeout)
 setupCall conn callContext@ServerContext{serverParams} = do
-    callResponseMetadata <- newTVarIO Nothing
+    callResponseMetadata <- newTVarIO CallInitialMetadataNotSet
     callResponseKickoff  <- newEmptyTMVarIO
 
     (inboundHeaders, timeout) <- determineInbound callSession req
@@ -216,7 +230,7 @@ determineInbound session req = do
 startOutbound :: forall rpc.
      SupportsServerRpc rpc
   => ServerParams
-  -> TVar (Maybe (ResponseInitialMetadata rpc))
+  -> TVar (CallInitialMetadata rpc)
   -> TMVar Kickoff
   -> Compression
   -> IO (Session.FlowStart (ServerOutbound rpc), Session.ResponseInfo)
@@ -224,36 +238,42 @@ startOutbound serverParams metadataVar kickoffVar cOut = do
     -- Wait for kickoff (see 'Kickoff' for discussion)
     kickoff <- atomically $ readTMVar kickoffVar
 
-    -- Get response metadata (see 'setResponseMetadata')
-    -- It is important we read this only /after/ the kickoff.
-    responseMetadata <- do
-      mMetadata <- atomically $ readTVar metadataVar
-      case mMetadata of
-        Just md -> buildMetadataIO md
-        Nothing -> throwIO $ ResponseInitialMetadataNotSet
-
     -- Session start
-    let flowStart :: Session.FlowStart (ServerOutbound rpc)
-        flowStart =
-          case kickoff of
-            KickoffRegular _cs ->
-              Session.FlowStartRegular $ OutboundHeaders {
-                  outHeaders = ResponseHeaders {
-                      responseCompression =
-                        Just $ Compr.compressionId cOut
-                    , responseAcceptCompression =
-                        Just $ Compr.offer compr
-                    , responseContentType =
-                        serverContentType serverParams
-                    , responseMetadata =
-                        customMetadataMapFromList responseMetadata
-                    , responseUnrecognized =
-                        ()
-                    }
-                , outCompression = cOut
+    flowStart :: Session.FlowStart (ServerOutbound rpc) <-
+      case kickoff of
+        KickoffRegular _cs -> do
+          -- Get response metadata (see 'setResponseMetadata')
+          --
+          -- It is important we do this only for 'KickoffRegular', because the
+          -- initial metadata is not used in the Trailers-Only case, and we
+          -- should not unecessarily throw the 'ResponseInitialMetadataNotSet'
+          -- exception. This is especially important when that Trailers-Only
+          -- case was triggered by an exception in the handler, because the
+          -- handler might not yet have had the opportunity to set the initial
+          -- metdata prior to the error.
+          responseMetadata <- do
+            mMetadata <- atomically $ readTVar metadataVar
+            case mMetadata of
+              CallInitialMetadataSet md _cs -> buildMetadataIO md
+              CallInitialMetadataNotSet     -> throwIO $ ResponseInitialMetadataNotSet
+
+          return $ Session.FlowStartRegular $ OutboundHeaders {
+              outHeaders = ResponseHeaders {
+                  responseCompression =
+                    Just $ Compr.compressionId cOut
+                , responseAcceptCompression =
+                    Just $ Compr.offer compr
+                , responseContentType =
+                    serverContentType serverParams
+                , responseMetadata =
+                    customMetadataMapFromList responseMetadata
+                , responseUnrecognized =
+                    ()
                 }
-            KickoffTrailersOnly _cs trailers ->
-              Session.FlowStartNoMessages trailers
+            , outCompression = cOut
+            }
+        KickoffTrailersOnly _cs trailers ->
+          return $ Session.FlowStartNoMessages trailers
 
     return (flowStart, buildResponseInfo flowStart)
   where
@@ -503,8 +523,10 @@ setResponseInitialMetadata Call{ callResponseMetadata
                            md = atomically $ do
     mKickoff <- fmap kickoffCallStack <$> tryReadTMVar callResponseKickoff
     case mKickoff of
-      Nothing -> writeTVar callResponseMetadata (Just md)
-      Just cs -> throwSTM $ ResponseAlreadyInitiated cs callStack
+      Nothing ->
+        writeTVar callResponseMetadata (CallInitialMetadataSet md callStack)
+      Just cs ->
+        throwSTM $ ResponseAlreadyInitiated cs callStack
 
 {-------------------------------------------------------------------------------
   Low-level API

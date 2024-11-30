@@ -171,7 +171,7 @@ library
     , unordered-containers >= 0.2     && < 0.3
     , utf8-string          >= 1.0     && < 1.1
 
-      -- We pin a very specific vrsion of http2.
+      -- We pin very specific versions of http2.
       --
       -- Other versions should be tested against the full grapesy test suite
       -- (regular tests and stress tests).
@@ -223,6 +223,7 @@ test-suite test-grapesy
       Test.Driver.Dialogue.TestClock
       Test.Prop.Dialogue
       Test.Regression.Issue102
+      Test.Regression.Issue238
       Test.Sanity.BrokenDeployments
       Test.Sanity.Compression
       Test.Sanity.Disconnect
@@ -239,11 +240,13 @@ test-suite test-grapesy
       Proto.API.Helloworld
       Proto.API.Interop
       Proto.API.Ping
+      Proto.API.RouteGuide
       Proto.API.Trivial
       Proto.Empty
       Proto.Helloworld
       Proto.Messages
       Proto.Ping
+      Proto.RouteGuide
       Proto.Test
 
   build-depends:

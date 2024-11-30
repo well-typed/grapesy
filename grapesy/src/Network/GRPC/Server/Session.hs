@@ -99,6 +99,11 @@ data CallSetupFailure =
     -- 'CallSetupUnimplementedMethod' is referring to.
   | CallSetupUnimplementedMethod Path
 
+    -- | An exception arose while we tried to look up the handler
+    --
+    -- This can arise when the list of handlers /itself/ is @undefined@.
+  | CallSetupHandlerLookupException SomeException
+
 deriving stock    instance Show      CallSetupFailure
 deriving anyclass instance Exception CallSetupFailure
 

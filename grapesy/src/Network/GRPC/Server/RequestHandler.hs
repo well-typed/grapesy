@@ -15,6 +15,7 @@ module Network.GRPC.Server.RequestHandler (
 
 import Control.Concurrent
 import Control.Concurrent.Thread.Delay qualified as UnboundedDelays
+import Control.Exception (evaluate)
 import Control.Monad.Catch
 import Data.Bifunctor
 import Data.ByteString.Builder qualified as Builder
@@ -27,7 +28,7 @@ import Network.HTTP.Types qualified as HTTP
 import Network.HTTP2.Server qualified as HTTP2
 
 import Network.GRPC.Server.Call
-import Network.GRPC.Server.Context (ServerContext (..))
+import Network.GRPC.Server.Context (ServerContext (..), ServerParams(..))
 import Network.GRPC.Server.Handler
 import Network.GRPC.Server.HandlerMap (HandlerMap)
 import Network.GRPC.Server.HandlerMap qualified as HandlerMap
@@ -48,13 +49,15 @@ requestHandler handlers ctxt unmask request respond = do
     labelThisThread "grapesy:requestHandler"
 
     SomeRpcHandler (_ :: Proxy rpc) handler <-
-      findHandler handlers request      `catch` setupFailure respond
+      findHandler handlers request      `catch` setupFailure params respond
     (call :: Call rpc, mTimeout :: Maybe Timeout) <-
-      setupCall connectionToClient ctxt `catch` setupFailure respond
+      setupCall connectionToClient ctxt `catch` setupFailure params respond
 
     imposeTimeout mTimeout $
       runHandler unmask call handler
   where
+    ServerContext{serverParams = params} = ctxt
+
     connectionToClient :: ConnectionToClient
     connectionToClient = ConnectionToClient{request, respond}
 
@@ -84,12 +87,14 @@ findHandler handlers req = do
       either throwM return . first CallSetupInvalidResourceHeaders $
         parseResourceHeaders rawHeaders
     let path = resourcePath resourceHeaders
-    handler <- do
-      case HandlerMap.lookup path handlers of
-        Just h  -> return h
-        Nothing -> throwM $ CallSetupUnimplementedMethod path
 
-    return handler
+    -- We have to be careful looking up the handler; there might be pure
+    -- exceptions in the list of handlers (most commonly @undefined@).
+    mHandler <- try $ evaluate $ HandlerMap.lookup path handlers
+    case mHandler of
+      Right (Just h) -> return h
+      Right Nothing  -> throwM $ CallSetupUnimplementedMethod path
+      Left err       -> throwM $ CallSetupHandlerLookupException err
   where
     rawHeaders :: RawResourceHeaders
     rawHeaders = RawResourceHeaders {
@@ -103,11 +108,13 @@ findHandler handlers req = do
 -- client at all yet. We try to tell the client what happened, but ignore any
 -- exceptions that might arise from doing so.
 setupFailure ::
-     (HTTP2.Response -> IO ())
+     ServerParams
+  -> (HTTP2.Response -> IO ())
   -> CallSetupFailure
   -> IO a
-setupFailure respond failure = do
-    _ :: Either SomeException () <- try $ respond $ failureResponse failure
+setupFailure params sendResponse failure = do
+    response <- mkFailureResponse params failure
+    _ :: Either SomeException () <- try $ sendResponse response
     throwM failure
 
 {-------------------------------------------------------------------------------
@@ -132,36 +139,62 @@ setupFailure respond failure = do
 -- Testing out-of-spec errors can be bit awkward. One option is @curl@:
 --
 -- > curl --verbose --http2 --http2-prior-knowledge http://127.0.0.1:50051/
-failureResponse :: CallSetupFailure -> HTTP2.Response
-failureResponse (CallSetupInvalidResourceHeaders (InvalidMethod method)) =
-    HTTP2.responseBuilder
-      HTTP.methodNotAllowed405
-      [("Allow", "POST")]
-      (Builder.byteString . mconcat $ [
-          "Unexpected :method " <> method <> ".\n"
-        , "The only method supported by gRPC is POST.\n"
-        ])
-failureResponse (CallSetupInvalidResourceHeaders (InvalidPath path)) =
-    HTTP2.responseBuilder HTTP.badRequest400 [] . Builder.byteString $
-      "Invalid path " <> path
-failureResponse (CallSetupInvalidRequestHeaders invalid) =
-    HTTP2.responseBuilder (statusInvalidHeaders invalid) [] $
-      prettyInvalidHeaders invalid
-failureResponse (CallSetupUnsupportedCompression cid) =
-    HTTP2.responseBuilder HTTP.badRequest400 [] . Builder.byteString $
-      "Unsupported compression: " <> BS.UTF8.fromString (show cid)
-failureResponse (CallSetupUnimplementedMethod path) =
-    HTTP2.responseNoBody HTTP.ok200 . buildTrailersOnly chooseContentType' $
-      properTrailersToTrailersOnly (
-          grpcExceptionToTrailers $ grpcUnimplemented path
-        , Just ContentTypeDefault
-        )
+mkFailureResponse :: ServerParams -> CallSetupFailure -> IO HTTP2.Response
+mkFailureResponse params = \case
+    CallSetupInvalidResourceHeaders (InvalidMethod method) ->
+      return $
+        HTTP2.responseBuilder
+          HTTP.methodNotAllowed405
+          [("Allow", "POST")]
+          (Builder.byteString . mconcat $ [
+              "Unexpected :method " <> method <> ".\n"
+            , "The only method supported by gRPC is POST.\n"
+            ])
+    CallSetupInvalidResourceHeaders (InvalidPath path) ->
+      return $
+        HTTP2.responseBuilder HTTP.badRequest400 [] . Builder.byteString $
+          "Invalid path " <> path
+    CallSetupInvalidRequestHeaders invalid ->
+      return $
+        HTTP2.responseBuilder (statusInvalidHeaders invalid) [] $
+          prettyInvalidHeaders invalid
+    CallSetupUnsupportedCompression cid ->
+      return $
+        HTTP2.responseBuilder HTTP.badRequest400 [] . Builder.byteString $
+          "Unsupported compression: " <> BS.UTF8.fromString (show cid)
+    CallSetupUnimplementedMethod path -> do
+      let trailersOnly :: TrailersOnly
+          trailersOnly = properTrailersToTrailersOnly (
+              grpcExceptionToTrailers $ grpcUnimplemented path
+            , serverContentType
+            )
+      return $
+        HTTP2.responseNoBody HTTP.ok200 $
+          buildTrailersOnly contentTypeForUnknown trailersOnly
+    CallSetupHandlerLookupException err -> do
+      msg <- serverExceptionToClient err
+      let trailersOnly :: TrailersOnly
+          trailersOnly = properTrailersToTrailersOnly (
+              grpcExceptionToTrailers $ GrpcException {
+                  grpcError         = GrpcUnknown
+                , grpcErrorMessage  = msg
+                , grpcErrorMetadata = []
+                }
+            , serverContentType
+            )
+      return $
+        HTTP2.responseNoBody HTTP.ok200 $
+          buildTrailersOnly contentTypeForUnknown trailersOnly
   where
-    -- We cannot use the regular 'chooseContentType' here because we don't know
-    -- which @rpc@ this is (given that it's an unimplemented method).
-    chooseContentType' :: ContentType -> Maybe BS.UTF8.ByteString
-    chooseContentType' ContentTypeDefault       = Nothing
-    chooseContentType' (ContentTypeOverride ct) = Just ct
+    ServerParams{
+        serverExceptionToClient
+      , serverContentType
+      } = params
+
+-- | Variation on 'chooseContentType' that can be used when the RPC is unknown
+contentTypeForUnknown :: ContentType -> Maybe BS.UTF8.ByteString
+contentTypeForUnknown ContentTypeDefault       = Nothing
+contentTypeForUnknown (ContentTypeOverride ct) = Just ct
 
 grpcUnimplemented :: Path -> GrpcException
 grpcUnimplemented path = GrpcException {
