@@ -159,17 +159,17 @@ runHandler :: forall rpc.
   -> Call rpc
   -> RpcHandler IO rpc
   -> IO ()
-runHandler unmask call (RpcHandler k) = do
+runHandler unmask call handler = do
     -- http2 will kill the handler when the client disappears, but we want the
     -- handler to be able to terminate cleanly. We therefore run the handler in
     -- a separate thread, and wait for that thread to terminate.
-    handlerThread <- asyncLabelled "grapesy:handler" handler
+    handlerThread <- asyncLabelled "grapesy:handler" handler'
     waitForHandler unmask call handlerThread
   where
     -- The handler itself will run in a separate thread
-    handler :: IO ()
-    handler = do
-        result <- try $ k call
+    handler' :: IO ()
+    handler' = do
+        result <- try $ runRpcHandler handler call
         handlerTeardown result
 
     -- Deal with any exceptions thrown in the handler
@@ -184,7 +184,7 @@ runHandler unmask call (RpcHandler k) = do
           throwM HandlerTerminated
     handlerTeardown (Left err) = do
         -- The handler threw an exception. Attempt to tell the client.
-        void $ forwardException call err
+        _forwarded <- forwardException call err
         ignoreUncleanClose call $ ExitCaseException err
         throwM err
 
@@ -284,4 +284,4 @@ forwardException call@Call{callContext} err = do
     (True <$ sendProperTrailers call trailers) `catch` handler
  where
    handler :: SomeException -> IO Bool
-   handler _ = return False
+   handler _e = return False
