@@ -1,4 +1,5 @@
 {-# LANGUAGE CPP #-}
+{-# OPTIONS_GHC -Wno-orphans #-}
 
 module Test.Stress.Cmdline
   ( -- * Types
@@ -15,14 +16,20 @@ module Test.Stress.Cmdline
   , Security(..)
   , TlsOpts(..)
 
+    -- ** Auxiliary
+  , NotPretty(..)
+
     -- * Parser
   , getCmdline
   ) where
 
 import Control.Applicative ((<|>))
 import Data.Foldable (asum, toList)
+import Data.Maybe (fromMaybe)
+import GHC.Generics (Generic)
 import Network.Socket (HostName, PortNumber)
 import Options.Applicative qualified as Opt
+import Text.Show.Pretty (PrettyVal(..), parseValue)
 
 import Network.GRPC.Client qualified as Client
 import Network.GRPC.Common
@@ -41,19 +48,20 @@ data Cmdline = Cmdline {
       cmdRole       :: Role
     , cmdGlobalOpts :: GlobalOpts
     }
-  deriving (Show)
+  deriving stock (Show, Generic)
+  deriving anyclass (PrettyVal)
 
 -- | Should we run the client, servers, or both?
 data Role =
       -- | Run the clients
       Client {
           -- | Connect over TLS?
-          clientSecurity   :: Maybe Client.ServerValidation
+          clientSecurity   :: Maybe (NotPretty Client.ServerValidation)
         , clientServerPort :: PortNumber
         , clientConnects   :: [Connect]
 
           -- | Insist on this compression scheme for all messages
-        , clientCompression :: Maybe Compression
+        , clientCompression :: Maybe (NotPretty Compression)
         }
 
       -- | Run the server
@@ -67,7 +75,8 @@ data Role =
         , driverDuration   :: Int
         , driverGenCharts  :: Bool
         }
-  deriving (Show)
+  deriving stock (Show, Generic)
+  deriving anyclass (PrettyVal)
 
 -- | Connections to execute
 data Connect = Connect {
@@ -83,11 +92,13 @@ data Connect = Connect {
       -- | Calls to make on the connections
     , connectCalls :: [Call]
     }
-  deriving (Show)
+  deriving stock (Show, Generic)
+  deriving anyclass (PrettyVal)
 
 -- | Concurrent or sequential execution
 data Exec = Concurrent | Sequential
-  deriving (Show)
+  deriving stock (Show, Generic)
+  deriving anyclass (PrettyVal)
 
 -- | Types of RPCs
 data Call =
@@ -102,19 +113,22 @@ data Call =
 
       -- | Client and server send @N@ messages to each other
     | BiDiStreaming Int
-  deriving (Show)
+  deriving stock (Show, Generic)
+  deriving anyclass (PrettyVal)
 
 data Security =
       Insecure
     | Secure
-  deriving (Show)
+  deriving stock (Show, Generic)
+  deriving anyclass (PrettyVal)
 
 data TlsOpts = TlsOpts {
       tlsPubCert    :: FilePath
     , tlsChainCerts :: [FilePath]
     , tlsPrivKey    :: FilePath
     }
-  deriving (Show)
+  deriving stock (Show, Generic)
+  deriving anyclass (PrettyVal)
 
 mkConfig :: Maybe TlsOpts -> HostName -> PortNumber -> ServerConfig
 mkConfig mtls host port =
@@ -137,7 +151,8 @@ mkConfig mtls host port =
 data GlobalOpts = GlobalOpts {
       optsTracing :: Bool
     }
-  deriving (Show)
+  deriving stock (Show, Generic)
+  deriving anyclass (PrettyVal)
 
 -------------------------------------------------------------------------------
 -- Top-level parsers
@@ -183,10 +198,10 @@ parseRole defaultPub defaultPriv = Opt.subparser $ mconcat [
 parseClientRole :: FilePath -> Opt.Parser Role
 parseClientRole defaultPub =
     Client
-      <$> parseClientSecurity defaultPub
+      <$> (fmap WrapNotPretty <$> parseClientSecurity defaultPub)
       <*> parseClientPort
       <*> parseClientConnects
-      <*> Opt.optional parseCompression
+      <*> Opt.optional (WrapNotPretty <$> parseCompression)
 
 parseClientSecurity :: FilePath -> Opt.Parser (Maybe Client.ServerValidation)
 parseClientSecurity defaultPub =
@@ -410,3 +425,24 @@ sub :: String -> String -> Opt.Parser a -> Opt.Mod Opt.CommandFields a
 sub cmd desc parser =
     Opt.command cmd $
       Opt.info (parser Opt.<**> Opt.helper) (Opt.progDesc desc)
+
+-------------------------------------------------------------------------------
+-- Auxiliary: pretty-val
+-------------------------------------------------------------------------------
+
+newtype NotPretty a = WrapNotPretty { unwrapNotPretty :: a }
+  deriving newtype (Show)
+
+instance Show a => PrettyVal (NotPretty a) where
+  prettyVal (WrapNotPretty x) =
+      fromMaybe
+        (error $ "prettyVal: could not parse " ++ show x)
+        (parseValue $ show x)
+
+instance PrettyVal PortNumber where
+  prettyVal = prettyVal . (fromIntegral :: PortNumber -> Integer)
+
+deriving anyclass instance PrettyVal ServerConfig
+deriving anyclass instance PrettyVal InsecureConfig
+deriving anyclass instance PrettyVal SecureConfig
+deriving anyclass instance PrettyVal SslKeyLog

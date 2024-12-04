@@ -30,6 +30,7 @@ import Control.Concurrent.STM
 import Control.Exception
 import Control.Monad
 import Data.Default
+import GHC.Generics (Generic)
 import Network.HTTP2.Server qualified as HTTP2
 import Network.HTTP2.TLS.Server qualified as HTTP2.TLS
 import Network.Run.TCP qualified as Run
@@ -62,7 +63,7 @@ data ServerConfig = ServerConfig {
       -- Set to 'Nothing' to disable.
     , serverSecure :: Maybe SecureConfig
     }
-  deriving (Show)
+  deriving stock (Show, Generic)
 
 -- | Offer insecure connection (no TLS)
 data InsecureConfig = InsecureConfig {
@@ -76,7 +77,7 @@ data InsecureConfig = InsecureConfig {
       -- 'getInsecureSocket' for a way to figure out what this port actually is.
     , insecurePort :: PortNumber
     }
-  deriving (Show)
+  deriving stock (Show, Generic)
 
 -- | Offer secure connection (over TLS)
 data SecureConfig = SecureConfig {
@@ -107,7 +108,7 @@ data SecureConfig = SecureConfig {
       -- | SSL key log
     , secureSslKeyLog :: SslKeyLog
     }
-  deriving (Show)
+  deriving stock (Show, Generic)
 
 {-------------------------------------------------------------------------------
   Simple interface
