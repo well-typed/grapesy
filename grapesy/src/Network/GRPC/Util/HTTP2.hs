@@ -1,7 +1,3 @@
-{-# LANGUAGE CPP #-}
-
-#include "MachDeps.h"
-
 module Network.GRPC.Util.HTTP2 (
     -- * General auxiliary
     fromHeaderTable
@@ -219,26 +215,8 @@ mkTlsSettings http2Settings keyLogger =
 withTimeManager :: (Time.Manager -> IO a) -> IO a
 withTimeManager = TimeManager.withManager (disableTimeout * 1_000_000)
 
--- | Work around the fact that we cannot disable timeouts in http2/http2-tls
+-- | Disable timeouts in http2/http2-tls
 --
--- TODO: <https://github.com/well-typed/grapesy/issues/123>
--- We need a proper solution for this.
+-- A value of 0 (or lower) disables timeouts as of @time-manager-0.2.2@.
 disableTimeout :: Int
-disableTimeout =
-#if (WORD_SIZE_IN_BITS == 64)
-    -- Set a really high timeout to effectively disable timeouts (100 years)
-    --
-    -- NOTE: We cannot use 'maxBound' here, because this value is multiplied
-    -- by @1_000_000@ in 'Network.Run.TCP.Timeout.runTCPServerWithSocket'
-    -- (in @network-run@).
-    100 * 365 * 24 * 60 * 60
-#else
-#warning "Timeout for RPC messages is set to 30 minutes on 32-bit systems."
-#warning "See https://github.com/kazu-yamamoto/http2/issues/112"
-    -- Unfortunately, the same trick does not work on 32-bit systems, where we
-    -- simply don't have enough range. The maximum timeout we can support here
-    -- is roughly 35 mins. We set it to 30 minutes exactly, to at least provide
-    -- a clue if the timeout does hit (1_800_000_000 < 2_147_483_647).
-    30 * 60
-#endif
-
+disableTimeout = 0
