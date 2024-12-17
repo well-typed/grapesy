@@ -26,6 +26,7 @@ import Control.Exception
 import Data.Default
 import Data.X509 qualified as X509
 import Data.X509.CertificateStore qualified as X509
+import GHC.Generics (Generic)
 import System.Environment
 import System.X509 qualified as X509
 
@@ -134,7 +135,7 @@ data SslKeyLog =
     --
     -- This is the default.
   | SslKeyLogFromEnv
-  deriving (Show, Eq)
+  deriving stock (Show, Eq, Generic)
 
 instance Default SslKeyLog where
   def = SslKeyLogFromEnv

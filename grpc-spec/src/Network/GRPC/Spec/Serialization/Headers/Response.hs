@@ -49,7 +49,6 @@ import Network.GRPC.Spec
 import Network.GRPC.Spec.PercentEncoding qualified as PercentEncoding
 import Network.GRPC.Spec.Serialization.CustomMetadata
 import Network.GRPC.Spec.Serialization.Headers.Common
-import Network.GRPC.Spec.Serialization.Status
 import Network.GRPC.Spec.Util.HKD qualified as HKD
 import Network.GRPC.Spec.Util.Protobuf qualified as Protobuf
 
@@ -360,7 +359,7 @@ buildProperTrailers ProperTrailers{
     -- NOTE: If we add additional (reserved) headers here, we also need to add
     -- them to 'buildTrailer'.
       [ ( "grpc-status"
-        , BS.Strict.C8.pack $ show $ buildGrpcStatus properTrailersGrpcStatus
+        , BS.Strict.C8.pack $ show $ fromGrpcStatus properTrailersGrpcStatus
         )
       ]
     , [ ("grpc-message", PercentEncoding.encode x)
@@ -491,7 +490,7 @@ parseTrailersOnly' proxy =
       | name == "grpc-status"
       = modify $ liftProperTrailers $ \x -> x{
             properTrailersGrpcStatus = throwInvalidHeader hdr $
-              case parseGrpcStatus =<< readMaybe (BS.Strict.C8.unpack value) of
+              case toGrpcStatus =<< readMaybe (BS.Strict.C8.unpack value) of
                 Nothing -> throwError $ "Invalid status: " ++ show value
                 Just v  -> return v
           }

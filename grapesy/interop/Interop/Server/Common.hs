@@ -12,7 +12,7 @@ import Control.Exception
 import Network.GRPC.Common
 import Network.GRPC.Common.Protobuf
 import Network.GRPC.Server
-import Network.GRPC.Spec.Serialization (parseGrpcStatus)
+import Network.GRPC.Spec (toGrpcStatus)
 
 import Interop.Util.Exceptions
 
@@ -54,7 +54,7 @@ constructResponseMetadata call = do
 -- See <https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptions.md#status_code_and_message>
 echoStatus :: Proto EchoStatus -> IO ()
 echoStatus status =
-    case parseGrpcStatus code of
+    case toGrpcStatus code of
       Just GrpcOk ->
         return ()
       Just (GrpcError err) ->

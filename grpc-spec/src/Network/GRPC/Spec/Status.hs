@@ -2,16 +2,22 @@ module Network.GRPC.Spec.Status (
     -- * GRPC status
     GrpcStatus(..)
   , GrpcError(..)
+  , fromGrpcStatus
+  , fromGrpcError
+  , toGrpcStatus
+  , toGrpcError
     -- * Exceptions
   , GrpcException(..)
   , throwGrpcError
   ) where
 
 import Control.Exception
+import Data.List (intercalate)
 import Data.Text (Text)
 import GHC.Generics (Generic)
 
 import Network.GRPC.Spec.CustomMetadata.Raw (CustomMetadata)
+import Data.Text qualified as Text
 
 {-------------------------------------------------------------------------------
   gRPC status
@@ -175,6 +181,63 @@ data GrpcError =
   deriving anyclass (Exception)
 
 {-------------------------------------------------------------------------------
+  Status codes
+-------------------------------------------------------------------------------}
+
+-- | Translate 'GrpcStatus' to numerical status code
+--
+-- See <https://grpc.github.io/grpc/core/md_doc_statuscodes.html>
+fromGrpcStatus :: GrpcStatus -> Word
+fromGrpcStatus  GrpcOk         =  0
+fromGrpcStatus (GrpcError err) = fromGrpcError err
+
+-- | Translate 'GrpcError' to numerical status code
+--
+-- See also 'fromGrpcStatus'
+fromGrpcError :: GrpcError -> Word
+fromGrpcError GrpcCancelled          =  1
+fromGrpcError GrpcUnknown            =  2
+fromGrpcError GrpcInvalidArgument    =  3
+fromGrpcError GrpcDeadlineExceeded   =  4
+fromGrpcError GrpcNotFound           =  5
+fromGrpcError GrpcAlreadyExists      =  6
+fromGrpcError GrpcPermissionDenied   =  7
+fromGrpcError GrpcResourceExhausted  =  8
+fromGrpcError GrpcFailedPrecondition =  9
+fromGrpcError GrpcAborted            = 10
+fromGrpcError GrpcOutOfRange         = 11
+fromGrpcError GrpcUnimplemented      = 12
+fromGrpcError GrpcInternal           = 13
+fromGrpcError GrpcUnavailable        = 14
+fromGrpcError GrpcDataLoss           = 15
+fromGrpcError GrpcUnauthenticated    = 16
+
+-- | Inverse to 'fromGrpcStatus'
+toGrpcStatus :: Word -> Maybe GrpcStatus
+toGrpcStatus 0 = Just $ GrpcOk
+toGrpcStatus s = GrpcError <$> toGrpcError s
+
+-- | Inverse to 'fromGrpcError'
+toGrpcError :: Word -> Maybe GrpcError
+toGrpcError  1 = Just $ GrpcCancelled
+toGrpcError  2 = Just $ GrpcUnknown
+toGrpcError  3 = Just $ GrpcInvalidArgument
+toGrpcError  4 = Just $ GrpcDeadlineExceeded
+toGrpcError  5 = Just $ GrpcNotFound
+toGrpcError  6 = Just $ GrpcAlreadyExists
+toGrpcError  7 = Just $ GrpcPermissionDenied
+toGrpcError  8 = Just $ GrpcResourceExhausted
+toGrpcError  9 = Just $ GrpcFailedPrecondition
+toGrpcError 10 = Just $ GrpcAborted
+toGrpcError 11 = Just $ GrpcOutOfRange
+toGrpcError 12 = Just $ GrpcUnimplemented
+toGrpcError 13 = Just $ GrpcInternal
+toGrpcError 14 = Just $ GrpcUnavailable
+toGrpcError 15 = Just $ GrpcDataLoss
+toGrpcError 16 = Just $ GrpcUnauthenticated
+toGrpcError _  = Nothing
+
+{-------------------------------------------------------------------------------
   gRPC exceptions
 -------------------------------------------------------------------------------}
 
@@ -188,7 +251,31 @@ data GrpcException = GrpcException {
     , grpcErrorMetadata  :: [CustomMetadata]
     }
   deriving stock (Show, Eq)
-  deriving anyclass (Exception)
+
+instance Exception GrpcException where
+  displayException GrpcException{
+                       grpcError
+                     , grpcErrorMessage
+                     , grpcErrorMetadata
+                     } = (intercalate "\n" . concat) [
+        [ concat [
+            "gRPC exception "
+          , show grpcError
+          , " ("
+          , show (fromGrpcError grpcError)
+          , ")"
+          ]
+        ]
+      , [ intercalate "\n" $
+              "Error message:"
+            : (map ("| " ++) . lines $ Text.unpack msg)
+        | Just msg <- [grpcErrorMessage]
+        ]
+      , [ show md
+        | md <- grpcErrorMetadata
+        ]
+      ]
+
 
 -- | Convenience function to throw an t'GrpcException' with the specified error
 throwGrpcError :: GrpcError -> IO a

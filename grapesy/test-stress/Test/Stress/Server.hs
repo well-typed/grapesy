@@ -6,6 +6,8 @@ import Control.Exception
 import Control.Monad
 import Data.ByteString.Lazy.Char8 qualified as BS.Char8
 import Data.IORef
+import Data.Text qualified as Text
+import System.Exit (exitFailure)
 
 import Network.GRPC.Common
 import Network.GRPC.Server
@@ -13,7 +15,6 @@ import Network.GRPC.Server.Run
 import Proto.API.Trivial
 
 import Test.Stress.Common
-import System.Exit (exitFailure)
 
 {-------------------------------------------------------------------------------
   Top-level
@@ -22,7 +23,7 @@ import System.Exit (exitFailure)
 server :: Bool -> ServerConfig -> IO ()
 server v config = handle swallowInterruptOrKilled $ do
     idRef <- newIORef "unknown"
-    s <- mkGrpcServer def (handlers v idRef)
+    s <- mkGrpcServer params (handlers v idRef)
     forkServer def config s $ \runningServer -> do
       p <- getServerPort runningServer
       writeIORef idRef $ show p
@@ -39,6 +40,13 @@ server v config = handle swallowInterruptOrKilled $ do
         = do
           putStrLn $ "got unexpected server exception: " ++ show e
           exitFailure
+
+    params :: ServerParams
+    params = def {
+          -- Show exception including backtrace
+          serverExceptionToClient = \e ->
+            return $ Just (Text.pack $ displayException e)
+        }
 
 {-------------------------------------------------------------------------------
   Handlers
@@ -105,11 +113,8 @@ handlers v idRef = [
 
     clientDisconnectOkay :: IO () -> IO ()
     clientDisconnectOkay =
-        handle $ \case
-          e | Just ClientDisconnected{} <- fromException e -> do
-            say' "client disconnected"
-            | otherwise ->
-            throwIO e
+        handle $ \ClientDisconnected{} ->
+          say' "client disconnected"
 
     say' :: String -> IO ()
     say' msg = do

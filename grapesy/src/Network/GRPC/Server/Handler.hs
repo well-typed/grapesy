@@ -24,7 +24,7 @@ import Control.Monad.IO.Class
 import Data.Kind
 import Data.Proxy
 import GHC.Stack
-import Network.HTTP2.Internal qualified as HTTP2
+import System.ThreadManager (KilledByThreadManager(..))
 
 import Network.GRPC.Common
 import Network.GRPC.Server.Call
@@ -242,7 +242,7 @@ waitForHandler unmask call handlerThread = loop
 
     handleException :: SomeException -> IO ()
     handleException err
-      | Just (HTTP2.KilledByHttp2ThreadManager mErr) <- fromException err = do
+      | Just (KilledByThreadManager mErr) <- fromException err = do
           let exitReason :: ExitCase ()
               exitReason =
                 case mErr of
