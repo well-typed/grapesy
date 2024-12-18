@@ -1,5 +1,3 @@
-{-# LANGUAGE CPP #-}
-
 -- | Public 'Compression' API
 --
 -- Intended for qualified import.
