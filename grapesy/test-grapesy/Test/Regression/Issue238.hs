@@ -189,7 +189,7 @@ testWith handlers client = do
   where
     serverConfig :: Server.ServerConfig
     serverConfig = Server.ServerConfig {
-          serverInsecure = Just $ Server.InsecureConfig Nothing 0
+          serverInsecure = Just $ Server.InsecureConfig (Just "127.0.0.1") 0
         , serverSecure   = Nothing
         }
 

@@ -77,6 +77,6 @@ main = do
   where
     config :: ServerConfig
     config = ServerConfig {
-          serverInsecure = Just (InsecureConfig Nothing defaultInsecurePort)
+          serverInsecure = Just (InsecureConfig (Just "0.0.0.0") defaultInsecurePort)
         , serverSecure   = Nothing
         }
