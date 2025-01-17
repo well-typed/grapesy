@@ -21,7 +21,7 @@ Legend:
 * 🚫 not supported by `grapesy`
 
 We last tested against version
-[v1.62.0](https://github.com/grpc/grpc/releases/tag/v1.62.0) (released Feb 20,
+[v1.69.0](https://github.com/grpc/grpc/releases/tag/v1.69.0) (released Dec 24,
 2024).
 
 ### `grapesy` server versus reference client
@@ -81,18 +81,16 @@ are not supported by _any_ of the reference implementations that we tested, we
 did not consider them any further. The full list is:
 
 * [`cacheable_unary`](https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptions.md#cacheable_unary)
+* [`channel_soak`](https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptions.md#channel_soak)
+* [`compute_engine_channel_credentials`](https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptionsmd#compute_engine_channel_credentials)
 * [`compute_engine_creds`](https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptions.md#compute_engine_creds)
+* [`concurrent_large_unary`](https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptions.md#concurrent_large_unary)
+* [`google_default_credentials`](https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptions.md#google_default_credentials)
 * [`jwt_token_creds`](https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptions.md#jwt_token_creds)
+* [`long_lived_channel`](https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptions.md#long_lived_channel)
 * [`oauth2_auth_token`](https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptions.md#oauth2_auth_token)
 * [`per_rpc_creds`](https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptions.md#per_rpc_creds)
-* [`google_default_credentials`](https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptions.md#google_default_credentials)
-* [`compute_engine_channel_credentials`](https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptionsmd#compute_engine_channel_credentials),
 * [`rpc_soak`](https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptions.md#rpc_soak)
-* [`channel_soak`](https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptions.md#channel_soak)
-
-[grpc:website]: https://grpc.io/
-[grpc:interop]: https://github.com/grpc/grpc/tree/master/tools/interop_matrix
-[grapesy:issue:72-orca]: https://github.com/well-typed/grapesy/issues/72
 
 ## Memory profiles
 
@@ -186,3 +184,9 @@ profile](/assets/profiles/many-messages-server.png)
     <td>3563.867</td>
   </tr>
 </table>
+
+
+[grpc:website]: https://grpc.io/
+[grpc:interop]: https://github.com/grpc/grpc/tree/master/tools/interop_matrix
+[grapesy:issue:72-orca]: https://github.com/well-typed/grapesy/issues/72
+
