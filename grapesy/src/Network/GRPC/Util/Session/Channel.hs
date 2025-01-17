@@ -408,7 +408,7 @@ waitForOutbound Channel{channelOutbound} = atomically $
 -- Not doing so is considered a bug (it is not possible to do this implicitly,
 -- because the final call to 'send' involves a choice of trailers, and calling
 -- 'waitForOutbound' /without/ a final close to 'send' will result in deadlock).
--- Typically code will also process all /incoming/ messages, but doing so of
+-- Typically code will also process all /incoming/ messages, but doing so is of
 -- course not mandatory.
 --
 -- Calling 'close' will kill the outbound thread ('sendMessageLoop'), /if/ it is
@@ -431,7 +431,7 @@ close ::
 close Channel{channelOutbound} reason = do
     -- We leave the inbound thread running. Although the channel is closed,
     -- there might still be unprocessed messages in the queue. The inbound
-    -- thread will terminate once it reaches the end of the queue
+    -- thread will terminate once it reaches the end of the queue.
     outbound <- cancelThread channelOutbound channelClosed
     case outbound of
       AlreadyTerminated _ ->
