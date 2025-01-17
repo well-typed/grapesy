@@ -29,7 +29,9 @@ module Network.GRPC.Client.Call (
   , recvInitialResponse
   ) where
 
+import Control.Concurrent
 import Control.Concurrent.STM
+import Control.Concurrent.Thread.Delay qualified as UnboundedDelays
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
@@ -104,143 +106,23 @@ data Call rpc = SupportsClientRpc rpc => Call {
 -- If there are still /inbound/ messages upon leaving the scope of 'withRPC' no
 -- exception is raised (but the call is nonetheless still closed, and the server
 -- handler will be informed that the client has disappeared).
+--
+-- Note on timeouts: if a timeout is specified for the call (either through
+-- 'callTimeout' or through 'connDefaultTimeout'), when the timeout is reached
+-- the RPC is cancelled; any further attempts to receive or send messages will
+-- result in a 'GrpcException' with 'GrpcDeadlineExceeded'. As per the gRPC
+-- specification, this does /not/ rely on the server; this does mean that the
+-- same deadline also applies if the /client/ is slow (rather than the server).
 withRPC :: forall rpc m a.
      (MonadMask m, MonadIO m, SupportsClientRpc rpc, HasCallStack)
   => Connection -> CallParams rpc -> Proxy rpc -> (Call rpc -> m a) -> m a
 withRPC conn callParams proxy k = fmap fst $
-      generalBracket
-        (liftIO $ startRPC conn proxy callParams)
-        closeRPC
-        (k . fst)
-  where
-    closeRPC :: (Call rpc, Session.CancelRequest) -> ExitCase a -> m ()
-    closeRPC (call, cancelRequest) exitCase = liftIO $ do
-        -- /Before/ we do anything else (see below), check if we have evidence
-        -- that we can discard the connection.
-        canDiscard <- checkCanDiscard call
-
-        -- Send the RST_STREAM frame /before/ closing the outbound thread.
-        --
-        -- When we call 'Session.close', we will terminate the
-        -- 'sendMessageLoop', @http2@ will interpret this as a clean termination
-        -- of the stream. We must therefore cancel this stream before calling
-        -- 'Session.close'. /If/ the final message has already been sent,
-        -- @http2@ guarantees (as a postcondition of @outBodyPushFinal@) that
-        -- cancellation will be a no-op.
-        sendResetFrame cancelRequest exitCase
-
-        -- Now close the /outbound/ thread, see docs of 'Session.close' for
-        -- details.
-        mException <- liftIO $ Session.close (callChannel call) exitCase
-        case mException of
-          Nothing ->
-            -- The outbound thread had already terminated
-            return ()
-          Just ex ->
-            case fromException ex of
-              Nothing ->
-                -- We are leaving the scope of 'withRPC' because of an exception
-                -- in the client, just rethrow that exception.
-                throwM ex
-              Just discarded ->
-                -- We are leaving the scope of 'withRPC' without having sent the
-                -- final message.
-                --
-                -- If the server was closed before we cancelled the stream, this
-                -- means that the server unilaterally closed the connection.
-                -- This should be regarded as normal termination of the RPC (see
-                -- the docs for 'withRPC')
-                --
-                -- Otherwise, the client left the scope of 'withRPC' before the
-                -- RPC was complete, which the gRPC spec mandates to result in a
-                -- 'GrpcCancelled' exception. See docs of 'throwCancelled'.
-                unless canDiscard $
-                  throwCancelled discarded
-
-    -- Send a @RST_STREAM@ frame if necessary
-    sendResetFrame :: Session.CancelRequest -> ExitCase a -> IO ()
-    sendResetFrame cancelRequest exitCase =
-        cancelRequest $
-          case exitCase of
-            ExitCaseSuccess _ ->
-              -- Error code will be CANCEL
-              Nothing
-            ExitCaseAbort ->
-              -- Error code will be INTERNAL_ERROR. The client aborted with an
-              -- error that we don't have access to. We want to tell the server
-              -- that something has gone wrong (i.e. INTERNAL_ERROR), so we must
-              -- pass an exception, however the exact nature of the exception is
-              -- not particularly important as it is only recorded locally.
-              Just . toException $ Session.ChannelAborted callStack
-            ExitCaseException e ->
-              -- Error code will be INTERNAL_ERROR
-              Just e
-
-    -- The spec mandates that when a client cancels a request (which in grapesy
-    -- means exiting the scope of withRPC), the client receives a CANCELLED
-    -- exception. We need to deal with the edge case mentioned above, however:
-    -- the server might have already closed the connection. The client must have
-    -- evidence that this is the case, which could mean one of two things:
-    --
-    -- o The client received the final message from the server
-    -- o The server threw an exception (and the client saw this)
-    --
-    -- We can check for the former using 'channelRecvFinal', and the latter
-    -- using 'hasThreadTerminated'. By checking both, we avoid race conditions:
-    --
-    -- o If the client received the final message, 'channelRecvFinal' /will/
-    --   have been updated (we update this in the same transaction that returns
-    --   the actual element; see 'Network.GRPC.Util.Session.Channel.recv').
-    -- o If the server threw an exception, and the client observed this, then
-    --   the inbound thread state /must/ have changed to 'ThreadException'.
-    --
-    -- Note that it is /not/ sufficient to check if the inbound thread has
-    -- terminated: we might have received the final message, but the thread
-    -- might still be /about/ to terminate, but not /actually/ have terminated.
-    --
-    -- See also:
-    --
-    -- o <https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptions.md#cancel_after_begin>
-    -- o <https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptions.md#cancel_after_first_response>
-    throwCancelled :: ChannelDiscarded -> IO ()
-    throwCancelled (ChannelDiscarded cs) = do
-        throwM $ GrpcException {
-            grpcError         = GrpcCancelled
-          , grpcErrorMessage  = Just $ mconcat [
-                                    "Channel discarded by client at "
-                                  , Text.pack $ prettyCallStack cs
-                                  ]
-          , grpcErrorMetadata = []
-          }
-
-    checkCanDiscard :: Call rpc -> IO Bool
-    checkCanDiscard Call{callChannel} = do
-        mRecvFinal  <- atomically $
-          readTVar $ Session.channelRecvFinal callChannel
-        let onNotRunning :: STM ()
-            onNotRunning = return ()
-        mTerminated <- atomically $
-          Thread.getThreadState_
-            (Session.channelInbound callChannel)
-            onNotRunning
-        return $
-          or [
-              case mRecvFinal of
-                Session.RecvNotFinal          -> False
-                Session.RecvWithoutTrailers _ -> True
-                Session.RecvFinal _           -> True
-
-              -- We are checking if we have evidence that we can discard the
-              -- channel. If the inbound thread is not yet running, this implies
-              -- that the server has not yet initiated their response to us,
-              -- which means we have no evidence to believe we can discard the
-              -- channel.
-            , case mTerminated of
-                Thread.ThreadNotYetRunning_ () -> False
-                Thread.ThreadRunning_          -> False
-                Thread.ThreadDone_             -> True
-                Thread.ThreadException_ _      -> True
-            ]
+    generalBracket
+      (liftIO $
+         startRPC conn proxy callParams)
+      (\(Call{callChannel}, cancelRequest) exitCase -> liftIO $
+         closeRPC callChannel cancelRequest exitCase)
+      (k . fst)
 
 -- | Open new channel to the server
 --
@@ -280,6 +162,67 @@ startRPC conn _ callParams = do
         serverClosedConnection
         flowStart
 
+    -- The spec mandates that
+    --
+    -- > If a server has gone past the deadline when processing a request, the
+    -- > client will give up and fail the RPC with the DEADLINE_EXCEEDED status.
+    --
+    -- and also that the deadline applies when when wait-for-ready semantics is
+    -- used.
+    --
+    -- We have to be careful implementing this. In particular, we definitely
+    -- don't want to impose the timeout on the /client/ (that is, we should not
+    -- force the client to exit the scope of 'withRPC' within the timeout).
+    -- Instead, we work a thread that cancels the RPC after the timeout expires;
+    -- this means that /if/ the client that attempts to communicate with the
+    -- server after the timeout, only then will it receive an exception.
+    --
+    -- The thread we spawn here is cleaned up by the monitor thread (below).
+    --
+    -- See
+    --
+    -- o <https://grpc.io/docs/guides/deadlines/>
+    -- o <https://grpc.io/docs/guides/wait-for-ready/>
+    mClientSideTimeout <-
+      case callTimeout callParams of
+        Nothing -> return Nothing
+        Just t  -> fmap Just $ forkLabelled "grapesy:clientSideTimeout" $ do
+          UnboundedDelays.delay (timeoutToMicro t)
+          let timeout :: SomeException
+              timeout = toException $ GrpcException {
+                    grpcError         = GrpcDeadlineExceeded
+                  , grpcErrorMessage  = Nothing
+                  , grpcErrorMetadata = []
+                  }
+
+          -- We recognized client-side that the timeout we imposed on the server
+          -- has passed. Acting on this is however tricky:
+          --
+          -- o A call to 'closeRPC' will only terminate the /outbound/ thread;
+          --   the idea is the inbound thread might still be reading in-flight
+          --   messages, and it will terminate once the last message is read or
+          --   the thread notices a broken connection.
+          -- o Unfortunately, this does not work in the timeout case: /if/ the
+          --   outbound thread has not yet terminated (that is, the client has
+          --   not yet sent their final message), then calling 'closeRPC' will
+          --   result in a RST_STREAM being sent to the server, which /should/
+          --   result in the inbound connection being closed also, but may not,
+          --   in the case of a non-compliant server.
+          -- o Worse, if the client /did/ already send their final message, the
+          --   outbound thread has already terminated, no RST_STREAM will be
+          --   sent, and the we will continue to wait for messages from the
+          --   server.
+          --
+          -- Ideally we'd inform the receiving thread that a timeout has been
+          -- reached and to "continue until it would block", but that is hard
+          -- to do. So instead we just kill the receiving thread, which means
+          -- that once the timeout is reached, the client will not be able to
+          -- receive any further messages (even if that is because the /client/
+          -- was slow, rather than the server).
+
+          void $ Thread.cancelThread (Session.channelInbound channel) timeout
+          closeRPC channel cancelRequest $ ExitCaseException timeout
+
     -- Spawn a thread to monitor the connection, and close the new channel when
     -- the connection is closed. To prevent a memory leak by hanging on to the
     -- channel for the lifetime of the connection, the thread also terminates in
@@ -287,9 +230,10 @@ startRPC conn _ callParams = do
     _ <- forkLabelled "grapesy:monitorConnection" $ do
       status <- atomically $ do
           (Left <$> Thread.waitForNormalOrAbnormalThreadTermination
-                      (Session.channelOutbound channel))
+                      (Session.channelInbound channel))
         `orElse`
           (Right <$> readTMVar connClosed)
+      forM_ mClientSideTimeout killThread
       case status of
         Left _ -> return () -- Channel closed before the connection
         Right mErr -> do
@@ -346,6 +290,142 @@ startRPC conn _ callParams = do
     session = ClientSession {
           clientConnection = conn
         }
+
+-- | Close the RPC (internal API only)
+--
+-- This is more subtle than one might think. The spec mandates that when a
+-- client cancels a request (which in grapesy means exiting the scope of
+-- withRPC), the client receives a CANCELLED exception. We need to deal with the
+-- edge case mentioned in 'withRPC', however: the server might have already
+-- closed the connection. The client must have evidence that this is the case,
+-- which could mean one of two things:
+--
+-- o The client received the final message from the server
+-- o The server threw an exception (and the client saw this)
+--
+-- We can check for the former using 'channelRecvFinal', and the latter using
+-- 'hasThreadTerminated'. By checking both, we avoid race conditions:
+--
+-- o If the client received the final message, 'channelRecvFinal' /will/ have
+--   been updated (we update this in the same transaction that returns the
+--   actual element; see 'Network.GRPC.Util.Session.Channel.recv').
+-- o If the server threw an exception, and the client observed this, then the
+--   inbound thread state /must/ have changed to 'ThreadException'.
+--
+-- Note that it is /not/ sufficient to check if the inbound thread has
+-- terminated: we might have received the final message, but the thread might
+-- still be /about/ to terminate, but not /actually/ have terminated.
+--
+-- See also:
+--
+-- o <https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptions.md#cancel_after_begin>
+-- o <https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptions.md#cancel_after_first_response>
+closeRPC ::
+     Session.Channel rpc
+  -> Session.CancelRequest
+  -> ExitCase a
+  -> IO ()
+closeRPC callChannel cancelRequest exitCase = liftIO $ do
+    -- /Before/ we do anything else (see below), check if we have evidence
+    -- that we can discard the connection.
+    canDiscard <- checkCanDiscard
+
+    -- Send the RST_STREAM frame /before/ closing the outbound thread.
+    --
+    -- When we call 'Session.close', we will terminate the
+    -- 'sendMessageLoop', @http2@ will interpret this as a clean termination
+    -- of the stream. We must therefore cancel this stream before calling
+    -- 'Session.close'. /If/ the final message has already been sent,
+    -- @http2@ guarantees (as a postcondition of @outBodyPushFinal@) that
+    -- cancellation will be a no-op.
+    sendResetFrame
+
+    -- Now close the /outbound/ thread, see docs of 'Session.close' for
+    -- details.
+    mException <- liftIO $ Session.close callChannel exitCase
+    case mException of
+      Nothing ->
+        -- The outbound thread had already terminated
+        return ()
+      Just ex ->
+        case fromException ex of
+          Nothing ->
+            -- We are leaving the scope of 'withRPC' because of an exception
+            -- in the client, just rethrow that exception.
+            throwM ex
+          Just discarded ->
+            -- We are leaving the scope of 'withRPC' without having sent the
+            -- final message.
+            --
+            -- If the server was closed before we cancelled the stream, this
+            -- means that the server unilaterally closed the connection.
+            -- This should be regarded as normal termination of the RPC (see
+            -- the docs for 'withRPC')
+            --
+            -- Otherwise, the client left the scope of 'withRPC' before the
+            -- RPC was complete, which the gRPC spec mandates to result in a
+            -- 'GrpcCancelled' exception. See docs of 'throwCancelled'.
+            unless canDiscard $
+              throwCancelled discarded
+  where
+    -- Send a @RST_STREAM@ frame if necessary
+    sendResetFrame :: IO ()
+    sendResetFrame =
+        cancelRequest $
+          case exitCase of
+            ExitCaseSuccess _ ->
+              -- Error code will be CANCEL
+              Nothing
+            ExitCaseAbort ->
+              -- Error code will be INTERNAL_ERROR. The client aborted with an
+              -- error that we don't have access to. We want to tell the server
+              -- that something has gone wrong (i.e. INTERNAL_ERROR), so we must
+              -- pass an exception, however the exact nature of the exception is
+              -- not particularly important as it is only recorded locally.
+              Just . toException $ Session.ChannelAborted callStack
+            ExitCaseException e ->
+              -- Error code will be INTERNAL_ERROR
+              Just e
+
+    throwCancelled :: ChannelDiscarded -> IO ()
+    throwCancelled (ChannelDiscarded cs) = do
+        throwM $ GrpcException {
+            grpcError         = GrpcCancelled
+          , grpcErrorMessage  = Just $ mconcat [
+                                    "Channel discarded by client at "
+                                  , Text.pack $ prettyCallStack cs
+                                  ]
+          , grpcErrorMetadata = []
+          }
+
+    checkCanDiscard :: IO Bool
+    checkCanDiscard = do
+        mRecvFinal  <- atomically $
+          readTVar $ Session.channelRecvFinal callChannel
+        let onNotRunning :: STM ()
+            onNotRunning = return ()
+        mTerminated <- atomically $
+          Thread.getThreadState_
+            (Session.channelInbound callChannel)
+            onNotRunning
+        return $
+          or [
+              case mRecvFinal of
+                Session.RecvNotFinal          -> False
+                Session.RecvWithoutTrailers _ -> True
+                Session.RecvFinal _           -> True
+
+              -- We are checking if we have evidence that we can discard the
+              -- channel. If the inbound thread is not yet running, this implies
+              -- that the server has not yet initiated their response to us,
+              -- which means we have no evidence to believe we can discard the
+              -- channel.
+            , case mTerminated of
+                Thread.ThreadNotYetRunning_ () -> False
+                Thread.ThreadRunning_          -> False
+                Thread.ThreadDone_             -> True
+                Thread.ThreadException_ _      -> True
+            ]
 
 {-------------------------------------------------------------------------------
   Open (ongoing) call

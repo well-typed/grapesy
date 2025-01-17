@@ -5,6 +5,7 @@
 
 module Test.Sanity.BrokenDeployments (tests) where
 
+import Control.Concurrent
 import Control.Exception
 import Data.ByteString.Char8 qualified as BS.Strict.Char8
 import Data.ByteString.UTF8 qualified as BS.Strict.UTF8
@@ -53,6 +54,9 @@ tests = testGroup "Test.Sanity.BrokenDeployments" [
         ]
     , testGroup "Undefined" [
           testCase "output" test_undefinedOutput
+        ]
+    , testGroup "Timeout" [
+          testCase "serverIgnoresTimeout" test_serverIgnoresTimeout
         ]
     ]
 
@@ -380,3 +384,40 @@ test_undefinedOutput = do
         if isFirst
           then return $ throw $ DeliberateException (userError "uhoh")
           else return $ defMessage & #id .~ req ^. #id
+{-------------------------------------------------------------------------------
+  Timeouts
+-------------------------------------------------------------------------------}
+
+-- | Check that timeouts don't depend on the server
+--
+-- When a timeout is set for an RPC, the server should respect it, but the
+-- client should not /depend/ on the server respecting it.
+--
+-- See also <https://github.com/well-typed/grapesy/issues/221>.
+test_serverIgnoresTimeout :: Assertion
+test_serverIgnoresTimeout = respondWithIO response $ \addr -> do
+    mResp :: Either GrpcException
+                    (StreamElem NoMetadata (Proto PongMessage)) <- try $
+      Client.withConnection connParams (Client.ServerInsecure addr) $ \conn ->
+        Client.withRPC conn callParams (Proxy @Ping) $ \call -> do
+          Client.sendFinalInput call defMessage
+          Client.recvOutput call
+    case mResp of
+      Left e | grpcError e == GrpcDeadlineExceeded ->
+        return ()
+      Left e ->
+        assertFailure $ "unexpected error: " ++ show e
+      Right _ ->
+        assertFailure "Timeout did not trigger"
+  where
+    response :: IO Response
+    response = do
+        threadDelay 10_000_000
+        return def
+
+    callParams :: Client.CallParams Ping
+    callParams = def {
+          Client.callTimeout = Just $
+            Client.Timeout Client.Millisecond (Client.TimeoutValue 100)
+        }
+
