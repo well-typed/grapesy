@@ -1,6 +1,7 @@
 module Test.Util.RawTestServer
   ( -- * Raw test server
     respondWith
+  , respondWithIO
 
     -- * Abstract response type
   , Response(..)
@@ -35,7 +36,7 @@ withTestServer server k = do
           ServerConfig {
             serverInsecure = Just $ InsecureConfig {
                 insecureHost = Just "127.0.0.1"
-              , insecurePort = 0
+              , insecurePort = 50051
               }
             , serverSecure = Nothing
             }
@@ -51,7 +52,12 @@ withTestServer server k = do
 
 -- | Server that responds with the given 'Response', independent of the request
 respondWith :: Response -> (Client.Address -> IO a) -> IO a
-respondWith response = withTestServer $ \_req _aux respond ->
+respondWith resp = respondWithIO (return resp)
+
+-- | Version of 'respondWith' that constructs the response
+respondWithIO :: IO Response -> (Client.Address -> IO a) -> IO a
+respondWithIO mkResponse = withTestServer $ \_req _aux respond -> do
+    response <- mkResponse
     respond (toHTTP2Response response) []
 
 data Response = Response {
