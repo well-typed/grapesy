@@ -240,12 +240,7 @@ $ docker stop $(docker ps -q)
 >
 > The only exception is `timeout_on_sleeping_server` for Java: it seems that the
 > server does not conform to the gRPC specification here, and simply closes the
-> connection without sending `DEADLINE_EXCEEDED` to the client. The Java
-> _client_ does not notice this because (it seems) it imposes a _local_ timeout
-> also, and doesn't even _connect_ to the server: the test even passes without
-> the server running at all. (And indeed, the other clients don't seem precise
-> enough here: the `grapesy` server was passing this test before it implemented
-> timeouts _at all_.)
+> connection without sending `DEADLINE_EXCEEDED` to the client.
 
 It is also possible to only run one specific test case, for example:
 

@@ -15,13 +15,9 @@ import Interop.Server (runInteropServer)
 
 main :: IO ()
 main = do
-    -- TODO: <https://github.com/well-typed/grapesy/issues/123>
-    --
-    -- Under some circumstances we can see a "Thread killed" exception when a
-    -- test fails. By setting this handler, we can at least confirm that this
-    -- exception is coming from an uncaught exception in a thread.
-    setUncaughtExceptionHandler $ \err ->
+    setUncaughtExceptionHandler $ \err -> do
       hPutStrLn stderr $ "Uncaught exception: " ++ show err
+      hFlush stderr
 
     -- Ensure we see server output when running inside docker
     hSetBuffering stdout NoBuffering
