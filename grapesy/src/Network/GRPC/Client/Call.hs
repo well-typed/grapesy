@@ -160,7 +160,7 @@ startRPC conn _ callParams = do
     _ <- forkLabelled "grapesy:monitorConnection" $ do
       status <- atomically $ do
           (Left <$> Thread.waitForNormalOrAbnormalThreadTermination
-                      (Session.channelOutbound channel))
+                      (Session.channelInbound channel))
         `orElse`
           (Right <$> readTMVar connClosed)
       case status of
