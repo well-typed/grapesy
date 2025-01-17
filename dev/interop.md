@@ -35,9 +35,9 @@ All tests should pass.
 ## Running development `grapesy` against reference implementation
 
 > [!NOTE]
-> At the time of writing version
-> [v1.62.0](https://github.com/grpc/grpc/releases/tag/v1.62.0) is the most
-> recent (released Feb 20, 2024).
+> At the time of writing (2025-01-17) version
+> [v1.69.0](https://github.com/grpc/grpc/releases/tag/v1.69.0) is the most
+> recent.
 
 In this section we will describe how to run a development `grapesy` server or
 client (that is, a local checkout of the git repository, run simply using
@@ -45,19 +45,19 @@ client (that is, a local checkout of the git repository, run simply using
 checkout of the [official gRPC repo](https://github.com/grpc/grpc/).
 
 ```bash
-$ git clone https://github.com/grpc/grpc.git -b v1.62.0 ./grpc-repo
-grpc-repo$ git switch -c v1.62.0
+$ git clone https://github.com/grpc/grpc.git -b v1.69.0 ./grpc-repo
+grpc-repo$ git switch -c v1.69.0
 grpc-repo$ git submodule update --init --recursive
 ```
 
 For some languages, the gRPC implementation lives in a separate repository.
 
 ```bash
-$ git clone https://github.com/grpc/grpc-java.git -b v1.62.0
-grpc-java$ git switch -c v1.62.0
+$ git clone https://github.com/grpc/grpc-java.git -b v1.69.0
+grpc-java$ git switch -c v1.69.0
 
-$ git clone https://github.com/grpc/grpc-go.git -b v1.62.0
-grpc-go$ git switch -c v1.62.0
+$ git clone https://github.com/grpc/grpc-go.git -b v1.69.0
+grpc-go$ git switch -c v1.69.0
 ```
 
 These need to be checked out alongside `grpc-repo`, so that you end up with
@@ -74,7 +74,7 @@ parent
 ```
 
 > [!WARNING]
-> Unlike the [QuickCheck
+> Unlike the [Quick start
 > instructions](https://grpc.io/docs/languages/python/quickstart/), this does
 > _not_ do a shallow checkout. This is important: the tests will fail otherwise
 > with an error such as this one:
@@ -90,9 +90,9 @@ fatal: clone of 'https://github.com/abseil/abseil-cpp.git' into submodule path '
 > The official interop tests fail when IPv6 is enabled on the host machine. For
 > convenience, there is a script in the `grapesy` repo at
 > [/dev/disable-ipv6.sh](/dev/disable-ipv6.sh) that can be used to disable IPv6
-> on Linux machines. If IPv6 is enabled, tests will fail with an error such as
-> the one below (this error is in the test _infrastructure_, independent from
-> the reference client or server):
+> on Linux machines (run with `sudo`). If IPv6 is enabled, tests will fail with
+> an error such as the one below (this error is in the test _infrastructure_,
+> independent from the reference client or server):
 
 ```
 Traceback (most recent call last):
@@ -115,7 +115,7 @@ dependencies. For convenience, in this section we describe how to set this up
 on Linux. First, you will need Python:
 
 ```bash
-$ apt-get install python3 python3-pip python3-setuptools python3-yaml
+$ sudo apt-get install python3 python3-pip python3-setuptools python3-yaml
 ```
 
 Create a Python virtual environment
@@ -130,7 +130,7 @@ PATH (see https://docs.python.org/3/library/venv.html#how-venvs-work); one
 option is to create an `.envrc` file in `grpc-repo` with
 
 ```bash
-export PATH=/path/to/grpc-repo/python-venv/bin:$PATH
+export PATH=$PWD/python-venv/bin:$PATH
 ```
 
 (you can also use `python-venv/bin/activate` but simply setting the path is
@@ -140,19 +140,13 @@ Finally, install the required Python dependencies:
 
 ```bash
 grpc-repo$ python3 -m pip install --upgrade \
-  six==1.16.0 \
   google-auth==1.23.0 \
   google-api-python-client==1.12.8 \
   oauth2client==4.1.0
 ```
 
 (these version numbers match the ones used in
-`tools/dockerfile/interoptest/grpc_interop_go/Dockerfile` and others).
-
-> [!NOTE]
-> The Docker file in the repo also pins `pip` itself, but to quite an old
-> version (19.3.1). I found that this old version results in some errors, and
-> had no problems with the default version (23.2 at the time of writing).
+`tools/dockerfile/interoptest/grpc_interop_python/Dockerfile` and others).
 
 As a sanity check, you can try to run the Python reference client against the
 Python reference server:
@@ -296,6 +290,9 @@ grpc-repo$ SERVER_PORT=50052 bash ./java_client.sh
 
 Only the ORCA tests are expected to fail (you may wish to disable those by
 editing the client scripts).
+
+The C++ client tests generate a lot of output; test failures will be reported
+as `SIGABRT`/`SIGSEGV`.
 
 ## Running automatic tests
 
