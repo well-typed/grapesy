@@ -52,6 +52,9 @@ module Network.GRPC.Spec.Serialization (
     -- *** Binary values
   , buildBinaryValue
   , parseBinaryValue
+    -- *** Status (Protobuf specific)
+  , buildStatus
+  , parseStatus
   ) where
 
 import Network.GRPC.Spec.Serialization.CustomMetadata
@@ -59,5 +62,6 @@ import Network.GRPC.Spec.Serialization.Headers.PseudoHeaders
 import Network.GRPC.Spec.Serialization.Headers.Request
 import Network.GRPC.Spec.Serialization.Headers.Response
 import Network.GRPC.Spec.Serialization.LengthPrefixed
+import Network.GRPC.Spec.Serialization.Status
 import Network.GRPC.Spec.Serialization.Timeout
 import Network.GRPC.Spec.Serialization.TraceContext

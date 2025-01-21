@@ -111,6 +111,8 @@ module Network.GRPC.Spec (
     -- ** Exceptions
   , GrpcException(..)
   , throwGrpcError
+    -- ** Details
+  , Status
     -- * Metadata
   , CustomMetadata(CustomMetadata)
   , customMetadataName

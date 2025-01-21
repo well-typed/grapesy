@@ -9,6 +9,8 @@ module Network.GRPC.Spec.Status (
     -- * Exceptions
   , GrpcException(..)
   , throwGrpcError
+    -- * Details
+  , Status
   ) where
 
 import Control.Exception
@@ -19,6 +21,8 @@ import Data.Text qualified as Text
 import GHC.Generics (Generic)
 
 import Network.GRPC.Spec.CustomMetadata.Raw (CustomMetadata)
+
+import Proto.Status
 
 {-------------------------------------------------------------------------------
   gRPC status
@@ -178,7 +182,7 @@ data GrpcError =
     -- The request does not have valid authentication credentials for the
     -- operation.
   | GrpcUnauthenticated
-  deriving stock (Show, Eq, Generic)
+  deriving stock (Show, Eq, Ord, Generic)
   deriving anyclass (Exception)
 
 {-------------------------------------------------------------------------------
