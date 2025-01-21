@@ -311,7 +311,16 @@ invalidContentType err = invalidHeaderSynthesize GrpcException {
     }
 
 {-------------------------------------------------------------------------------
-  > Trailers → Status [Status-Message] *Custom-Metadata
+  > Trailers       → Status [Status-Message] *Custom-Metadata Status         →
+  > "grpc-status" 1*DIGIT ; 0-9 Status-Message → "grpc-message" Percent-Encoded
+  > Status-Details → "grpc-status-details-bin" {base64 encoded value}
+
+  where
+
+  > Status-Details is allowed only if Status is not OK. If it is set, it
+  > contains additional information about the RPC error. If it contains a status
+  > code field, it MUST NOT contradict the Status header. The consumer MUST
+  > verify this requirement.
 -------------------------------------------------------------------------------}
 
 -- | Construct the HTTP @Trailer@ header
@@ -352,6 +361,7 @@ buildProperTrailers :: ProperTrailers -> [HTTP.Header]
 buildProperTrailers ProperTrailers{
                         properTrailersGrpcStatus
                       , properTrailersGrpcMessage
+                      , properTrailersStatusDetails
                       , properTrailersMetadata
                       , properTrailersPushback
                       , properTrailersOrcaLoadReport
@@ -364,6 +374,9 @@ buildProperTrailers ProperTrailers{
       ]
     , [ ("grpc-message", PercentEncoding.encode x)
       | Just x <- [properTrailersGrpcMessage]
+      ]
+    , [ ("grpc-status-details-bin", buildBinaryValue x)
+      | Just x <- [properTrailersStatusDetails]
       ]
     , [ ( "grpc-retry-pushback-ms"
         , buildPushback x
@@ -413,7 +426,7 @@ buildTrailersOnly f TrailersOnly{
 --
 -- The gRPC spec defines:
 --
--- > Trailers      → Status [Status-Message] *Custom-Metadata
+-- > Trailers      → ..
 -- > Trailers-Only → HTTP-Status Content-Type Trailers
 --
 -- This means that Trailers-Only is a superset of the Trailers; we make use of
@@ -501,6 +514,15 @@ parseTrailersOnly' proxy =
               case PercentEncoding.decode value of
                 Left  err -> throwError $ show err
                 Right msg -> return (Just msg)
+          }
+
+      | name == "grpc-status-details-bin"
+      = modify $ liftProperTrailers $ \x -> x{
+            properTrailersStatusDetails = throwInvalidHeader hdr $
+              case parseBinaryValue value of
+                Left  err -> throwError err
+                Right val -> return (Just val)
+
           }
 
       | name == "grpc-retry-pushback-ms"

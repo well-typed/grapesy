@@ -2,6 +2,10 @@
 --
 -- The gRPC spec is similar, but not identical, to URI encoding.
 --
+-- > Percent-Encoded        → 1*(Percent-Byte-Unencoded / Percent-Byte-Encoded)
+-- > Percent-Byte-Unencoded → 1*( %x20-%x24 / %x26-%x7E ) ; space and VCHAR, except %
+-- > Percent-Byte-Encoded   → "%" 2HEXDIGIT ; 0-9 A-F
+--
 -- We work with strict bytestrings here, since these are ultimately intended
 -- as header values.
 --
