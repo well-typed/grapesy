@@ -28,6 +28,7 @@ module Network.GRPC.Spec.Headers.Response (
 
 import Control.Exception
 import Control.Monad.Except (throwError)
+import Data.ByteString qualified as Strict (ByteString)
 import Data.List.NonEmpty (NonEmpty)
 import Data.Proxy
 import Data.Text (Text)
@@ -112,6 +113,23 @@ data ProperTrailers_ f = ProperTrailers {
       -- | Additional status message
     , properTrailersGrpcMessage :: HKD f (Maybe Text)
 
+      -- | Status details
+      --
+      -- This can be used to provide additional details about the RPC error;
+      -- as this is a binary field, it can be used for structured data.
+      --
+      -- The spec imposes some additional restrictions on this field:
+      --
+      -- * @Status-Details@ is allowed only if @Status@ is not OK.
+      -- * When using Protobuf this contains a @google.rpc.Status@ message.
+      -- * If it contains a status code (as in the case of a @google.rpc.Status@
+      --   message), it MUST NOT contradict the Status header.
+      --
+      -- The spec additionally mandates that consumers MUST verify that third
+      -- requirement; however, it is impossible to verify this unless a specific
+      -- format for the status details is known.
+    , properTrailersStatusDetails :: HKD f (Maybe Strict.ByteString)
+
       -- | Server pushback
       --
       -- This is part of automatic retries.
@@ -143,6 +161,7 @@ simpleProperTrailers :: forall f.
 simpleProperTrailers status msg metadata = ProperTrailers {
       properTrailersGrpcStatus     = status
     , properTrailersGrpcMessage    = msg
+    , properTrailersStatusDetails  = HKD.pure (Proxy @f) (Nothing :: Maybe Strict.ByteString)
     , properTrailersPushback       = HKD.pure (Proxy @f) (Nothing :: Maybe Pushback)
     , properTrailersOrcaLoadReport = HKD.pure (Proxy @f) (Nothing :: Maybe OrcaLoadReport)
     , properTrailersMetadata       = metadata
@@ -172,6 +191,7 @@ instance HKD.Traversable ProperTrailers_ where
       ProperTrailers
         <$> (f    $ properTrailersGrpcStatus     x)
         <*> (f    $ properTrailersGrpcMessage    x)
+        <*> (f    $ properTrailersStatusDetails  x)
         <*> (f    $ properTrailersPushback       x)
         <*> (f    $ properTrailersOrcaLoadReport x)
         <*> (pure $ properTrailersMetadata       x)

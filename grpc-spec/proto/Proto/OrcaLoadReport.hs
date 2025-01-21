@@ -1056,118 +1056,107 @@ packedFileDescriptor
     \\ENQvalue\CAN\STX \SOH(\SOHR\ENQvalue:\STX8\SOH\SUB?\n\
     \\DC1NamedMetricsEntry\DC2\DLE\n\
     \\ETXkey\CAN\SOH \SOH(\tR\ETXkey\DC2\DC4\n\
-    \\ENQvalue\CAN\STX \SOH(\SOHR\ENQvalue:\STX8\SOHJ\239\DC4\n\
-    \\ACK\DC2\EOT\DLE\NUL>\SOH\n\
-    \\128\ENQ\n\
-    \\SOH\f\DC2\ETX\DLE\NUL\DC22\183\EOT Copyright 2020 The gRPC Authors\n\
-    \\n\
-    \ Licensed under the Apache License, Version 2.0 (the \"License\");\n\
-    \ you may not use this file except in compliance with the License.\n\
-    \ You may obtain a copy of the License at\n\
-    \\n\
-    \     http://www.apache.org/licenses/LICENSE-2.0\n\
-    \\n\
-    \ Unless required by applicable law or agreed to in writing, software\n\
-    \ distributed under the License is distributed on an \"AS IS\" BASIS,\n\
-    \ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n\
-    \ See the License for the specific language governing permissions and\n\
-    \ limitations under the License.\n\
-    \2< Local copy of Envoy xDS proto file, used for testing only.\n\
-    \\n\
+    \\ENQvalue\CAN\STX \SOH(\SOHR\ENQvalue:\STX8\SOHJ\156\DC1\n\
+    \\ACK\DC2\EOT\NUL\NUL1\SOH\n\
     \\b\n\
-    \\SOH\STX\DC2\ETX\DC2\NUL\EM\n\
+    \\SOH\f\DC2\ETX\NUL\NUL\DC2\n\
+    \\b\n\
+    \\SOH\STX\DC2\ETX\STX\NUL\EM\n\
     \\134\SOH\n\
-    \\STX\EOT\NUL\DC2\EOT\ETB\NUL>\SOH2z See section `ORCA load report format` of the design document in\n\
+    \\STX\EOT\NUL\DC2\EOT\a\NUL1\SOH2z See section `ORCA load report format` of the design document in\n\
     \ :ref:`https://github.com/envoyproxy/envoy/issues/6614`.\n\
     \\n\
     \\n\
     \\n\
-    \\ETX\EOT\NUL\SOH\DC2\ETX\ETB\b\SYN\n\
+    \\ETX\EOT\NUL\SOH\DC2\ETX\a\b\SYN\n\
     \\250\SOH\n\
-    \\EOT\EOT\NUL\STX\NUL\DC2\ETX\FS\STX\GS\SUB\236\SOH CPU utilization expressed as a fraction of available CPU resources. This\n\
+    \\EOT\EOT\NUL\STX\NUL\DC2\ETX\f\STX\GS\SUB\236\SOH CPU utilization expressed as a fraction of available CPU resources. This\n\
     \ should be derived from the latest sample or measurement. The value may be\n\
     \ larger than 1.0 when the usage exceeds the reporter dependent notion of\n\
     \ soft limits.\n\
     \\n\
     \\f\n\
-    \\ENQ\EOT\NUL\STX\NUL\ENQ\DC2\ETX\FS\STX\b\n\
+    \\ENQ\EOT\NUL\STX\NUL\ENQ\DC2\ETX\f\STX\b\n\
     \\f\n\
-    \\ENQ\EOT\NUL\STX\NUL\SOH\DC2\ETX\FS\t\CAN\n\
+    \\ENQ\EOT\NUL\STX\NUL\SOH\DC2\ETX\f\t\CAN\n\
     \\f\n\
-    \\ENQ\EOT\NUL\STX\NUL\ETX\DC2\ETX\FS\ESC\FS\n\
+    \\ENQ\EOT\NUL\STX\NUL\ETX\DC2\ETX\f\ESC\FS\n\
     \\152\SOH\n\
-    \\EOT\EOT\NUL\STX\SOH\DC2\ETX \STX\GS\SUB\138\SOH Memory utilization expressed as a fraction of available memory\n\
+    \\EOT\EOT\NUL\STX\SOH\DC2\ETX\DLE\STX\GS\SUB\138\SOH Memory utilization expressed as a fraction of available memory\n\
     \ resources. This should be derived from the latest sample or measurement.\n\
     \\n\
     \\f\n\
-    \\ENQ\EOT\NUL\STX\SOH\ENQ\DC2\ETX \STX\b\n\
+    \\ENQ\EOT\NUL\STX\SOH\ENQ\DC2\ETX\DLE\STX\b\n\
     \\f\n\
-    \\ENQ\EOT\NUL\STX\SOH\SOH\DC2\ETX \t\CAN\n\
+    \\ENQ\EOT\NUL\STX\SOH\SOH\DC2\ETX\DLE\t\CAN\n\
     \\f\n\
-    \\ENQ\EOT\NUL\STX\SOH\ETX\DC2\ETX \ESC\FS\n\
-    \z\n\
-    \\EOT\EOT\NUL\STX\STX\DC2\ETX$\STX%\SUBm Total RPS being served by an endpoint. This should cover all services that an endpoint is\n\
+    \\ENQ\EOT\NUL\STX\SOH\ETX\DC2\ETX\DLE\ESC\FS\n\
+    \\176\SOH\n\
+    \\EOT\EOT\NUL\STX\STX\DC2\ETX\NAK\STX%\SUB\162\SOH Total RPS being served by an endpoint. This should cover all services that an endpoint is\n\
     \ responsible for.\n\
+    \ Deprecated -- use ``rps_fractional`` field instead.\n\
     \\n\
     \\f\n\
-    \\ENQ\EOT\NUL\STX\STX\ENQ\DC2\ETX$\STX\b\n\
+    \\ENQ\EOT\NUL\STX\STX\ENQ\DC2\ETX\NAK\STX\b\n\
     \\f\n\
-    \\ENQ\EOT\NUL\STX\STX\SOH\DC2\ETX$\t\f\n\
+    \\ENQ\EOT\NUL\STX\STX\SOH\DC2\ETX\NAK\t\f\n\
     \\f\n\
-    \\ENQ\EOT\NUL\STX\STX\ETX\DC2\ETX$\SI\DLE\n\
+    \\ENQ\EOT\NUL\STX\STX\ETX\DC2\ETX\NAK\SI\DLE\n\
     \\f\n\
-    \\ENQ\EOT\NUL\STX\STX\b\DC2\ETX$\DC1$\n\
+    \\ENQ\EOT\NUL\STX\STX\b\DC2\ETX\NAK\DC1$\n\
     \\r\n\
-    \\ACK\EOT\NUL\STX\STX\b\ETX\DC2\ETX$\DC2#\n\
+    \\ACK\EOT\NUL\STX\STX\b\ETX\DC2\ETX\NAK\DC2#\n\
     \\142\SOH\n\
-    \\EOT\EOT\NUL\STX\ETX\DC2\ETX(\STX'\SUB\128\SOH Application specific requests costs. Each value is an absolute cost (e.g. 3487 bytes of\n\
+    \\EOT\EOT\NUL\STX\ETX\DC2\ETX\EM\STX'\SUB\128\SOH Application specific requests costs. Each value is an absolute cost (e.g. 3487 bytes of\n\
     \ storage) associated with the request.\n\
     \\n\
     \\f\n\
-    \\ENQ\EOT\NUL\STX\ETX\ACK\DC2\ETX(\STX\NAK\n\
+    \\ENQ\EOT\NUL\STX\ETX\ACK\DC2\ETX\EM\STX\NAK\n\
     \\f\n\
-    \\ENQ\EOT\NUL\STX\ETX\SOH\DC2\ETX(\SYN\"\n\
+    \\ENQ\EOT\NUL\STX\ETX\SOH\DC2\ETX\EM\SYN\"\n\
     \\f\n\
-    \\ENQ\EOT\NUL\STX\ETX\ETX\DC2\ETX(%&\n\
+    \\ENQ\EOT\NUL\STX\ETX\ETX\DC2\ETX\EM%&\n\
     \\160\SOH\n\
-    \\EOT\EOT\NUL\STX\EOT\DC2\ETX,\STX&\SUB\146\SOH Resource utilization values. Each value is expressed as a fraction of total resources\n\
+    \\EOT\EOT\NUL\STX\EOT\DC2\ETX\GS\STX&\SUB\146\SOH Resource utilization values. Each value is expressed as a fraction of total resources\n\
     \ available, derived from the latest sample or measurement.\n\
     \\n\
     \\f\n\
-    \\ENQ\EOT\NUL\STX\EOT\ACK\DC2\ETX,\STX\NAK\n\
+    \\ENQ\EOT\NUL\STX\EOT\ACK\DC2\ETX\GS\STX\NAK\n\
     \\f\n\
-    \\ENQ\EOT\NUL\STX\EOT\SOH\DC2\ETX,\SYN!\n\
+    \\ENQ\EOT\NUL\STX\EOT\SOH\DC2\ETX\GS\SYN!\n\
     \\f\n\
-    \\ENQ\EOT\NUL\STX\EOT\ETX\DC2\ETX,$%\n\
-    \\v\n\
-    \\EOT\EOT\NUL\STX\ENQ\DC2\ETX.\STX\FS\n\
+    \\ENQ\EOT\NUL\STX\EOT\ETX\DC2\ETX\GS$%\n\
+    \z\n\
+    \\EOT\EOT\NUL\STX\ENQ\DC2\ETX!\STX\FS\SUBm Total RPS being served by an endpoint. This should cover all services that an endpoint is\n\
+    \ responsible for.\n\
+    \\n\
     \\f\n\
-    \\ENQ\EOT\NUL\STX\ENQ\ENQ\DC2\ETX.\STX\b\n\
+    \\ENQ\EOT\NUL\STX\ENQ\ENQ\DC2\ETX!\STX\b\n\
     \\f\n\
-    \\ENQ\EOT\NUL\STX\ENQ\SOH\DC2\ETX.\t\ETB\n\
+    \\ENQ\EOT\NUL\STX\ENQ\SOH\DC2\ETX!\t\ETB\n\
     \\f\n\
-    \\ENQ\EOT\NUL\STX\ENQ\ETX\DC2\ETX.\SUB\ESC\n\
+    \\ENQ\EOT\NUL\STX\ENQ\ETX\DC2\ETX!\SUB\ESC\n\
     \\138\SOH\n\
-    \\EOT\EOT\NUL\STX\ACK\DC2\ETX2\STX\DC1\SUB} Total EPS (errors/second) being served by an endpoint. This should cover\n\
+    \\EOT\EOT\NUL\STX\ACK\DC2\ETX%\STX\DC1\SUB} Total EPS (errors/second) being served by an endpoint. This should cover\n\
     \ all services that an endpoint is responsible for.\n\
     \\n\
     \\f\n\
-    \\ENQ\EOT\NUL\STX\ACK\ENQ\DC2\ETX2\STX\b\n\
+    \\ENQ\EOT\NUL\STX\ACK\ENQ\DC2\ETX%\STX\b\n\
     \\f\n\
-    \\ENQ\EOT\NUL\STX\ACK\SOH\DC2\ETX2\t\f\n\
+    \\ENQ\EOT\NUL\STX\ACK\SOH\DC2\ETX%\t\f\n\
     \\f\n\
-    \\ENQ\EOT\NUL\STX\ACK\ETX\DC2\ETX2\SI\DLE\n\
+    \\ENQ\EOT\NUL\STX\ACK\ETX\DC2\ETX%\SI\DLE\n\
     \3\n\
-    \\EOT\EOT\NUL\STX\a\DC2\ETX5\STX(\SUB& Application specific opaque metrics.\n\
+    \\EOT\EOT\NUL\STX\a\DC2\ETX(\STX(\SUB& Application specific opaque metrics.\n\
     \\n\
     \\f\n\
-    \\ENQ\EOT\NUL\STX\a\ACK\DC2\ETX5\STX\NAK\n\
+    \\ENQ\EOT\NUL\STX\a\ACK\DC2\ETX(\STX\NAK\n\
     \\f\n\
-    \\ENQ\EOT\NUL\STX\a\SOH\DC2\ETX5\SYN#\n\
+    \\ENQ\EOT\NUL\STX\a\SOH\DC2\ETX(\SYN#\n\
     \\f\n\
-    \\ENQ\EOT\NUL\STX\a\ETX\DC2\ETX5&'\n\
+    \\ENQ\EOT\NUL\STX\a\ETX\DC2\ETX(&'\n\
     \\148\ETX\n\
-    \\EOT\EOT\NUL\STX\b\DC2\ETX=\STX%\SUB\134\ETX Application specific utilization expressed as a fraction of available\n\
+    \\EOT\EOT\NUL\STX\b\DC2\ETX0\STX%\SUB\134\ETX Application specific utilization expressed as a fraction of available\n\
     \ resources. For example, an application may report the max of CPU and memory\n\
     \ utilization for better load balancing if it is both CPU and memory bound.\n\
     \ This should be derived from the latest sample or measurement.\n\
@@ -1175,8 +1164,8 @@ packedFileDescriptor
     \ dependent notion of soft limits.\n\
     \\n\
     \\f\n\
-    \\ENQ\EOT\NUL\STX\b\ENQ\DC2\ETX=\STX\b\n\
+    \\ENQ\EOT\NUL\STX\b\ENQ\DC2\ETX0\STX\b\n\
     \\f\n\
-    \\ENQ\EOT\NUL\STX\b\SOH\DC2\ETX=\t \n\
+    \\ENQ\EOT\NUL\STX\b\SOH\DC2\ETX0\t \n\
     \\f\n\
-    \\ENQ\EOT\NUL\STX\b\ETX\DC2\ETX=#$b\ACKproto3"
+    \\ENQ\EOT\NUL\STX\b\ETX\DC2\ETX0#$b\ACKproto3"

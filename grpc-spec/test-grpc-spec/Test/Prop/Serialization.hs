@@ -457,12 +457,14 @@ instance Arbitrary (Awkward ProperTrailers) where
   arbitrary = Awkward <$> do
       properTrailersGrpcStatus     <- awkward
       properTrailersGrpcMessage    <- awkward
+      properTrailersStatusDetails  <- awkward
       properTrailersPushback       <- awkward
       properTrailersOrcaLoadReport <- awkward
       properTrailersMetadata       <- awkward
       return $ ProperTrailers{
           properTrailersGrpcStatus
         , properTrailersGrpcMessage
+        , properTrailersStatusDetails
         , properTrailersPushback
         , properTrailersOrcaLoadReport
         , properTrailersMetadata
