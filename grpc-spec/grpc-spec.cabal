@@ -121,6 +121,7 @@ library
       Network.GRPC.Spec.TraceContext
       Network.GRPC.Spec.Util.ByteString
       Network.GRPC.Spec.Util.Protobuf
+      
       Proto.OrcaLoadReport
   build-depends:
     , aeson               >= 1.5     && < 2.3
