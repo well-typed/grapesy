@@ -156,12 +156,13 @@ simpleProperTrailers :: forall f.
      HKD.ValidDecoration Applicative f
   => HKD f GrpcStatus
   -> HKD f (Maybe Text)
+  -> HKD f (Maybe Strict.ByteString)
   -> CustomMetadataMap
   -> ProperTrailers_ f
-simpleProperTrailers status msg metadata = ProperTrailers {
+simpleProperTrailers status msg details metadata = ProperTrailers {
       properTrailersGrpcStatus     = status
     , properTrailersGrpcMessage    = msg
-    , properTrailersStatusDetails  = HKD.pure (Proxy @f) (Nothing :: Maybe Strict.ByteString)
+    , properTrailersStatusDetails  = details
     , properTrailersPushback       = HKD.pure (Proxy @f) (Nothing :: Maybe Pushback)
     , properTrailersOrcaLoadReport = HKD.pure (Proxy @f) (Nothing :: Maybe OrcaLoadReport)
     , properTrailersMetadata       = metadata
@@ -302,6 +303,7 @@ grpcClassifyTermination =
       -> Either GrpcException GrpcNormalTermination
     aux ProperTrailers { properTrailersGrpcStatus
                        , properTrailersGrpcMessage
+                       , properTrailersStatusDetails
                        , properTrailersMetadata
                        } =
         case properTrailersGrpcStatus of
@@ -310,15 +312,35 @@ grpcClassifyTermination =
                 customMetadataMapToList properTrailersMetadata
             }
           Right (GrpcError err) -> Left GrpcException{
-              grpcError         = err
-            , grpcErrorMessage  = case properTrailersGrpcMessage of
-                                    Right msg -> msg
-                                    Left  _   -> Just "Invalid grpc-message"
-            , grpcErrorMetadata = customMetadataMapToList properTrailersMetadata
+              grpcError = err
+            , grpcErrorMessage =
+                case (properTrailersGrpcMessage, properTrailersStatusDetails) of
+                  (Right msg, Right _) ->
+                    msg
+                  (Left _, Right _) ->
+                    Just "'grpc-message' invalid"
+                  (Left  _, Left _) ->
+                    Just "'grpc-message' and 'grpc-status-details-bin' invalid"
+                  (Right Nothing, Left _) ->
+                    Just "'grpc-status-details-bin' invalid"
+                  (Right (Just msg), Left _) ->
+                    -- This is the trickiest case. We have a valid grpc-message,
+                    -- but grpc-status-details-bin is invalid. We cannot
+                    -- construct an alternative value for 'grpcErrorDetails',
+                    -- because we have no way of knowing which format it is
+                    -- expected to be. So instead we add a remark here.
+                    Just $ msg <> "\n'grpc-status-details-bin' invalid"
+            , grpcErrorDetails =
+                case properTrailersStatusDetails of
+                  Right details -> details
+                  Left  _       -> Nothing -- see above
+            , grpcErrorMetadata =
+                customMetadataMapToList properTrailersMetadata
             }
           Left _invalidStatus -> Left GrpcException {
               grpcError         = GrpcUnknown
             , grpcErrorMessage  = Just "Invalid grpc-status"
+            , grpcErrorDetails  = Nothing
             , grpcErrorMetadata = customMetadataMapToList properTrailersMetadata
             }
 
@@ -327,9 +349,11 @@ grpcExceptionToTrailers ::  GrpcException -> ProperTrailers
 grpcExceptionToTrailers GrpcException{
                             grpcError
                           , grpcErrorMessage
+                          , grpcErrorDetails
                           , grpcErrorMetadata
                           } =
     simpleProperTrailers
       (GrpcError grpcError)
       grpcErrorMessage
+      grpcErrorDetails
       (customMetadataMapFromList grpcErrorMetadata)

@@ -12,12 +12,13 @@ module Network.GRPC.Spec.Status (
   ) where
 
 import Control.Exception
+import Data.ByteString qualified as Strict (ByteString)
 import Data.List (intercalate)
 import Data.Text (Text)
+import Data.Text qualified as Text
 import GHC.Generics (Generic)
 
 import Network.GRPC.Spec.CustomMetadata.Raw (CustomMetadata)
-import Data.Text qualified as Text
 
 {-------------------------------------------------------------------------------
   gRPC status
@@ -248,6 +249,7 @@ toGrpcError _  = Nothing
 data GrpcException = GrpcException {
       grpcError          :: GrpcError
     , grpcErrorMessage   :: Maybe Text
+    , grpcErrorDetails   :: Maybe Strict.ByteString
     , grpcErrorMetadata  :: [CustomMetadata]
     }
   deriving stock (Show, Eq)
@@ -256,6 +258,7 @@ instance Exception GrpcException where
   displayException GrpcException{
                        grpcError
                      , grpcErrorMessage
+                     , grpcErrorDetails
                      , grpcErrorMetadata
                      } = (intercalate "\n" . concat) [
         [ concat [
@@ -271,6 +274,9 @@ instance Exception GrpcException where
             : (map ("| " ++) . lines $ Text.unpack msg)
         | Just msg <- [grpcErrorMessage]
         ]
+      , [ "Additional details are available (see 'grpcErrorDetails')."
+        | Just _details <- [grpcErrorDetails]
+        ]
       , [ show md
         | md <- grpcErrorMetadata
         ]
@@ -282,5 +288,6 @@ throwGrpcError :: GrpcError -> IO a
 throwGrpcError grpcError = throwIO $ GrpcException {
       grpcError
     , grpcErrorMessage  = Nothing
+    , grpcErrorDetails  = Nothing
     , grpcErrorMetadata = []
     }

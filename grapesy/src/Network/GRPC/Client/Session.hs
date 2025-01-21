@@ -84,6 +84,7 @@ instance SupportsClientRpc rpc => IsSession (ClientSession rpc) where
         throwIO $ GrpcException {
             grpcError         = GrpcUnknown
           , grpcErrorMessage  = Just "Call closed without trailers"
+          , grpcErrorDetails  = Nothing
           , grpcErrorMetadata = []
           }
       else

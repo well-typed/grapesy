@@ -65,6 +65,7 @@ requestHandler handlers ctxt unmask request respond = do
     timeoutException = GrpcException {
           grpcError         = GrpcDeadlineExceeded
         , grpcErrorMessage  = Nothing
+        , grpcErrorDetails  = Nothing
         , grpcErrorMetadata = []
         }
 
@@ -178,6 +179,7 @@ mkFailureResponse params = \case
               grpcExceptionToTrailers $ GrpcException {
                   grpcError         = GrpcUnknown
                 , grpcErrorMessage  = msg
+                , grpcErrorDetails  = Nothing
                 , grpcErrorMetadata = []
                 }
             , serverContentType
@@ -206,6 +208,7 @@ grpcUnimplemented path = GrpcException {
                               , pathMethod path
                               , " not implemented"
                               ]
+    , grpcErrorDetails  = Nothing
     , grpcErrorMetadata = []
     }
 

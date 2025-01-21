@@ -192,6 +192,7 @@ startRPC conn _ callParams = do
               timeout = toException $ GrpcException {
                     grpcError         = GrpcDeadlineExceeded
                   , grpcErrorMessage  = Nothing
+                  , grpcErrorDetails  = Nothing
                   , grpcErrorMetadata = []
                   }
 
@@ -395,6 +396,7 @@ closeRPC callChannel cancelRequest exitCase = liftIO $ do
                                     "Channel discarded by client at "
                                   , Text.pack $ prettyCallStack cs
                                   ]
+          , grpcErrorDetails  = Nothing
           , grpcErrorMetadata = []
           }
 
