@@ -36,7 +36,7 @@ withTestServer server k = do
           ServerConfig {
             serverInsecure = Just $ InsecureConfig {
                 insecureHost = Just "127.0.0.1"
-              , insecurePort = 50051
+              , insecurePort = 0
               }
             , serverSecure = Nothing
             }

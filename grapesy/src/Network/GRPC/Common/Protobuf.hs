@@ -10,17 +10,18 @@ module Network.GRPC.Common.Protobuf (
     -- ** "Control.Lens"
   , (.~)
   , (^.)
+  , (%~)
     -- ** "Data.ProtoLens"
   , StreamingType(..)
   , HasField(..)
   , FieldDefault(..)
-  , defMessage
+  , Message(defMessage)
   ) where
 
-import Control.Lens ((.~), (^.))
+import Control.Lens ((.~), (^.), (%~))
 import Data.Function ((&))
 import Data.ProtoLens.Field (HasField(..))
 import Data.ProtoLens.Labels () -- provides instances for OverloadedLabels
-import Data.ProtoLens.Message (FieldDefault(..), defMessage)
+import Data.ProtoLens.Message (FieldDefault(..), Message(defMessage))
 
 import Network.GRPC.Spec
