@@ -1,5 +1,5 @@
-# Revision history for gRPC
+# Revision history for grpc-spec
 
-## 0.1.0 -- YYYY-mm-dd
+## 1.0.0 -- 2025-01-22
 
-* First version. Released on an unsuspecting world.
+* First released version.

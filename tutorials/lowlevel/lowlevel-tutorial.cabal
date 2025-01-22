@@ -40,7 +40,7 @@ executable route_guide_server
   build-depends:   basics-tutorial
 
   build-depends:
-    , grapesy >= 0.1 && < 0.2
+    , grapesy >= 1.0 && < 1.1
     , time    >= 1.9 && < 1.15
 
 executable route_guide_client
@@ -51,6 +51,6 @@ executable route_guide_client
   build-depends:   basics-tutorial
 
   build-depends:
-    , grapesy >= 0.1 && < 0.2
+    , grapesy >= 1.0 && < 1.1
     , random  >= 1.2 && < 1.4
     , text    >= 1.2 && < 2.2

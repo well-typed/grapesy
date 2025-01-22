@@ -1,6 +1,6 @@
 cabal-version:      3.0
 name:               grpc-spec
-version:            0.1.0
+version:            1.0.0
 synopsis:           Implementation of the pure part of the gRPC spec
 description:        This is an implementation of the pure part of the core gRPC
                     spec at <https://github.com/grpc/grpc/blob/master/doc/PROTOCOL-HTTP2.md>.

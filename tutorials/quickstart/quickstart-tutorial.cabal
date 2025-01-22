@@ -43,7 +43,7 @@ library
   build-tool-depends: proto-lens-protoc:proto-lens-protoc
 
   build-depends:
-    , grapesy            >= 0.1 && < 0.2
+    , grapesy            >= 1.0 && < 1.1
     , proto-lens-runtime >= 0.7 && < 0.8
   exposed-modules:
       Proto.API.Helloworld

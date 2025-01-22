@@ -48,3 +48,6 @@ source-repository-package
   location: https://github.com/google/proto-lens
   tag: c927e0341715a2ff7f87f219c9a36517f06cef80
   subdir: proto-lens proto-lens-runtime proto-lens-setup proto-lens-protoc proto-lens-protobuf-types
+
+-- avoid compilation errors in some dependencies
+constraints: diagrams-lib==1.4.6.2
