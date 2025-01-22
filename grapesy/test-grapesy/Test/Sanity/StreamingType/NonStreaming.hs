@@ -45,14 +45,22 @@ tests = testGroup "Test.Sanity.StreamingType.NonStreaming" [
             , testGroup "fail" [
                   testCase "application/invalid-subtype" $
                     test_increment def {
-                        clientContentType = InvalidOverride . Just $
+                        isExpectedServerException =
+                          isInvalidRequestHeaders
+                      , isExpectedClientException =
+                          isGrpc415
+                      , clientContentType = InvalidOverride . Just $
                           ContentTypeOverride "application/invalid-subtype"
                       }
 
                   -- gRPC spec does not allow parameters
                 , testCase "charset" $
                     test_increment def {
-                        clientContentType = InvalidOverride . Just $
+                        isExpectedServerException =
+                          isInvalidRequestHeaders
+                      , isExpectedClientException =
+                          isGrpc415
+                      , clientContentType = InvalidOverride . Just $
                           ContentTypeOverride "application/grpc; charset=utf-8"
                       }
                 ]
@@ -71,11 +79,17 @@ tests = testGroup "Test.Sanity.StreamingType.NonStreaming" [
             , testGroup "fail" [
                   testCase "validation" $
                     test_increment def {
-                        useTLS = Just $ TlsFail TlsFailValidation
+                        isExpectedClientException =
+                          isHandshakeFailed
+                      , useTLS =
+                          Just $ TlsFail TlsFailValidation
                       }
                 , testCase "unsupported" $
                     test_increment def {
-                        useTLS = Just $ TlsFail TlsFailUnsupported
+                        isExpectedClientException =
+                          isHandshakeFailed
+                      , useTLS =
+                          Just $ TlsFail TlsFailUnsupported
                       }
                 ]
             ]
@@ -94,13 +108,23 @@ tests = testGroup "Test.Sanity.StreamingType.NonStreaming" [
             , testGroup "unsupported" [
                   testCase "clientChoosesUnsupported" $
                     test_increment def {
-                        clientInitCompr = Just Compr.gzip
-                      , serverCompr     = Compr.none
+                        isExpectedServerException =
+                          isServerUnsupportedCompression
+                      , isExpectedClientException =
+                          isGrpc400
+                      , clientInitCompr =
+                          Just Compr.gzip
+                      , serverCompr =
+                          Compr.none
                       }
                 , testCase "serverChoosesUnsupported" $
                     test_increment def {
-                        clientCompr = Compr.none
-                      , serverCompr = Compr.insist Compr.gzip
+                        isExpectedClientException =
+                           isClientUnsupportedCompression
+                      , clientCompr =
+                          Compr.none
+                      , serverCompr =
+                          Compr.insist Compr.gzip
                       }
                 ]
             ]

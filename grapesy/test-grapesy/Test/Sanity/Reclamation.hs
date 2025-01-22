@@ -32,7 +32,7 @@ brokenHandler _call = throwIO $ DeliberateException $ userError "Broken handler"
 
 serverException1 :: Assertion
 serverException1 = testClientServer $ ClientServerTest {
-      config = def
+      config = def { isExpectedServerException = isDeliberateException }
     , server = [Server.someRpcHandler $ Server.mkRpcHandler brokenHandler]
     , client = \params testServer delimitTestScope -> delimitTestScope $
         replicateM_ 1000 $ do
@@ -46,7 +46,7 @@ serverException1 = testClientServer $ ClientServerTest {
 
 serverException2 :: Assertion
 serverException2 = testClientServer $ ClientServerTest {
-      config = def
+      config = def { isExpectedServerException = isDeliberateException }
     , server = [Server.someRpcHandler $ Server.mkRpcHandler brokenHandler]
     , client = \params testServer delimitTestScope -> delimitTestScope $
         replicateM_ 1000 $

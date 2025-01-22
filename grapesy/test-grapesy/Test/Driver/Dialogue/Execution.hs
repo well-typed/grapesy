@@ -413,7 +413,7 @@ serverLocal clock call = \(LocalSteps steps) -> do
           Terminate mErr -> do
             mInp <- liftIO $ try $ within timeoutReceive action $
                       Server.Binary.recvInput call
-            expect (tick, action) isClientDisconnected mInp
+            expect (tick, action) isExpectedDisconnect mInp
             modify $ ifPeerAlive $ PeerTerminated $ DeliberateException <$> mErr
 
     -- Wait for the client disconnect to become visible
@@ -446,15 +446,15 @@ serverLocal clock call = \(LocalSteps steps) -> do
     isExpectedElem _ (Left _) = False
     isExpectedElem expectedElem (Right streamElem) = expectedElem == streamElem
 
-    isClientDisconnected ::
+    isExpectedDisconnect ::
          Either Server.ClientDisconnected (StreamElem NoMetadata Int)
       -> Bool
-    isClientDisconnected (Left (Server.ClientDisconnected e _))
+    isExpectedDisconnect (Left (Server.ClientDisconnected e _))
       | Just HTTP2.Client.ConnectionIsClosed <- fromException e
       = True
       | otherwise
       = False
-    isClientDisconnected _ = False
+    isExpectedDisconnect _ = False
 
 serverGlobal ::
      HasCallStack
@@ -511,8 +511,14 @@ execGlobalSteps connUsage steps = do
 
     return ClientServerTest {
         config = def {
-            expectEarlyClientTermination = clientTerminatesEarly
-          , expectEarlyServerTermination = serverTerminatesEarly
+            isExpectedClientException = \e -> or [
+                isDeliberateException e
+              , clientTerminatesEarly && isGrpcCancelled e
+              ]
+          , isExpectedServerException = \e -> or [
+                isDeliberateException e
+              , serverTerminatesEarly && isHandlerTerminated e
+              ]
           }
       , client = clientGlobal clock connUsage steps
       , server = [
