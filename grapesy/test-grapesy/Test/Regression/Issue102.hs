@@ -48,7 +48,10 @@ tests = testGroup "Issue102" [
 -- | Client makes many concurrent calls, throws an exception during one of them.
 test_clientException :: IO ()
 test_clientException = testClientServer $ ClientServerTest {
-      config = def { expectEarlyClientTermination = True }
+      config = def {
+           isExpectedClientException = isDeliberateException
+         , isExpectedServerException = isClientDisconnected
+         }
     , client = simpleTestClient $ \conn -> do
         -- Make 100 concurrent calls. 99 of them counting to 50, and one
         -- more that throws an exception once it reaches 10.
@@ -90,7 +93,7 @@ test_serverException :: IO ()
 test_serverException = do
     handlerCounter <- newIORef @Int 0
     testClientServer $ ClientServerTest {
-        config = def { expectEarlyServerTermination = True }
+        config = def { isExpectedServerException = isDeliberateException }
       , client = simpleTestClient $ \conn -> do
           -- Make 100 concurrent calls counting to 50.
           let predicate = (> 50)
@@ -131,7 +134,10 @@ test_serverException = do
 -- does not wait for client termination.
 test_earlyTerminationNoWait :: IO ()
 test_earlyTerminationNoWait = testClientServer $ ClientServerTest {
-      config = def { expectEarlyClientTermination = True }
+      config = def {
+          isExpectedClientException = isDeliberateException
+        , isExpectedServerException = isClientDisconnected
+        }
     , client = simpleTestClient $ \conn -> do
         _mResult <-
           try @DeliberateException $

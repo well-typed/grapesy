@@ -216,7 +216,7 @@ test_cancellation_client :: IO ()
 test_cancellation_client =
     testClientServer ClientServerTest {
         config = def {
-            expectEarlyClientTermination = True
+            isExpectedServerException = isClientDisconnected
           }
       , client = simpleTestClient $ \conn -> do
           -- We wait for the first input, but then cancel the request
@@ -245,7 +245,7 @@ test_cancellation_server :: IO ()
 test_cancellation_server =
     testClientServer ClientServerTest {
         config = def {
-            expectEarlyServerTermination = True
+            isExpectedServerException = isHandlerTerminated
           }
       , client = simpleTestClient $ \conn -> do
           result :: Either GrpcException [Int] <- try $

@@ -348,7 +348,9 @@ test_undefinedOutput :: Assertion
 test_undefinedOutput = do
     st <- newIORef 0
     testClientServer $ ClientServerTest {
-        config = def
+        config = def {
+            isExpectedServerException = isDeliberateException
+          }
       , server = [Server.fromMethod @Ping $ Server.mkNonStreaming (handler st)]
       , client = simpleTestClient $ \conn -> do
 
@@ -384,6 +386,7 @@ test_undefinedOutput = do
         if isFirst
           then return $ throw $ DeliberateException (userError "uhoh")
           else return $ defMessage & #id .~ req ^. #id
+
 {-------------------------------------------------------------------------------
   Timeouts
 -------------------------------------------------------------------------------}

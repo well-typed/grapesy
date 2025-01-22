@@ -11,11 +11,21 @@ module Test.Driver.ClientServer (
   , TlsSetup(..)
   , TlsFail(..)
   , TlsOk(..)
+    -- ** Expected exceptions
+  , DeliberateException(..)
+  , isDeliberateException
+  , isClientDisconnected
+  , isInvalidRequestHeaders
+  , isGrpc415
+  , isGrpc400
+  , isGrpcCancelled
+  , isHandshakeFailed
+  , isServerUnsupportedCompression
+  , isClientUnsupportedCompression
+  , isHandlerTerminated
     -- * Constructing clients
   , TestClient
   , simpleTestClient
-    -- * Exception handling
-  , DeliberateException(..)
   ) where
 
 import Control.Concurrent
@@ -25,9 +35,6 @@ import Control.Exception (throwIO)
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
-import Data.Map qualified as Map
-import Data.Set (Set)
-import Data.Set qualified as Set
 import Data.Text qualified as Text
 import Network.HTTP2.Server qualified as HTTP2.Server
 import Network.Socket (PortNumber)
@@ -88,17 +95,11 @@ data ClientServerConfig = ClientServerConfig {
       -- | Override content-type used by the server
     , serverContentType :: ContentTypeOverride
 
-      -- | Should we expect any clients to terminate early?
-      --
-      -- \"Termination\" here could be either normal termination (no exception,
-      -- but not properly closing the RPC call either) or abnormal termination
-      -- (throwing an exception).
-    , expectEarlyClientTermination :: Bool
+      -- | Is this exception expected on the client?
+    , isExpectedClientException :: SomeException -> Bool
 
-      -- | Should we expect any server handlers to terminate early?
-      --
-      -- Same comments for \"termination\" apply.
-    , expectEarlyServerTermination :: Bool
+      -- | Is this exception expected on the server?
+    , isExpectedServerException :: SomeException -> Bool
     }
 
 data ContentTypeOverride =
@@ -116,15 +117,15 @@ data ContentTypeOverride =
 
 instance Default ClientServerConfig where
   def = ClientServerConfig {
-        serverPort        = 0
-      , clientCompr       = def
-      , clientInitCompr   = Nothing
-      , serverCompr       = def
-      , useTLS            = Nothing
-      , clientContentType = NoOverride
-      , serverContentType = NoOverride
-      , expectEarlyClientTermination = False
-      , expectEarlyServerTermination = False
+        serverPort                = 0
+      , clientCompr               = def
+      , clientInitCompr           = Nothing
+      , serverCompr               = def
+      , useTLS                    = Nothing
+      , clientContentType         = NoOverride
+      , serverContentType         = NoOverride
+      , isExpectedClientException = const False
+      , isExpectedServerException = const False
       }
 
 {-------------------------------------------------------------------------------
@@ -169,150 +170,74 @@ data TlsFail =
     we don't see these exceptions server-side.
 -------------------------------------------------------------------------------}
 
-isExpectedServerException :: ClientServerConfig -> SomeException -> Bool
-isExpectedServerException cfg e
-  --
-  -- Deliberate exceptions
-  --
+isDeliberateException :: SomeException -> Bool
+isDeliberateException e =
+    case fromException e of
+      Just DeliberateException{} -> True
+      _otherwise -> False
 
-  | Just (DeliberateException _) <- fromException e
-  = True
+isClientDisconnected :: SomeException -> Bool
+isClientDisconnected e =
+    case fromException e of
+      Just Server.ClientDisconnected{} -> True
+      _otherwise -> False
 
-  --
-  -- Early client termination
-  --
+isInvalidRequestHeaders :: SomeException -> Bool
+isInvalidRequestHeaders e =
+    case fromException e of
+      Just Server.CallSetupInvalidRequestHeaders{} -> True
+      _otherwise -> False
 
-  | Just Server.ClientDisconnected{} <- fromException e
-  , expectEarlyClientTermination cfg
-  = True
+isGrpc415 :: SomeException -> Bool
+isGrpc415 e =
+    case fromException e of
+      Just err' | Just msg <- grpcErrorMessage err' -> and [
+           grpcError err' == GrpcUnknown
+        , "415" `Text.isInfixOf` msg
+        ]
+      _otherwise -> False
 
-  --
-  -- Early server termination
-  --
+-- | Client choose unsupported compression
+--
+-- We respond with 400 Bad Request, which gets turned into GrpcInternal
+-- by 'classifyServerResponse'.
+isGrpc400 :: SomeException -> Bool
+isGrpc400 e =
+    case fromException e of
+      Just err' | Just msg <- grpcErrorMessage err' -> and [
+           grpcError err' == GrpcInternal
+        , "400" `Text.isInfixOf` msg
+        ]
+      _otherwise -> False
 
-  | Just Server.HandlerTerminated{} <- fromException e
-  , expectEarlyServerTermination cfg
-  = True
+isGrpcCancelled :: SomeException -> Bool
+isGrpcCancelled e =
+    case fromException e of
+      Just err'  -> grpcError err' == GrpcCancelled
+      _otherwise -> False
 
-  --
-  -- Call setup failure
-  --
+isHandshakeFailed :: SomeException -> Bool
+isHandshakeFailed e =
+    case fromException e of
+      Just HandshakeFailed{} -> True
+      _otherwise -> False
 
-  | Just Server.CallSetupInvalidRequestHeaders{} <- fromException e
-  , InvalidOverride _ <- clientContentType cfg
-  = True
+isServerUnsupportedCompression :: SomeException -> Bool
+isServerUnsupportedCompression e =
+    case fromException e of
+      Just Server.CallSetupUnsupportedCompression{} -> True
+      _otherwise -> False
 
-  --
-  -- Compression negotation
-  --
+isClientUnsupportedCompression :: SomeException -> Bool
+isClientUnsupportedCompression e =
+    case fromException e of
+      Just Client.CallSetupUnsupportedCompression{} -> True
+      _otherwise -> False
 
-  | Just Server.CallSetupUnsupportedCompression{} <- fromException e
-  , compressionNegotationFailure cfg
-  = True
-
-  --
-  -- Fall-through
-  --
-
-  | otherwise
-  = False
-
-isExpectedClientException :: ClientServerConfig -> SomeException -> Bool
-isExpectedClientException cfg e
-  --
-  -- Deliberate exceptions
-  --
-
-  -- Client threw deliberate exception
-  | Just (DeliberateException _) <- fromException e
-  = True
-
-  -- Server threw deliberate exception
-  | Just grpcException <- fromException e
-  , Just msg <- grpcErrorMessage grpcException
-  , "DeliberateException" `Text.isInfixOf` msg
-  = True
-
-  --
-  -- Early client termination
-  --
-
-  | Just grpcException <- fromException e
-  , expectEarlyClientTermination cfg
-  , grpcError grpcException == GrpcCancelled
-  = True
-
-  --
-  -- Early server termination
-  --
-
-  | Just grpcException <- fromException e
-  , Just msg <- grpcErrorMessage grpcException
-  , "HandlerTerminated" `Text.isInfixOf` msg
-  , expectEarlyServerTermination cfg
-  = True
-
-  --
-  -- Call setup failure
-  --
-
-  | Just grpcException <- fromException e
-  , GrpcUnknown <- grpcError grpcException
-  , Just msg <- grpcErrorMessage grpcException
-  , "415" `Text.isInfixOf` msg
-  , InvalidOverride _ <- clientContentType cfg
-  = True
-
-  --
-  -- Compression negotation
-  --
-
-  -- Client choose unsupported compression
-  --
-  -- We respond with 400 Bad Request, which gets turned into GrpcInternal
-  -- by 'classifyServerResponse'.
-  | Just grpcException <- fromException e
-  , GrpcInternal <- grpcError grpcException
-  , compressionNegotationFailure cfg
-  = True
-
-  -- Server chose unsupported compression
-  | Just Client.CallSetupUnsupportedCompression{} <- fromException e
-  , compressionNegotationFailure cfg
-  = True
-
-  --
-  -- TLS problems
-  --
-
-  | Just tls <- fromException e
-  , isExpectedTLSException cfg tls
-  = True
-
-  --
-  -- Fall-through
-  --
-
-  | otherwise
-  = False
-
-compressionNegotationFailure :: ClientServerConfig -> Bool
-compressionNegotationFailure cfg = or [
-      Set.disjoint clientSupported serverSupported
-    , case clientInitCompr cfg of
-        Nothing    -> False
-        Just compr -> Compr.compressionId compr `Set.notMember` serverSupported
-    ]
-  where
-    clientSupported, serverSupported :: Set Compr.CompressionId
-    clientSupported = Map.keysSet (Compr.supported (clientCompr cfg))
-    serverSupported = Map.keysSet (Compr.supported (serverCompr cfg))
-
-isExpectedTLSException :: ClientServerConfig -> TLSException -> Bool
-isExpectedTLSException cfg tls =
-    case (useTLS cfg, tls) of
-      (Just (TlsFail TlsFailValidation)  , HandshakeFailed _) -> True
-      (Just (TlsFail TlsFailUnsupported) , HandshakeFailed _) -> True
+isHandlerTerminated :: SomeException -> Bool
+isHandlerTerminated e =
+    case fromException e of
+      Just Server.HandlerTerminated{} -> True
       _otherwise -> False
 
 {-------------------------------------------------------------------------------
@@ -353,7 +278,11 @@ isExpectedTLSException cfg tls =
 -- as \"the\" test failure is not very important; by definition, in this case
 -- the one exception cannot be the /cause/ for the other exception (if it was,
 -- then one must happen /before/ the other).
-newtype FirstTestFailure = FirstTestFailure (TMVar SomeException)
+data FirstTestFailure =
+    FirstFailureInClient SomeException
+  | FirstFailureInServer SomeException
+  deriving stock (Show)
+  deriving anyclass (Exception)
 
 data TestFailure = TestFailure
   deriving stock (Show)
@@ -362,8 +291,8 @@ data TestFailure = TestFailure
 -- | Mark test failure
 --
 -- Does nothing if an earlier test failure has already been marked.
-markTestFailure :: FirstTestFailure -> SomeException  -> IO ()
-markTestFailure (FirstTestFailure firstTestFailure) err =
+markTestFailure :: TMVar FirstTestFailure -> FirstTestFailure  -> IO ()
+markTestFailure firstTestFailure err =
     void $ atomically $ tryPutTMVar firstTestFailure err
 
 {-------------------------------------------------------------------------------
@@ -389,7 +318,7 @@ waitForHandlerTermination (ServerHandlerLock lock) = do
 
 topLevelWithHandlerLock ::
      ClientServerConfig
-  -> FirstTestFailure
+  -> TMVar FirstTestFailure
   -> ServerHandlerLock
   -> Server.RequestHandler ()
   -> Server.RequestHandler ()
@@ -413,7 +342,7 @@ topLevelWithHandlerLock cfg
           Left err | isExpectedServerException cfg err ->
             return ()
           Left err ->
-            markTestFailure firstTestFailure err
+            markTestFailure firstTestFailure (FirstFailureInServer err)
         markDone
 
     markActive, markDone :: IO ()
@@ -426,7 +355,7 @@ topLevelWithHandlerLock cfg
 
 withTestServer ::
      ClientServerConfig
-  -> FirstTestFailure
+  -> TMVar FirstTestFailure
   -> ServerHandlerLock
   -> [Server.SomeRpcHandler IO]
   -> (Server.RunningServer -> IO a)
@@ -507,7 +436,7 @@ simpleTestClient test params testServer delimitTestScope =
 
 runTestClient ::
      ClientServerConfig
-  -> FirstTestFailure
+  -> TMVar FirstTestFailure
   -> PortNumber
   -> TestClient
   -> IO ()
@@ -592,7 +521,7 @@ runTestClient cfg firstTestFailure port clientRun = do
               Left err | isExpectedClientException cfg err ->
                 return ()
               Left err -> do
-                markTestFailure firstTestFailure err
+                markTestFailure firstTestFailure (FirstFailureInClient err)
                 throwIO TestFailure
 
     clientRun clientParams clientServer delimitTestScope
@@ -610,7 +539,7 @@ data ClientServerTest = ClientServerTest {
 runTestClientServer :: ClientServerTest -> IO ()
 runTestClientServer (ClientServerTest cfg clientRun handlers) = do
     -- Setup client and server
-    firstTestFailure  <- FirstTestFailure <$> newEmptyTMVarIO
+    firstTestFailure  <- newEmptyTMVarIO
     serverHandlerLock <- newServerHandlerLock
 
     let server :: (Server.RunningServer -> IO a) -> IO a
@@ -653,11 +582,11 @@ runTestClientServer (ClientServerTest cfg clientRun handlers) = do
 -- happen if the server fails to start at all, or if there is a bug in the test
 -- framework itself.
 waitForFailure ::
-     Server.RunningServer  -- ^ Server
-  -> Async ()              -- ^ Client
-  -> FirstTestFailure      -- ^ First test failure
-  -> STM SomeException
-waitForFailure server client (FirstTestFailure firstTestFailure) =
+     Server.RunningServer    -- ^ Server
+  -> Async ()                -- ^ Client
+  -> TMVar FirstTestFailure  -- ^ First test failure
+  -> STM FirstTestFailure
+waitForFailure server client firstTestFailure =
       (readTMVar firstTestFailure)
     `orElse`
       (Server.waitServerSTM server >>= serverAux)
@@ -668,13 +597,13 @@ waitForFailure server client (FirstTestFailure firstTestFailure) =
          ( Either SomeException ()
          , Either SomeException ()
          )
-      -> STM SomeException
-    serverAux (Left e, _) = return e
-    serverAux (_, Left e) = return e
+      -> STM FirstTestFailure
+    serverAux (Left e, _) = return (FirstFailureInServer e)
+    serverAux (_, Left e) = return (FirstFailureInServer e)
     serverAux _otherwise  = throwSTM $ UnexpectedServerTermination
 
-    clientAux :: Either SomeException () -> STM SomeException
-    clientAux (Left e)   = return e
+    clientAux :: Either SomeException () -> STM FirstTestFailure
+    clientAux (Left e)   = return (FirstFailureInClient e)
     clientAux _otherwise = retry
 
 -- | We don't expect the server to shutdown until we kill it
