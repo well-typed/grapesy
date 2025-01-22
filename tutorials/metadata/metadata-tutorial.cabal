@@ -53,9 +53,9 @@ library
   build-depends:
     , bytestring         >= 0.10 && < 0.13
     , exceptions         >= 0.10 && < 0.11
-    , grapesy            >= 0.1  && < 0.2
+    , grapesy            >= 1.0  && < 1.1
     , proto-lens-runtime >= 0.7  && < 0.8
-    , time               >= 1.9  && < 1.13
+    , time               >= 1.9  && < 1.15
   exposed-modules:
       Proto.API.Fileserver
   other-modules:
