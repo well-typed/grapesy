@@ -106,7 +106,7 @@ test_serverException = do
           -- Only one of the calls failed, and we got the appropriate
           -- exception
           case lefts results of
-            [GrpcException GrpcUnknown (Just msg) []] -> do
+            [GrpcException GrpcUnknown (Just msg) Nothing []] -> do
               assertBool "" $ "DeliberateException"   `Text.isInfixOf` msg
               assertBool "" $ "SomeServerException 1" `Text.isInfixOf` msg
             _ ->

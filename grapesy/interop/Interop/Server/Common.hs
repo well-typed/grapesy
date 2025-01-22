@@ -61,6 +61,7 @@ echoStatus status =
         throwIO $ GrpcException {
             grpcError         = err
           , grpcErrorMessage  = Just $ status ^. #message
+          , grpcErrorDetails  = Nothing
           , grpcErrorMetadata = []
           }
       Nothing ->
@@ -80,11 +81,13 @@ checkInboundCompression expectCompressed meta =
         throwIO GrpcException {
             grpcError         = GrpcInvalidArgument
           , grpcErrorMessage  = Just "Expected compressed message"
+          , grpcErrorDetails  = Nothing
           , grpcErrorMetadata = []
           }
       (False, Just _) ->
         throwIO GrpcException {
             grpcError         = GrpcInvalidArgument
           , grpcErrorMessage  = Just "Expected uncompressed message"
+          , grpcErrorDetails  = Nothing
           , grpcErrorMetadata = []
           }

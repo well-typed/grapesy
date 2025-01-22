@@ -334,11 +334,11 @@ getOutboundCompression session = \case
 -- | Turn exception raised in server handler to error to be sent to the client
 serverExceptionToClientError :: ServerParams -> SomeException -> IO ProperTrailers
 serverExceptionToClientError params err
-    | Just (err' :: GrpcException) <- fromException err =
-        return $ grpcExceptionToTrailers err'
-    | otherwise = do
-        mMsg <- serverExceptionToClient params err
-        return $ simpleProperTrailers (GrpcError GrpcUnknown) mMsg mempty
+  | Just (err' :: GrpcException) <- fromException err =
+      return $ grpcExceptionToTrailers err'
+  | otherwise = do
+      mMsg <- serverExceptionToClient params err
+      return $ simpleProperTrailers (GrpcError GrpcUnknown) mMsg Nothing mempty
 
 {-------------------------------------------------------------------------------
   Open (ongoing) call
@@ -438,7 +438,7 @@ sendOutputWithMeta call@Call{callChannel} msg = do
     mkTrailers :: ResponseTrailingMetadata rpc -> IO ProperTrailers
     mkTrailers metadata = do
         metadata' <- customMetadataMapFromList <$> buildMetadataIO metadata
-        return $ simpleProperTrailers GrpcOk Nothing metadata'
+        return $ simpleProperTrailers GrpcOk Nothing Nothing metadata'
 
 -- | Send 'GrpcException' to the client
 --
@@ -582,9 +582,11 @@ sendTrailersOnly Call{callContext, callResponseKickoff} metadata = do
 
     trailers :: [CustomMetadata] -> TrailersOnly
     trailers metadata' = TrailersOnly {
-          trailersOnlyContentType = serverContentType serverParams
-        , trailersOnlyProper      = simpleProperTrailers GrpcOk Nothing $
-                                      customMetadataMapFromList metadata'
+          trailersOnlyContentType =
+            serverContentType serverParams
+        , trailersOnlyProper =
+            simpleProperTrailers GrpcOk Nothing Nothing $
+              customMetadataMapFromList metadata'
         }
 
 -- | Get full request headers, including any potential invalid headers

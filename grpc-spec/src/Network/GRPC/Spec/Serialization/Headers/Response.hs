@@ -307,6 +307,7 @@ invalidContentType ::
 invalidContentType err = invalidHeaderSynthesize GrpcException {
       grpcError         = GrpcUnknown
     , grpcErrorMessage  = Just $ Text.pack err
+    , grpcErrorDetails  = Nothing
     , grpcErrorMetadata = []
     }
 
@@ -564,6 +565,7 @@ parseTrailersOnly' proxy =
         , trailersOnlyProper =
             simpleProperTrailers
               (throwError $ missingHeader Nothing "grpc-status")
+              (return Nothing)
               (return Nothing)
               mempty
         }

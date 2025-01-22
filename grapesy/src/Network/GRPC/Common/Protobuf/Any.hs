@@ -18,8 +18,9 @@ module Network.GRPC.Common.Protobuf.Any (
 import Data.Bifunctor
 import Data.ProtoLens.Any (Any, UnpackError(..))
 import Data.ProtoLens.Any qualified as Any
+import Data.ProtoLens.Message (Message)
 
-import Network.GRPC.Common.Protobuf
+import Network.GRPC.Spec
 
 {-------------------------------------------------------------------------------
   Pack and unpack

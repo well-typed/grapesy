@@ -80,6 +80,7 @@ test_callAfterException =
                   Server.sendGrpcException call $ GrpcException {
                       grpcError         = GrpcInvalidArgument
                     , grpcErrorMessage  = Just "Expected non-zero ping"
+                    , grpcErrorDetails  = Nothing
                     , grpcErrorMetadata = []
                     }
           ]
