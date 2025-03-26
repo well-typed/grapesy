@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP               #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Convenience functions for running a HTTP2 server
@@ -36,6 +37,10 @@ import Network.HTTP2.TLS.Server qualified as HTTP2.TLS
 import Network.Run.TCP qualified as Run
 import Network.Socket
 import Network.TLS qualified as TLS
+
+#if MIN_VERSION_network_run(0,4,4)
+import Data.List.NonEmpty qualified as NE
+#endif
 
 import Network.GRPC.Common.HTTP2Settings
 import Network.GRPC.Server
@@ -408,7 +413,11 @@ withServerSocket ::
   -> (Socket -> IO a)
   -> IO a
 withServerSocket http2Settings socketTMVar host port k = do
+#if MIN_VERSION_network_run(0,4,4)
+    addr <- Run.resolve Stream host (show port) [AI_PASSIVE] NE.head
+#else
     addr <- Run.resolve Stream host (show port) [AI_PASSIVE]
+#endif
     bracket (openServerSocket addr) close $ \sock -> do
       atomically $ putTMVar socketTMVar sock
       k sock
