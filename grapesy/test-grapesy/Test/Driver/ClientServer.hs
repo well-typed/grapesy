@@ -75,7 +75,7 @@ data ClientServerConfig = ClientServerConfig {
       -- The client will query the server for its port; this makes it possible
       -- to use @0@ for 'serverPort', so that the server picks a random
       -- available port (this is the default).
-      serverPort :: PortNumber
+      serverPort :: Either FilePath PortNumber
 
       -- | Compression algorithms supported by the client
     , clientCompr :: Compr.Negotation
@@ -117,7 +117,7 @@ data ContentTypeOverride =
 
 instance Default ClientServerConfig where
   def = ClientServerConfig {
-        serverPort                = 0
+        serverPort                = Right 0
       , clientCompr               = def
       , clientInitCompr           = Nothing
       , serverCompr               = def
@@ -366,32 +366,40 @@ withTestServer cfg firstTestFailure handlerLock serverHandlers k = do
 
     let serverConfig :: Server.ServerConfig
         serverConfig =
-            case useTLS cfg of
-              Nothing -> Server.ServerConfig {
-                  serverInsecure = Just Server.InsecureConfig {
-                      insecureHost = Just "127.0.0.1"
-                    , insecurePort = serverPort cfg
+            case serverPort cfg of
+              Left socketPath -> Server.ServerConfig {
+                  serverInsecure = Just Server.InsecureUnix {
+                      insecurePath = socketPath
                     }
                 , serverSecure   = Nothing
                 }
-              Just (TlsFail TlsFailUnsupported) -> Server.ServerConfig {
-                  serverInsecure = Just Server.InsecureConfig {
-                      insecureHost = Just "127.0.0.1"
-                    , insecurePort = serverPort cfg
+              Right portNumber ->
+                case useTLS cfg of
+                  Nothing -> Server.ServerConfig {
+                      serverInsecure = Just Server.InsecureConfig {
+                          insecureHost = Just "127.0.0.1"
+                        , insecurePort = portNumber
+                        }
+                    , serverSecure   = Nothing
                     }
-                , serverSecure   = Nothing
-                }
-              Just _tlsSetup -> Server.ServerConfig {
-                  serverInsecure = Nothing
-                , serverSecure   = Just $ Server.SecureConfig {
-                      secureHost       = "127.0.0.1"
-                    , securePort       = serverPort cfg
-                    , securePubCert    = pubCert
-                    , secureChainCerts = []
-                    , securePrivKey    = privKey
-                    , secureSslKeyLog  = SslKeyLogNone
+                  Just (TlsFail TlsFailUnsupported) -> Server.ServerConfig {
+                      serverInsecure = Just Server.InsecureConfig {
+                          insecureHost = Just "127.0.0.1"
+                        , insecurePort = portNumber
+                        }
+                    , serverSecure   = Nothing
                     }
-                }
+                  Just _tlsSetup -> Server.ServerConfig {
+                      serverInsecure = Nothing
+                    , serverSecure   = Just $ Server.SecureConfig {
+                          secureHost       = "127.0.0.1"
+                        , securePort       = portNumber
+                        , securePubCert    = pubCert
+                        , secureChainCerts = []
+                        , securePrivKey    = privKey
+                        , secureSslKeyLog  = SslKeyLogNone
+                        }
+                    }
 
         serverParams :: Server.ServerParams
         serverParams = def {
@@ -437,10 +445,10 @@ simpleTestClient test params testServer delimitTestScope =
 runTestClient ::
      ClientServerConfig
   -> TMVar FirstTestFailure
-  -> PortNumber
+  -> Either FilePath PortNumber
   -> TestClient
   -> IO ()
-runTestClient cfg firstTestFailure port clientRun = do
+runTestClient cfg firstTestFailure pathOrPort clientRun = do
     pubCert <- getDataFileName "grpc-demo.pem"
 
     let clientParams :: Client.ConnParams
@@ -469,36 +477,40 @@ runTestClient cfg firstTestFailure port clientRun = do
 
         clientServer :: Client.Server
         clientServer =
-            case useTLS cfg of
-              Just tlsSetup ->
-                Client.ServerSecure
-                  ( case tlsSetup of
-                      TlsOk TlsOkCertAsRoot ->
-                        correctClientSetup
-                      TlsOk TlsOkSkipValidation ->
-                        Client.NoServerValidation
-                      TlsFail TlsFailValidation ->
-                        Client.ValidateServer mempty
-                      TlsFail TlsFailUnsupported ->
-                        correctClientSetup
-                  )
-                  -- We enable key logging in the client and disable it in the
-                  -- server. This avoids the client and server trying to write
-                  -- to the same file.
-                  SslKeyLogFromEnv
-                  clientAuthority
+            case pathOrPort of
+              Left socketPath ->
+                Client.ServerUnix socketPath
+              Right port ->
+                case useTLS cfg of
+                  Just tlsSetup ->
+                    Client.ServerSecure
+                      ( case tlsSetup of
+                          TlsOk TlsOkCertAsRoot ->
+                            correctClientSetup
+                          TlsOk TlsOkSkipValidation ->
+                            Client.NoServerValidation
+                          TlsFail TlsFailValidation ->
+                            Client.ValidateServer mempty
+                          TlsFail TlsFailUnsupported ->
+                            correctClientSetup
+                      )
+                      -- We enable key logging in the client and disable it in the
+                      -- server. This avoids the client and server trying to write
+                      -- to the same file.
+                      SslKeyLogFromEnv
+                      (clientAuthority port)
 
-              Nothing ->
-                Client.ServerInsecure
-                  clientAuthority
+                  Nothing ->
+                    Client.ServerInsecure
+                      (clientAuthority port)
           where
             correctClientSetup :: Client.ServerValidation
             correctClientSetup =
                 Client.ValidateServer $
                   Client.certStoreFromPath pubCert
 
-        clientAuthority :: Client.Address
-        clientAuthority =
+        clientAuthority :: PortNumber -> Client.Address
+        clientAuthority port =
             case useTLS cfg of
               Just _tlsSetup -> Client.Address {
                   addressHost      = "127.0.0.1"
@@ -545,12 +557,14 @@ runTestClientServer (ClientServerTest cfg clientRun handlers) = do
     let server :: (Server.RunningServer -> IO a) -> IO a
         server = withTestServer cfg firstTestFailure serverHandlerLock handlers
 
-    let client :: PortNumber -> IO ()
+    let client :: Either FilePath PortNumber -> IO ()
         client port = runTestClient cfg firstTestFailure port clientRun
 
     -- Run the test
     server $ \runningServer -> do
-      port <- Server.getServerPort runningServer
+      port <- case serverPort cfg of
+        Left unixPath -> pure $ Left unixPath
+        Right _ -> Right <$> Server.getServerPort runningServer
 
       withAsync (client port) $ \clientThread -> do
         let failure = waitForFailure runningServer clientThread firstTestFailure

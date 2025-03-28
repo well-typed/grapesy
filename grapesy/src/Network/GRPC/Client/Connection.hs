@@ -257,6 +257,9 @@ data Server =
 
     -- | Make secure connection (with TLS) to the given server
   | ServerSecure ServerValidation SslKeyLog Address
+
+    -- | Make a local connection over a Unix domain socket
+  | ServerUnix FilePath
   deriving stock (Show)
 
 {-------------------------------------------------------------------------------
@@ -429,6 +432,8 @@ stayConnected connParams initialServer connStateVar connOutOfScope = do
               connectInsecure connParams attempt addr
             ServerSecure validation sslKeyLog addr ->
               connectSecure connParams attempt validation sslKeyLog addr
+            ServerUnix path ->
+              connectUnix connParams attempt path
 
         thisReconnectPolicy <- atomically $ do
           putTMVar (attemptClosed attempt) $ either Just (\() -> Nothing) mRes
@@ -462,21 +467,21 @@ stayConnected connParams initialServer connStateVar connOutOfScope = do
                 atomically $ writeTVar connStateVar $ ConnectionNotReady
                 loop nextServer =<< f
 
+-- | Unix domain socket connection
+connectUnix :: ConnParams -> Attempt -> FilePath -> IO ()
+connectUnix connParams attempt path = do
+  client <- socket AF_UNIX Stream defaultProtocol
+  connect client $ SockAddrUnix path
+  connectSocket connParams attempt "localhost" client
+
 -- | Insecure connection (no TLS)
 connectInsecure :: ConnParams -> Attempt -> Address -> IO ()
 connectInsecure connParams attempt addr = do
     Run.runTCPClientWithSettings
         runSettings
         (addressHost addr)
-        (show $ addressPort addr) $ \sock ->
-      bracket (HTTP2.Client.allocSimpleConfig sock writeBufferSize)
-              HTTP2.Client.freeSimpleConfig $ \conf ->
-        HTTP2.Client.run clientConfig conf $ \sendRequest _aux -> do
-          let conn = Session.ConnectionToServer sendRequest
-          atomically $
-            writeTVar (attemptState attempt) $
-              ConnectionReady (attemptClosed attempt) conn
-          takeMVar $ attemptOutOfScope attempt
+        (show $ addressPort addr)
+        $ connectSocket connParams attempt (authority addr)
   where
     ConnParams{connHTTP2Settings} = connParams
 
@@ -484,6 +489,20 @@ connectInsecure connParams attempt addr = do
     runSettings = Run.defaultSettings {
           Run.settingsOpenClientSocket = openClientSocket connHTTP2Settings
         }
+
+-- | Insecure connection over the given socket
+connectSocket :: ConnParams -> Attempt -> String -> Socket -> IO ()
+connectSocket connParams attempt connAuthority sock = do
+    bracket (HTTP2.Client.allocSimpleConfig sock writeBufferSize)
+            HTTP2.Client.freeSimpleConfig $ \conf ->
+      HTTP2.Client.run clientConfig conf $ \sendRequest _aux -> do
+        let conn = Session.ConnectionToServer sendRequest
+        atomically $
+          writeTVar (attemptState attempt) $
+            ConnectionReady (attemptClosed attempt) conn
+        takeMVar $ attemptOutOfScope attempt
+  where
+    ConnParams{connHTTP2Settings} = connParams
 
     settings :: HTTP2.Client.Settings
     settings = HTTP2.Client.defaultSettings {
@@ -498,7 +517,7 @@ connectInsecure connParams attempt addr = do
     clientConfig :: HTTP2.Client.ClientConfig
     clientConfig = overrideRateLimits connParams $
         HTTP2.Client.defaultClientConfig {
-            HTTP2.Client.authority = authority addr
+            HTTP2.Client.authority = connAuthority
           , HTTP2.Client.settings = settings
           , HTTP2.Client.connectionWindowSize =
                 fromIntegral $
