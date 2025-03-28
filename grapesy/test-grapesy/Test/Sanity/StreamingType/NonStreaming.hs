@@ -7,6 +7,8 @@ module Test.Sanity.StreamingType.NonStreaming (tests) where
 import Data.Word
 import Test.Tasty
 import Test.Tasty.HUnit
+import System.IO.Temp (getCanonicalTemporaryDirectory)
+import System.FilePath ((</>))
 
 import Network.GRPC.Client qualified as Client
 import Network.GRPC.Client.Binary qualified as Binary
@@ -25,6 +27,9 @@ tests = testGroup "Test.Sanity.StreamingType.NonStreaming" [
       testGroup "increment" [
           testCase "default" $
             test_increment def
+        , testCase "unix socket" $ do
+            tmpDir <- getCanonicalTemporaryDirectory
+            test_increment def { serverPort = Left (tmpDir </> "grapesy.sock") }
         , testGroup "Content-Type" [
               testGroup "ok" [
                   -- Without the +format part
