@@ -71,7 +71,9 @@ data ServerConfig = ServerConfig {
   deriving stock (Show, Generic)
 
 -- | Offer insecure connection (no TLS)
-data InsecureConfig = InsecureConfig {
+data InsecureConfig =
+    -- | Insecure TCP connection
+    InsecureConfig {
       -- | Hostname
       insecureHost :: Maybe HostName
 
@@ -81,6 +83,11 @@ data InsecureConfig = InsecureConfig {
       -- testing scenarios; see 'getServerPort' or the more general
       -- 'getInsecureSocket' for a way to figure out what this port actually is.
     , insecurePort :: PortNumber
+    }
+    -- | Insecure (but local) Unix domain socket connection
+  | InsecureUnix {
+      -- | Path to the socket
+      insecurePath :: FilePath
     }
   deriving stock (Show, Generic)
 
@@ -302,14 +309,10 @@ runInsecure ::
   -> HTTP2.Server
   -> IO ()
 runInsecure http2 cfg socketTMVar server = do
-    withServerSocket
-        http2
-        socketTMVar
-        (insecureHost cfg)
-        (insecurePort cfg) $ \listenSock ->
+    openSock cfg $ \listenSock ->
       withTimeManager $ \mgr ->
         Run.runTCPServerWithSocket listenSock $ \clientSock -> do
-          when (http2TcpNoDelay http2) $ do
+          when (http2TcpNoDelay http2 && not isUnixSocket) $ do
             -- See description of 'withServerSocket'
             setSocketOption clientSock NoDelay 1
           when (http2TcpAbortiveClose http2) $ do
@@ -320,6 +323,22 @@ runInsecure http2 cfg socketTMVar server = do
   where
     serverConfig :: HTTP2.ServerConfig
     serverConfig = mkServerConfig http2
+
+    openSock :: InsecureConfig -> (Socket -> IO a) -> IO a
+    openSock InsecureConfig{insecureHost, insecurePort} = do
+      withServerSocket
+        http2
+        socketTMVar
+        insecureHost
+        insecurePort
+    openSock InsecureUnix{insecurePath} = do
+      withUnixSocket
+        insecurePath
+        socketTMVar
+
+    isUnixSocket = case cfg of
+      InsecureConfig{} -> False
+      InsecureUnix{}   -> True
 
 {-------------------------------------------------------------------------------
   Secure (over TLS)
@@ -429,3 +448,21 @@ withServerSocket http2Settings socketTMVar host port k = do
           ]
         ]
 
+-- | Create a Unix domain socket
+--
+-- Note that @TCP_NODELAY@ should not be set on unix domain sockets,
+-- otherwise clients would get their connection closed immediately.
+withUnixSocket :: FilePath -> TMVar Socket -> (Socket -> IO a) -> IO a
+withUnixSocket path socketTMVar k = do
+    bracket openServerSocket close $ \sock -> do
+      atomically $ putTMVar socketTMVar sock
+      k sock
+  where
+    openServerSocket :: IO Socket
+    openServerSocket = do
+      sock <- socket AF_UNIX Stream 0
+      setSocketOption sock ReuseAddr 1
+      withFdSocket sock setCloseOnExecIfNeeded
+      bind sock $ SockAddrUnix path
+      listen sock 1024
+      return sock
