@@ -94,7 +94,7 @@ data Address = Address {
       -- port number, and many servers can accept this, this will /not/ work
       -- with TLS, and it is therefore recommended not to include a port number.
       -- Note that the HTTP2 spec explicitly /disallows/ the authority to
-      -- include @userinfo@@.
+      -- include @userinfo@.
     , addressAuthority :: Maybe String
     }
   deriving stock (Show)
