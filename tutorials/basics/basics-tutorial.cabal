@@ -92,4 +92,3 @@ executable route_guide_client
       -- additional
     , random >= 1.2 && < 1.4
     , text   >= 1.2 && < 2.2
-
