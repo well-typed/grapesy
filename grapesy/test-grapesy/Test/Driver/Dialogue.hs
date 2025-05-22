@@ -1,5 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
-
 module Test.Driver.Dialogue (
     module X
   ) where
