@@ -1,5 +1,7 @@
 module Interop.Server.PingService.Ping (handle) where
 
+import Data.ProtoLens.Labels ()
+
 import Network.GRPC.Common.Protobuf
 
 import Proto.Ping

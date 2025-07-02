@@ -266,6 +266,7 @@ test-suite test-grapesy
     , http2
     , mtl
     , network
+    , proto-lens
     , proto-lens-protobuf-types
     , stm
     , text
@@ -394,6 +395,7 @@ test-suite grapesy-interop
     , grpc-spec
     , mtl
     , network
+    , proto-lens
     , text
 
   build-depends:
@@ -433,6 +435,7 @@ benchmark grapesy-kvstore
     , bytestring
     , containers
     , deepseq
+    , proto-lens
     , text
     , unordered-containers
 

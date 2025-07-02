@@ -12,6 +12,8 @@ import Data.ByteString qualified as BS.Strict
 import Data.ByteString qualified as Strict (ByteString)
 import Data.ByteString.Char8 qualified as BS.Strict.Char8
 
+import Data.ProtoLens.Labels ()
+
 import Network.GRPC.Common.Protobuf
 
 import Interop.Util.Exceptions

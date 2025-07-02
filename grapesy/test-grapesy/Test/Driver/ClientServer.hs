@@ -42,6 +42,8 @@ import Network.TLS
 import Test.QuickCheck.Monadic qualified as QuickCheck
 import Test.Tasty.QuickCheck qualified as QuickCheck
 
+import Data.ProtoLens.Labels ()
+
 import Network.GRPC.Client qualified as Client
 import Network.GRPC.Common
 import Network.GRPC.Common.Compression qualified as Compr
