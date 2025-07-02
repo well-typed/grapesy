@@ -4,6 +4,8 @@ module Proto.API.RouteGuide (
     module Proto.RouteGuide
   ) where
 
+import Data.ProtoLens.Labels ()
+
 import Network.GRPC.Common
 import Network.GRPC.Common.Protobuf
 

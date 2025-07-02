@@ -54,6 +54,7 @@ library
     , bytestring         >= 0.10 && < 0.13
     , exceptions         >= 0.10 && < 0.11
     , grapesy            >= 1.0  && < 1.1
+    , proto-lens         >= 0.7  && < 0.8
     , proto-lens-runtime >= 0.7  && < 0.8
     , time               >= 1.9  && < 1.15
   exposed-modules:

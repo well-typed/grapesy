@@ -12,6 +12,8 @@ import Data.ByteString (ByteString)
 import Data.ByteString.Char8 qualified as C8
 import Text.Read (readMaybe)
 
+import Data.ProtoLens.Labels ()
+
 import Network.GRPC.Common
 import Network.GRPC.Common.Protobuf
 

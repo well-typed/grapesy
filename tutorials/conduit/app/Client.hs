@@ -7,6 +7,8 @@ import Data.Int
 import Data.Text (Text)
 import System.Random
 
+import Data.ProtoLens.Labels ()
+
 import Network.GRPC.Client
 import Network.GRPC.Client.StreamType.Conduit
 import Network.GRPC.Common

@@ -21,6 +21,8 @@ import Data.Map.Strict qualified as Map
 import Data.Maybe (listToMaybe, fromMaybe)
 import Data.Time
 
+import Data.ProtoLens.Labels ()
+
 import Network.GRPC.Common.Protobuf
 
 import Proto.RouteGuide

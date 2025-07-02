@@ -6,6 +6,8 @@ import Data.Int
 import Data.Text (Text)
 import System.Random
 
+import Data.ProtoLens.Labels ()
+
 import Network.GRPC.Client
 import Network.GRPC.Common
 import Network.GRPC.Common.Protobuf

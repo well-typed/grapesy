@@ -5,6 +5,8 @@ import Data.IORef
 import Data.Maybe (fromMaybe)
 import Data.Time
 
+import Data.ProtoLens.Labels ()
+
 import Network.GRPC.Common
 import Network.GRPC.Common.Protobuf
 import Network.GRPC.Common.StreamElem qualified as StreamElem
