@@ -8,6 +8,7 @@ module Interop.Server.Common (
   ) where
 
 import Control.Exception
+import Data.ProtoLens.Labels ()
 
 import Network.GRPC.Common
 import Network.GRPC.Common.Protobuf

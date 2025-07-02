@@ -3,6 +3,7 @@ module Client (main) where
 import Control.Concurrent
 import Control.Monad
 import Data.Int
+import Data.ProtoLens.Labels ()
 import Data.Text (Text)
 import System.Random
 

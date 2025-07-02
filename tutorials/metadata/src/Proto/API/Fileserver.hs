@@ -10,6 +10,7 @@ module Proto.API.Fileserver (
 import Control.Monad.Catch (throwM)
 import Data.ByteString (ByteString)
 import Data.ByteString.Char8 qualified as C8
+import Data.ProtoLens.Labels ()
 import Text.Read (readMaybe)
 
 import Network.GRPC.Common

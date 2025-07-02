@@ -40,8 +40,9 @@ executable route_guide_server
   build-depends:   basics-tutorial
 
   build-depends:
-    , grapesy >= 1.1 && < 1.2
-    , time    >= 1.9 && < 1.15
+    , grapesy    >= 1.1 && < 1.2
+    , proto-lens >= 0.7 && < 0.8
+    , time       >= 1.9 && < 1.15
 
 executable route_guide_client
   import:         lang
@@ -51,6 +52,7 @@ executable route_guide_client
   build-depends:   basics-tutorial
 
   build-depends:
-    , grapesy >= 1.1 && < 1.2
-    , random  >= 1.2 && < 1.4
-    , text    >= 1.2 && < 2.2
+    , grapesy    >= 1.1 && < 1.2
+    , proto-lens >= 0.7 && < 0.8
+    , random     >= 1.2 && < 1.4
+    , text       >= 1.2 && < 2.2

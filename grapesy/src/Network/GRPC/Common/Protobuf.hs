@@ -35,8 +35,7 @@ import Data.Bifunctor
 import Data.Function ((&))
 import Data.Int
 import Data.Maybe (fromMaybe)
-import Data.ProtoLens.Field (HasField(..))
-import Data.ProtoLens.Labels () -- provides instances for OverloadedLabels
+import Data.ProtoLens.Field (HasField(..), field)
 import Data.ProtoLens.Message (FieldDefault(..), Message(defMessage))
 import Data.Text (Text)
 
@@ -75,9 +74,9 @@ throwProtobufError ProtobufError{
     status :: Proto Status
     status =
         defMessage
-          & #code    .~ fromIntegral (fromGrpcError protobufErrorCode)
-          & #message .~ fromMaybe fieldDefault protobufErrorMessage
-          & #details .~ protobufErrorDetails
+          & field @"code"    .~ fromIntegral (fromGrpcError protobufErrorCode)
+          & field @"message" .~ fromMaybe fieldDefault protobufErrorMessage
+          & field @"details" .~ protobufErrorDetails
 
 -- | Variation of 'throwProtobufError' for a homogenous list of details
 --
@@ -101,11 +100,11 @@ toProtobufError err =
           }
       Just statusEnc -> do
         status :: Proto Status <- parseStatus statusEnc
-        protobufErrorCode <- checkErrorCode (status ^. #code)
+        protobufErrorCode <- checkErrorCode (status ^. field @"code")
         return ProtobufError{
             protobufErrorCode
-          , protobufErrorMessage = constructErrorMessage (status ^. #message)
-          , protobufErrorDetails = status ^. #details
+          , protobufErrorMessage = constructErrorMessage (status ^. field @"message")
+          , protobufErrorDetails = status ^. field @"details"
           }
   where
     -- The gRPC specification mandates

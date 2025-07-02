@@ -3,6 +3,7 @@ module Server (main) where
 import Control.Monad
 import Data.IORef
 import Data.Maybe (fromMaybe)
+import Data.ProtoLens.Labels ()
 import Data.Time
 
 import Network.GRPC.Common

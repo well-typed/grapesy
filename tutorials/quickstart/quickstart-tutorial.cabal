@@ -44,6 +44,7 @@ library
 
   build-depends:
     , grapesy            >= 1.1 && < 1.2
+    , proto-lens         >= 0.7 && < 0.8
     , proto-lens-runtime >= 0.7 && < 0.8
   exposed-modules:
       Proto.API.Helloworld

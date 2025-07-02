@@ -4,6 +4,8 @@ module Proto.API.Helloworld (
     module Proto.Helloworld
   ) where
 
+import Data.ProtoLens.Labels ()
+
 import Network.GRPC.Common
 import Network.GRPC.Common.Protobuf
 
