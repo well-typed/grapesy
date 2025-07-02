@@ -36,7 +36,6 @@ import Data.Function ((&))
 import Data.Int
 import Data.Maybe (fromMaybe)
 import Data.ProtoLens.Field (HasField(..))
-import Data.ProtoLens.Labels () -- provides instances for OverloadedLabels
 import Data.ProtoLens.Message (FieldDefault(..), Message(defMessage))
 import Data.Text (Text)
 
