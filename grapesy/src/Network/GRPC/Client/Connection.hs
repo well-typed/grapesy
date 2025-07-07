@@ -515,6 +515,9 @@ stayConnected connParams initialServer connStateVar connOutOfScope = do
             | isFatalException err ->
                 atomically $ writeTVar connStateVar $ ConnectionAbandoned err
             | otherwise -> do
+                -- Mark the connection as not ready /before/ running the reconnt
+                -- policy. This prevents any attempts to use the connection
+                -- while the policy is running.
                 atomically $ writeTVar connStateVar $ ConnectionNotReady
                 runReconnectPolicy thisReconnectPolicy >>= \case
                   DontReconnect -> do
