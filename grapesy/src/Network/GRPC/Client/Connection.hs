@@ -17,6 +17,7 @@ module Network.GRPC.Client.Connection (
   , ConnParams(..)
   , ReconnectPolicy(..)
   , ReconnectDecision(..)
+  , Reconnect(..)
   , OnConnection(..)
   , ReconnectTo(..)
   , exponentialBackoff
@@ -167,7 +168,10 @@ instance Default ConnParams where
 -- | Reconnect policy
 --
 -- See 'exponentialBackoff' for a convenient function to construct a policy.
-data ReconnectPolicy =
+newtype ReconnectPolicy =
+    ReconnectPolicy { runReconnectPolicy :: IO ReconnectDecision }
+
+data ReconnectDecision =
     -- | Do not attempt to reconnect
     --
     -- When we get disconnected from the server (or fail to establish a
@@ -180,26 +184,26 @@ data ReconnectPolicy =
     -- 'threadDelay' for some amount of time (which will typically involve some
     -- randomness), but it can be used to do things such as display a message to
     -- the user somewhere that the client is reconnecting.
-  | ReconnectAfter (IO ReconnectDecision)
+  | DoReconnect Reconnect
 
 -- | Decision made by a 'ReconnectPolicy'
-data ReconnectDecision = ReconnectDecision {
-      -- | 'rdReconnectTo' can be used to implement a rudimentary redundancy
+data Reconnect = Reconnect {
+      -- | 'reconnectTo' can be used to implement a rudimentary redundancy
       -- scheme. For example, you could decide to reconnect to a known fallback
       -- server after connection to a main server fails a certain number of
       -- times.
-      rdReconnectTo :: ReconnectTo
+      reconnectTo :: ReconnectTo
 
-      -- | If 'rdOnReconnect' is 'Just', the contained action will be run upon
+      -- | If 'onReconnect' is 'Just', the contained action will be run upon
       -- successful reconnection to a server.
       --
       -- If it is 'Nothing', the 'connOnReconnect' given in the initial
       -- 'ConnParams' will be used instead.
-    , rdOnReconnect :: Maybe OnConnection
+    , onReconnect :: Maybe OnConnection
 
       -- | If the next connection attempt fails at any point, use this as the
       -- next 'ReconnectPolicy'
-    , rdNextPolicy :: ReconnectPolicy
+    , nextPolicy :: ReconnectPolicy
     }
 
 -- | An action to run upon successful (re)connection to a server
@@ -225,7 +229,7 @@ data ReconnectTo =
 -- The default follows the gRPC specification of Wait for Ready semantics
 -- <https://github.com/grpc/grpc/blob/master/doc/wait-for-ready.md>.
 instance Default ReconnectPolicy where
-  def = DontReconnect
+  def = ReconnectPolicy $ pure DontReconnect
 
 -- | The default 'OnConnection' is to do nothing
 instance Default OnConnection where
@@ -235,11 +239,14 @@ instance Default OnConnection where
 -- the 'OnConnection' from the initial 'ConnParams', and 'DontReconnect' as the
 -- next policy.
 instance Default ReconnectDecision where
-  def = ReconnectDecision
-      { rdReconnectTo = def
-      , rdOnReconnect = Nothing
-      , rdNextPolicy  = DontReconnect
-      }
+  def = DontReconnect
+
+instance Default Reconnect where
+  def = Reconnect
+    { reconnectTo = def
+    , onReconnect = def
+    , nextPolicy  = def
+    }
 
 instance Default ReconnectTo where
   def = ReconnectToPrevious
@@ -270,14 +277,14 @@ exponentialBackoff ::
 exponentialBackoff waitFor e = go
   where
     go :: (Double, Double) -> Word -> ReconnectPolicy
-    go _        0 = DontReconnect
-    go (lo, hi) n = ReconnectAfter $ do
+    go _        0 = ReconnectPolicy $ pure DontReconnect
+    go (lo, hi) n = ReconnectPolicy $ do
         delay <- randomRIO (lo, hi)
         waitFor $ round $ delay * 1_000_000
-        return $ ReconnectDecision {
-              rdReconnectTo = def
-            , rdOnReconnect = Nothing
-            , rdNextPolicy  = go (lo * e, hi * e) (pred n)
+        return $ DoReconnect Reconnect {
+              reconnectTo = def
+            , onReconnect = Nothing
+            , nextPolicy  = go (lo * e, hi * e) (pred n)
             }
 
 {-------------------------------------------------------------------------------
@@ -465,9 +472,9 @@ stayConnected connParams initialServer connStateVar connOutOfScope = do
       (connReconnectPolicy connParams)
   where
     loop :: Server -> OnConnection -> ReconnectPolicy -> IO ()
-    loop server onReconnect remainingReconnectPolicy = do
+    loop server onConnection remainingReconnectPolicy = do
         -- Start new attempt (this just allocates some internal state)
-        attempt <- newConnectionAttempt connParams onReconnect connStateVar connOutOfScope
+        attempt <- newConnectionAttempt connParams onConnection connStateVar connOutOfScope
 
         -- Just like in 'runHandler' on the server side, it is important that
         -- 'stayConnected' runs in a separate thread. If it does not, then the
@@ -504,28 +511,28 @@ stayConnected connParams initialServer connStateVar connOutOfScope = do
         case mRes of
           Right () -> do
             atomically $ writeTVar connStateVar $ ConnectionOutOfScope
-          Left err -> do
-            case (isFatalException err, thisReconnectPolicy) of
-              (True, _) -> do
+          Left err
+            | isFatalException err ->
                 atomically $ writeTVar connStateVar $ ConnectionAbandoned err
-              (False, DontReconnect) -> do
-                atomically $ writeTVar connStateVar $ ConnectionAbandoned err
-              (False, ReconnectAfter f) -> do
+            | otherwise -> do
                 atomically $ writeTVar connStateVar $ ConnectionNotReady
-                ReconnectDecision reconnectTo mOnReconnect nextPolicy <- f
-                let
-                  nextServer =
-                    case reconnectTo of
-                      ReconnectToPrevious -> server
-                      ReconnectToOriginal -> initialServer
-                      ReconnectToNew new  -> new
+                runReconnectPolicy thisReconnectPolicy >>= \case
+                  DontReconnect -> do
+                    atomically $ writeTVar connStateVar $ ConnectionAbandoned err
+                  DoReconnect reconnect -> do
+                    let
+                      nextServer =
+                        case reconnectTo reconnect of
+                          ReconnectToPrevious -> server
+                          ReconnectToOriginal -> initialServer
+                          ReconnectToNew new  -> new
 
-                  onReconnect' =
-                    case mOnReconnect of
-                      Just act -> act
-                      Nothing  -> connOnConnection connParams
+                      onReconnect' =
+                        case onReconnect reconnect of
+                          Just act -> act
+                          Nothing  -> connOnConnection connParams
 
-                loop nextServer onReconnect' nextPolicy
+                    loop nextServer onReconnect' $ nextPolicy reconnect
 
 -- | Unix domain socket connection
 connectUnix :: ConnParams -> Attempt -> FilePath -> IO ()

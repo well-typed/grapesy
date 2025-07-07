@@ -470,12 +470,13 @@ runTestClient cfg firstTestFailure pathOrPort clientRun = do
               -- This avoids a race condition between the server starting first
               -- and the client starting first.
             , connReconnectPolicy =
-                  Client.ReconnectAfter $ do
-                    threadDelay 100_000
-                    return Client.ReconnectDecision {
-                        rdReconnectTo = def
-                      , rdOnReconnect = Nothing
-                      , rdNextPolicy = Client.DontReconnect
+                Client.ReconnectPolicy $ do
+                  threadDelay 100_000
+                  return $
+                    Client.DoReconnect Client.Reconnect {
+                        reconnectTo = def
+                      , onReconnect = Nothing
+                      , nextPolicy = def
                       }
             , connOnConnection = def
             }

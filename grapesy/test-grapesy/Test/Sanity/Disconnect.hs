@@ -205,25 +205,28 @@ test_serverDisconnect = withTemporaryFile $ \ipcFile -> do
             go :: Int -> Client.ReconnectPolicy
             go n
               | n == 5
-              = Client.ReconnectAfter $ do
+              = Client.ReconnectPolicy $ do
                   killRestarted <- startServer
                   port2 <- ipcRead
                   putMVar signalRestart killRestarted
-                  return def {
-                      Client.rdNextPolicy =
-                        Client.ReconnectAfter $ do
-                          return def {
-                              Client.rdReconnectTo =
-                                Client.ReconnectToNew $ serverAddress port2
-                            , Client.rdNextPolicy =
-                                Client.DontReconnect
-                            }
-
+                  return $ Client.DoReconnect Client.Reconnect {
+                      Client.nextPolicy =
+                        Client.ReconnectPolicy $
+                          pure $ Client.DoReconnect Client.Reconnect {
+                                Client.reconnectTo =
+                                  Client.ReconnectToNew $ serverAddress port2
+                              , Client.nextPolicy =
+                                  Client.ReconnectPolicy $ pure Client.DontReconnect
+                              , Client.onReconnect = Nothing
+                              }
+                      , Client.reconnectTo = def
+                      , Client.onReconnect = def
                     }
               | otherwise
-              = Client.ReconnectAfter $ do
+              = Client.ReconnectPolicy $ do
                   threadDelay 10000
-                  return $ def { Client.rdNextPolicy = go (n + 1) }
+                  return $
+                    Client.DoReconnect def { Client.nextPolicy = go (n + 1) }
 
         connParams :: Client.ConnParams
         connParams = def { Client.connReconnectPolicy = reconnectPolicy }
