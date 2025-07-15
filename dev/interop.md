@@ -35,8 +35,8 @@ All tests should pass.
 ## Running development `grapesy` against reference implementation
 
 > [!NOTE]
-> At the time of writing (2025-01-17) version
-> [v1.69.0](https://github.com/grpc/grpc/releases/tag/v1.69.0) is the most
+> At the time of writing (2025-07-15) version
+> [v1.72.2](https://github.com/grpc/grpc/releases/tag/v1.72.2) is the most
 > recent.
 
 In this section we will describe how to run a development `grapesy` server or
@@ -45,20 +45,23 @@ client (that is, a local checkout of the git repository, run simply using
 checkout of the [official gRPC repo](https://github.com/grpc/grpc/).
 
 ```bash
-$ git clone https://github.com/grpc/grpc.git -b v1.69.0 ./grpc-repo
-grpc-repo$ git switch -c v1.69.0
+$ git clone https://github.com/grpc/grpc.git -b v1.72.2 ./grpc-repo
+grpc-repo$ git switch -c v1.72.2
 grpc-repo$ git submodule update --init --recursive
 ```
 
 For some languages, the gRPC implementation lives in a separate repository.
 
 ```bash
-$ git clone https://github.com/grpc/grpc-java.git -b v1.69.0
-grpc-java$ git switch -c v1.69.0
+$ git clone https://github.com/grpc/grpc-java.git -b v1.73.0
+grpc-java$ git switch -c v1.73.0
 
-$ git clone https://github.com/grpc/grpc-go.git -b v1.69.0
-grpc-go$ git switch -c v1.69.0
+$ git clone https://github.com/grpc/grpc-go.git -b v1.72.2
+grpc-go$ git switch -c v1.72.2
 ```
+
+(For some reason `grpc-java` does not have a version `v1.72.2`, while version
+`1.73.0` is not skipped in the main `grpc-repo` repo?)
 
 These need to be checked out alongside `grpc-repo`, so that you end up with
 something like this:
