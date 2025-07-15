@@ -233,6 +233,7 @@ test-suite test-grapesy
       Test.Sanity.Disconnect
       Test.Sanity.EndOfStream
       Test.Sanity.Interop
+      Test.Sanity.NoIsLabel
       Test.Sanity.Reclamation
       Test.Sanity.StreamingType.CustomFormat
       Test.Sanity.StreamingType.NonStreaming
