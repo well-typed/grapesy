@@ -4,6 +4,7 @@ import Conduit
 import Control.Concurrent
 import Data.Conduit.List
 import Data.Int
+import Data.ProtoLens.Labels ()
 import Data.Text (Text)
 import System.Random
 

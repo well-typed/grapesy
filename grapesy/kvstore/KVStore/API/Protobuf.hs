@@ -2,6 +2,8 @@
 
 module KVStore.API.Protobuf (client, server) where
 
+import Data.ProtoLens.Labels ()
+
 import Network.GRPC.Client (rpc)
 import Network.GRPC.Client qualified as Client
 import Network.GRPC.Client.StreamType.IO qualified as Client

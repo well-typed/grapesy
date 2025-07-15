@@ -18,12 +18,16 @@ package grapesy
   benchmarks: True
   flags: +build-demo +build-stress-test
 
--- proto-lens support for ghc 9.10
--- https://github.com/google/proto-lens/pull/494
+-- The test suite relies on some unreleased fixes:
+--
+-- * "Don't import IsLabels instance in Data.ProtoLens.Any"
+--   https://github.com/google/proto-lens/pull/515
+-- * Possibly also ghc 9.10 support in some packages
+--   https://github.com/google/proto-lens/pull/494
 source-repository-package
   type: git
   location: https://github.com/google/proto-lens
-  tag: c927e0341715a2ff7f87f219c9a36517f06cef80
+  tag: f20c0e2d73ee86a0d06a0e3210f54ca6dfce4e86
   subdir: proto-lens proto-lens-runtime proto-lens-setup proto-lens-protoc proto-lens-protobuf-types
 
 -- avoid compilation errors in some dependencies

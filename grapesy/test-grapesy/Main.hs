@@ -22,6 +22,7 @@ import Test.Sanity.Compression                qualified as Compression
 import Test.Sanity.Disconnect                 qualified as Disconnect
 import Test.Sanity.EndOfStream                qualified as EndOfStream
 import Test.Sanity.Interop                    qualified as Interop
+import Test.Sanity.NoIsLabel                  qualified as NoIsLabel
 import Test.Sanity.Reclamation                qualified as Reclamation
 import Test.Sanity.StreamingType.CustomFormat qualified as StreamingType.CustomFormat
 import Test.Sanity.StreamingType.NonStreaming qualified as StreamingType.NonStreaming
@@ -43,6 +44,7 @@ main = do
           , Interop.tests
           , Reclamation.tests
           , BrokenDeployments.tests
+          , NoIsLabel.tests
           ]
       , testGroup "Regression" [
             Issue102.tests

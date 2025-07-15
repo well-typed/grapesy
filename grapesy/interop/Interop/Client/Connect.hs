@@ -1,5 +1,7 @@
 module Interop.Client.Connect (testServer) where
 
+import Data.ProtoLens.Labels ()
+
 import Network.GRPC.Client
 
 import Interop.Cmdline

@@ -35,6 +35,7 @@ import Control.Exception (throwIO)
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
+import Data.ProtoLens.Labels ()
 import Data.Text qualified as Text
 import Network.HTTP2.Server qualified as HTTP2.Server
 import Network.Socket (PortNumber)

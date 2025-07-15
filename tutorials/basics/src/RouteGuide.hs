@@ -19,6 +19,7 @@ import Data.Int
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (listToMaybe, fromMaybe)
+import Data.ProtoLens.Labels ()
 import Data.Time
 
 import Network.GRPC.Common.Protobuf
