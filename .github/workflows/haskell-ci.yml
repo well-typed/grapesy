@@ -269,31 +269,31 @@ jobs:
           source-repository-package
             type:     git
             location: https://github.com/google/proto-lens
-            tag:      c927e0341715a2ff7f87f219c9a36517f06cef80
+            tag:      f20c0e2d73ee86a0d06a0e3210f54ca6dfce4e86
             subdir:   proto-lens
 
           source-repository-package
             type:     git
             location: https://github.com/google/proto-lens
-            tag:      c927e0341715a2ff7f87f219c9a36517f06cef80
+            tag:      f20c0e2d73ee86a0d06a0e3210f54ca6dfce4e86
             subdir:   proto-lens-runtime
 
           source-repository-package
             type:     git
             location: https://github.com/google/proto-lens
-            tag:      c927e0341715a2ff7f87f219c9a36517f06cef80
+            tag:      f20c0e2d73ee86a0d06a0e3210f54ca6dfce4e86
             subdir:   proto-lens-setup
 
           source-repository-package
             type:     git
             location: https://github.com/google/proto-lens
-            tag:      c927e0341715a2ff7f87f219c9a36517f06cef80
+            tag:      f20c0e2d73ee86a0d06a0e3210f54ca6dfce4e86
             subdir:   proto-lens-protoc
 
           source-repository-package
             type:     git
             location: https://github.com/google/proto-lens
-            tag:      c927e0341715a2ff7f87f219c9a36517f06cef80
+            tag:      f20c0e2d73ee86a0d06a0e3210f54ca6dfce4e86
             subdir:   proto-lens-protobuf-types
 
           package grpc-spec
