@@ -9,6 +9,10 @@
   `ReconnectPolicy`.
 * Add `OnConnection` actions to `ConnParams` and `ReconnectDecision` so that
   users can track whether a connection is actually connected.
+* `Network.GRPC.Common.Protobuf` does not import from `Data.ProtoLens.Labels`,
+  to avoid problems with `lens` [#283, Leonid Onokhov].
+  NOTE: Users who want to rely on this will also need
+  https://github.com/google/proto-lens/pull/515.
 
 ## 1.0.1 -- 2025-04-01
 
