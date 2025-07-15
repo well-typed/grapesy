@@ -152,7 +152,7 @@ threadBody :: forall a.
 threadBody label state body = do
     labelThisThread label
     threadId  <- myThreadId
-    initState <- atomically $ readTVar state
+    initState <- readTVarIO state
 
     -- See discussion of 'ThreadNotStarted'
     -- It's critical that async exceptions are masked at this point.
@@ -376,4 +376,3 @@ withoutDeadlockDetection :: IO a -> IO a
 withoutDeadlockDetection k = do
     threadId <- myThreadId
     bracket (newStablePtr threadId) freeStablePtr $ \_ -> k
-

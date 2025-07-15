@@ -1,5 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
-
 module Network.GRPC.Client (
     -- * Connecting to the server
     Connection -- opaque
@@ -9,6 +7,9 @@ module Network.GRPC.Client (
 
     -- ** Reconnection policy
   , ReconnectPolicy(..)
+  , ReconnectDecision(..)
+  , Reconnect(..)
+  , OnConnection(..)
   , ReconnectTo(..)
   , exponentialBackoff
 
