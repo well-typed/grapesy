@@ -41,5 +41,5 @@ executable route_guide_server
   build-depends:   basics-tutorial
 
   build-depends:
-    , grapesy >= 1.0 && < 1.1
+    , grapesy >= 1.1 && < 1.2
     , time    >= 1.9 && < 1.15
