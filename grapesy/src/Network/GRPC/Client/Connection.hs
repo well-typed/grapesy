@@ -34,7 +34,6 @@ import Control.Concurrent.STM
 import Control.Monad
 import Control.Monad.Catch
 import Data.Default
-import Data.X509.Validation qualified as X509
 import GHC.Stack
 import Network.HPACK qualified as HPACK
 import Network.HTTP2.Client qualified as HTTP2.Client
@@ -604,18 +603,14 @@ connectSecure connParams attempt validation sslKeyLog addr = do
 
     let settings :: HTTP2.TLS.Client.Settings
         settings = HTTP2.TLS.Client.defaultSettings {
-              HTTP2.TLS.Client.settingsValidateCert =
+              HTTP2.TLS.Client.settingsKeyLogger     = keyLogger
+            , HTTP2.TLS.Client.settingsCAStore       = caStore
+            , HTTP2.TLS.Client.settingsAddrInfoFlags = []
+
+            , HTTP2.TLS.Client.settingsValidateCert =
                 case validation of
                   ValidateServer _   -> True
                   NoServerValidation -> False
-            , HTTP2.TLS.Client.settingsOnServerCertificate = \_caStore ->
-                -- TODO: https://github.com/kazu-yamamoto/http2-tls/issues/24
-                -- This is a little dubious.
-                X509.validateDefault caStore
-
-            , HTTP2.TLS.Client.settingsKeyLogger     = keyLogger
-            , HTTP2.TLS.Client.settingsAddrInfoFlags = []
-
             , HTTP2.TLS.Client.settingsOpenClientSocket =
                 openClientSocket connHTTP2Settings
             , HTTP2.TLS.Client.settingsConcurrentStreams = fromIntegral $
