@@ -263,6 +263,8 @@ send Channel{channelOutbound, channelSentFinal} = \msg -> do
             StreamElem.whenDefinitelyFinal msg $ \_trailers ->
               writeTVar channelSentFinal $ Just callStack
             unsafeIOToSTM $ putStrLn "\n\nPUTTING MSG\n\n"
+            s <- readTVar channelOutbound
+            unsafeIOToSTM $ putStrLn $ "\n\nSTATE " ++ showThreadStateConstructor s
             putTMVar (flowMsg regular) msg
             unsafeIOToSTM $ putStrLn "\n\nPUT MSG\n\n"
           FlowStateNoMessages _ ->

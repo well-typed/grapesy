@@ -20,6 +20,7 @@ module Network.GRPC.Util.Thread (
   , withThreadInterface
   , waitForNormalThreadTermination
   , waitForNormalOrAbnormalThreadTermination
+  , showThreadStateConstructor
   ) where
 
 import Control.Concurrent
@@ -32,6 +33,7 @@ import GHC.Stack
 import System.IO.Unsafe (unsafePerformIO)
 
 import Network.GRPC.Util.GHC
+import GHC.Conc (unsafeIOToSTM)
 
 {-------------------------------------------------------------------------------
   Debug thread IDs
@@ -110,6 +112,13 @@ threadDebugId (ThreadInitializing debugId _  ) = debugId
 threadDebugId (ThreadRunning      debugId _ _) = debugId
 threadDebugId (ThreadDone         debugId   _) = debugId
 threadDebugId (ThreadException    debugId   _) = debugId
+
+showThreadStateConstructor :: ThreadState a -> String
+showThreadStateConstructor (ThreadNotStarted   _    ) = "ThreadNotStarted"
+showThreadStateConstructor (ThreadInitializing _ _  ) = "ThreadInitializing"
+showThreadStateConstructor (ThreadRunning      _ _ _) = "ThreadRunning"
+showThreadStateConstructor (ThreadDone         _   _) = "ThreadDone"
+showThreadStateConstructor (ThreadException    _   _) = "ThreadException"
 
 {-------------------------------------------------------------------------------
   Creating threads
@@ -238,6 +247,7 @@ cancelThread :: forall a.
   -> SomeException
   -> IO (CancelResult a)
 cancelThread state e = do
+    putStrLn "\n\nCANCEL THREAD CALLED\n\n"
     (result, mTid) <- atomically aux
     forM_ mTid $ flip throwTo e
     return result
@@ -247,17 +257,22 @@ cancelThread state e = do
         st <- readTVar state
         case st of
           ThreadNotStarted debugId -> do
+            unsafeIOToSTM $ putStrLn "\n\nTHREAD NOT STARTED\n\n"
             writeTVar state $ ThreadException debugId e
             return (Cancelled, Nothing)
           ThreadInitializing debugId threadId -> do
+            unsafeIOToSTM $ putStrLn "\n\nTHREAD INITIALIZING\n\n"
             writeTVar state $ ThreadException debugId e
             return (Cancelled, Just threadId)
           ThreadRunning debugId threadId _ -> do
+            unsafeIOToSTM $ putStrLn "\n\nTHREAD RUNNING\n\n"
             writeTVar state $ ThreadException debugId e
             return (Cancelled, Just threadId)
-          ThreadException _debugId e' ->
+          ThreadException _debugId e' -> do
+            unsafeIOToSTM $ putStrLn "\n\nTHREAD EXCEPTION\n\n"
             return (AlreadyAborted e', Nothing)
-          ThreadDone _debugId a ->
+          ThreadDone _debugId a -> do
+            unsafeIOToSTM $ putStrLn "\n\nTHREAD DONE\n\n"
             return (AlreadyTerminated a, Nothing)
 
 {-------------------------------------------------------------------------------
