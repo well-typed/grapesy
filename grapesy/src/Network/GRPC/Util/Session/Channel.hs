@@ -264,7 +264,7 @@ send Channel{channelOutbound, channelSentFinal} = \msg -> do
               writeTVar channelSentFinal $ Just callStack
             unsafeIOToSTM $ putStrLn "\n\nPUTTING MSG\n\n"
             s <- readTVar channelOutbound
-            unsafeIOToSTM $ putStrLn $ "\n\nSTATE " ++ showThreadStateConstructor s
+            unsafeIOToSTM $ putStrLn $ "\n\nSTATE " ++ showThreadStateConstructor s ++ "\n\n"
             putTMVar (flowMsg regular) msg
             unsafeIOToSTM $ putStrLn "\n\nPUT MSG\n\n"
           FlowStateNoMessages _ ->

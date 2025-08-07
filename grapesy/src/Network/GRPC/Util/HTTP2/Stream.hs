@@ -133,9 +133,11 @@ serverOutputStream iface = do
           , _writeChunkFinal = \c ->
                wrapStreamExceptionsWith ClientDisconnected $
                  outBodyPushFinal iface c
-          , _flush =
+          , _flush = do
+               putStrLn "\n\nFLUSH CALLING\n\n"
                wrapStreamExceptionsWith ClientDisconnected $
                  outBodyFlush iface
+               putStrLn "\n\nFLUSH DONE\n\n"
           }
 
     flush outputStream
