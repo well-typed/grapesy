@@ -326,7 +326,8 @@ closeRPC ::
   -> Session.CancelRequest
   -> ExitCase a
   -> IO ()
-closeRPC callChannel cancelRequest exitCase = liftIO $ do
+closeRPC callChannel cancelRequest exitCase = do
+    putStrLn "\n\nCLOSE RPC CALLED\n\n"
     -- /Before/ we do anything else (see below), check if we have evidence
     -- that we can discard the connection.
     canDiscard <- checkCanDiscard
@@ -339,11 +340,14 @@ closeRPC callChannel cancelRequest exitCase = liftIO $ do
     -- 'Session.close'. /If/ the final message has already been sent,
     -- @http2@ guarantees (as a postcondition of @outBodyPushFinal@) that
     -- cancellation will be a no-op.
+    putStrLn "\n\nSENDING RESET\n\n"
     sendResetFrame
 
     -- Now close the /outbound/ thread, see docs of 'Session.close' for
     -- details.
+    putStrLn "\n\nCALLING CLOSE\n\n"
     mException <- liftIO $ Session.close callChannel exitCase
+    putStrLn "\n\nCALLED CLOSE\n\n"
     case mException of
       Nothing ->
         -- The outbound thread had already terminated
