@@ -553,8 +553,11 @@ sendMessageLoop sess st stream = do
         msg <- atomically $ takeTMVar (flowMsg st)
         case msg of
           StreamElem x -> do
+            putStrLn "\n\nWRITING CHUNK\n\n"
             writeChunk stream $ build x
+            putStrLn "\n\nWROTE CHUNNK\n\n"
             flush stream
+            putStrLn "\n\nFLUSHED\n\n"
             loop
           FinalElem x trailers -> do
             writeChunkFinal stream $ build x

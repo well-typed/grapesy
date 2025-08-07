@@ -126,8 +126,10 @@ serverOutputStream iface = do
 
     let outputStream = OutputStream {
             _writeChunk = \c ->
-               wrapStreamExceptionsWith ClientDisconnected $
+               wrapStreamExceptionsWith ClientDisconnected $ do
+                 putStrLn "\n\nOUTBODY PUSH CALLING\n\n"
                  outBodyPush iface c
+                 putStrLn "\n\nOUTBODY PUSH DONE\n\n"
           , _writeChunkFinal = \c ->
                wrapStreamExceptionsWith ClientDisconnected $
                  outBodyPushFinal iface c
