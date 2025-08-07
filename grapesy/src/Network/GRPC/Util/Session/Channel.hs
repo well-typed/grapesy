@@ -57,6 +57,7 @@ import Network.GRPC.Util.HTTP2.Stream
 import Network.GRPC.Util.RedundantConstraint
 import Network.GRPC.Util.Session.API
 import Network.GRPC.Util.Thread
+import GHC.Conc
 
 {-------------------------------------------------------------------------------
   Definitions
@@ -261,8 +262,9 @@ send Channel{channelOutbound, channelSentFinal} = \msg -> do
           FlowStateRegular regular -> do
             StreamElem.whenDefinitelyFinal msg $ \_trailers ->
               writeTVar channelSentFinal $ Just callStack
-
+            unsafeIOToSTM $ putStrLn "\n\nPUTTING MSG\n\n"
             putTMVar (flowMsg regular) msg
+            unsafeIOToSTM $ putStrLn "\n\nPUT MSG\n\n"
           FlowStateNoMessages _ ->
             -- For outgoing messages, the caller decides to use Trailers-Only,
             -- so if they then subsequently call 'send', we throw an exception.
@@ -558,7 +560,7 @@ sendMessageLoop sess st stream = do
           NoMoreElems trailers -> do
             -- It is crucial to still 'writeChunkFinal' here to guarantee that
             -- cancellation is a no-op. Without it, cancellation may result in a
-            -- @RST_STREAM@ frame may being sent to the peer.
+            -- @RST_STREAM@ frame being sent to the peer.
             --
             -- This does not necessarily write a DATA frame, since http2 avoids
             -- writing empty data frames unless they are marked @END_OF_STREAM@.
