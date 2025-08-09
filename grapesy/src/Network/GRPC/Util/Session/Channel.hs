@@ -555,7 +555,7 @@ sendMessageLoop sess st stream = do
           StreamElem x -> do
             putStrLn "\n\nWRITING CHUNK\n\n"
             writeChunk stream $ build x
-            putStrLn "\n\nWROTE CHUNNK\n\n"
+            putStrLn "\n\nWROTE CHUNK\n\n"
             flush stream
             putStrLn "\n\nFLUSHED\n\n"
             loop

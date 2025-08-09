@@ -48,6 +48,8 @@ recordRoute conn = do
     resp <- clientStreaming_ conn (rpc @(Protobuf RouteGuide "recordRoute")) $ \send -> do
       replicateM_ 10 $ do
         i <- randomRIO (0, length db - 1)
+        putStrLn $ "sending " ++ show i
+        threadDelay 1_000_000
         let p = (db !! i) ^. #location
         threadDelay 500_000 -- 0.5 seconds
         send $ NextElem p
@@ -56,8 +58,14 @@ recordRoute conn = do
 
 routeChat :: Connection -> IO ()
 routeChat conn = do
+    putStrLn "about to start routeChat"
+    threadDelay 1_000_000
     biDiStreaming conn (rpc @(Protobuf RouteGuide "routeChat")) $ \send recv -> do
-      NextElem.forM_ messages send
+      NextElem.forM_ messages $ \msg -> do
+        send msg
+        putStrLn "sent"
+        threadDelay 1_000_000
+      putStrLn "sent messages"
       NextElem.whileNext_ recv print
   where
     messages :: [Proto RouteNote]
@@ -85,7 +93,10 @@ routeChat conn = do
 
 main :: IO ()
 main =
-    withConnection def server $ \conn -> do
+    withConnection def { connReconnectPolicy = exponentialBackoff (\d -> do
+                  putStrLn $ "Reconnecting after " ++ show d ++ "μs"
+                  threadDelay d
+                ) 1 (1,1) 100 } server $ \conn -> do
       putStrLn "-------------- GetFeature --------------"
       getFeature conn
 
