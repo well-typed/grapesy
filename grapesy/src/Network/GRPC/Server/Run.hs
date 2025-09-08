@@ -312,13 +312,13 @@ runInsecure http2 cfg socketTMVar server = do
     openSock cfg $ \listenSock ->
       withTimeManager $ \mgr -> do
         setSocketOption listenSock KeepAlive 1
+        -- Set TCP_KEEPIDLE (idle time before sending keepalive probes)
+        setSocketOption listenSock (SockOpt 6 4) 10
+        -- Set TCP_KEEPINTVL (interval between keepalive probes)
+        setSocketOption listenSock (SockOpt 6 5) 5
+        -- Set TCP_KEEPCNT (number of keepalive probes before declaring the connection dead)
+        setSocketOption listenSock (SockOpt 6 6) 5
         Run.runTCPServerWithSocket listenSock $ \clientSock -> do
-          -- Set TCP_KEEPIDLE (idle time before sending keepalive probes)
-          setSocketOption clientSock (SockOpt 6 4) 1
-          -- Set TCP_KEEPINTVL (interval between keepalive probes)
-          setSocketOption clientSock (SockOpt 6 5) 1
-          -- Set TCP_KEEPCNT (number of keepalive probes before declaring the connection dead)
-          setSocketOption clientSock (SockOpt 6 6) 1
           when (http2TcpNoDelay http2 && not isUnixSocket) $ do
             -- See description of 'withServerSocket'
             setSocketOption clientSock NoDelay 1
