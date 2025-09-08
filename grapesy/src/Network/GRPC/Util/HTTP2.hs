@@ -108,7 +108,11 @@ withConfig mgr send recv mysa peersa k =
           confWriteBuffer       = buf
         , confBufferSize        = writeBufferSize
         , confSendAll           = send
-        , confReadN             = recvN
+        , confReadN             = \n -> do
+            putStrLn "\n\nRECVING\n\n"
+            res <- recvN n
+            putStrLn "\n\nDONE RECVING\n\n"
+            return res
         , confPositionReadMaker = Server.defaultPositionReadMaker
         , confTimeoutManager    = mgr
         , confMySockAddr        = mysa
