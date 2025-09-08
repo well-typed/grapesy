@@ -30,6 +30,7 @@ import System.TimeManager qualified as Time (Manager)
 import System.TimeManager qualified as TimeManager
 
 import Network.GRPC.Common.HTTP2Settings
+import Data.ByteString qualified as BS
 
 {-------------------------------------------------------------------------------
   General auxiliary
@@ -108,7 +109,11 @@ withConfig mgr send recv mysa peersa k =
           confWriteBuffer       = buf
         , confBufferSize        = writeBufferSize
         , confSendAll           = send
-        , confReadN             = recvN
+        , confReadN             = \n -> do
+            putStrLn $ "RECVING: " ++ show n
+            res <- recvN n
+            putStrLn $ "RECVING: RECVD " ++ show (BS.length res)
+            return res
         , confPositionReadMaker = Server.defaultPositionReadMaker
         , confTimeoutManager    = mgr
         , confMySockAddr        = mysa
