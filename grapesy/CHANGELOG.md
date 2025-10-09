@@ -1,6 +1,6 @@
 # Revision history for grapesy
 
-## 1.1.1 -- unreleased
+## 1.1.1 -- 2025-10-09
 
 * Support `openConnection/closeConnection`
 
