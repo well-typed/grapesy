@@ -4,6 +4,8 @@ module Network.GRPC.Client (
   , Server(..)
   , ConnParams(..)
   , withConnection
+  , openConnection
+  , closeConnection
 
     -- ** Reconnection policy
   , ReconnectPolicy(..)

@@ -1,6 +1,6 @@
 cabal-version:      3.0
 name:               grapesy
-version:            1.1.0
+version:            1.1.1
 synopsis:           Native Haskell implementation of the gRPC framework
 description:        This is a fully compliant and feature complete native Haskell
                     implementation of gRPC, Google's RPC framework.

@@ -11,6 +11,8 @@ module Network.GRPC.Client.Connection (
     -- * Definition
     Connection -- opaque
   , withConnection
+  , openConnection
+  , closeConnection
     -- * Configuration
   , Server(..)
   , ServerValidation(..)
@@ -84,6 +86,9 @@ data Connection = Connection {
 
       -- | Connection state
     , connStateVar :: TVar ConnectionState
+
+      -- | Flag for garbage collection.
+    , connOutOfScope :: MVar ()
     }
 
 {-------------------------------------------------------------------------------
@@ -312,7 +317,7 @@ data Server =
   Open a new connection
 -------------------------------------------------------------------------------}
 
--- | Open connection to the server
+-- | Open a connection to the server.
 --
 -- See 'Network.GRPC.Client.withRPC' for making individual RPCs on the new
 -- connection.
@@ -348,6 +353,22 @@ withConnection ::
   -> (Connection -> IO a)
   -> IO a
 withConnection connParams server k = do
+    bracket (openConnection connParams server) closeConnection k
+
+-- | Open a connection to the server.
+--
+-- See 'withConnection' for details.
+--
+-- __Warning:__
+-- Connections hold open resources and must be closed using 'closeConnection'.
+-- To prevent resource and memory leaks due to asynchronous exceptions, it is
+-- recommended to use the bracketed function 'withConnection' whenever
+-- possible, and otherwise run functions that allocate and release a resource
+-- with asynchronous exceptions masked, and ensure that every use allocate
+-- operation is followed by the corresponding release operation even in the
+-- presence of asynchronous exceptions, e.g., using 'bracket'.
+openConnection :: ConnParams -> Server -> IO Connection
+openConnection connParams server = do
     connMetaVar  <- newMVar $ Meta.init (connInitCompression connParams)
     connStateVar <- newTVarIO ConnectionNotReady
 
@@ -360,8 +381,11 @@ withConnection connParams server k = do
     -- when we no longer need the connection (which we indicate by writing to
     -- connOutOfScope).
     void $ forkLabelled "grapesy:stayConnected" $ stayConnectedThread
-    k Connection {connParams, connMetaVar, connStateVar}
-      `finally` putMVar connOutOfScope ()
+    pure Connection {connParams, connMetaVar, connStateVar, connOutOfScope}
+
+-- | Close a connection to the server.
+closeConnection :: Connection -> IO ()
+closeConnection conn = putMVar (connOutOfScope conn) ()
 
 {-------------------------------------------------------------------------------
   Making use of the connection
