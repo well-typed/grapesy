@@ -10,6 +10,7 @@ packages:
   , ./tutorials/trailers-only
 
 packages: grapesy-tcp
+packages: grapesy-tcp/quickstart
 
 package grpc-spec
   tests: True

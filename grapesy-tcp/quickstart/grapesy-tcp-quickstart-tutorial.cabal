@@ -1,5 +1,5 @@
 cabal-version:      3.0
-name:               quickstart-tutorial
+name:               grapesy-tcp-quickstart-tutorial
 synopsis:           Quickstart tutorial for grapesy
 version:            0.1.0
 license:            BSD-3-Clause
@@ -43,7 +43,7 @@ library
   build-tool-depends: proto-lens-protoc:proto-lens-protoc
 
   build-depends:
-    , grapesy            >= 1.1 && < 1.2
+    , grapesy-tcp        >= 1.1 && < 1.2
     , proto-lens         >= 0.7 && < 0.8
     , proto-lens-runtime >= 0.7 && < 0.8
   exposed-modules:
@@ -58,19 +58,19 @@ executable greeter_server
   main-is:        Server.hs
   hs-source-dirs: app
   ghc-options:    -main-is Server
-  build-depends:  quickstart-tutorial
+  build-depends:  grapesy-tcp-quickstart-tutorial
 
   build-depends:
       -- inherited
-    , grapesy
+    , grapesy-tcp
 
-executable greeter_client
-  import:         lang
-  main-is:        Client.hs
-  hs-source-dirs: app
-  ghc-options:    -main-is Client
-  build-depends:  quickstart-tutorial
-
-  build-depends:
-      -- inherited
-    , grapesy
+-- executable greeter_client
+--   import:         lang
+--   main-is:        Client.hs
+--   hs-source-dirs: app
+--   ghc-options:    -main-is Client
+--   build-depends:  quickstart-tutorial
+-- 
+--   build-depends:
+--       -- inherited
+--     , grapesy
