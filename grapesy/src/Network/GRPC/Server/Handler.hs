@@ -15,15 +15,13 @@ module Network.GRPC.Server.Handler (
   , runHandler
   ) where
 
-import Prelude hiding (lookup)
-
-import Control.Concurrent.Async
-import Control.Monad
-import Control.Monad.Catch
-import Control.Monad.IO.Class
-import Data.Kind
-import Data.Proxy
-import GHC.Stack
+import Control.Exception (SomeException(..), toException, fromException, catch, try, throwIO)
+import Control.Concurrent.Async (Async, cancelWith, wait)
+import Control.Monad (void, when)
+import Control.Monad.Catch (ExitCase(..))
+import Control.Monad.IO.Class (MonadIO(liftIO))
+import Data.Kind (Type)
+import GHC.Stack (HasCallStack, callStack)
 import System.ThreadManager (KilledByThreadManager(..))
 
 import Network.GRPC.Common
@@ -181,12 +179,12 @@ runHandler unmask call handler = do
         ignoreUncleanClose call $ ExitCaseSuccess ()
         when forwarded $
           -- The handler terminated before it sent the final message.
-          throwM HandlerTerminated
+          throwIO HandlerTerminated
     handlerTeardown (Left err) = do
         -- The handler threw an exception. Attempt to tell the client.
         _forwarded <- forwardException call err
         ignoreUncleanClose call $ ExitCaseException err
-        throwM err
+        throwIO err
 
 -- | Close the connection to the client, ignoring errors
 --
@@ -263,7 +261,7 @@ waitForHandler unmask call handlerThread = loop
           -- 2. The exception was thrown by the handler itself. In this
           --    case @cancelWith@ is a no-op.
           cancelWith handlerThread err
-          throwM err
+          throwIO err
 
 -- | Process exception thrown by a handler
 --
