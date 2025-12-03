@@ -41,14 +41,11 @@ module Network.GRPC.Server.Call (
   , ResponseAlreadyInitiated(..)
   ) where
 
-import Control.Concurrent.STM
-import Control.Exception (throwIO)
-import Control.Monad
-import Control.Monad.Catch
-import Data.Bitraversable
-import Data.List.NonEmpty (NonEmpty)
-import Data.Void
-import GHC.Stack
+import Network.GRPC.Util.Imports
+
+import Control.Concurrent.STM (atomically, throwSTM)
+import Control.Concurrent.STM.TVar (TVar, writeTVar, readTVar, newTVarIO)
+import Control.Concurrent.STM.TMVar (TMVar, putTMVar, tryPutTMVar, tryReadTMVar, newEmptyTMVarIO, readTMVar)
 import Network.HTTP.Types qualified as HTTP
 import Network.HTTP2.Server qualified as HTTP2
 
@@ -58,8 +55,6 @@ import Network.GRPC.Common.Headers
 import Network.GRPC.Common.StreamElem qualified as StreamElem
 import Network.GRPC.Server.Context
 import Network.GRPC.Server.Session
-import Network.GRPC.Spec
-import Network.GRPC.Spec.Serialization
 import Network.GRPC.Util.HTTP2 (fromHeaderTable)
 import Network.GRPC.Util.Session qualified as Session
 import Network.GRPC.Util.Session.Server qualified as Server

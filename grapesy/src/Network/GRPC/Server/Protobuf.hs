@@ -8,11 +8,8 @@ module Network.GRPC.Server.Protobuf (
   , ProtobufMethods
   ) where
 
-import Data.Kind
 import Data.ProtoLens.Service.Types
-import GHC.TypeLits
-
-import Network.GRPC.Spec
+import Network.GRPC.Util.Imports
 
 {-------------------------------------------------------------------------------
   Compute full Protobuf API

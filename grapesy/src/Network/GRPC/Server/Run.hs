@@ -26,16 +26,15 @@ module Network.GRPC.Server.Run (
   , CouldNotLoadCredentials(..)
   ) where
 
-import Control.Concurrent.Async
-import Control.Concurrent.STM
-import Control.Exception
-import Control.Monad
-import Data.Default
-import GHC.Generics (Generic)
+import Network.GRPC.Util.Imports
+
+import Control.Concurrent.STM (STM, atomically, catchSTM, throwSTM, orElse)
+import Control.Concurrent.STM.TMVar (TMVar, newEmptyTMVarIO, putTMVar, readTMVar)
 import Network.HTTP2.Server qualified as HTTP2
 import Network.HTTP2.TLS.Server qualified as HTTP2.TLS
 import Network.Run.TCP qualified as Run
-import Network.Socket
+import Network.Socket (Socket, AddrInfo, HostName, PortNumber)
+import Network.Socket qualified as Socket
 import Network.TLS qualified as TLS
 
 #if MIN_VERSION_network_run(0,4,4)
@@ -282,11 +281,11 @@ getServerSocket server = do
 getServerPort :: RunningServer -> IO PortNumber
 getServerPort server = do
     sock <- atomically $ getServerSocket server
-    addr <- getSocketName sock
+    addr <- Socket.getSocketName sock
     case addr of
-      SockAddrInet  port   _host   -> return port
-      SockAddrInet6 port _ _host _ -> return port
-      SockAddrUnix{} -> error "getServerPort: unexpected unix socket"
+      Socket.SockAddrInet  port   _host   -> return port
+      Socket.SockAddrInet6 port _ _host _ -> return port
+      Socket.SockAddrUnix{} -> error "getServerPort: unexpected unix socket"
 
 -- | Internal generalization of 'getInsecureSocket'/'getSecureSocket'
 getSocket :: Async () -> TMVar Socket -> STM Socket
@@ -314,10 +313,10 @@ runInsecure http2 cfg socketTMVar server = do
         Run.runTCPServerWithSocket listenSock $ \clientSock -> do
           when (http2TcpNoDelay http2 && not isUnixSocket) $ do
             -- See description of 'withServerSocket'
-            setSocketOption clientSock NoDelay 1
+            Socket.setSocketOption clientSock Socket.NoDelay 1
           when (http2TcpAbortiveClose http2) $ do
-            setSockOpt clientSock Linger
-              (StructLinger { sl_onoff = 1, sl_linger = 0 })
+            Socket.setSockOpt clientSock Socket.Linger
+              (Socket.StructLinger { Socket.sl_onoff = 1, Socket.sl_linger = 0 })
           withConfigForInsecure mgr clientSock $ \config ->
             HTTP2.run serverConfig config server
   where
@@ -379,10 +378,10 @@ runSecure http2 cfg socketTMVar server = do
           "h2" $ \mgr backend -> do
         when (http2TcpNoDelay http2) $
           -- See description of 'withServerSocket'
-          setSocketOption (HTTP2.TLS.requestSock backend) NoDelay 1
+          Socket.setSocketOption (HTTP2.TLS.requestSock backend) Socket.NoDelay 1
         when (http2TcpAbortiveClose http2) $ do
-          setSockOpt (HTTP2.TLS.requestSock backend) Linger
-            (StructLinger { sl_onoff = 1, sl_linger = 0 })
+          Socket.setSockOpt (HTTP2.TLS.requestSock backend) Socket.Linger
+            (Socket.StructLinger { Socket.sl_onoff = 1, Socket.sl_linger = 0 })
         withConfigForSecure mgr backend $ \config ->
           HTTP2.run serverConfig config server
 
@@ -433,17 +432,17 @@ withServerSocket ::
   -> IO a
 withServerSocket http2Settings socketTMVar host port k = do
 #if MIN_VERSION_network_run(0,4,4)
-    addr <- Run.resolve Stream host (show port) [AI_PASSIVE] NE.head
+    addr <- Run.resolve Socket.Stream host (show port) [Socket.AI_PASSIVE] NE.head
 #else
-    addr <- Run.resolve Stream host (show port) [AI_PASSIVE]
+    addr <- Run.resolve Socket.Stream host (show port) [Socket.AI_PASSIVE]
 #endif
-    bracket (openServerSocket addr) close $ \sock -> do
+    bracket (openServerSocket addr) Socket.close $ \sock -> do
       atomically $ putTMVar socketTMVar sock
       k sock
   where
     openServerSocket :: AddrInfo -> IO Socket
     openServerSocket = Run.openTCPServerSocketWithOptions $ concat [
-          [ (NoDelay, 1)
+          [ (Socket.NoDelay, 1)
           | http2TcpNoDelay http2Settings
           ]
         ]
@@ -454,15 +453,15 @@ withServerSocket http2Settings socketTMVar host port k = do
 -- otherwise clients would get their connection closed immediately.
 withUnixSocket :: FilePath -> TMVar Socket -> (Socket -> IO a) -> IO a
 withUnixSocket path socketTMVar k = do
-    bracket openServerSocket close $ \sock -> do
+    bracket openServerSocket Socket.close $ \sock -> do
       atomically $ putTMVar socketTMVar sock
       k sock
   where
     openServerSocket :: IO Socket
     openServerSocket = do
-      sock <- socket AF_UNIX Stream 0
-      setSocketOption sock ReuseAddr 1
-      withFdSocket sock setCloseOnExecIfNeeded
-      bind sock $ SockAddrUnix path
-      listen sock 1024
+      sock <- Socket.socket Socket.AF_UNIX Socket.Stream 0
+      Socket.setSocketOption sock Socket.ReuseAddr 1
+      Socket.withFdSocket sock Socket.setCloseOnExecIfNeeded
+      Socket.bind sock $ Socket.SockAddrUnix path
+      Socket.listen sock 1024
       return sock

@@ -115,6 +115,7 @@ library
       Network.GRPC.Server.StreamType
       Network.GRPC.Server.StreamType.Binary
   other-modules:
+      Network.GRPC.Util.Imports
       Network.GRPC.Client.Call
       Network.GRPC.Client.Connection
       Network.GRPC.Client.Meta
