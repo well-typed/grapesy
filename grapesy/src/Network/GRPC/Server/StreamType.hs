@@ -23,13 +23,11 @@ module Network.GRPC.Server.StreamType (
   , simpleMethods
   ) where
 
-import Control.Monad.IO.Class
-import Data.Kind
+import Network.GRPC.Util.Imports
 
 import Network.GRPC.Common
 import Network.GRPC.Common.NextElem qualified as NextElem
 import Network.GRPC.Server
-import Network.GRPC.Spec
 
 {-------------------------------------------------------------------------------
   Construct server handler

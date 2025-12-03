@@ -7,13 +7,9 @@ module Network.GRPC.Server.Session (
   , CallSetupFailure(..)
   ) where
 
-import Control.Exception
-import Data.Proxy
-import Data.Void
+import Network.GRPC.Util.Imports
 
 import Network.GRPC.Server.Context
-import Network.GRPC.Spec
-import Network.GRPC.Spec.Serialization
 import Network.GRPC.Util.Session
 
 {-------------------------------------------------------------------------------

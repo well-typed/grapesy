@@ -9,14 +9,12 @@ module Network.GRPC.Server.Context (
   , ServerParams(..)
   ) where
 
-import Control.Exception
-import System.IO
+import Network.GRPC.Util.Imports
 
-import Network.GRPC.Common
+import System.IO (stderr, hPrint)
+
 import Network.GRPC.Common.Compression qualified as Compr
 import Network.GRPC.Server.RequestHandler.API
-import Network.GRPC.Spec
-import Data.Text (Text)
 import Data.Text qualified as Text
 
 {-------------------------------------------------------------------------------

@@ -13,16 +13,14 @@ module Network.GRPC.Server.RequestHandler (
   , requestHandler
   ) where
 
-import Control.Concurrent
+import Network.GRPC.Util.Imports
+
+import Control.Concurrent (forkIO, throwTo, killThread, myThreadId)
 import Control.Concurrent.Thread.Delay qualified as UnboundedDelays
-import Control.Exception (evaluate)
-import Control.Monad.Catch
-import Data.Bifunctor
+
 import Data.ByteString.Builder qualified as Builder
 import Data.ByteString.Char8 qualified as BS.Char8
 import Data.ByteString.UTF8 qualified as BS.UTF8
-import Data.Maybe (fromMaybe)
-import Data.Proxy
 import Data.Text qualified as Text
 import Network.HTTP.Types qualified as HTTP
 import Network.HTTP2.Server qualified as HTTP2
@@ -34,8 +32,7 @@ import Network.GRPC.Server.HandlerMap (HandlerMap)
 import Network.GRPC.Server.HandlerMap qualified as HandlerMap
 import Network.GRPC.Server.RequestHandler.API
 import Network.GRPC.Server.Session (CallSetupFailure(..))
-import Network.GRPC.Spec
-import Network.GRPC.Spec.Serialization
+
 import Network.GRPC.Util.GHC
 import Network.GRPC.Util.Session.Server
 
@@ -85,7 +82,7 @@ findHandler handlers req = do
     -- We should do some request logging.
 
     resourceHeaders <-
-      either throwM return . first CallSetupInvalidResourceHeaders $
+      either throwIO return . first CallSetupInvalidResourceHeaders $
         parseResourceHeaders rawHeaders
     let path = resourcePath resourceHeaders
 
@@ -94,8 +91,8 @@ findHandler handlers req = do
     mHandler <- try $ evaluate $ HandlerMap.lookup path handlers
     case mHandler of
       Right (Just h) -> return h
-      Right Nothing  -> throwM $ CallSetupUnimplementedMethod path
-      Left err       -> throwM $ CallSetupHandlerLookupException err
+      Right Nothing  -> throwIO $ CallSetupUnimplementedMethod path
+      Left err       -> throwIO $ CallSetupHandlerLookupException err
   where
     rawHeaders :: RawResourceHeaders
     rawHeaders = RawResourceHeaders {
@@ -116,7 +113,7 @@ setupFailure ::
 setupFailure params sendResponse failure = do
     response <- mkFailureResponse params failure
     _ :: Either SomeException () <- try $ sendResponse response
-    throwM failure
+    throwIO failure
 
 {-------------------------------------------------------------------------------
   Failures

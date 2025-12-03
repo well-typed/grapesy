@@ -17,11 +17,10 @@ module Network.GRPC.Server.HandlerMap (
   ) where
 
 import Prelude hiding (lookup)
+import Network.GRPC.Util.Imports
 
-import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
 
-import Network.GRPC.Spec
 import Network.GRPC.Server.Handler
 
 {-------------------------------------------------------------------------------
