@@ -6,10 +6,11 @@ module Network.GRPC.Util.GHC (
   , asyncLabelled
   ) where
 
-import Control.Concurrent.Async
-import Control.Exception
-import Control.Monad.IO.Class
-import GHC.Conc
+import Control.Concurrent (ThreadId, myThreadId, forkIOWithUnmask)
+import Control.Concurrent.Async (Async, asyncWithUnmask)
+import Control.Exception (mask_)
+import Control.Monad.IO.Class (MonadIO (liftIO))
+import GHC.Conc (labelThread)
 
 {-------------------------------------------------------------------------------
   Thread labelling
