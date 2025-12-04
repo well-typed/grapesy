@@ -33,15 +33,14 @@ module Network.GRPC.Util.Session.Channel (
   , outboundTrailersMaker
   ) where
 
-import Control.Concurrent.STM
-import Control.DeepSeq (NFData, force)
-import Control.Exception
-import Control.Monad
-import Control.Monad.Catch (ExitCase(..))
-import Data.Bifunctor
+
+import Network.GRPC.Util.Imports
+
+import Control.Concurrent.STM (STM, atomically, throwSTM)
+import Control.Concurrent.STM.TVar (TVar, newTVarIO, readTVar, writeTVar)
+import Control.Concurrent.STM.TMVar (TMVar, newEmptyTMVarIO, readTMVar, putTMVar, takeTMVar)
 import Data.ByteString.Builder (Builder)
 import Data.ByteString.Lazy qualified as BS.Lazy
-import GHC.Stack
 
 -- Doesn't really matter if we import from .Client or .Server
 import Network.HTTP2.Client qualified as HTTP2 (

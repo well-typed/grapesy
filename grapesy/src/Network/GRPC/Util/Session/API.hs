@@ -11,10 +11,10 @@ module Network.GRPC.Util.Session.API (
   , PeerException(..)
   ) where
 
-import Control.Exception
+import Network.GRPC.Util.Imports
+
 import Data.ByteString.Builder (Builder)
 import Data.ByteString.Lazy qualified as Lazy (ByteString)
-import Data.Kind
 import Network.HTTP.Types qualified as HTTP
 
 -- Doesn't really matter if we import this from .Client or .Server
