@@ -22,9 +22,9 @@ module Network.GRPC.Common.StreamElem (
 import Prelude hiding (mapM_)
 
 import Control.Monad.State (StateT, runStateT, lift, modify)
-import Data.Bifoldable
-import Data.Bifunctor
-import Data.Bitraversable
+import Data.Bifoldable (Bifoldable (..))
+import Data.Bifunctor (Bifunctor (..))
+import Data.Bitraversable (Bitraversable (..))
 import Data.Tuple (swap)
 
 {-------------------------------------------------------------------------------

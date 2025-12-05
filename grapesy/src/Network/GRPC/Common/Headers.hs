@@ -7,11 +7,10 @@ module Network.GRPC.Common.Headers (
   , verifyAllIf
   ) where
 
-import Data.Functor.Identity
-import Data.Kind
-import Data.Void
+import Network.GRPC.Util.Imports
 
-import Network.GRPC.Spec
+import Data.Functor.Identity (Identity (..))
+
 import Network.GRPC.Spec.Util.HKD (Undecorated, Checked)
 import Network.GRPC.Spec.Util.HKD qualified as HKD
 
