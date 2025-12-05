@@ -27,22 +27,18 @@ module Network.GRPC.Common.Protobuf (
   , Message(defMessage)
   ) where
 
-import Control.Exception
+import Network.GRPC.Util.Imports
+
 import Control.Lens ((.~), (^.), (%~))
-import Control.Monad
-import Control.Monad.Except
-import Data.Bifunctor
+import Control.Monad ((<=<))
+import Control.Monad.Except (throwError)
 import Data.Function ((&))
-import Data.Int
-import Data.Maybe (fromMaybe)
+import Data.Int (Int32)
 import Data.ProtoLens.Field (HasField(..), field)
 import Data.ProtoLens.Message (FieldDefault(..), Message(defMessage))
-import Data.Text (Text)
 
 import Network.GRPC.Common.Protobuf.Any (Any)
 import Network.GRPC.Common.Protobuf.Any qualified as Any
-import Network.GRPC.Spec
-import Network.GRPC.Spec.Serialization
 
 {-------------------------------------------------------------------------------
   Protobuf-specific errors

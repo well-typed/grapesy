@@ -22,13 +22,15 @@ module Network.GRPC.Util.Thread (
   , waitForNormalOrAbnormalThreadTermination
   ) where
 
-import Control.Concurrent
-import Control.Concurrent.STM
-import Control.Exception
-import Control.Monad
-import Data.Void (Void, absurd)
+import Network.GRPC.Util.Imports
+
+import Control.Concurrent (ThreadId, myThreadId, throwTo, forkIO, forkIOWithUnmask)
+import Control.Concurrent.MVar (MVar, newMVar, modifyMVar)
+import Control.Concurrent.STM (STM, atomically, retry, throwSTM)
+import Control.Concurrent.STM.TVar (TVar, newTVarIO, readTVar, readTVarIO, writeTVar, modifyTVar)
+import Control.Exception (mask_)
 import Foreign (newStablePtr, freeStablePtr)
-import GHC.Stack
+import GHC.Stack (popCallStack)
 import System.IO.Unsafe (unsafePerformIO)
 
 import Network.GRPC.Util.GHC

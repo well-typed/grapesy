@@ -6,15 +6,16 @@ module Network.GRPC.Util.Session.Client (
   , setupRequestChannel
   ) where
 
-import Control.Concurrent
-import Control.Concurrent.STM
-import Control.Monad
-import Control.Monad.Catch
+import Network.GRPC.Util.Imports
+
+import Control.Concurrent.MVar (MVar, newEmptyMVar, readMVar, putMVar)
+import Control.Concurrent.STM (atomically)
+import Control.Concurrent.STM.TVar (modifyTVar)
+import Control.Monad (join)
 import Data.ByteString qualified as BS.Strict
 import Data.ByteString qualified as Strict (ByteString)
 import Data.ByteString.Lazy qualified as BS.Lazy
 import Data.ByteString.Lazy qualified as Lazy (ByteString)
-import Data.Proxy
 import Network.HTTP.Types qualified as HTTP
 import Network.HTTP2.Client qualified as Client
 
@@ -155,7 +156,7 @@ setupRequestChannel sess
               responseStatus <-
                 case Client.responseStatus resp of
                   Just x  -> return x
-                  Nothing -> throwM PeerMissingPseudoHeaderStatus
+                  Nothing -> throwIO PeerMissingPseudoHeaderStatus
 
               -- Read the entire response body in case of a non-OK response
               responseBody :: Maybe Lazy.ByteString <-

@@ -21,14 +21,11 @@ module Network.GRPC.Common.Compression (
   , insist
   ) where
 
-import Data.Default
-import Data.Foldable (toList)
-import Data.List.NonEmpty (NonEmpty(..))
+import Network.GRPC.Util.Imports
+
 import Data.List.NonEmpty qualified as NE
 import Data.Map (Map)
 import Data.Map qualified as Map
-
-import Network.GRPC.Spec
 
 {-------------------------------------------------------------------------------
   Negotation

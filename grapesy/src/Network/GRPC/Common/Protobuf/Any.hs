@@ -15,12 +15,11 @@ module Network.GRPC.Common.Protobuf.Any (
   , unpack
   ) where
 
-import Data.Bifunctor
+import Network.GRPC.Util.Imports
+
 import Data.ProtoLens.Any (Any, UnpackError(..))
 import Data.ProtoLens.Any qualified as Any
 import Data.ProtoLens.Message (Message)
-
-import Network.GRPC.Spec
 
 {-------------------------------------------------------------------------------
   Pack and unpack
