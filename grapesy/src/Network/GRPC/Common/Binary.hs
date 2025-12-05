@@ -43,6 +43,3 @@ data DecodeException =
   deriving stock (Show)
   deriving anyclass (Exception)
 
-
-
-
