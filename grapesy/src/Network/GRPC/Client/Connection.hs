@@ -51,7 +51,7 @@ import Network.GRPC.Common.Compression qualified as Compr
 import Network.GRPC.Common.HTTP2Settings
 import Network.GRPC.Spec
 import Network.GRPC.Util.GHC
-import Network.GRPC.Util.Session qualified as Session
+import Network.GRPC.Util.Session.Client qualified as Session
 import Network.GRPC.Util.TLS (ServerValidation(..), SslKeyLog(..))
 import Network.GRPC.Util.TLS qualified as Util.TLS
 

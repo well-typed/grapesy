@@ -22,7 +22,8 @@ import Network.GRPC.Common.Compression qualified as Compr
 import Network.GRPC.Common.Headers
 import Network.GRPC.Spec
 import Network.GRPC.Spec.Serialization
-import Network.GRPC.Util.Session
+import Network.GRPC.Util.Session.API
+import Network.GRPC.Util.Session.Client
 
 {-------------------------------------------------------------------------------
   Definition

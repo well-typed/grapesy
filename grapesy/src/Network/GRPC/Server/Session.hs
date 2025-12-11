@@ -10,7 +10,7 @@ module Network.GRPC.Server.Session (
 import Network.GRPC.Util.Imports
 
 import Network.GRPC.Server.Context
-import Network.GRPC.Util.Session
+import Network.GRPC.Util.Session.API
 
 {-------------------------------------------------------------------------------
   Definition

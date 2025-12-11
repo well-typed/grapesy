@@ -89,7 +89,8 @@ import Control.Exception
 import Network.GRPC.Common.HTTP2Settings
 import Network.GRPC.Common.StreamElem (StreamElem(..))
 import Network.GRPC.Spec
-import Network.GRPC.Util.Session qualified as Session
+import Network.GRPC.Util.Session.API qualified as Session
+import Network.GRPC.Util.Session.Channel qualified as Session
 import Network.GRPC.Util.TLS
 
 {-------------------------------------------------------------------------------

@@ -56,7 +56,8 @@ import Network.GRPC.Common.StreamElem qualified as StreamElem
 import Network.GRPC.Server.Context
 import Network.GRPC.Server.Session
 import Network.GRPC.Util.HTTP2 (fromHeaderTable)
-import Network.GRPC.Util.Session qualified as Session
+import Network.GRPC.Util.Session.API qualified as Session
+import Network.GRPC.Util.Session.Channel qualified as Session
 import Network.GRPC.Util.Session.Server qualified as Server
 
 {-------------------------------------------------------------------------------
@@ -160,7 +161,7 @@ setupCall conn callContext@ServerContext{serverParams} = do
                  requestAcceptCompression callRequestHeaders
 
     callChannel :: Session.Channel (ServerSession rpc) <-
-      Session.setupResponseChannel
+      Server.setupResponseChannel
         callSession
         conn
         (Session.FlowStartRegular inboundHeaders)
