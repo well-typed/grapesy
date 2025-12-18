@@ -85,7 +85,8 @@ library
   -- autogen-modules: Paths_grapesy
   hs-source-dirs:  src proto
   exposed-modules:
-    Network.GRPC.Common
+    TCP
+
     Network.GRPC.Common.Protobuf
     Network.GRPC.Common.StreamElem
     Network.GRPC.Server
@@ -93,6 +94,20 @@ library
     Network.GRPC.Server.Protobuf
     Network.GRPC.Server.Run
     Network.GRPC.Server.StreamType
+
+    Network.GRPC.Common.Compression
+    Network.GRPC.Common.Headers
+    Network.GRPC.Common.NextElem
+    Network.GRPC.Server.Call
+    Network.GRPC.Server.Context
+    Network.GRPC.Server.RequestHandler.API
+    Network.GRPC.Server.Session
+    Network.GRPC.Util.GHC
+    Network.GRPC.Util.Imports
+    Network.GRPC.Util.Session.API
+    Network.GRPC.Util.Session.Channel
+    Network.GRPC.Util.Session.Server
+    Network.GRPC.Util.Stream
 
   build-depends:
     , aeson                      >=1.5     && <2.3
@@ -112,6 +127,7 @@ library
     , lens                       >=5.0     && <5.4
     , mtl                        >=2.2     && <2.4
     , network                    >=3.2.4   && <3.3
+    , http-semantics
     , network-run                >=0.4.3   && <0.5
     , proto-lens                 >=0.7     && <0.8
     , proto-lens-protobuf-types  >=0.7     && <0.8
