@@ -16,9 +16,7 @@ import Network.GRPC.Util.Imports
 import Data.ByteString.Builder (Builder)
 import Data.ByteString.Lazy qualified as Lazy (ByteString)
 import Network.HTTP.Types qualified as HTTP
-
--- Doesn't really matter if we import this from .Client or .Server
-import Network.HTTP2.Client qualified as HTTP2 (Path)
+import Network.HTTP.Semantics qualified as HTTP.Semantics (Path)
 
 import Network.GRPC.Spec.Util.Parser (Parser)
 
@@ -28,7 +26,7 @@ import Network.GRPC.Spec.Util.Parser (Parser)
 
 data RequestInfo = RequestInfo {
       requestMethod  :: HTTP.Method
-    , requestPath    :: HTTP2.Path
+    , requestPath    :: HTTP.Semantics.Path
     , requestHeaders :: [HTTP.Header]
     }
   deriving (Show)
