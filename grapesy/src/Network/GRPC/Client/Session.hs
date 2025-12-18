@@ -10,18 +10,14 @@ module Network.GRPC.Client.Session (
   , InvalidTrailers(..)
   ) where
 
-import Control.Exception
-import Data.Proxy
-import Data.Void
+import Network.GRPC.Util.Imports
+
 import Network.HTTP.Types qualified as HTTP
 
 import Network.GRPC.Client.Connection (Connection, ConnParams(..))
 import Network.GRPC.Client.Connection qualified as Connection
-import Network.GRPC.Common
 import Network.GRPC.Common.Compression qualified as Compr
 import Network.GRPC.Common.Headers
-import Network.GRPC.Spec
-import Network.GRPC.Spec.Serialization
 import Network.GRPC.Util.Session.API
 import Network.GRPC.Util.Session.Client
 

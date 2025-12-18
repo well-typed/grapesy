@@ -13,13 +13,14 @@ module Network.GRPC.Client.Binary (
   , recvFinalOutput
   ) where
 
-import Control.Monad.IO.Class
-import Data.Binary
+import Network.GRPC.Util.Imports
+
+import Data.Binary (Binary, encode)
 import Data.ByteString.Lazy qualified as Lazy (ByteString)
 
 import Network.GRPC.Client (Call)
 import Network.GRPC.Client qualified as Client
-import Network.GRPC.Common
+import Network.GRPC.Common.StreamElem (StreamElem(..))
 import Network.GRPC.Common.Binary (decodeOrThrow)
 
 {-------------------------------------------------------------------------------

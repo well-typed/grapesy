@@ -49,7 +49,8 @@ import Control.Concurrent.STM.TMVar (TMVar, putTMVar, tryPutTMVar, tryReadTMVar,
 import Network.HTTP.Types qualified as HTTP
 import Network.HTTP2.Server qualified as HTTP2
 
-import Network.GRPC.Common
+import Network.GRPC.Common.ProtocolException
+import Network.GRPC.Common.StreamElem (StreamElem(..))
 import Network.GRPC.Common.Compression qualified as Compr
 import Network.GRPC.Common.Headers
 import Network.GRPC.Common.StreamElem qualified as StreamElem

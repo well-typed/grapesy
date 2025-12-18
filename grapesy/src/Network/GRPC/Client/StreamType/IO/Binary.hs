@@ -14,16 +14,15 @@ module Network.GRPC.Client.StreamType.IO.Binary (
   , biDiStreaming
   ) where
 
-import Control.Monad.Reader
-import Data.Binary
+import Network.GRPC.Util.Imports
+
+import Control.Monad.Reader (ReaderT)
+import Data.Binary (Binary, encode)
 import Data.ByteString.Lazy qualified as Lazy (ByteString)
 
 import Network.GRPC.Client (Connection)
 import Network.GRPC.Client.StreamType.IO qualified as IO
-import Network.GRPC.Common
 import Network.GRPC.Common.Binary (decodeOrThrow)
-import Network.GRPC.Common.StreamType
-import Network.GRPC.Spec
 
 {-------------------------------------------------------------------------------
   Run client handlers
