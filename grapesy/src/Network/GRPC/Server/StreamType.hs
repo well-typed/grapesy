@@ -25,7 +25,7 @@ module Network.GRPC.Server.StreamType (
 
 import Network.GRPC.Util.Imports
 
-import Network.GRPC.Common
+import Network.GRPC.Common.StreamElem (StreamElem(..))
 import Network.GRPC.Common.NextElem qualified as NextElem
 import Network.GRPC.Server
 

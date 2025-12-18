@@ -13,11 +13,12 @@ module Network.GRPC.Server.Binary (
   , recvFinalInput
   ) where
 
-import Data.Binary
-import Data.ByteString.Lazy qualified as Lazy (ByteString)
-import GHC.Stack
+import Network.GRPC.Util.Imports
 
-import Network.GRPC.Common
+import Data.Binary (Binary, encode)
+import Data.ByteString.Lazy qualified as Lazy (ByteString)
+
+import Network.GRPC.Common.StreamElem (StreamElem(..))
 import Network.GRPC.Common.Binary (decodeOrThrow)
 import Network.GRPC.Server (Call)
 import Network.GRPC.Server qualified as Server

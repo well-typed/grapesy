@@ -117,6 +117,7 @@ library
   other-modules:
       Network.GRPC.Util.Imports
       Network.GRPC.Util.Stream
+      Network.GRPC.Common.ProtocolException
       Network.GRPC.Client.Call
       Network.GRPC.Client.Connection
       Network.GRPC.Client.Meta

@@ -6,15 +6,13 @@ module Network.GRPC.Server.StreamType.Binary (
   , mkBiDiStreaming
   ) where
 
-import Control.Monad.IO.Class
-import Data.Binary
+import Network.GRPC.Util.Imports
+
+import Data.Binary (Binary, encode)
 import Data.ByteString.Lazy qualified as Lazy (ByteString)
 
-import Network.GRPC.Common
 import Network.GRPC.Common.Binary (decodeOrThrow)
-import Network.GRPC.Common.StreamType
 import Network.GRPC.Server.StreamType qualified as StreamType
-import Network.GRPC.Spec
 
 {-------------------------------------------------------------------------------
   Handlers for specific streaming types

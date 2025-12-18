@@ -18,17 +18,15 @@ module Network.GRPC.Client.StreamType (
   , rpcWith
   ) where
 
-import Control.Monad.Catch
-import Control.Monad.IO.Class
-import Control.Monad.Reader
-import Data.Proxy
+import Network.GRPC.Util.Imports
+
+import Control.Monad.Catch (MonadMask)
+import Control.Monad.Reader (ReaderT, ask)
 
 import Network.GRPC.Client.Call
 import Network.GRPC.Client.Connection
-import Network.GRPC.Common
+import Network.GRPC.Common.StreamElem (StreamElem(..))
 import Network.GRPC.Common.NextElem qualified as NextElem
-import Network.GRPC.Common.StreamType
-import Network.GRPC.Spec
 
 {------------------------------------------------------------------------------
   Constructing client handlers (used internally only)

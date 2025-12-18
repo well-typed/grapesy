@@ -10,13 +10,11 @@ module Network.GRPC.Client.StreamType.IO (
   , biDiStreaming
   ) where
 
-import Control.Monad.Reader
+import Network.GRPC.Util.Imports
+import Control.Monad.Reader (ReaderT, runReaderT, lift)
 
 import Network.GRPC.Client
 import Network.GRPC.Client.StreamType.CanCallRPC qualified as CanCallRPC
-import Network.GRPC.Common
-import Network.GRPC.Common.StreamType
-import Network.GRPC.Spec
 
 {-------------------------------------------------------------------------------
   Run client handlers

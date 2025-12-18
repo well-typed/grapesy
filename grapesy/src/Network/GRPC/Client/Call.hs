@@ -29,19 +29,15 @@ module Network.GRPC.Client.Call (
   , recvInitialResponse
   ) where
 
+import Network.GRPC.Util.Imports
+
 import Control.Concurrent
 import Control.Concurrent.STM
 import Control.Concurrent.Thread.Delay qualified as UnboundedDelays
-import Control.Monad
 import Control.Monad.Catch
-import Control.Monad.IO.Class
-import Data.Bifunctor
-import Data.Bitraversable
 import Data.ByteString.Char8 qualified as BS.Strict.C8
 import Data.Foldable (asum)
 import Data.List (intersperse)
-import Data.Maybe (fromMaybe)
-import Data.Proxy
 import Data.Text qualified as Text
 import Data.Version
 import GHC.Stack
@@ -49,10 +45,11 @@ import GHC.Stack
 import Network.GRPC.Client.Connection (Connection, ConnParams(..))
 import Network.GRPC.Client.Connection qualified as Connection
 import Network.GRPC.Client.Session
-import Network.GRPC.Common
+import Network.GRPC.Common.StreamElem (StreamElem(..))
+import Network.GRPC.Common.ProtocolException
+import Network.GRPC.Util.Session.Channel (ChannelDiscarded (..))
 import Network.GRPC.Common.Compression qualified as Compression
 import Network.GRPC.Common.StreamElem qualified as StreamElem
-import Network.GRPC.Spec
 import Network.GRPC.Spec.Util.HKD qualified as HKD
 import Network.GRPC.Util.GHC
 import Network.GRPC.Util.Stream (ServerDisconnected(..))
