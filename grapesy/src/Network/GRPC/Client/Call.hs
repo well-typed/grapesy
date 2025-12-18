@@ -55,7 +55,7 @@ import Network.GRPC.Common.StreamElem qualified as StreamElem
 import Network.GRPC.Spec
 import Network.GRPC.Spec.Util.HKD qualified as HKD
 import Network.GRPC.Util.GHC
-import Network.GRPC.Util.HTTP2.Stream (ServerDisconnected(..))
+import Network.GRPC.Util.Stream (ServerDisconnected(..))
 import Network.GRPC.Util.Session.API qualified as Session
 import Network.GRPC.Util.Session.Channel qualified as Session
 import Network.GRPC.Util.Session.Client qualified as Session

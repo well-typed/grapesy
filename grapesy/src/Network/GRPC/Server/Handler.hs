@@ -22,7 +22,7 @@ import System.ThreadManager (KilledByThreadManager(..))
 import Network.GRPC.Server.Call
 import Network.GRPC.Server.Context
 import Network.GRPC.Util.GHC
-import Network.GRPC.Util.HTTP2.Stream (ClientDisconnected(..))
+import Network.GRPC.Util.Stream (ClientDisconnected(..))
 import Network.GRPC.Util.Session.Channel qualified as Session
 
 {-------------------------------------------------------------------------------
