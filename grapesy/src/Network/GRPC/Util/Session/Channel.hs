@@ -52,7 +52,7 @@ import Network.GRPC.Common.StreamElem (StreamElem(..))
 import Network.GRPC.Common.StreamElem qualified as StreamElem
 import Network.GRPC.Spec.Util.Parser (Parser)
 import Network.GRPC.Spec.Util.Parser qualified as Parser
-import Network.GRPC.Util.HTTP2.Stream
+import Network.GRPC.Util.Stream
 import Network.GRPC.Util.RedundantConstraint
 import Network.GRPC.Util.Session.API
 import Network.GRPC.Util.Thread

@@ -59,7 +59,7 @@ import Network.GRPC.Server.HandlerMap qualified as HandlerMap
 import Network.GRPC.Server.RequestHandler
 import Network.GRPC.Server.Session (CallSetupFailure(..))
 import Network.GRPC.Spec
-import Network.GRPC.Util.HTTP2.Stream (ClientDisconnected(..))
+import Network.GRPC.Util.Stream (ClientDisconnected(..))
 
 {-------------------------------------------------------------------------------
   Server proper

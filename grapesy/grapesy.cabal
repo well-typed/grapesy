@@ -116,6 +116,7 @@ library
       Network.GRPC.Server.StreamType.Binary
   other-modules:
       Network.GRPC.Util.Imports
+      Network.GRPC.Util.Stream
       Network.GRPC.Client.Call
       Network.GRPC.Client.Connection
       Network.GRPC.Client.Meta
@@ -131,7 +132,8 @@ library
       Network.GRPC.Util.AccumulatedByteString
       Network.GRPC.Util.GHC
       Network.GRPC.Util.HTTP2
-      Network.GRPC.Util.HTTP2.Stream
+      Network.GRPC.Util.HTTP2.ClientStream
+      Network.GRPC.Util.HTTP2.ServerStream
       Network.GRPC.Util.RedundantConstraint
       Network.GRPC.Util.Session.API
       Network.GRPC.Util.Session.Channel

@@ -87,7 +87,7 @@ import Network.GRPC.Client.Connection
 import Network.GRPC.Client.Session (CallSetupFailure(..), InvalidTrailers(..))
 import Network.GRPC.Client.StreamType (rpc, rpcWith)
 import Network.GRPC.Spec
-import Network.GRPC.Util.HTTP2.Stream (ServerDisconnected(..))
+import Network.GRPC.Util.Stream (ServerDisconnected(..))
 import Network.GRPC.Util.TLS qualified as Util.TLS
 
 {-------------------------------------------------------------------------------
