@@ -2,3 +2,4 @@ branches: main
 copy-fields: all
 apt: libsnappy-dev protobuf-compiler
 haddock-components: libs
+local-ghc-options: -Werror
