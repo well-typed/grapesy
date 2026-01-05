@@ -83,7 +83,7 @@ library
   import:          lang
 
   -- autogen-modules: Paths_grapesy
-  hs-source-dirs:  src proto
+  hs-source-dirs:  src src-orig
   exposed-modules:
     TCP
 
