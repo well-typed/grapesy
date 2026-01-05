@@ -42,8 +42,7 @@ import Control.Concurrent.STM.TMVar (TMVar, newEmptyTMVarIO, readTMVar, putTMVar
 import Data.ByteString.Builder (Builder)
 import Data.ByteString.Lazy qualified as BS.Lazy
 
--- Doesn't really matter if we import from .Client or .Server
-import Network.HTTP2.Client qualified as HTTP2 (
+import Network.HTTP.Semantics qualified as HTTP.Semantics (
     TrailersMaker
   , NextTrailersMaker(..)
   )
@@ -620,17 +619,17 @@ outboundTrailersMaker :: forall sess.
   => sess
   -> Channel sess
   -> RegularFlowState (Outbound sess)
-  -> HTTP2.TrailersMaker
+  -> HTTP.Semantics.TrailersMaker
 outboundTrailersMaker sess Channel{channelOutbound} regular = go
   where
-    go :: HTTP2.TrailersMaker
-    go (Just _) = return $ HTTP2.NextTrailersMaker go
+    go :: HTTP.Semantics.TrailersMaker
+    go (Just _) = return $ HTTP.Semantics.NextTrailersMaker go
     go Nothing  = do
         mFlowState <- atomically $
           unlessAbnormallyTerminated channelOutbound $
             readTMVar (flowTerminated regular)
         case mFlowState of
             Right trailers ->
-              return $ HTTP2.Trailers $ buildOutboundTrailers sess trailers
+              return $ HTTP.Semantics.Trailers $ buildOutboundTrailers sess trailers
             Left _exception ->
-              return $ HTTP2.Trailers []
+              return $ HTTP.Semantics.Trailers []
