@@ -7,6 +7,7 @@ module Network.GRPC.Util.HTTP2.ClientStream (
 import Network.GRPC.Util.Stream
 
 import Network.HTTP2.Client qualified as Client
+import Network.HTTP.Semantics (OutBodyIface(..))
 
 import Network.GRPC.Util.HTTP2 (fromHeaderTable)
 
@@ -31,7 +32,7 @@ clientInputStream resp = do
 -- 'wrapStreamExceptionsWith', since we do this around the entire
 -- 'sendMessageLoop'. See the comment for @outboundThread@ in
 -- 'Network.GRPC.Util.Session.Client.setupRequestChannel'.
-clientOutputStream :: Client.OutBodyIface -> IO OutputStream
+clientOutputStream :: OutBodyIface -> IO OutputStream
 clientOutputStream iface =
     return OutputStream {
         _writeChunk = \c ->

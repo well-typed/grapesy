@@ -7,7 +7,7 @@ module Network.GRPC.Util.HTTP2.ServerStream (
 import Network.GRPC.Util.Stream
 
 import Network.HTTP2.Server qualified as Server
-import Network.HTTP2.Server (OutBodyIface(..))
+import Network.HTTP.Semantics (OutBodyIface(..))
 
 import Network.GRPC.Util.HTTP2 (fromHeaderTable)
 
