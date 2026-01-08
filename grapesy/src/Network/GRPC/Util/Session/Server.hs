@@ -6,7 +6,7 @@ module Network.GRPC.Util.Session.Server (
 
 import Network.HTTP2.Server qualified as Server
 
-import Network.GRPC.Util.HTTP2.ServerStream
+import Network.GRPC.Util.ServerStream
 import Network.GRPC.Util.Session.API
 import Network.GRPC.Util.Session.Channel
 import Network.GRPC.Util.Thread
