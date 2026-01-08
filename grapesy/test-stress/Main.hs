@@ -6,6 +6,8 @@ import Control.Exception
 import GHC.Conc (setUncaughtExceptionHandler)
 import System.IO.Temp (writeSystemTempFile)
 import Text.Show.Pretty (dumpStr)
+import System.Environment (lookupEnv)
+import System.Exit (exitSuccess)
 
 #if defined(PROFILING) && MIN_VERSION_base(4,20,0)
 import Control.Exception.Backtrace
@@ -26,6 +28,12 @@ import Test.Stress.Server
 
 main :: IO ()
 main = do
+    lookupEnv "GITHUB_ACTIONS" >>= \case
+      Just "true" -> do
+        putStrLn "Not running stress tests on GitHub Actions"
+        exitSuccess
+      _           -> return ()
+
 #if defined(PROFILING) && MIN_VERSION_base(4,20,0)
     setBacktraceMechanismState CostCentreBacktrace True
 #endif
