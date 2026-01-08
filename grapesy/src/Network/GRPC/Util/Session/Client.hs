@@ -17,6 +17,7 @@ import Data.ByteString qualified as Strict (ByteString)
 import Data.ByteString.Lazy qualified as BS.Lazy
 import Data.ByteString.Lazy qualified as Lazy (ByteString)
 import Network.HTTP.Types qualified as HTTP
+import Network.HTTP.Semantics (OutBodyIface)
 import Network.HTTP2.Client qualified as Client
 
 import Network.GRPC.Util.HTTP2 (fromHeaderTable)
@@ -189,7 +190,7 @@ setupRequestChannel sess
          Channel sess
       -> MVar CancelRequest
       -> RegularFlowState (Outbound sess)
-      -> Client.OutBodyIface
+      -> OutBodyIface
       -> IO ()
     outboundThread channel cancelRequestVar regular iface =
         threadBody "grapesy:clientOutbound" (channelOutbound channel) $ \markReady _debugId -> do
