@@ -181,7 +181,7 @@ library
       --
       -- New versions should be tested against the full grapesy test suite
       -- (regular tests and stress tests).
-    , http2 == 5.3.9
+    -- , http2 == 5.3.9
 
 test-suite test-record-dot
   import:         lang, common-executable-flags
