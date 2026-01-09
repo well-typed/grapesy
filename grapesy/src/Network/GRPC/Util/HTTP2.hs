@@ -1,42 +1,29 @@
 module Network.GRPC.Util.HTTP2 (
-    -- * General auxiliary
-    fromHeaderTable
     -- * Configuration
-  , withConfigForInsecure
-  , withConfigForSecure
+  withConfigForInsecure,
+  withConfigForSecure,
     -- * Settings
-  , mkServerConfig
-  , mkTlsSettings
+  mkServerConfig,
+  mkTlsSettings,
     -- * Timeouts
-  , withTimeManager
+  withTimeManager,
   ) where
 
-import Control.Exception
-import Data.Bifunctor
+import Network.GRPC.Util.Imports
+
 import Data.ByteString qualified as Strict (ByteString)
 import Foreign (mallocBytes, free)
 import Network.HPACK (BufferSize)
-import Network.HPACK qualified as HPACK
-import Network.HPACK.Token qualified as HPACK
-import Network.HTTP.Types qualified as HTTP
 import Network.HTTP2.Server qualified as Server
 import Network.HTTP2.TLS.Server qualified as Server.TLS
 import Network.Socket (Socket, SockAddr)
 import Network.Socket qualified as Socket
-import Network.Socket.BufferPool (Recv)
 import Network.Socket.BufferPool qualified as Recv
 import Network.Socket.ByteString qualified as Socket
 import System.TimeManager qualified as Time (Manager)
 import System.TimeManager qualified as TimeManager
 
 import Network.GRPC.Common.HTTP2Settings
-
-{-------------------------------------------------------------------------------
-  General auxiliary
--------------------------------------------------------------------------------}
-
-fromHeaderTable :: HPACK.TokenHeaderTable -> [HTTP.Header]
-fromHeaderTable = map (first HPACK.tokenKey) . fst
 
 {-------------------------------------------------------------------------------
   Configuration
@@ -67,13 +54,10 @@ withConfigForInsecure mgr sock k = do
       peersa
       k
   where
-    def :: Server.TLS.Settings
-    def = Server.TLS.defaultSettings
-
     -- Use the defaults from @http2-tls@
     readBufferLowerLimit, readBufferSize :: Int
-    readBufferLowerLimit = Server.TLS.settingsReadBufferLowerLimit def
-    readBufferSize       = Server.TLS.settingsReadBufferSize       def
+    readBufferLowerLimit = Server.TLS.settingsReadBufferLowerLimit Server.TLS.defaultSettings
+    readBufferSize       = Server.TLS.settingsReadBufferSize       Server.TLS.defaultSettings
 
 -- | Create config to be used with @http2-tls@ (with TLS)
 --
@@ -96,7 +80,7 @@ withConfigForSecure mgr backend =
 withConfig ::
      Time.Manager
   -> (Strict.ByteString -> IO ())
-  -> Recv
+  -> Recv.Recv
   -> SockAddr
   -> SockAddr
   -> (Server.Config -> IO a)

@@ -1,4 +1,4 @@
-module Network.GRPC.Util.HTTP2.ClientStream (
+module Network.GRPC.Util.ClientStream (
     -- ** Client API
     clientInputStream,
     clientOutputStream,
@@ -6,10 +6,10 @@ module Network.GRPC.Util.HTTP2.ClientStream (
 
 import Network.GRPC.Util.Stream
 
-import Network.HTTP2.Client qualified as Client
+import Network.HTTP.Semantics.Client qualified as Client
 import Network.HTTP.Semantics (OutBodyIface(..))
 
-import Network.GRPC.Util.HTTP2 (fromHeaderTable)
+import Network.GRPC.Util.HeaderTable (fromHeaderTable)
 
 {-------------------------------------------------------------------------------
   Client API

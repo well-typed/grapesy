@@ -1,4 +1,4 @@
-module Network.GRPC.Util.HTTP2.ServerStream (
+module Network.GRPC.Util.ServerStream (
     -- * Server API
     serverOutputStream,
     serverInputStream,
@@ -6,10 +6,10 @@ module Network.GRPC.Util.HTTP2.ServerStream (
 
 import Network.GRPC.Util.Stream
 
-import Network.HTTP2.Server qualified as Server
+import Network.HTTP.Semantics.Server qualified as Server
 import Network.HTTP.Semantics (OutBodyIface(..))
 
-import Network.GRPC.Util.HTTP2 (fromHeaderTable)
+import Network.GRPC.Util.HeaderTable (fromHeaderTable)
 
 {-------------------------------------------------------------------------------
   Server API

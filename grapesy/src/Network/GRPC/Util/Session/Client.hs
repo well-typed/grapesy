@@ -20,8 +20,8 @@ import Network.HTTP.Types qualified as HTTP
 import Network.HTTP.Semantics (OutBodyIface)
 import Network.HTTP2.Client qualified as Client
 
-import Network.GRPC.Util.HTTP2 (fromHeaderTable)
-import Network.GRPC.Util.HTTP2.ClientStream
+import Network.GRPC.Util.HeaderTable (fromHeaderTable)
+import Network.GRPC.Util.ClientStream
 import Network.GRPC.Util.Stream
 import Network.GRPC.Util.RedundantConstraint (addConstraint)
 import Network.GRPC.Util.Session.API

@@ -56,7 +56,7 @@ import Network.GRPC.Common.Headers
 import Network.GRPC.Common.StreamElem qualified as StreamElem
 import Network.GRPC.Server.Context
 import Network.GRPC.Server.Session
-import Network.GRPC.Util.HTTP2 (fromHeaderTable)
+import Network.GRPC.Util.HeaderTable (fromHeaderTable)
 import Network.GRPC.Util.Session.API qualified as Session
 import Network.GRPC.Util.Session.Channel qualified as Session
 import Network.GRPC.Util.Session.Server qualified as Server
