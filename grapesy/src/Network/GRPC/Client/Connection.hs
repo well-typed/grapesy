@@ -31,25 +31,25 @@ module Network.GRPC.Client.Connection (
   , updateConnectionMeta
   ) where
 
-import Control.Concurrent
-import Control.Concurrent.STM
-import Control.Monad
-import Control.Monad.Catch
-import Data.Default
-import GHC.Stack
+import Network.GRPC.Util.Imports
+
+import Control.Concurrent.MVar (MVar, newMVar, newEmptyMVar, putMVar, readMVar, takeMVar, modifyMVar_)
+import Control.Concurrent.STM (atomically, retry, throwSTM)
+import Control.Concurrent.STM.TVar (TVar, newTVarIO, writeTVar, readTVar)
+import Control.Concurrent.STM.TMVar (TMVar, newEmptyTMVarIO, putTMVar)
 import Network.HPACK qualified as HPACK
 import Network.HTTP2.Client qualified as HTTP2.Client
 import Network.HTTP2.TLS.Client qualified as HTTP2.TLS.Client
 import Network.Run.TCP qualified as Run
-import Network.Socket
+import Network.Socket (Socket, AddrInfo, StructLinger (..), SocketOption (..), SockOptValue (..))
+import Network.Socket qualified as Socket
 import Network.TLS (TLSException)
-import System.Random
+import System.Random (randomRIO)
 
 import Network.GRPC.Client.Meta (Meta)
 import Network.GRPC.Client.Meta qualified as Meta
 import Network.GRPC.Common.Compression qualified as Compr
 import Network.GRPC.Common.HTTP2Settings
-import Network.GRPC.Spec
 import Network.GRPC.Util.GHC
 import Network.GRPC.Util.Session.Client qualified as Session
 import Network.GRPC.Util.TLS (ServerValidation(..), SslKeyLog(..))
@@ -558,8 +558,8 @@ stayConnected connParams initialServer connStateVar connOutOfScope = do
 -- | Unix domain socket connection
 connectUnix :: ConnParams -> Attempt -> FilePath -> IO ()
 connectUnix connParams attempt path = do
-  client <- socket AF_UNIX Stream defaultProtocol
-  connect client $ SockAddrUnix path
+  client <- Socket.socket Socket.AF_UNIX Socket.Stream Socket.defaultProtocol
+  Socket.connect client $ Socket.SockAddrUnix path
   connectSocket connParams attempt "localhost" client
 
 -- | Insecure connection (no TLS)
