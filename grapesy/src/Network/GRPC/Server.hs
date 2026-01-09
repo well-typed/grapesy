@@ -49,7 +49,7 @@ module Network.GRPC.Server (
   , ResponseAlreadyInitiated(..)
   ) where
 
-import Network.HTTP2.Server qualified as HTTP2
+import Network.HTTP.Semantics.Server qualified as Server
 
 import Network.GRPC.Server.Call
 import Network.GRPC.Server.Context
@@ -77,7 +77,7 @@ import Network.GRPC.Util.Stream (ClientDisconnected(..))
 -- 'Network.GRPC.Server.StreamType.fromMethods' or
 -- 'Network.GRPC.Server.StreamType.fromServices') to construct the set of
 -- handlers.
-mkGrpcServer :: ServerParams -> [SomeRpcHandler IO] -> IO HTTP2.Server
+mkGrpcServer :: ServerParams -> [SomeRpcHandler IO] -> IO Server.Server
 mkGrpcServer params@ServerParams{serverTopLevel} handlers = do
     ctxt <- newServerContext params
     return $

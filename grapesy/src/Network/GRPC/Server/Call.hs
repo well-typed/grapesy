@@ -47,7 +47,7 @@ import Control.Concurrent.STM (atomically, throwSTM)
 import Control.Concurrent.STM.TVar (TVar, writeTVar, readTVar, newTVarIO)
 import Control.Concurrent.STM.TMVar (TMVar, putTMVar, tryPutTMVar, tryReadTMVar, newEmptyTMVarIO, readTMVar)
 import Network.HTTP.Types qualified as HTTP
-import Network.HTTP2.Server qualified as HTTP2
+import Network.HTTP.Semantics.Server qualified as Server
 
 import Network.GRPC.Common.ProtocolException
 import Network.GRPC.Common.StreamElem (StreamElem(..))
@@ -190,14 +190,14 @@ setupCall conn callContext@ServerContext{serverParams} = do
           serverSessionContext = callContext
         }
 
-    req :: HTTP2.Request
+    req :: Server.Request
     req = Server.request conn
 
 -- | Parse inbound headers
 determineInbound :: forall rpc.
      SupportsServerRpc rpc
   => ServerSession rpc
-  -> HTTP2.Request
+  -> Server.Request
   -> IO (Headers (ServerInbound rpc), Maybe Timeout)
 determineInbound session req = do
     requestHeaders' <- throwSynthesized throwIO parsed
@@ -219,7 +219,7 @@ determineInbound session req = do
 
     parsed :: RequestHeaders' GrpcException
     parsed = parseRequestHeaders' (Proxy @rpc) $
-               fromHeaderTable $ HTTP2.requestHeaders req
+               fromHeaderTable $ Server.requestHeaders req
 
 -- | Determine outbound flow start
 --
@@ -252,7 +252,7 @@ startOutbound serverParams metadataVar kickoffVar cOut = do
             mMetadata <- atomically $ readTVar metadataVar
             case mMetadata of
               CallInitialMetadataSet md _cs -> buildMetadataIO md
-              CallInitialMetadataNotSet     -> throwIO $ ResponseInitialMetadataNotSet
+              CallInitialMetadataNotSet     -> throwIO ResponseInitialMetadataNotSet
 
           return $ Session.FlowStartRegular $ OutboundHeaders {
               outHeaders = ResponseHeaders {

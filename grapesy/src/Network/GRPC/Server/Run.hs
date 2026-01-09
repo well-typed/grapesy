@@ -30,7 +30,8 @@ import Network.GRPC.Util.Imports
 
 import Control.Concurrent.STM (STM, atomically, catchSTM, throwSTM, orElse)
 import Control.Concurrent.STM.TMVar (TMVar, newEmptyTMVarIO, putTMVar, readTMVar)
-import Network.HTTP2.Server qualified as HTTP2
+import Network.HTTP.Semantics.Server qualified as Server
+import Network.HTTP2.Server qualified as HTTP2 (ServerConfig, run)
 import Network.HTTP2.TLS.Server qualified as HTTP2.TLS
 import Network.Run.TCP qualified as Run
 import Network.Socket (Socket, AddrInfo, HostName, PortNumber)
@@ -135,7 +136,7 @@ data SecureConfig = SecureConfig {
 --
 -- See also 'runServerWithHandlers', which handles the creation of the
 -- 'HTTP2.Server' for you.
-runServer :: HTTP2Settings -> ServerConfig -> HTTP2.Server -> IO ()
+runServer :: HTTP2Settings -> ServerConfig -> Server.Server -> IO ()
 runServer http2 cfg server = forkServer http2 cfg server $ waitServer
 
 -- | Convenience function that combines 'runServer' with 'mkGrpcServer'
@@ -188,7 +189,7 @@ data ServerTerminated = ServerTerminated
 forkServer ::
      HTTP2Settings
   -> ServerConfig
-  -> HTTP2.Server
+  -> Server.Server
   -> (RunningServer -> IO a)
   -> IO a
 forkServer http2 ServerConfig{serverInsecure, serverSecure} server k = do
@@ -305,7 +306,7 @@ runInsecure ::
      HTTP2Settings
   -> InsecureConfig
   -> TMVar Socket
-  -> HTTP2.Server
+  -> Server.Server
   -> IO ()
 runInsecure http2 cfg socketTMVar server = do
     openSock cfg $ \listenSock ->
@@ -347,7 +348,7 @@ runSecure ::
      HTTP2Settings
   -> SecureConfig
   -> TMVar Socket
-  -> HTTP2.Server
+  -> Server.Server
   -> IO ()
 runSecure http2 cfg socketTMVar server = do
     cred :: TLS.Credential <-

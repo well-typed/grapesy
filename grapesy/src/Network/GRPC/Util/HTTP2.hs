@@ -1,3 +1,4 @@
+-- Note: atm this module is used only by Server.Run
 module Network.GRPC.Util.HTTP2 (
     -- * Configuration
   withConfigForInsecure,

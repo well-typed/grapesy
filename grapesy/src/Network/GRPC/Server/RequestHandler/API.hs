@@ -10,7 +10,7 @@ module Network.GRPC.Server.RequestHandler.API (
 
 import Control.Exception
 
-import Network.HTTP2.Server qualified as HTTP2
+import Network.HTTP.Semantics.Server qualified as Server
 
 {-------------------------------------------------------------------------------
   Definition
@@ -19,8 +19,8 @@ import Network.HTTP2.Server qualified as HTTP2
 -- | HTTP2 request handler
 type RequestHandler a =
      (forall x. IO x -> IO x)
-  -> HTTP2.Request
-  -> (HTTP2.Response -> IO ())
+  -> Server.Request
+  -> (Server.Response -> IO ())
   -> IO a
 
 -- | Construct @http2@ handler
@@ -33,7 +33,7 @@ requestHandlerToServer ::
      -- which is not always the right thing to do; see detailed comments in
      -- 'runHandler'). It is the responsibility of 'serverTopLevel' (prior to
      -- calling 'requestHandlerToServer') to catch any remaining exceptions.
-  -> HTTP2.Server
+  -> Server.Server
 requestHandlerToServer handler req _aux respond =
     -- We start by masking asynchronous exceptions. It is possible that
     -- http2 kills us /before/ this call to @mask@, but if it does, no harm
