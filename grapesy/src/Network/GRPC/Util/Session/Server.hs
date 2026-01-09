@@ -4,7 +4,7 @@ module Network.GRPC.Util.Session.Server (
   , setupResponseChannel
   ) where
 
-import Network.HTTP2.Server qualified as Server
+import Network.HTTP.Semantics.Server qualified as Server
 
 import Network.GRPC.Util.ServerStream
 import Network.GRPC.Util.Session.API

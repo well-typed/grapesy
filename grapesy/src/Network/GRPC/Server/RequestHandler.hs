@@ -23,7 +23,7 @@ import Data.ByteString.Char8 qualified as BS.Char8
 import Data.ByteString.UTF8 qualified as BS.UTF8
 import Data.Text qualified as Text
 import Network.HTTP.Types qualified as HTTP
-import Network.HTTP2.Server qualified as HTTP2
+import Network.HTTP.Semantics.Server qualified as Server
 
 import Network.GRPC.Server.Call
 import Network.GRPC.Server.Context (ServerContext (..), ServerParams(..))
@@ -75,7 +75,7 @@ requestHandler handlers ctxt unmask request respond = do
 -- Throws 'CallSetupFailure' if no handler could be found.
 findHandler ::
      HandlerMap IO
-  -> HTTP2.Request
+  -> Server.Request
   -> IO (SomeRpcHandler IO)
 findHandler handlers req = do
     -- TODO: <https://github.com/well-typed/grapesy/issues/131>
@@ -96,8 +96,8 @@ findHandler handlers req = do
   where
     rawHeaders :: RawResourceHeaders
     rawHeaders = RawResourceHeaders {
-          rawPath   = fromMaybe "" $ HTTP2.requestPath   req
-        , rawMethod = fromMaybe "" $ HTTP2.requestMethod req
+          rawPath   = fromMaybe "" $ Server.requestPath   req
+        , rawMethod = fromMaybe "" $ Server.requestMethod req
         }
 
 -- | Call setup failure
@@ -107,7 +107,7 @@ findHandler handlers req = do
 -- exceptions that might arise from doing so.
 setupFailure ::
      ServerParams
-  -> (HTTP2.Response -> IO ())
+  -> (Server.Response -> IO ())
   -> CallSetupFailure
   -> IO a
 setupFailure params sendResponse failure = do
@@ -137,11 +137,11 @@ setupFailure params sendResponse failure = do
 -- Testing out-of-spec errors can be bit awkward. One option is @curl@:
 --
 -- > curl --verbose --http2 --http2-prior-knowledge http://127.0.0.1:50051/
-mkFailureResponse :: ServerParams -> CallSetupFailure -> IO HTTP2.Response
+mkFailureResponse :: ServerParams -> CallSetupFailure -> IO Server.Response
 mkFailureResponse params = \case
     CallSetupInvalidResourceHeaders (InvalidMethod method) ->
       return $
-        HTTP2.responseBuilder
+        Server.responseBuilder
           HTTP.methodNotAllowed405
           [("Allow", "POST")]
           (Builder.byteString . mconcat $ [
@@ -150,15 +150,15 @@ mkFailureResponse params = \case
             ])
     CallSetupInvalidResourceHeaders (InvalidPath path) ->
       return $
-        HTTP2.responseBuilder HTTP.badRequest400 [] . Builder.byteString $
+        Server.responseBuilder HTTP.badRequest400 [] . Builder.byteString $
           "Invalid path " <> path
     CallSetupInvalidRequestHeaders invalid ->
       return $
-        HTTP2.responseBuilder (statusInvalidHeaders invalid) [] $
+        Server.responseBuilder (statusInvalidHeaders invalid) [] $
           prettyInvalidHeaders invalid
     CallSetupUnsupportedCompression cid ->
       return $
-        HTTP2.responseBuilder HTTP.badRequest400 [] . Builder.byteString $
+        Server.responseBuilder HTTP.badRequest400 [] . Builder.byteString $
           "Unsupported compression: " <> BS.UTF8.fromString (show cid)
     CallSetupUnimplementedMethod path -> do
       let trailersOnly :: TrailersOnly
@@ -167,7 +167,7 @@ mkFailureResponse params = \case
             , serverContentType
             )
       return $
-        HTTP2.responseNoBody HTTP.ok200 $
+        Server.responseNoBody HTTP.ok200 $
           buildTrailersOnly contentTypeForUnknown trailersOnly
     CallSetupHandlerLookupException err -> do
       msg <- serverExceptionToClient err
@@ -182,7 +182,7 @@ mkFailureResponse params = \case
             , serverContentType
             )
       return $
-        HTTP2.responseNoBody HTTP.ok200 $
+        Server.responseNoBody HTTP.ok200 $
           buildTrailersOnly contentTypeForUnknown trailersOnly
   where
     ServerParams{
