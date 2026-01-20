@@ -16,6 +16,7 @@ import Data.ByteString qualified as Strict (ByteString)
 import Foreign (mallocBytes, free)
 import Network.HPACK (BufferSize)
 import Network.HTTP2.Server qualified as Server
+import Network.HTTP2.Server.Internal qualified as Server (Config (..))
 import Network.HTTP2.TLS.Server qualified as Server.TLS
 import Network.Socket (Socket, SockAddr)
 import Network.Socket qualified as Socket
@@ -94,6 +95,7 @@ withConfig mgr send recv mysa peersa k =
         , confBufferSize        = writeBufferSize
         , confSendAll           = send
         , confReadN             = recvN
+        , confReadNTimeout      = False
         , confPositionReadMaker = Server.defaultPositionReadMaker
         , confTimeoutManager    = mgr
         , confMySockAddr        = mysa
