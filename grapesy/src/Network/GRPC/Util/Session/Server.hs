@@ -4,6 +4,9 @@ module Network.GRPC.Util.Session.Server (
   , setupResponseChannel
   ) where
 
+import Control.Concurrent
+import Control.Exception
+
 import Network.HTTP.Semantics.Server qualified as Server
 
 import Network.GRPC.Util.ServerStream
@@ -76,14 +79,19 @@ setupResponseChannel sess
           FlowStartRegular headers -> do
             regular <- initFlowStateRegular headers
             markReady $ FlowStateRegular regular
+            sendMessageThread <- myThreadId
             let resp :: Server.Response
                 resp = setResponseTrailers sess channel regular
                      $ Server.responseStreamingIface
                              (responseStatus  responseInfo)
                              (responseHeaders responseInfo)
                      $ \iface -> do
-                          stream <- serverOutputStream iface
-                          sendMessageLoop sess regular stream
+                          -- http2 may run this in an auxiliary thread.
+                          let rethrowException :: SomeException -> IO ()
+                              rethrowException = throwTo sendMessageThread
+                          handle rethrowException $ do
+                            stream <- serverOutputStream iface
+                            sendMessageLoop sess regular stream
             respond conn resp
           FlowStartNoMessages trailers -> do
             markReady $ FlowStateNoMessages trailers
