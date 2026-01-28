@@ -9,6 +9,9 @@ packages:
   , ./tutorials/conduit
   , ./tutorials/trailers-only
 
+packages: grapesy-common
+packages: grapesy-http2
+
 tests: True
 benchmarks: True
 
@@ -16,6 +19,9 @@ package grpc-spec
   flags: +snappy
 
 package grapesy
+  flags: +build-demo +build-stress-test
+
+package grapesy-http2
   flags: +build-demo +build-stress-test
 
 -- avoid compilation errors in some dependencies
