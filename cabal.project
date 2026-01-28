@@ -10,12 +10,19 @@ packages:
   , ./tutorials/trailers-only
 
 packages: garp
+packages: grapesy-common
+packages: grapesy-http2
 
 package grpc-spec
   tests: True
   flags: +snappy
 
 package grapesy
+  tests: True
+  benchmarks: True
+  flags: +build-demo +build-stress-test
+
+package grapesy-http2
   tests: True
   benchmarks: True
   flags: +build-demo +build-stress-test
