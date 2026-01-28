@@ -15,7 +15,7 @@ import KVStore.Cmdline
 import KVStore.Util.Store (Store)
 import KVStore.Util.Store qualified as Store
 
-import Paths_grapesy
+import Paths_grapesy (getDataFileName)
 
 {-------------------------------------------------------------------------------
   Server proper

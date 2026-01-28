@@ -37,9 +37,7 @@ import Control.Concurrent.Thread.Delay qualified as UnboundedDelays
 import Control.Monad.Catch
 import Data.ByteString.Char8 qualified as BS.Strict.C8
 import Data.Foldable (asum)
-import Data.List (intersperse)
 import Data.Text qualified as Text
-import Data.Version
 import GHC.Stack
 
 import Network.GRPC.Client.Connection (Connection, ConnParams(..))
@@ -58,7 +56,7 @@ import Network.GRPC.Util.Session.Channel qualified as Session
 import Network.GRPC.Util.Session.Client qualified as Session
 import Network.GRPC.Util.Thread qualified as Thread
 
-import Paths_grapesy qualified as Grapesy
+import Network.GRPC.Util.Version qualified as Grapesy
 
 {-------------------------------------------------------------------------------
   Open a call
@@ -272,9 +270,7 @@ startRPC conn _ callParams = do
         , requestUserAgent = Just $
             mconcat [
                 "grpc-haskell-grapesy/"
-              , mconcat . intersperse "." $
-                  map (BS.Strict.C8.pack . show) $
-                    versionBranch Grapesy.version
+              , BS.Strict.C8.pack Grapesy.version
               ]
         , requestIncludeTE =
             True

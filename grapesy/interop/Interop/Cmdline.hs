@@ -15,7 +15,7 @@ import Options.Applicative qualified as Opt
 
 import Network.GRPC.Common
 
-import Paths_grapesy
+import Paths_grapesy (getDataFileName)
 
 {-------------------------------------------------------------------------------
   Definition

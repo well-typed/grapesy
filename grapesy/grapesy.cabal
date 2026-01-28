@@ -87,7 +87,6 @@ common common-executable-flags
 
 library
   import:          lang
-  autogen-modules: Paths_grapesy
   hs-source-dirs:  src
 
   exposed-modules:
@@ -143,8 +142,8 @@ library
       Network.GRPC.Util.Thread
       Network.GRPC.Util.TLS
       Network.GRPC.Util.HeaderTable
+      Network.GRPC.Util.Version
 
-      Paths_grapesy
   build-depends:
     , aeson                     >= 1.5     && < 2.3
     , async                     >= 2.2     && < 2.3

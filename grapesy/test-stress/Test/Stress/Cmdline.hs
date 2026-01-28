@@ -37,7 +37,7 @@ import Network.GRPC.Common.Compression (Compression)
 import Network.GRPC.Common.Compression qualified as Compr
 import Network.GRPC.Server.Run
 
-import Paths_grapesy
+import Paths_grapesy (getDataFileName)
 
 {-------------------------------------------------------------------------------
   Definitions

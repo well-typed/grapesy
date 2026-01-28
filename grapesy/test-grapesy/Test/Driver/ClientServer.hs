@@ -50,7 +50,7 @@ import Network.GRPC.Server qualified as Server
 import Network.GRPC.Server.Run qualified as Server
 import Test.Util.Exception
 
-import Paths_grapesy
+import Paths_grapesy (getDataFileName)
 
 {-------------------------------------------------------------------------------
   Top-level
