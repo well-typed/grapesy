@@ -1,0 +1,24 @@
+name: grapesy-common check
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  merge_group:
+
+jobs:
+  whitespace:
+    name: Whitespace
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Update
+        run: |
+            ./copy-grapesy-common.sh
+
+      - name: git diff
+        run: |
+            git diff --exit-code
