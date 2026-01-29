@@ -84,6 +84,7 @@ module Network.GRPC.Client (
 
 import Network.GRPC.Client.Call
 import Network.GRPC.Client.Connection
+import Network.GRPC.Client.Run
 import Network.GRPC.Client.Session (CallSetupFailure(..), InvalidTrailers(..))
 import Network.GRPC.Client.StreamType (rpc, rpcWith)
 import Network.GRPC.Spec
