@@ -119,6 +119,7 @@ library
       Network.GRPC.Common.ProtocolException
       Network.GRPC.Client.Call
       Network.GRPC.Client.Connection
+      Network.GRPC.Client.Run
       Network.GRPC.Client.Meta
       Network.GRPC.Client.Session
       Network.GRPC.Client.StreamType
