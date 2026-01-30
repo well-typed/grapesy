@@ -84,6 +84,15 @@ test_multipleMsgs = do
                     assertEqual "" compressibleName $
                       resp ^. #message
               Client.sendEndOfInput call
+
+              -- Calling 'sendEndOfInput' merely tells the server that we won't
+              -- be /sending/ it any further messages; it doesn't mean (as far
+              -- as the gRPC spec is concerned) that we're not /expecting/ any
+              -- further messages. For our /specific/ way of interacting this
+              -- /is/ the case, but if we don't wait for the server to confirm
+              -- that no more messages are coming, that is considered
+              -- cancellation and the server will receive a RST_STREAM.
+              Client.recvTrailers call
       }
   where
     req :: Proto HelloRequest

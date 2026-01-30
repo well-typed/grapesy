@@ -330,15 +330,18 @@ closeRPC callChannel cancelRequest exitCase = liftIO $ do
     -- that we can discard the connection.
     canDiscard <- checkCanDiscard
 
-    -- Send the RST_STREAM frame /before/ closing the outbound thread.
+    -- If we have not received the final message from the server when we exit
+    -- the scope of 'withRPC', send @RST_STREAM@ to the server to indicate that
+    -- we are not interested in any further messages (that is: cancellation).
     --
-    -- When we call 'Session.close', we will terminate the
-    -- 'sendMessageLoop', @http2@ will interpret this as a clean termination
-    -- of the stream. We must therefore cancel this stream before calling
-    -- 'Session.close'. /If/ the final message has already been sent,
-    -- @http2@ guarantees (as a postcondition of @outBodyPushFinal@) that
-    -- cancellation will be a no-op.
-    sendResetFrame
+    -- We send the @RST_STREAM@ prior to calling 'Session.close' to ensure that
+    -- the server receives @RST_STREAM@ /before/ receiving @END_STREAM@. The
+    -- opposite order is permitted by the HTTP2 spec (it merely means that the
+    -- client tells the server that it won't /send/ any further messages before
+    -- telling the server that it doesn't want to /receive/ any further
+    -- messages), but some servers might interpret this as a clean client
+    -- termination rather than a cancellation.
+    unless canDiscard $ sendResetFrame
 
     -- Now close the /outbound/ thread, see docs of 'Session.close' for
     -- details.
@@ -368,7 +371,6 @@ closeRPC callChannel cancelRequest exitCase = liftIO $ do
             unless canDiscard $
               throwCancelled discarded
   where
-    -- Send a @RST_STREAM@ frame if necessary
     sendResetFrame :: IO ()
     sendResetFrame =
         cancelRequest $
