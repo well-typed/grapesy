@@ -484,9 +484,15 @@ recvOutput call@Call{} = liftIO $ do
 recvNextOutputElem ::
      (MonadIO m, HasCallStack)
   => Call rpc -> m (NextElem (Output rpc))
-recvNextOutputElem =
-      fmap (either (const NoNextElem) (NextElem . snd))
-    . recvEither
+recvNextOutputElem call = do
+    mOut <- recvEither call
+    case mOut of
+      Left trailers -> do
+        -- Rethrow any exceptions that the server handler might have thrown
+        _trailingMetadata <- responseTrailingMetadata call trailers
+        return NoNextElem
+      Right (_env, out) ->
+        return $ NextElem out
 
 -- | Generalization of 'recvOutput', providing additional meta-information
 --
@@ -726,7 +732,6 @@ responseTrailingMetadata Call{} trailers = liftIO $
         parseMetadata $ grpcTerminatedMetadata terminatedNormally
       Left exception ->
         throwM exception
-
 
 -- | Forget that we are in the Trailers-Only case
 --
