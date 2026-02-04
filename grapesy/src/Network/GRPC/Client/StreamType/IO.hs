@@ -13,7 +13,7 @@ module Network.GRPC.Client.StreamType.IO (
 import Network.GRPC.Util.Imports
 import Control.Monad.Reader (ReaderT, runReaderT, lift)
 
-import Network.GRPC.Client
+import Network.GRPC.Client.Connection
 import Network.GRPC.Client.StreamType.CanCallRPC qualified as CanCallRPC
 
 {-------------------------------------------------------------------------------
