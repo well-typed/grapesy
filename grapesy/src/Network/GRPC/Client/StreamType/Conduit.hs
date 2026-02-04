@@ -12,7 +12,7 @@ import Network.GRPC.Util.Imports
 import Control.Monad.Reader (ReaderT, lift)
 import Data.Conduit (ConduitT, yield, await)
 
-import Network.GRPC.Client
+import Network.GRPC.Client.Connection
 import Network.GRPC.Client.StreamType.IO qualified as IO
 
 {-------------------------------------------------------------------------------
