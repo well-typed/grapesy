@@ -1,0 +1,41 @@
+cabal-version: 2.2
+name:          garp
+version:       0
+synopsis:      A barebone network servers
+description:   garp allows us to write simple TCP servers.
+               WIP package
+license:       BSD-3-Clause
+license-file:  LICENSE
+author:        Oleg Grenrus <oleg.grenrus@iki.fi>
+maintainer:    Oleg Grenrus <oleg.grenrus@iki.fi>
+category:      Network
+build-type:    Simple
+tested-with:
+  GHC ==8.10.7
+   || ==9.2.8
+   || ==9.4.8
+   || ==9.6.6
+   || ==9.8.2
+   || ==9.10.1
+
+source-repository head
+  type:     git
+  location: https://github.com/well-typed/grapesy
+
+library
+  default-language: Haskell2010
+  hs-source-dirs:   src
+  exposed-modules:  Network.Garp
+  build-depends:
+    , base         <5
+    , bytestring
+    , network
+    , network-run
+
+executable garp-echo
+  default-language: Haskell2010
+  hs-source-dirs:   echo
+  main-is:          Main.hs
+  build-depends:
+    , base
+    , garp
