@@ -9,6 +9,8 @@ packages:
   , ./tutorials/conduit
   , ./tutorials/trailers-only
 
+packages: garp
+
 package grpc-spec
   tests: True
   flags: +snappy
