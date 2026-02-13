@@ -12,6 +12,9 @@ packages:
 packages: garp
 packages: grapesy-common
 packages: grapesy-http2
+packages: grapesy-tcp
+
+packages: tutorials/quickstart-tcp
 
 tests: True
 benchmarks: True
@@ -23,6 +26,9 @@ package grapesy
   flags: +build-demo +build-stress-test
 
 package grapesy-http2
+  flags: +build-demo +build-stress-test
+
+package grapesy-tcp
   flags: +build-demo +build-stress-test
 
 -- The test suite relies on some unreleased fixes:
