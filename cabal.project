@@ -11,6 +11,10 @@ packages:
 
 packages: grapesy-common
 packages: grapesy-http2
+packages: grapesy-tcp
+
+packages: tutorials/quickstart-tcp
+packages: tutorials/basics-tcp
 
 tests: True
 benchmarks: True
@@ -22,6 +26,9 @@ package grapesy
   flags: +build-demo +build-stress-test
 
 package grapesy-http2
+  flags: +build-demo +build-stress-test
+
+package grapesy-tcp
   flags: +build-demo +build-stress-test
 
 -- avoid compilation errors in some dependencies
