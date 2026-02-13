@@ -8,9 +8,9 @@
 #
 # For more information, see https://github.com/haskell-CI/haskell-ci
 #
-# version: 0.19.20260331
+# version: 0.19.20260624
 #
-# REGENDATA ("0.19.20260331",["github","cabal.project"])
+# REGENDATA ("0.19.20260624",["github","cabal.project"])
 #
 name: Haskell-CI
 on:
@@ -168,7 +168,7 @@ jobs:
           chmod a+x $HOME/.cabal/bin/cabal-plan
           cabal-plan --version
       - name: checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           path: source
       - name: initial cabal.project for sdist
@@ -186,6 +186,9 @@ jobs:
           echo "packages: $GITHUB_WORKSPACE/source/garp" >> cabal.project
           echo "packages: $GITHUB_WORKSPACE/source/grapesy-common" >> cabal.project
           echo "packages: $GITHUB_WORKSPACE/source/grapesy-http2" >> cabal.project
+          echo "packages: $GITHUB_WORKSPACE/source/grapesy-tcp" >> cabal.project
+          echo "packages: $GITHUB_WORKSPACE/source/tutorials/quickstart-tcp" >> cabal.project
+          echo "packages: $GITHUB_WORKSPACE/source/tutorials/basics-tcp" >> cabal.project
           cat cabal.project
       - name: sdist
         run: |
@@ -221,6 +224,12 @@ jobs:
           echo "PKGDIR_grapesy_common=${PKGDIR_grapesy_common}" >> "$GITHUB_ENV"
           PKGDIR_grapesy_http2="$(find "$GITHUB_WORKSPACE/unpacked" -maxdepth 1 -type d -regex '.*/grapesy-http2-[0-9.]*')"
           echo "PKGDIR_grapesy_http2=${PKGDIR_grapesy_http2}" >> "$GITHUB_ENV"
+          PKGDIR_grapesy_tcp="$(find "$GITHUB_WORKSPACE/unpacked" -maxdepth 1 -type d -regex '.*/grapesy-tcp-[0-9.]*')"
+          echo "PKGDIR_grapesy_tcp=${PKGDIR_grapesy_tcp}" >> "$GITHUB_ENV"
+          PKGDIR_quickstart_tcp="$(find "$GITHUB_WORKSPACE/unpacked" -maxdepth 1 -type d -regex '.*/quickstart-tcp-[0-9.]*')"
+          echo "PKGDIR_quickstart_tcp=${PKGDIR_quickstart_tcp}" >> "$GITHUB_ENV"
+          PKGDIR_basics_tutorial_tcp="$(find "$GITHUB_WORKSPACE/unpacked" -maxdepth 1 -type d -regex '.*/basics-tutorial-tcp-[0-9.]*')"
+          echo "PKGDIR_basics_tutorial_tcp=${PKGDIR_basics_tutorial_tcp}" >> "$GITHUB_ENV"
           rm -f cabal.project cabal.project.local
           touch cabal.project
           touch cabal.project.local
@@ -236,6 +245,9 @@ jobs:
           echo "packages: ${PKGDIR_garp}" >> cabal.project
           echo "packages: ${PKGDIR_grapesy_common}" >> cabal.project
           echo "packages: ${PKGDIR_grapesy_http2}" >> cabal.project
+          echo "packages: ${PKGDIR_grapesy_tcp}" >> cabal.project
+          echo "packages: ${PKGDIR_quickstart_tcp}" >> cabal.project
+          echo "packages: ${PKGDIR_basics_tutorial_tcp}" >> cabal.project
           echo "package grpc-spec" >> cabal.project
           echo "    ghc-options: -Werror=missing-methods -Werror=missing-fields" >> cabal.project
           echo "package grapesy" >> cabal.project
@@ -259,6 +271,12 @@ jobs:
           echo "package grapesy-common" >> cabal.project
           echo "    ghc-options: -Werror=missing-methods -Werror=missing-fields" >> cabal.project
           echo "package grapesy-http2" >> cabal.project
+          echo "    ghc-options: -Werror=missing-methods -Werror=missing-fields" >> cabal.project
+          echo "package grapesy-tcp" >> cabal.project
+          echo "    ghc-options: -Werror=missing-methods -Werror=missing-fields" >> cabal.project
+          echo "package quickstart-tcp" >> cabal.project
+          echo "    ghc-options: -Werror=missing-methods -Werror=missing-fields" >> cabal.project
+          echo "package basics-tutorial-tcp" >> cabal.project
           echo "    ghc-options: -Werror=missing-methods -Werror=missing-fields" >> cabal.project
           if [ $((HCNUMVER >= 90400)) -ne 0 ] ; then echo "package grpc-spec" >> cabal.project ; fi
           if [ $((HCNUMVER >= 90400)) -ne 0 ] ; then echo "    ghc-options: -Werror=unused-packages" >> cabal.project ; fi
@@ -284,6 +302,12 @@ jobs:
           if [ $((HCNUMVER >= 90400)) -ne 0 ] ; then echo "    ghc-options: -Werror=unused-packages" >> cabal.project ; fi
           if [ $((HCNUMVER >= 90400)) -ne 0 ] ; then echo "package grapesy-http2" >> cabal.project ; fi
           if [ $((HCNUMVER >= 90400)) -ne 0 ] ; then echo "    ghc-options: -Werror=unused-packages" >> cabal.project ; fi
+          if [ $((HCNUMVER >= 90400)) -ne 0 ] ; then echo "package grapesy-tcp" >> cabal.project ; fi
+          if [ $((HCNUMVER >= 90400)) -ne 0 ] ; then echo "    ghc-options: -Werror=unused-packages" >> cabal.project ; fi
+          if [ $((HCNUMVER >= 90400)) -ne 0 ] ; then echo "package quickstart-tcp" >> cabal.project ; fi
+          if [ $((HCNUMVER >= 90400)) -ne 0 ] ; then echo "    ghc-options: -Werror=unused-packages" >> cabal.project ; fi
+          if [ $((HCNUMVER >= 90400)) -ne 0 ] ; then echo "package basics-tutorial-tcp" >> cabal.project ; fi
+          if [ $((HCNUMVER >= 90400)) -ne 0 ] ; then echo "    ghc-options: -Werror=unused-packages" >> cabal.project ; fi
           if [ $((HCNUMVER >= 90200)) -ne 0 ] ; then echo "package grpc-spec" >> cabal.project ; fi
           if [ $((HCNUMVER >= 90200)) -ne 0 ] ; then echo "    ghc-options: -Werror=incomplete-patterns -Werror=incomplete-uni-patterns" >> cabal.project ; fi
           if [ $((HCNUMVER >= 90200)) -ne 0 ] ; then echo "package grapesy" >> cabal.project ; fi
@@ -308,6 +332,12 @@ jobs:
           if [ $((HCNUMVER >= 90200)) -ne 0 ] ; then echo "    ghc-options: -Werror=incomplete-patterns -Werror=incomplete-uni-patterns" >> cabal.project ; fi
           if [ $((HCNUMVER >= 90200)) -ne 0 ] ; then echo "package grapesy-http2" >> cabal.project ; fi
           if [ $((HCNUMVER >= 90200)) -ne 0 ] ; then echo "    ghc-options: -Werror=incomplete-patterns -Werror=incomplete-uni-patterns" >> cabal.project ; fi
+          if [ $((HCNUMVER >= 90200)) -ne 0 ] ; then echo "package grapesy-tcp" >> cabal.project ; fi
+          if [ $((HCNUMVER >= 90200)) -ne 0 ] ; then echo "    ghc-options: -Werror=incomplete-patterns -Werror=incomplete-uni-patterns" >> cabal.project ; fi
+          if [ $((HCNUMVER >= 90200)) -ne 0 ] ; then echo "package quickstart-tcp" >> cabal.project ; fi
+          if [ $((HCNUMVER >= 90200)) -ne 0 ] ; then echo "    ghc-options: -Werror=incomplete-patterns -Werror=incomplete-uni-patterns" >> cabal.project ; fi
+          if [ $((HCNUMVER >= 90200)) -ne 0 ] ; then echo "package basics-tutorial-tcp" >> cabal.project ; fi
+          if [ $((HCNUMVER >= 90200)) -ne 0 ] ; then echo "    ghc-options: -Werror=incomplete-patterns -Werror=incomplete-uni-patterns" >> cabal.project ; fi
           cat >> cabal.project <<EOF
           source-repository-package
             type:     git
@@ -324,6 +354,9 @@ jobs:
             flags: +build-demo +build-stress-test
 
           package grapesy-http2
+            flags: +build-demo +build-stress-test
+
+          package grapesy-tcp
             flags: +build-demo +build-stress-test
 
           if impl ( ghc < 9.4 )
@@ -389,8 +422,17 @@ jobs:
 
           package grapesy-http2
             ghc-options: -Werror
+
+          package grapesy-tcp
+            ghc-options: -Werror
+
+          package quickstart-tcp
+            ghc-options: -Werror
+
+          package basics-tutorial-tcp
+            ghc-options: -Werror
           EOF
-          $HCPKG list --simple-output --names-only | perl -ne 'for (split /\s+/) { print "constraints: any.$_ installed\n" unless /^(basics-tutorial|conduit-tutorial|directory|exceptions|filepath|garp|grapesy|grapesy-common|grapesy-http2|grpc-spec|lowlevel-tutorial|metadata-tutorial|monadstack-tutorial|os-string|process|quickstart-tutorial|time|trailers-only-tutorial|unix)$/; }' >> cabal.project.local
+          $HCPKG list --simple-output --names-only | perl -ne 'for (split /\s+/) { print "constraints: any.$_ installed\n" unless /^(basics-tutorial|basics-tutorial-tcp|conduit-tutorial|directory|exceptions|filepath|garp|grapesy|grapesy-common|grapesy-http2|grapesy-tcp|grpc-spec|lowlevel-tutorial|metadata-tutorial|monadstack-tutorial|os-string|process|quickstart-tcp|quickstart-tutorial|time|trailers-only-tutorial|unix)$/; }' >> cabal.project.local
           cat cabal.project
           cat cabal.project.local
       - name: dump install plan
@@ -398,7 +440,7 @@ jobs:
           $CABAL v2-build $ARG_COMPILER $ARG_TESTS $ARG_BENCH --dry-run all
           cabal-plan
       - name: restore cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           key: ${{ runner.os }}-${{ matrix.compiler }}-${{ github.sha }}
           path: ~/.cabal/store
@@ -442,6 +484,12 @@ jobs:
           ${CABAL} -vnormal check
           cd ${PKGDIR_grapesy_http2} || false
           ${CABAL} -vnormal check
+          cd ${PKGDIR_grapesy_tcp} || false
+          ${CABAL} -vnormal check
+          cd ${PKGDIR_quickstart_tcp} || false
+          ${CABAL} -vnormal check
+          cd ${PKGDIR_basics_tutorial_tcp} || false
+          ${CABAL} -vnormal check
       - name: haddock
         run: |
           $CABAL v2-haddock --disable-documentation $ARG_COMPILER --with-haddock $HADDOCK $ARG_TESTS $ARG_BENCH all
@@ -451,7 +499,7 @@ jobs:
           $CABAL v2-build $ARG_COMPILER --disable-tests --disable-benchmarks all
       - name: save cache
         if: always()
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           key: ${{ runner.os }}-${{ matrix.compiler }}-${{ github.sha }}
           path: ~/.cabal/store

@@ -559,7 +559,7 @@ data MonitorAnnotation = MonitorAnnotation{
 
 #if MIN_VERSION_base(4,20,0)
 instance ExceptionAnnotation MonitorAnnotation where
-  displayExceptionAnnotation = renderDoc . toExceptionDoc defaultFormatCtx
+  displayExceptionAnnotation = renderDoc . toExceptionDoc
 #endif
 
 -- | Monitor another thread
