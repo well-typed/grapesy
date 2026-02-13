@@ -12,6 +12,9 @@ packages:
 packages: garp
 packages: grapesy-common
 packages: grapesy-http2
+packages: grapesy-tcp
+
+packages: tutorials/quickstart-tcp
 
 package grpc-spec
   tests: True
