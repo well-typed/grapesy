@@ -37,7 +37,7 @@ import Network.GRPC.Common.Compression (Compression)
 import Network.GRPC.Common.Compression qualified as Compr
 import Network.GRPC.Server.Run
 
-import Paths_grapesy (getDataFileName)
+import Paths_ (getDataFileName)
 
 {-------------------------------------------------------------------------------
   Definitions
@@ -160,8 +160,8 @@ data GlobalOpts = GlobalOpts {
 
 getCmdline :: IO Cmdline
 getCmdline = do
-    defaultPub  <- getDataFileName "grpc-demo.pem"
-    defaultPriv <- getDataFileName "grpc-demo.key"
+    defaultPub  <- getDataFileName "grapesy" "grpc-demo.pem"
+    defaultPriv <- getDataFileName "grapesy" "grpc-demo.key"
 
     let info  :: Opt.ParserInfo Cmdline
         info = Opt.info

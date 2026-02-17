@@ -12,12 +12,12 @@ category:           Network
 build-type:         Simple
 extra-doc-files:    CHANGELOG.md
 data-dir:           data
-data-files:         route_guide_db.json
-                    grpc-demo.pem
-                    grpc-demo.key
-                    interop.pem
-                    interop.key
-                    interop-ca.pem
+extra-source-files: data/route_guide_db.json
+                    data/grpc-demo.pem
+                    data/grpc-demo.key
+                    data/interop.pem
+                    data/interop.key
+                    data/interop-ca.pem
 tested-with:        GHC==8.10.7
                   , GHC==9.2.8
                   , GHC==9.4.8
@@ -216,9 +216,8 @@ test-suite test-record-dot
 test-suite test-grapesy
   import:          lang, common-executable-flags
   type:            exitcode-stdio-1.0
-  hs-source-dirs:  test-grapesy, proto
+  hs-source-dirs:  test-grapesy, proto, paths
   main-is:         Main.hs
-  autogen-modules: Paths_grapesy
   build-depends:   grapesy
 
   other-modules:
@@ -245,7 +244,7 @@ test-suite test-grapesy
       Test.Util.Exception
       Test.Util.RawTestServer
 
-      Paths_grapesy
+      Paths_
 
       Proto.API.Helloworld
       Proto.API.Interop
@@ -294,9 +293,8 @@ test-suite test-grapesy
 test-suite test-stress
   import:             lang, common-executable-flags
   type:               exitcode-stdio-1.0
-  hs-source-dirs:     test-stress, proto
+  hs-source-dirs:     test-stress, proto, paths
   main-is:            Main.hs
-  autogen-modules:    Paths_grapesy
   build-depends:      grapesy
   default-extensions: RecordWildCards
 
@@ -310,7 +308,7 @@ test-suite test-stress
 
       Proto.API.Trivial
 
-      Paths_grapesy
+      Paths_
 
   build-depends:
       -- Inherited dependencies
@@ -342,9 +340,8 @@ test-suite test-stress
 test-suite grapesy-interop
   import:             lang, common-executable-flags
   type:               exitcode-stdio-1.0
-  hs-source-dirs:     interop, proto
+  hs-source-dirs:     interop, proto, paths
   main-is:            Main.hs
-  autogen-modules:    Paths_grapesy
   build-depends:      grapesy
   default-extensions: OverloadedLabels
 
@@ -385,7 +382,7 @@ test-suite grapesy-interop
       Interop.Util.Exceptions
       Interop.Util.Messages
 
-      Paths_grapesy
+      Paths_
 
       Proto.API.Interop
       Proto.API.Ping
@@ -403,6 +400,7 @@ test-suite grapesy-interop
     , network
     , proto-lens
     , text
+    , filepath
 
   build-depends:
       -- Additional dependencies
@@ -414,8 +412,7 @@ benchmark grapesy-kvstore
   import:             lang, common-executable-flags
   type:               exitcode-stdio-1.0
   main-is:            Main.hs
-  hs-source-dirs:     kvstore, proto
-  autogen-modules:    Paths_grapesy
+  hs-source-dirs:     kvstore, proto, paths
   build-depends:      grapesy
   default-extensions: OverloadedLabels
 
@@ -433,7 +430,7 @@ benchmark grapesy-kvstore
 
       Proto.Kvstore
 
-      Paths_grapesy
+      Paths_
 
   build-depends:
       -- Inherited dependencies
@@ -444,6 +441,7 @@ benchmark grapesy-kvstore
     , proto-lens
     , text
     , unordered-containers
+    , filepath
 
   build-depends:
       -- Additional dependencies
