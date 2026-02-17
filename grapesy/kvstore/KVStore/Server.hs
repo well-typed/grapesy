@@ -15,7 +15,7 @@ import KVStore.Cmdline
 import KVStore.Util.Store (Store)
 import KVStore.Util.Store qualified as Store
 
-import Paths_grapesy (getDataFileName)
+import Paths_
 
 {-------------------------------------------------------------------------------
   Server proper
@@ -32,8 +32,8 @@ withKeyValueServer cmdline@Cmdline{
 
     config :: ServerConfig <-
       if cmdSecure then do
-        pub  <- getDataFileName "grpc-demo.pem"
-        priv <- getDataFileName "grpc-demo.key"
+        pub  <- getDataFileName "grapesy" "grpc-demo.pem"
+        priv <- getDataFileName "grapesy" "grpc-demo.key"
         return ServerConfig {
             serverInsecure = Nothing
           , serverSecure   = Just $ SecureConfig {

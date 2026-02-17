@@ -50,7 +50,7 @@ import Network.GRPC.Server qualified as Server
 import Network.GRPC.Server.Run qualified as Server
 import Test.Util.Exception
 
-import Paths_grapesy (getDataFileName)
+import Paths_ (getDataFileName)
 
 {-------------------------------------------------------------------------------
   Top-level
@@ -362,8 +362,8 @@ withTestServer ::
   -> (Server.RunningServer -> IO a)
   -> IO a
 withTestServer cfg firstTestFailure handlerLock serverHandlers k = do
-    pubCert <- getDataFileName "grpc-demo.pem"
-    privKey <- getDataFileName "grpc-demo.key"
+    pubCert <- getDataFileName "grapesy" "grpc-demo.pem"
+    privKey <- getDataFileName "grapesy" "grpc-demo.key"
 
     let serverConfig :: Server.ServerConfig
         serverConfig =
@@ -450,7 +450,7 @@ runTestClient ::
   -> TestClient
   -> IO ()
 runTestClient cfg firstTestFailure pathOrPort clientRun = do
-    pubCert <- getDataFileName "grpc-demo.pem"
+    pubCert <- getDataFileName "grapesy" "grpc-demo.pem"
 
     let clientParams :: Client.ConnParams
         clientParams = Client.ConnParams {

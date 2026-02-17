@@ -15,7 +15,7 @@ import Options.Applicative qualified as Opt
 
 import Network.GRPC.Common
 
-import Paths_grapesy (getDataFileName)
+import Paths_ (getDataFileName)
 
 {-------------------------------------------------------------------------------
   Definition
@@ -145,9 +145,9 @@ instance Show TestCase where
 
 defaultCmdline :: IO Cmdline
 defaultCmdline = do
-    rootCA  <- getDataFileName "interop-ca.pem"
-    pubCert <- getDataFileName "interop.pem"
-    privKey <- getDataFileName "interop.key"
+    rootCA  <- getDataFileName "grapesy" "interop-ca.pem"
+    pubCert <- getDataFileName "grapesy" "interop.pem"
+    privKey <- getDataFileName "grapesy" "interop.key"
 
     return Cmdline {
         cmdMode                  = error "cmdMode: no default"
