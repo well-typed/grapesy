@@ -11,13 +11,13 @@ packages:
 
 packages: garp
 
+tests: True
+benchmarks: True
+
 package grpc-spec
-  tests: True
   flags: +snappy
 
 package grapesy
-  tests: True
-  benchmarks: True
   flags: +build-demo +build-stress-test
 
 -- The test suite relies on some unreleased fixes:
