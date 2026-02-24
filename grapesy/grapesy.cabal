@@ -141,6 +141,7 @@ library
       Network.GRPC.Util.Session.Client
       Network.GRPC.Util.Session.Server
       Network.GRPC.Util.Thread
+      Network.GRPC.Util.TimeManager
       Network.GRPC.Util.TLS
       Network.GRPC.Util.HeaderTable
       Network.GRPC.Util.Version

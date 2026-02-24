@@ -45,6 +45,7 @@ import Data.List.NonEmpty qualified as NE
 import Network.GRPC.Common.HTTP2Settings
 import Network.GRPC.Server
 import Network.GRPC.Util.HTTP2
+import Network.GRPC.Util.TimeManager
 import Network.GRPC.Util.TLS (SslKeyLog(..))
 import Network.GRPC.Util.TLS qualified as Util.TLS
 
