@@ -1,15 +1,17 @@
 module Network.GRPC.Util.TimeManager (
     -- * Timeouts
+  TimeManager,
   withTimeManager,
   disableTimeout,
 ) where
 
-import System.TimeManager qualified as Time (Manager)
 import System.TimeManager qualified as TimeManager
 
 {-------------------------------------------------------------------------------
   Timeouts
 -------------------------------------------------------------------------------}
+
+type TimeManager = TimeManager.Manager
 
 -- | Allocate time manager (without any actual timeouts)
 --
@@ -21,7 +23,7 @@ import System.TimeManager qualified as TimeManager
 -- allocates the manager before calling accept), so we should do the same in the
 -- insecure case for better consistency between the two setups; this also avoids
 -- the possibility of leaking managers.
-withTimeManager :: (Time.Manager -> IO a) -> IO a
+withTimeManager :: (TimeManager -> IO a) -> IO a
 withTimeManager = TimeManager.withManager (disableTimeout * 1_000_000)
 
 -- | Disable timeouts in http2/http2-tls
