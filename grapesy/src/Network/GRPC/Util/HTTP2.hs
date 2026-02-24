@@ -19,10 +19,9 @@ import Network.Socket (Socket, SockAddr)
 import Network.Socket qualified as Socket
 import Network.Socket.BufferPool qualified as Recv
 import Network.Socket.ByteString qualified as Socket
-import System.TimeManager qualified as Time (Manager)
 
 import Network.GRPC.Common.HTTP2Settings
-import Network.GRPC.Util.TimeManager (disableTimeout)
+import Network.GRPC.Util.TimeManager (TimeManager, disableTimeout)
 
 {-------------------------------------------------------------------------------
   Configuration
@@ -34,7 +33,7 @@ import Network.GRPC.Util.TimeManager (disableTimeout)
 -- instead create a config that is very similar to the config created by
 -- 'allocConfigForSecure'.
 withConfigForInsecure ::
-     Time.Manager
+     TimeManager
   -> Socket
   -> (Server.Config -> IO a)
   -> IO a
@@ -63,7 +62,7 @@ withConfigForInsecure mgr sock k = do
 -- This is adapted from @allocConfigForServer@ in
 -- @http2-tls:Network.HTTP2.TLS.Config@.
 withConfigForSecure ::
-     Time.Manager
+     TimeManager
   -> Server.TLS.IOBackend
   -> (Server.Config -> IO a)
   -> IO a
@@ -77,7 +76,7 @@ withConfigForSecure mgr backend =
 
 -- | Internal generalization
 withConfig ::
-     Time.Manager
+     TimeManager
   -> (Strict.ByteString -> IO ())
   -> Recv.Recv
   -> SockAddr
