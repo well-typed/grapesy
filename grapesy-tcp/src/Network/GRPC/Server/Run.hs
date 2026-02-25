@@ -248,7 +248,8 @@ runInsecure http2 cfg socketTMVar server =
         -- forever $ do
         req <- TCP.readRequest clientSock
 
-        server req (error "defaultAux") $ \res _pushPromises -> do
+        server req (error "defaultAux") $ \res pushPromises -> do
+            unless (null pushPromises) $ fail "non-empty pushPromises"
             TCP.writeResponse clientSock res
 
   where
