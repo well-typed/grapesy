@@ -130,8 +130,6 @@ isFatalException err
   | otherwise
   = False
 
-
-
 {-------------------------------------------------------------------------------
   Internal auxiliary
 -------------------------------------------------------------------------------}
@@ -199,8 +197,8 @@ stayConnected connParams initialServer connStateVar connOutOfScope = do
           case server of
             ServerInsecure addr ->
               connectInsecure connParams attempt addr
-            ServerSecure validation sslKeyLog addr ->
-              connectSecure connParams attempt validation sslKeyLog addr
+            ServerSecure _ _ _ ->
+              fail "secure server not supported" -- TODO
             ServerUnix path ->
               connectUnix connParams attempt path
 
@@ -304,60 +302,6 @@ connectSocket = undefined {- connParams attempt connAuthority sock = do
           }
 -}
 
--- | Secure connection (using TLS)
-connectSecure ::
-     ConnParams
-  -> Attempt
-  -> ServerValidation
-  -> SslKeyLog
-  -> Address
-  -> IO ()
-connectSecure = undefined {- connParams attempt validation sslKeyLog addr = do
-    keyLogger <- Util.TLS.keyLogger sslKeyLog
-    caStore   <- Util.TLS.validationCAStore validation
-
-    let settings :: HTTP2.TLS.Client.Settings
-        settings = HTTP2.TLS.Client.defaultSettings {
-              HTTP2.TLS.Client.settingsKeyLogger     = keyLogger
-            , HTTP2.TLS.Client.settingsCAStore       = caStore
-            , HTTP2.TLS.Client.settingsAddrInfoFlags = []
-
-            , HTTP2.TLS.Client.settingsValidateCert =
-                case validation of
-                  ValidateServer _   -> True
-                  NoServerValidation -> False
-            , HTTP2.TLS.Client.settingsOpenClientSocket =
-                openClientSocket connHTTP2Settings
-            , HTTP2.TLS.Client.settingsConcurrentStreams = fromIntegral $
-                http2MaxConcurrentStreams connHTTP2Settings
-            , HTTP2.TLS.Client.settingsStreamWindowSize = fromIntegral $
-                http2StreamWindowSize connHTTP2Settings
-            , HTTP2.TLS.Client.settingsConnectionWindowSize = fromIntegral $
-                http2ConnectionWindowSize connHTTP2Settings
-            }
-
-        clientConfig :: HTTP2.Client.ClientConfig
-        clientConfig = overrideRateLimits connParams $
-            HTTP2.TLS.Client.defaultClientConfig
-              settings
-              (authority addr)
-
-    HTTP2.TLS.Client.runWithConfig
-          clientConfig
-          settings
-          (addressHost addr)
-          (addressPort addr)
-        $ \sendRequest _aux -> do
-      let conn = Session.ConnectionToServer sendRequest
-      atomically $
-        writeTVar (attemptState attempt) $
-          ConnectionReady (attemptClosed attempt) conn
-      runOnConnection $ attemptOnConnection attempt
-      takeMVar $ attemptOutOfScope attempt
-  where
-    ConnParams{connHTTP2Settings} = connParams
--}
-
 -- | Authority
 --
 -- We omit the port number in the authority, for compatibility with TLS
@@ -368,36 +312,6 @@ authority addr =
     case addressAuthority addr of
       Nothing   -> addressHost addr
       Just auth -> auth
-
-{-
--- | Override rate limits imposed by @http2@
-overrideRateLimits ::
-     ConnParams
-  -> HTTP2.Client.ClientConfig -> HTTP2.Client.ClientConfig
-overrideRateLimits connParams clientConfig = clientConfig {
-      HTTP2.Client.settings = settings {
-          HTTP2.Client.pingRateLimit =
-            case http2OverridePingRateLimit (connHTTP2Settings connParams) of
-              Nothing    -> HTTP2.Client.pingRateLimit settings
-              Just limit -> limit
-        , HTTP2.Client.emptyFrameRateLimit =
-            case http2OverrideEmptyFrameRateLimit (connHTTP2Settings connParams) of
-              Nothing    -> HTTP2.Client.emptyFrameRateLimit settings
-              Just limit -> limit
-        , HTTP2.Client.settingsRateLimit =
-            case http2OverrideSettingsRateLimit (connHTTP2Settings connParams) of
-              Nothing    -> HTTP2.Client.settingsRateLimit settings
-              Just limit -> limit
-        , HTTP2.Client.rstRateLimit =
-            case http2OverrideRstRateLimit (connHTTP2Settings connParams) of
-              Nothing    -> HTTP2.Client.rstRateLimit settings
-              Just limit -> limit
-        }
-    }
-  where
-    settings :: HTTP2.Client.Settings
-    settings = HTTP2.Client.settings clientConfig
--}
 
 {-------------------------------------------------------------------------------
   Auxiliary http2
