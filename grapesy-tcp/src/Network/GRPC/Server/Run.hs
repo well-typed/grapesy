@@ -37,6 +37,7 @@ import Data.List.NonEmpty qualified as NE
 import Network.GRPC.Common.HTTP2Settings
 import Network.GRPC.Server
 import Network.GRPC.Util.TimeManager
+import Network.GRPC.TCP qualified as TCP
 
 import Data.ByteString () -- bytestring
 import Network.Socket.BufferPool () -- recv
@@ -231,7 +232,7 @@ runInsecure ::
   -> TMVar Socket
   -> Server.Server
   -> IO ()
-runInsecure http2 cfg socketTMVar _server =
+runInsecure http2 cfg socketTMVar server =
     openSock cfg $ \listenSock ->
     withTimeManager $ \_mgr ->
     Run.runTCPServerWithSocket listenSock $ \clientSock -> do
@@ -243,7 +244,13 @@ runInsecure http2 cfg socketTMVar _server =
             Socket.setSockOpt clientSock Socket.Linger
               (Socket.StructLinger { Socket.sl_onoff = 1, Socket.sl_linger = 0 })
         -}
-        error "TODO: Run me" clientSock
+
+        -- forever $ do
+        lbs <- TCP.readMessage clientSock
+        req <- TCP.decodeRequest lbs 
+
+        server req (error "defaultAux") $ \res _pushPromises -> do
+            TCP.writeResponse clientSock res
 
   where
     {- TODO: isUnixSocket for tcp no delay

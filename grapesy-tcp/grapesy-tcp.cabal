@@ -117,10 +117,12 @@ library
       Network.GRPC.Server.Run
   other-modules:
       Network.GRPC.Client.Run
+      Network.GRPC.TCP
 
   build-depends: grapesy-common ==1.1.1
 
   build-depends:
+    , binary
     , bytestring                >= 0.10.12 && < 0.13
     , grpc-spec                 >= 1.0     && < 1.1
     , http-semantics            >= 0.3.0   && < 0.3.1
