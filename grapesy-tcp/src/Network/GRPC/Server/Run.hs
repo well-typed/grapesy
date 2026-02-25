@@ -246,8 +246,7 @@ runInsecure http2 cfg socketTMVar server =
         -}
 
         -- forever $ do
-        lbs <- TCP.readMessage clientSock
-        req <- TCP.decodeRequest lbs 
+        req <- TCP.readRequest clientSock
 
         server req (error "defaultAux") $ \res _pushPromises -> do
             TCP.writeResponse clientSock res

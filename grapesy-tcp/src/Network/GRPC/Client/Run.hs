@@ -31,7 +31,7 @@ import Network.GRPC.Client.Connection
 
 import Network.GRPC.Util.Imports
 
-import Control.Concurrent.MVar (MVar, newMVar, newEmptyMVar, putMVar)
+import Control.Concurrent.MVar (MVar, newMVar, newEmptyMVar, takeMVar, putMVar)
 import Control.Concurrent.STM (atomically)
 import Control.Concurrent.STM.TVar (TVar, newTVarIO, writeTVar, readTVar)
 import Control.Concurrent.STM.TMVar (TMVar, newEmptyTMVarIO, putTMVar)
@@ -39,10 +39,13 @@ import Network.Run.TCP qualified as Run
 import Network.Socket (Socket, AddrInfo, StructLinger (..), SocketOption (..), SockOptValue (..))
 import Network.Socket qualified as Socket
 import Network.TLS (TLSException)
+import Network.HTTP.Semantics.Client qualified as Client
 
 import Network.GRPC.Client.Meta qualified as Meta
+import Network.GRPC.Util.Session.Client qualified as Session
 import Network.GRPC.Common.HTTP2Settings
 import Network.GRPC.Util.GHC
+import Network.GRPC.TCP qualified as TCP
 
 {-------------------------------------------------------------------------------
   Open a new connection
@@ -268,39 +271,17 @@ connectInsecure connParams attempt addr = do
 
 -- | Insecure connection over the given socket
 connectSocket :: ConnParams -> Attempt -> String -> Socket -> IO ()
-connectSocket = undefined {- connParams attempt connAuthority sock = do
-    bracket (HTTP2.Client.allocSimpleConfig sock writeBufferSize)
-            HTTP2.Client.freeSimpleConfig $ \conf ->
-      HTTP2.Client.run clientConfig conf $ \sendRequest _aux -> do
-        let conn = Session.ConnectionToServer sendRequest
-        atomically $
-          writeTVar (attemptState attempt) $
-            ConnectionReady (attemptClosed attempt) conn
-        runOnConnection $ attemptOnConnection attempt
-        takeMVar $ attemptOutOfScope attempt
+connectSocket _connParams attempt _connAuthority sock = do
+    let conn = Session.ConnectionToServer sendRequest
+    atomically $ writeTVar (attemptState attempt) (ConnectionReady (attemptClosed attempt) conn)
+    runOnConnection (attemptOnConnection attempt)
+    takeMVar (attemptOutOfScope attempt)
   where
-    ConnParams{connHTTP2Settings} = connParams
-
-    settings :: HTTP2.Client.Settings
-    settings = HTTP2.Client.defaultSettings {
-          HTTP2.Client.maxConcurrentStreams =
-              Just . fromIntegral $
-                http2MaxConcurrentStreams connHTTP2Settings
-        , HTTP2.Client.initialWindowSize =
-              fromIntegral $
-                http2StreamWindowSize connHTTP2Settings
-        }
-
-    clientConfig :: HTTP2.Client.ClientConfig
-    clientConfig = overrideRateLimits connParams $
-        HTTP2.Client.defaultClientConfig {
-            HTTP2.Client.authority = connAuthority
-          , HTTP2.Client.settings = settings
-          , HTTP2.Client.connectionWindowSize =
-                fromIntegral $
-                  http2ConnectionWindowSize connHTTP2Settings
-          }
--}
+    sendRequest :: Client.Request -> (Client.Response -> IO a) -> IO a
+    sendRequest req k = do
+        TCP.writeRequest sock req
+        res <- TCP.readResponse sock
+        k res
 
 -- | Authority
 --
