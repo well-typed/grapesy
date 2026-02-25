@@ -31,12 +31,15 @@ import Network.HTTP.Semantics.Server qualified as Server
 import Network.Run.TCP qualified as Run
 import Network.Socket (Socket, AddrInfo, HostName, PortNumber)
 import Network.Socket qualified as Socket
+import System.IO (stderr, hPutStrLn)
 
 import Data.List.NonEmpty qualified as NE
 
+import Network.GRPC.Util.BufferedSocket
 import Network.GRPC.Common.HTTP2Settings
 import Network.GRPC.Server
 import Network.GRPC.Util.TimeManager
+import Network.GRPC.TCP qualified as TCP
 
 import Data.ByteString () -- bytestring
 import Network.Socket.BufferPool () -- recv
@@ -231,10 +234,11 @@ runInsecure ::
   -> TMVar Socket
   -> Server.Server
   -> IO ()
-runInsecure http2 cfg socketTMVar _server =
+runInsecure http2 cfg socketTMVar server =
     openSock cfg $ \listenSock ->
     withTimeManager $ \_mgr ->
-    Run.runTCPServerWithSocket listenSock $ \clientSock -> do
+    Run.runTCPServerWithSocket listenSock $ \clientSock -> debugHandle $ do
+        bsock <- mkBufferedSocket clientSock
         {-
         when (http2TcpNoDelay http2 && not isUnixSocket) $ do
             -- See description of 'withServerSocket'
@@ -243,7 +247,13 @@ runInsecure http2 cfg socketTMVar _server =
             Socket.setSockOpt clientSock Socket.Linger
               (Socket.StructLinger { Socket.sl_onoff = 1, Socket.sl_linger = 0 })
         -}
-        error "TODO: Run me" clientSock
+
+        -- forever $ do
+        req <- TCP.readRequest bsock
+
+        server req (error "defaultAux") $ \res pushPromises -> do
+            unless (null pushPromises) $ fail "non-empty pushPromises"
+            TCP.writeResponse bsock res
 
   where
     {- TODO: isUnixSocket for tcp no delay
@@ -264,6 +274,13 @@ runInsecure http2 cfg socketTMVar _server =
         insecurePath
         socketTMVar
 
+    -- TODO: debugHandle is temporary
+    -- perfectly we should allow this action (or rather handler of exceptions)
+    -- be configurable, i.e. not just serverTopLevel, but allowing "monitoring"
+    -- whole request thread.
+    debugHandle :: IO () -> IO ()
+    debugHandle m = catch m $ \(SomeException e) -> do
+        hPutStrLn stderr ("runInsecure unhandled exception: " ++ displayException e)
 
 {-------------------------------------------------------------------------------
   Internal auxiliary

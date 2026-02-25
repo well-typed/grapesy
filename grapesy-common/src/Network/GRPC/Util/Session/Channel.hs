@@ -543,7 +543,9 @@ sendMessageLoop :: forall sess.
   -> OutputStream
   -> IO ()
 sendMessageLoop sess st stream = do
+    putStrLn "sendMessageLoop"
     trailers <- loop
+    putStrLn "sendMessageLoop 2"
     atomically $ putTMVar (flowTerminated st) trailers
   where
     build :: (Message (Outbound sess) -> Builder)
@@ -632,6 +634,7 @@ outboundTrailersMaker sess Channel{channelOutbound} regular = go
     go :: HTTP.Semantics.TrailersMaker
     go (Just _) = return $ HTTP.Semantics.NextTrailersMaker go
     go Nothing  = do
+        print "outboundTrailersMaker"
         mFlowState <- atomically $
           unlessAbnormallyTerminated channelOutbound $
             readTMVar (flowTerminated regular)

@@ -34,7 +34,7 @@ import qualified Data.ProtoLens.Runtime.Data.Vector.Unboxed as Data.Vector.Unbox
 import qualified Data.ProtoLens.Runtime.Text.Read as Text.Read
 import qualified Proto.Google.Protobuf.Any
 {- | Fields :
-     
+
          * 'Proto.TestAny_Fields.a' @:: Lens' A Data.Int.Int32@ -}
 data A
   = A'_constructor {_A'a :: !Data.Int.Int32,
@@ -131,7 +131,7 @@ instance Control.DeepSeq.NFData A where
         -> Control.DeepSeq.deepseq
              (_A'_unknownFields x__) (Control.DeepSeq.deepseq (_A'a x__) ())
 {- | Fields :
-     
+
          * 'Proto.TestAny_Fields.b' @:: Lens' B Data.Int.Int32@ -}
 data B
   = B'_constructor {_B'b :: !Data.Int.Int32,
@@ -228,7 +228,7 @@ instance Control.DeepSeq.NFData B where
         -> Control.DeepSeq.deepseq
              (_B'_unknownFields x__) (Control.DeepSeq.deepseq (_B'b x__) ())
 {- | Fields :
-     
+
          * 'Proto.TestAny_Fields.message' @:: Lens' TestAnyMsg Data.Text.Text@
          * 'Proto.TestAny_Fields.details' @:: Lens' TestAnyMsg [Proto.Google.Protobuf.Any.Any]@
          * 'Proto.TestAny_Fields.vec'details' @:: Lens' TestAnyMsg (Data.Vector.Vector Proto.Google.Protobuf.Any.Any)@ -}

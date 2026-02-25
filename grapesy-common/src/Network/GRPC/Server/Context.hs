@@ -94,7 +94,7 @@ instance Default ServerParams where
 
 defaultServerTopLevel :: RequestHandler () -> RequestHandler ()
 defaultServerTopLevel h unmask req resp =
-    h unmask req resp `catch` handler
+    h id req resp `catch` handler
   where
     handler :: SomeException -> IO ()
     handler = hPrint stderr

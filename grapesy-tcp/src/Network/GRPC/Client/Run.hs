@@ -31,7 +31,7 @@ import Network.GRPC.Client.Connection
 
 import Network.GRPC.Util.Imports
 
-import Control.Concurrent.MVar (MVar, newMVar, newEmptyMVar, putMVar)
+import Control.Concurrent.MVar (MVar, newMVar, newEmptyMVar, takeMVar, putMVar)
 import Control.Concurrent.STM (atomically)
 import Control.Concurrent.STM.TVar (TVar, newTVarIO, writeTVar, readTVar)
 import Control.Concurrent.STM.TMVar (TMVar, newEmptyTMVarIO, putTMVar)
@@ -39,10 +39,14 @@ import Network.Run.TCP qualified as Run
 import Network.Socket (Socket, AddrInfo, StructLinger (..), SocketOption (..), SockOptValue (..))
 import Network.Socket qualified as Socket
 import Network.TLS (TLSException)
+import Network.HTTP.Semantics.Client qualified as Client
 
 import Network.GRPC.Client.Meta qualified as Meta
+import Network.GRPC.Util.Session.Client qualified as Session
 import Network.GRPC.Common.HTTP2Settings
 import Network.GRPC.Util.GHC
+import Network.GRPC.TCP qualified as TCP
+import Network.GRPC.Util.BufferedSocket
 
 {-------------------------------------------------------------------------------
   Open a new connection
@@ -130,8 +134,6 @@ isFatalException err
   | otherwise
   = False
 
-
-
 {-------------------------------------------------------------------------------
   Internal auxiliary
 -------------------------------------------------------------------------------}
@@ -199,8 +201,8 @@ stayConnected connParams initialServer connStateVar connOutOfScope = do
           case server of
             ServerInsecure addr ->
               connectInsecure connParams attempt addr
-            ServerSecure validation sslKeyLog addr ->
-              connectSecure connParams attempt validation sslKeyLog addr
+            ServerSecure _ _ _ ->
+              fail "secure server not supported" -- TODO
             ServerUnix path ->
               connectUnix connParams attempt path
 
@@ -270,93 +272,18 @@ connectInsecure connParams attempt addr = do
 
 -- | Insecure connection over the given socket
 connectSocket :: ConnParams -> Attempt -> String -> Socket -> IO ()
-connectSocket = undefined {- connParams attempt connAuthority sock = do
-    bracket (HTTP2.Client.allocSimpleConfig sock writeBufferSize)
-            HTTP2.Client.freeSimpleConfig $ \conf ->
-      HTTP2.Client.run clientConfig conf $ \sendRequest _aux -> do
-        let conn = Session.ConnectionToServer sendRequest
-        atomically $
-          writeTVar (attemptState attempt) $
-            ConnectionReady (attemptClosed attempt) conn
-        runOnConnection $ attemptOnConnection attempt
-        takeMVar $ attemptOutOfScope attempt
+connectSocket _connParams attempt _connAuthority sock = do
+    buffSock <- mkBufferedSocket sock
+    let conn = Session.ConnectionToServer (sendRequest buffSock)
+    atomically $ writeTVar (attemptState attempt) (ConnectionReady (attemptClosed attempt) conn)
+    runOnConnection (attemptOnConnection attempt)
+    takeMVar (attemptOutOfScope attempt)
   where
-    ConnParams{connHTTP2Settings} = connParams
-
-    settings :: HTTP2.Client.Settings
-    settings = HTTP2.Client.defaultSettings {
-          HTTP2.Client.maxConcurrentStreams =
-              Just . fromIntegral $
-                http2MaxConcurrentStreams connHTTP2Settings
-        , HTTP2.Client.initialWindowSize =
-              fromIntegral $
-                http2StreamWindowSize connHTTP2Settings
-        }
-
-    clientConfig :: HTTP2.Client.ClientConfig
-    clientConfig = overrideRateLimits connParams $
-        HTTP2.Client.defaultClientConfig {
-            HTTP2.Client.authority = connAuthority
-          , HTTP2.Client.settings = settings
-          , HTTP2.Client.connectionWindowSize =
-                fromIntegral $
-                  http2ConnectionWindowSize connHTTP2Settings
-          }
--}
-
--- | Secure connection (using TLS)
-connectSecure ::
-     ConnParams
-  -> Attempt
-  -> ServerValidation
-  -> SslKeyLog
-  -> Address
-  -> IO ()
-connectSecure = undefined {- connParams attempt validation sslKeyLog addr = do
-    keyLogger <- Util.TLS.keyLogger sslKeyLog
-    caStore   <- Util.TLS.validationCAStore validation
-
-    let settings :: HTTP2.TLS.Client.Settings
-        settings = HTTP2.TLS.Client.defaultSettings {
-              HTTP2.TLS.Client.settingsKeyLogger     = keyLogger
-            , HTTP2.TLS.Client.settingsCAStore       = caStore
-            , HTTP2.TLS.Client.settingsAddrInfoFlags = []
-
-            , HTTP2.TLS.Client.settingsValidateCert =
-                case validation of
-                  ValidateServer _   -> True
-                  NoServerValidation -> False
-            , HTTP2.TLS.Client.settingsOpenClientSocket =
-                openClientSocket connHTTP2Settings
-            , HTTP2.TLS.Client.settingsConcurrentStreams = fromIntegral $
-                http2MaxConcurrentStreams connHTTP2Settings
-            , HTTP2.TLS.Client.settingsStreamWindowSize = fromIntegral $
-                http2StreamWindowSize connHTTP2Settings
-            , HTTP2.TLS.Client.settingsConnectionWindowSize = fromIntegral $
-                http2ConnectionWindowSize connHTTP2Settings
-            }
-
-        clientConfig :: HTTP2.Client.ClientConfig
-        clientConfig = overrideRateLimits connParams $
-            HTTP2.TLS.Client.defaultClientConfig
-              settings
-              (authority addr)
-
-    HTTP2.TLS.Client.runWithConfig
-          clientConfig
-          settings
-          (addressHost addr)
-          (addressPort addr)
-        $ \sendRequest _aux -> do
-      let conn = Session.ConnectionToServer sendRequest
-      atomically $
-        writeTVar (attemptState attempt) $
-          ConnectionReady (attemptClosed attempt) conn
-      runOnConnection $ attemptOnConnection attempt
-      takeMVar $ attemptOutOfScope attempt
-  where
-    ConnParams{connHTTP2Settings} = connParams
--}
+    sendRequest :: BufferedSocket -> Client.Request -> (Client.Response -> IO a) -> IO a
+    sendRequest bsock req k = do
+        TCP.writeRequest bsock req
+        res <- TCP.readResponse bsock
+        k res
 
 -- | Authority
 --
@@ -368,36 +295,6 @@ authority addr =
     case addressAuthority addr of
       Nothing   -> addressHost addr
       Just auth -> auth
-
-{-
--- | Override rate limits imposed by @http2@
-overrideRateLimits ::
-     ConnParams
-  -> HTTP2.Client.ClientConfig -> HTTP2.Client.ClientConfig
-overrideRateLimits connParams clientConfig = clientConfig {
-      HTTP2.Client.settings = settings {
-          HTTP2.Client.pingRateLimit =
-            case http2OverridePingRateLimit (connHTTP2Settings connParams) of
-              Nothing    -> HTTP2.Client.pingRateLimit settings
-              Just limit -> limit
-        , HTTP2.Client.emptyFrameRateLimit =
-            case http2OverrideEmptyFrameRateLimit (connHTTP2Settings connParams) of
-              Nothing    -> HTTP2.Client.emptyFrameRateLimit settings
-              Just limit -> limit
-        , HTTP2.Client.settingsRateLimit =
-            case http2OverrideSettingsRateLimit (connHTTP2Settings connParams) of
-              Nothing    -> HTTP2.Client.settingsRateLimit settings
-              Just limit -> limit
-        , HTTP2.Client.rstRateLimit =
-            case http2OverrideRstRateLimit (connHTTP2Settings connParams) of
-              Nothing    -> HTTP2.Client.rstRateLimit settings
-              Just limit -> limit
-        }
-    }
-  where
-    settings :: HTTP2.Client.Settings
-    settings = HTTP2.Client.settings clientConfig
--}
 
 {-------------------------------------------------------------------------------
   Auxiliary http2

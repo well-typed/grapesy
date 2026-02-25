@@ -33,7 +33,7 @@ import qualified Data.ProtoLens.Runtime.Data.Vector.Generic as Data.Vector.Gener
 import qualified Data.ProtoLens.Runtime.Data.Vector.Unboxed as Data.Vector.Unboxed
 import qualified Data.ProtoLens.Runtime.Text.Read as Text.Read
 {- | Fields :
-     
+
          * 'Proto.Ping_Fields.id' @:: Lens' PingMessage Data.Word.Word32@ -}
 data PingMessage
   = PingMessage'_constructor {_PingMessage'id :: !Data.Word.Word32,
@@ -135,7 +135,7 @@ instance Control.DeepSeq.NFData PingMessage where
              (_PingMessage'_unknownFields x__)
              (Control.DeepSeq.deepseq (_PingMessage'id x__) ())
 {- | Fields :
-     
+
          * 'Proto.Ping_Fields.id' @:: Lens' PongMessage Data.Word.Word32@ -}
 data PongMessage
   = PongMessage'_constructor {_PongMessage'id :: !Data.Word.Word32,
