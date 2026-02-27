@@ -1,0 +1,348 @@
+{-# LANGUAGE CPP               #-}
+{-# LANGUAGE OverloadedStrings #-}
+
+-- | Convenience functions for running a HTTP2 server
+--
+-- Intended for unqualified import.
+module Network.GRPC.Server.Run (
+    -- * Configuration
+    ServerConfig(..)
+  , InsecureConfig(..)
+    -- * Simple interface
+  , runServer
+  , runServerWithHandlers
+    -- * Full interface
+  , RunningServer -- opaque
+  , forkServer
+  , waitServer
+  , waitServerSTM
+  , getInsecureSocket
+  , getServerSocket
+  , getServerPort
+    -- * Exceptions
+  , ServerTerminated(..)
+  ) where
+
+import Network.GRPC.Util.Imports
+
+import Control.Concurrent.STM (STM, atomically, catchSTM, throwSTM, orElse)
+import Control.Concurrent.STM.TMVar (TMVar, newEmptyTMVarIO, putTMVar, readTMVar)
+import Network.HTTP.Semantics.Server qualified as Server
+import Network.Run.TCP qualified as Run
+import Network.Socket (Socket, AddrInfo, HostName, PortNumber)
+import Network.Socket qualified as Socket
+
+import Data.List.NonEmpty qualified as NE
+
+import Network.GRPC.Common.HTTP2Settings
+import Network.GRPC.Server
+import Network.GRPC.Util.TimeManager
+import Network.GRPC.TCP qualified as TCP
+
+import Data.ByteString () -- bytestring
+import Network.Socket.BufferPool () -- recv
+
+{-------------------------------------------------------------------------------
+  Configuration
+-------------------------------------------------------------------------------}
+
+-- | Server configuration
+--
+-- Describes the configuration of both an insecure server and a secure server.
+-- See the documentation of 'runServer' for a description of what servers will
+-- result from various configurations.
+data ServerConfig = ServerConfig {
+      -- | Configuration for insecure communication (without TLS)
+      --
+      -- Set to 'Nothing' to disable.
+      serverInsecure :: Maybe InsecureConfig
+    }
+  deriving stock (Show, Generic)
+
+-- | Offer insecure connection (no TLS)
+data InsecureConfig =
+    -- | Insecure TCP connection
+    InsecureConfig {
+      -- | Hostname
+      insecureHost :: Maybe HostName
+
+      -- | Port number
+      --
+      -- Can use @0@ to let the server pick its own port. This can be useful in
+      -- testing scenarios; see 'getServerPort' or the more general
+      -- 'getInsecureSocket' for a way to figure out what this port actually is.
+    , insecurePort :: PortNumber
+    }
+    -- | Insecure (but local) Unix domain socket connection
+  | InsecureUnix {
+      -- | Path to the socket
+      insecurePath :: FilePath
+    }
+  deriving stock (Show, Generic)
+
+{-------------------------------------------------------------------------------
+  Simple interface
+-------------------------------------------------------------------------------}
+
+-- | Run a 'HTTP2.Server' with the given 'ServerConfig'.
+--
+-- If both configurations are disabled, 'runServer' will simply immediately
+-- return. If both configurations are enabled, then two servers will be run
+-- concurrently; one with the insecure configuration and the other with the
+-- secure configuration. Obviously, if only one of the configurations is
+-- enabled, then just that server will be run.
+--
+-- See also 'runServerWithHandlers', which handles the creation of the
+-- 'HTTP2.Server' for you.
+runServer :: HTTP2Settings -> ServerConfig -> Server.Server -> IO ()
+runServer http2 cfg server = forkServer http2 cfg server $ waitServer
+
+-- | Convenience function that combines 'runServer' with 'mkGrpcServer'
+--
+-- NOTE: If you want to override the 'HTTP2Settings', use 'runServer' instead.
+runServerWithHandlers ::
+     ServerParams
+  -> ServerConfig
+  -> [SomeRpcHandler IO]
+  -> IO ()
+runServerWithHandlers params config handlers = do
+    server <- mkGrpcServer params handlers
+    runServer http2 config server
+  where
+    http2 :: HTTP2Settings
+    http2 = def
+
+{-------------------------------------------------------------------------------
+  Full interface
+-------------------------------------------------------------------------------}
+
+data RunningServer = RunningServer {
+      -- | Insecure server (no TLS)
+      --
+      -- If the insecure server is disabled, this will be a trivial "Async' that
+      -- immediately completes.
+      runningServerInsecure :: Async ()
+
+      -- | Socket used by the insecure server
+      --
+      -- See 'getInsecureSocket'.
+    , runningSocketInsecure :: TMVar Socket
+    }
+
+data ServerTerminated = ServerTerminated
+  deriving stock (Show)
+  deriving anyclass (Exception)
+
+-- | Start the server
+forkServer ::
+     HTTP2Settings
+  -> ServerConfig
+  -> Server.Server
+  -> (RunningServer -> IO a)
+  -> IO a
+forkServer http2 ServerConfig{serverInsecure} server k = do
+    runningSocketInsecure <- newEmptyTMVarIO
+
+    let insecure :: IO ()
+        insecure =
+          case serverInsecure of
+            Nothing  -> return ()
+            Just cfg -> runInsecure http2 cfg runningSocketInsecure server
+
+    withAsync insecure $ \runningServerInsecure ->
+        k RunningServer{
+              runningServerInsecure
+            , runningSocketInsecure
+            }
+
+-- | Wait for the server to terminate
+--
+-- Returns the results of the insecure and secure servers separately.
+-- Note that under normal circumstances the server /never/ terminates.
+waitServerSTM ::
+     RunningServer
+  -> STM ( Either SomeException ()
+         )
+waitServerSTM server = do
+    insecure <- waitCatchSTM (runningServerInsecure server)
+    return (insecure)
+
+-- | IO version of 'waitServerSTM' that rethrows exceptions
+waitServer :: RunningServer -> IO ()
+waitServer server =
+    atomically (waitServerSTM server) >>= \case
+      Right () -> return ()
+      Left  e  -> throwIO e
+
+-- | Get the socket used by the insecure server
+--
+-- The socket is created as the server initializes; this function will block
+-- until that is complete. However:
+--
+-- * If the server throws an exception, that exception is rethrown here.
+-- * If the server has already terminated, we throw 'ServerTerminated'
+-- * If the insecure server was not enabled, it is considered to have terminated
+--   immediately and the same 'ServerTerminated' exception is thrown.
+getInsecureSocket :: RunningServer -> STM Socket
+getInsecureSocket server = do
+    getSocket (runningServerInsecure server)
+              (runningSocketInsecure server)
+
+-- | Get \"the\" socket associated with the server
+--
+-- Precondition: only one server must be enabled (secure or insecure).
+getServerSocket :: RunningServer -> STM Socket
+getServerSocket server = do
+    insecure <- catchSTM (Right <$> getInsecureSocket server) (return . Left)
+    case insecure of
+      Right sock ->
+        return sock
+      Left ServerTerminated ->
+        throwSTM ServerTerminated
+
+-- | Get \"the\" port number used by the server
+--
+-- Precondition: only one server must be enabled (secure or insecure).
+getServerPort :: RunningServer -> IO PortNumber
+getServerPort server = do
+    sock <- atomically $ getServerSocket server
+    addr <- Socket.getSocketName sock
+    case addr of
+      Socket.SockAddrInet  port   _host   -> return port
+      Socket.SockAddrInet6 port _ _host _ -> return port
+      Socket.SockAddrUnix{} -> error "getServerPort: unexpected unix socket"
+
+-- | Internal generalization of 'getInsecureSocket'/'getSecureSocket'
+getSocket :: Async () -> TMVar Socket -> STM Socket
+getSocket serverAsync socketTMVar = do
+    status <-  (Left  <$> waitCatchSTM serverAsync)
+      `orElse` (Right <$> readTMVar    socketTMVar)
+    case status of
+      Left (Left err) -> throwSTM err
+      Left (Right ()) -> throwSTM $ ServerTerminated
+      Right sock      -> return sock
+
+{-------------------------------------------------------------------------------
+  Insecure
+-------------------------------------------------------------------------------}
+
+runInsecure ::
+     HTTP2Settings
+  -> InsecureConfig
+  -> TMVar Socket
+  -> Server.Server
+  -> IO ()
+runInsecure http2 cfg socketTMVar server =
+    openSock cfg $ \listenSock ->
+    withTimeManager $ \_mgr ->
+    Run.runTCPServerWithSocket listenSock $ \clientSock -> do
+        {-
+        when (http2TcpNoDelay http2 && not isUnixSocket) $ do
+            -- See description of 'withServerSocket'
+            Socket.setSocketOption clientSock Socket.NoDelay 1
+        when (http2TcpAbortiveClose http2) $ do
+            Socket.setSockOpt clientSock Socket.Linger
+              (Socket.StructLinger { Socket.sl_onoff = 1, Socket.sl_linger = 0 })
+        -}
+
+        -- forever $ do
+        req <- TCP.readRequest clientSock
+
+        server req (error "defaultAux") $ \res pushPromises -> do
+            unless (null pushPromises) $ fail "non-empty pushPromises"
+            TCP.writeResponse clientSock res
+
+  where
+    {- TODO: isUnixSocket for tcp no delay
+    isUnixSocket = case cfg of
+      InsecureConfig{} -> False
+      InsecureUnix{}   -> True
+    -}
+
+    openSock :: InsecureConfig -> (Socket -> IO a) -> IO a
+    openSock InsecureConfig{insecureHost, insecurePort} = do
+      withServerSocket
+        http2
+        socketTMVar
+        insecureHost
+        insecurePort
+    openSock InsecureUnix{insecurePath} = do
+      withUnixSocket
+        insecurePath
+        socketTMVar
+
+
+{-------------------------------------------------------------------------------
+  Internal auxiliary
+-------------------------------------------------------------------------------}
+
+-- | Create server listen socket
+--
+-- We set @TCP_NODELAY@ on the server listen socket, but there is no guarantee
+-- that the option will be inherited by the sockets returned from @accept@ for
+-- each client request. On Linux it seems to be, although I cannot find any
+-- authoritative reference to say so; the best I could find is a section in Unix
+-- Network Programming [1]. On FreeBSD on the other hand, the man page suggests
+-- that @TCP_NODELAY@ is /not/ inherited [2].
+--
+-- Even the Linux man page for @accept@ is maddingly vague:
+--
+-- > Portable programs should not rely on inheritance or non‐inheritance of file
+-- > status flags and always explicitly set all required flags on the socket
+-- > returned from accept().
+--
+-- Whether that /file status/ flags is significant (as opposed to other kinds of
+-- flags?) is unclear, especially in the second half of this sentence. The Linux
+-- man page on @tcp@ is even worse; this is the only mention of inheritance in
+-- entire page:
+--
+-- > [TCP_USER_TIMEOUT], like many others, will be inherited by the socket
+-- > returned by accept(2), if it was set on the listening socket.
+--
+-- It is therefore best to explicitly set @TCP_NODELAY@ on the client request
+-- socket.
+--
+-- [1] <https://notes.shichao.io/unp/ch7/#socket-states>
+-- [2] <https://man.freebsd.org/cgi/man.cgi?query=tcp>
+withServerSocket ::
+     HTTP2Settings
+  -> TMVar Socket
+  -> Maybe HostName
+  -> PortNumber
+  -> (Socket -> IO a)
+  -> IO a
+withServerSocket http2Settings socketTMVar host port k = do
+#if MIN_VERSION_network_run(0,4,4)
+    addr <- Run.resolve Socket.Stream host (show port) [Socket.AI_PASSIVE] NE.head
+#else
+    addr <- Run.resolve Socket.Stream host (show port) [Socket.AI_PASSIVE]
+#endif
+    bracket (openServerSocket addr) Socket.close $ \sock -> do
+      atomically $ putTMVar socketTMVar sock
+      k sock
+  where
+    openServerSocket :: AddrInfo -> IO Socket
+    openServerSocket = Run.openTCPServerSocketWithOptions $ concat [
+          [ (Socket.NoDelay, 1)
+          | http2TcpNoDelay http2Settings
+          ]
+        ]
+
+-- | Create a Unix domain socket
+--
+-- Note that @TCP_NODELAY@ should not be set on unix domain sockets,
+-- otherwise clients would get their connection closed immediately.
+withUnixSocket :: FilePath -> TMVar Socket -> (Socket -> IO a) -> IO a
+withUnixSocket path socketTMVar k = do
+    bracket openServerSocket Socket.close $ \sock -> do
+      atomically $ putTMVar socketTMVar sock
+      k sock
+  where
+    openServerSocket :: IO Socket
+    openServerSocket = do
+      sock <- Socket.socket Socket.AF_UNIX Socket.Stream 0
+      Socket.setSocketOption sock Socket.ReuseAddr 1
+      Socket.withFdSocket sock Socket.setCloseOnExecIfNeeded
+      Socket.bind sock $ Socket.SockAddrUnix path
+      Socket.listen sock 1024
+      return sock

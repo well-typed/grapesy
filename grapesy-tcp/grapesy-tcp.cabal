@@ -1,0 +1,134 @@
+cabal-version:      3.0
+name:               grapesy-tcp
+version:            1.1.1
+synopsis:           Native Haskell implementation of the gRPC framework
+description:        This is a fully compliant and feature complete native Haskell
+                    implementation of gRPC, Google's RPC framework on top of http2 package.
+license:            BSD-3-Clause
+license-file:       LICENSE
+author:             Edsko de Vries
+maintainer:         edsko@well-typed.com
+category:           Network
+build-type:         Simple
+extra-doc-files:    CHANGELOG.md
+data-dir:           data
+data-files:         route_guide_db.json
+                    grpc-demo.pem
+                    grpc-demo.key
+                    interop.pem
+                    interop.key
+                    interop-ca.pem
+tested-with:        GHC==8.10.7
+                  , GHC==9.2.8
+                  , GHC==9.4.8
+                  , GHC==9.6.6
+                  , GHC==9.8.2
+                  , GHC==9.10.1
+
+source-repository head
+  type:     git
+  location: https://github.com/well-typed/grapesy
+
+common lang
+  ghc-options:
+      -Wall
+      -Wredundant-constraints
+      -Wno-unticked-promoted-constructors
+      -Wprepositive-qualified-module
+      -Widentities
+      -Wmissing-export-lists
+  build-depends:
+      base >= 4.14 && < 4.22
+  default-language:
+      Haskell2010
+  default-extensions:
+      BangPatterns
+      ConstraintKinds
+      DataKinds
+      DeriveAnyClass
+      DeriveFunctor
+      DeriveGeneric
+      DeriveTraversable
+      DerivingStrategies
+      DerivingVia
+      DisambiguateRecordFields
+      FlexibleContexts
+      FlexibleInstances
+      GADTs
+      GeneralizedNewtypeDeriving
+      ImportQualifiedPost
+      InstanceSigs
+      LambdaCase
+      MultiParamTypeClasses
+      MultiWayIf
+      NamedFieldPuns
+      NumericUnderscores
+      PolyKinds
+      RankNTypes
+      ScopedTypeVariables
+      StandaloneDeriving
+      TupleSections
+      TypeApplications
+      TypeFamilies
+      TypeOperators
+      UndecidableInstances
+
+  if impl(ghc >= 9.0)
+    ghc-options:
+      -- This was introduced in 8.10, but it does not work reliably until 9.0.
+      -- In 8.10 you might get spurious warnings when using re-exported modules
+      -- (e.g. in proto-lens-runtime).
+      -Wunused-packages
+
+common common-executable-flags
+  ghc-options:
+      -threaded
+      -rtsopts
+
+library
+  import:          lang
+  hs-source-dirs:  src
+
+  reexported-modules:
+      , Network.GRPC.Client.Binary
+      , Network.GRPC.Client.StreamType.CanCallRPC
+      , Network.GRPC.Client.StreamType.Conduit
+      , Network.GRPC.Client.StreamType.IO
+      , Network.GRPC.Client.StreamType.IO.Binary
+      , Network.GRPC.Common
+      , Network.GRPC.Common.Binary
+      , Network.GRPC.Common.Compression
+      , Network.GRPC.Common.Headers
+      , Network.GRPC.Common.HTTP2Settings
+      , Network.GRPC.Common.JSON
+      , Network.GRPC.Common.NextElem
+      , Network.GRPC.Common.Protobuf
+      , Network.GRPC.Common.Protobuf.Any
+      , Network.GRPC.Common.StreamElem
+      , Network.GRPC.Common.StreamType
+      , Network.GRPC.Server
+      , Network.GRPC.Server.Binary
+      , Network.GRPC.Server.Protobuf
+      , Network.GRPC.Server.StreamType
+      , Network.GRPC.Server.StreamType.Binary
+
+  exposed-modules: 
+      Network.GRPC.Client
+      Network.GRPC.Server.Run
+  other-modules:
+      Network.GRPC.Client.Run
+      Network.GRPC.TCP
+      Network.GRPC.Util.BufferedSocket
+
+  build-depends: grapesy-common ==1.1.1
+
+  build-depends:
+    , binary
+    , bytestring                >= 0.10.12 && < 0.13
+    , grpc-spec                 >= 1.0     && < 1.1
+    , http-semantics            >= 0.3.0   && < 0.3.1
+    , network                   >= 3.2.4   && < 3.3
+    , network-run               >= 0.4.3   && < 0.5
+    , recv                      >= 0.1     && < 0.2
+    , stm                       >= 2.5     && < 2.6
+    , tls                       >= 1.7     && < 2.2

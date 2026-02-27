@@ -1,0 +1,171 @@
+cabal-version:      3.0
+name:               grapesy-common
+version:            1.1.1
+synopsis:           Native Haskell implementation of the gRPC framework
+description:        This is a fully compliant and feature complete native Haskell
+                    implementation of gRPC, Google's RPC framework.
+license:            BSD-3-Clause
+license-file:       LICENSE
+author:             Edsko de Vries
+maintainer:         edsko@well-typed.com
+category:           Network
+build-type:         Simple
+extra-doc-files:    CHANGELOG.md
+tested-with:        GHC==8.10.7
+                  , GHC==9.2.8
+                  , GHC==9.4.8
+                  , GHC==9.6.6
+                  , GHC==9.8.2
+                  , GHC==9.10.1
+
+source-repository head
+  type:     git
+  location: https://github.com/well-typed/grapesy
+
+common lang
+  ghc-options:
+      -Wall
+      -Wredundant-constraints
+      -Wno-unticked-promoted-constructors
+      -Wprepositive-qualified-module
+      -Widentities
+      -Wmissing-export-lists
+  build-depends:
+      base >= 4.14 && < 4.22
+  default-language:
+      Haskell2010
+  default-extensions:
+      BangPatterns
+      ConstraintKinds
+      DataKinds
+      DeriveAnyClass
+      DeriveFunctor
+      DeriveGeneric
+      DeriveTraversable
+      DerivingStrategies
+      DerivingVia
+      DisambiguateRecordFields
+      FlexibleContexts
+      FlexibleInstances
+      GADTs
+      GeneralizedNewtypeDeriving
+      ImportQualifiedPost
+      InstanceSigs
+      LambdaCase
+      MultiParamTypeClasses
+      MultiWayIf
+      NamedFieldPuns
+      NumericUnderscores
+      PolyKinds
+      RankNTypes
+      ScopedTypeVariables
+      StandaloneDeriving
+      TupleSections
+      TypeApplications
+      TypeFamilies
+      TypeOperators
+      UndecidableInstances
+
+  if impl(ghc >= 9.0)
+    ghc-options:
+      -- This was introduced in 8.10, but it does not work reliably until 9.0.
+      -- In 8.10 you might get spurious warnings when using re-exported modules
+      -- (e.g. in proto-lens-runtime).
+      -Wunused-packages
+
+common common-executable-flags
+  ghc-options:
+      -threaded
+      -rtsopts
+
+library
+  import:          lang
+  hs-source-dirs:  src
+
+  exposed-modules:
+      Network.GRPC.Common
+      Network.GRPC.Common.Binary
+      Network.GRPC.Common.Compression
+      Network.GRPC.Common.Headers
+      Network.GRPC.Common.HTTP2Settings
+      Network.GRPC.Common.JSON
+      Network.GRPC.Common.NextElem
+      Network.GRPC.Common.Protobuf
+      Network.GRPC.Common.Protobuf.Any
+      Network.GRPC.Common.StreamElem
+      Network.GRPC.Common.StreamType
+      Network.GRPC.Server.Binary
+      Network.GRPC.Server.Protobuf
+      Network.GRPC.Server.StreamType
+      Network.GRPC.Server.StreamType.Binary
+      Network.GRPC.Server
+      Network.GRPC.Client.Binary
+      Network.GRPC.Client.StreamType.CanCallRPC
+      Network.GRPC.Client.StreamType.Conduit
+      Network.GRPC.Client.StreamType.IO
+      Network.GRPC.Client.StreamType.IO.Binary
+      Network.GRPC.Client.Connection
+
+  -- these were other-modules in grapesy,
+  -- as for now there are anent "Common but not HTTP2 specific" place
+  -- which re-exports bits in them.
+  exposed-modules:
+      Network.GRPC.Client.Call
+      Network.GRPC.Client.Meta
+      Network.GRPC.Client.Session
+      Network.GRPC.Client.StreamType
+      Network.GRPC.Common.ProtocolException
+      Network.GRPC.Server.Call
+      Network.GRPC.Server.Context
+      Network.GRPC.Server.Handler
+      Network.GRPC.Server.HandlerMap
+      Network.GRPC.Server.RequestHandler
+      Network.GRPC.Server.Session
+      Network.GRPC.Util.GHC
+      Network.GRPC.Util.Imports
+      Network.GRPC.Util.Session.API
+      Network.GRPC.Util.Session.Channel
+      Network.GRPC.Util.Session.Client
+      Network.GRPC.Util.Stream
+      Network.GRPC.Util.TimeManager
+      Network.GRPC.Util.Thread
+      Network.GRPC.Util.TLS
+      Network.GRPC.Util.Version
+
+  other-modules:
+      Network.GRPC.Server.RequestHandler.API
+      Network.GRPC.Util.AccumulatedByteString
+      Network.GRPC.Util.ClientStream
+      Network.GRPC.Util.ServerStream
+      Network.GRPC.Util.RedundantConstraint
+      Network.GRPC.Util.Session.Server
+      Network.GRPC.Util.HeaderTable
+
+  build-depends:
+    , aeson                     >= 1.5     && < 2.3
+    , async                     >= 2.2     && < 2.3
+    , binary                    >= 0.8     && < 0.9
+    , bytestring                >= 0.10.12 && < 0.13
+    , conduit                   >= 1.3     && < 1.4
+    , containers                >= 0.6     && < 0.8
+    , crypton-x509              >= 1.7     && < 1.8
+    , crypton-x509-store        >= 1.6     && < 1.7
+    , crypton-x509-system       >= 1.6     && < 1.7
+    , data-default              >= 0.7     && < 0.9
+    , deepseq                   >= 1.4     && < 1.6
+    , exceptions                >= 0.10    && < 0.11
+    , grpc-spec                 >= 1.0     && < 1.1
+    , http-semantics            >= 0.3.0   && < 0.3.1
+    , http-types                >= 0.12    && < 0.13
+    , lens                      >= 5.0     && < 5.4
+    , mtl                       >= 2.2     && < 2.4
+    , network                   >= 3.2.4   && < 3.3
+    , proto-lens                >= 0.7     && < 0.8
+    , proto-lens-protobuf-types >= 0.7     && < 0.8
+    , random                    >= 1.2     && < 1.4
+    , stm                       >= 2.5     && < 2.6
+    , text                      >= 1.2     && < 2.2
+    , time-manager              >= 0.2.2   && < 0.3
+    , unbounded-delays          >= 0.1.1   && < 0.2
+    , unordered-containers      >= 0.2     && < 0.3
+    , utf8-string               >= 1.0     && < 1.1
