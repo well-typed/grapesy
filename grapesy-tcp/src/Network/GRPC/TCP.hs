@@ -1,3 +1,4 @@
+{-# LANGUAGE PatternSynonyms #-}
 module Network.GRPC.TCP (
     -- * Server
     readRequest,

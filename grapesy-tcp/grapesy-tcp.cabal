@@ -118,6 +118,7 @@ library
   other-modules:
       Network.GRPC.Client.Run
       Network.GRPC.TCP
+      Network.GRPC.Util.BufferedSocket
 
   build-depends: grapesy-common ==1.1.1
 
