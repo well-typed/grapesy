@@ -46,6 +46,7 @@ import Network.GRPC.Util.Session.Client qualified as Session
 import Network.GRPC.Common.HTTP2Settings
 import Network.GRPC.Util.GHC
 import Network.GRPC.TCP qualified as TCP
+import Network.GRPC.Util.BufferedSocket
 
 {-------------------------------------------------------------------------------
   Open a new connection
@@ -272,15 +273,16 @@ connectInsecure connParams attempt addr = do
 -- | Insecure connection over the given socket
 connectSocket :: ConnParams -> Attempt -> String -> Socket -> IO ()
 connectSocket _connParams attempt _connAuthority sock = do
-    let conn = Session.ConnectionToServer sendRequest
+    buffSock <- mkBufferedSocket sock
+    let conn = Session.ConnectionToServer (sendRequest buffSock)
     atomically $ writeTVar (attemptState attempt) (ConnectionReady (attemptClosed attempt) conn)
     runOnConnection (attemptOnConnection attempt)
     takeMVar (attemptOutOfScope attempt)
   where
-    sendRequest :: Client.Request -> (Client.Response -> IO a) -> IO a
-    sendRequest req k = do
-        TCP.writeRequest sock req
-        res <- TCP.readResponse sock
+    sendRequest :: BufferedSocket -> Client.Request -> (Client.Response -> IO a) -> IO a
+    sendRequest bsock req k = do
+        TCP.writeRequest bsock req
+        res <- TCP.readResponse bsock
         k res
 
 -- | Authority

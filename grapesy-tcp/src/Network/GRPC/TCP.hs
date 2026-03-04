@@ -11,6 +11,7 @@ module Network.GRPC.TCP (
 import Network.HTTP.Semantics.Server.Internal qualified as Server (Request (..), Response (..))
 import Network.HTTP.Semantics.Client.Internal qualified as Client (Request (..), Response (..))
 import Network.Socket (Socket)
+import Network.GRPC.Util.BufferedSocket
 
 import Data.Binary ()
 
@@ -30,15 +31,15 @@ decodeRequest :: LBS.ByteString -> IO Request
 decodeRequest _ = fail "TODO"
 -}
 
-readRequest :: Socket -> IO Server.Request
+readRequest :: BufferedSocket -> IO Server.Request
 readRequest _ = fail "TODO: readRequest"
 
-writeResponse :: Socket -> Server.Response -> IO ()
+writeResponse :: BufferedSocket -> Server.Response -> IO ()
 writeResponse _ _ = fail "TODO: writeResponse"
 
 -- client
-readResponse :: Socket -> IO Client.Response
+readResponse :: BufferedSocket -> IO Client.Response
 readResponse _ = fail "TODO: readResponse"
 
-writeRequest :: Socket -> Client.Request -> IO ()
+writeRequest :: BufferedSocket -> Client.Request -> IO ()
 writeRequest _ _ = fail "TODO: writeRequest"

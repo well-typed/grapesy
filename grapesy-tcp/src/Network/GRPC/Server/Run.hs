@@ -34,6 +34,7 @@ import Network.Socket qualified as Socket
 
 import Data.List.NonEmpty qualified as NE
 
+import Network.GRPC.Util.BufferedSocket
 import Network.GRPC.Common.HTTP2Settings
 import Network.GRPC.Server
 import Network.GRPC.Util.TimeManager
@@ -236,6 +237,7 @@ runInsecure http2 cfg socketTMVar server =
     openSock cfg $ \listenSock ->
     withTimeManager $ \_mgr ->
     Run.runTCPServerWithSocket listenSock $ \clientSock -> do
+        bsock <- mkBufferedSocket clientSock
         {-
         when (http2TcpNoDelay http2 && not isUnixSocket) $ do
             -- See description of 'withServerSocket'
@@ -246,11 +248,11 @@ runInsecure http2 cfg socketTMVar server =
         -}
 
         -- forever $ do
-        req <- TCP.readRequest clientSock
+        req <- TCP.readRequest bsock
 
         server req (error "defaultAux") $ \res pushPromises -> do
             unless (null pushPromises) $ fail "non-empty pushPromises"
-            TCP.writeResponse clientSock res
+            TCP.writeResponse bsock res
 
   where
     {- TODO: isUnixSocket for tcp no delay
