@@ -227,11 +227,8 @@ waitForHandler ::
      HasCallStack
   => (forall x. IO x -> IO x)
   -> Call rpc -> Async () -> IO ()
-waitForHandler unmask call handlerThread = loop
+waitForHandler unmask call handlerThread = unmask (wait handlerThread) `catch` handleException
   where
-    loop :: IO ()
-    loop = unmask (wait handlerThread) `catch` handleException
-
     handleException :: SomeException -> IO ()
     handleException err
       | Just (KilledByThreadManager mErr) <- fromException err = do
@@ -243,7 +240,6 @@ waitForHandler unmask call handlerThread = loop
                     ExitCaseException . toException $
                       ClientDisconnected exitWithException callStack
           ignoreUncleanClose call exitReason
-          loop
 
       | otherwise = do
           -- If we get an exception while waiting on the handler, there
