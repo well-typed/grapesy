@@ -334,7 +334,7 @@ closeRPC callChannel cancelRequest exitCase = liftIO $ do
     -- 'Session.close'. /If/ the final message has already been sent,
     -- @http2@ guarantees (as a postcondition of @outBodyPushFinal@) that
     -- cancellation will be a no-op.
-    sendResetFrame
+    -- sendResetFrame
 
     -- Now close the /outbound/ thread, see docs of 'Session.close' for
     -- details.

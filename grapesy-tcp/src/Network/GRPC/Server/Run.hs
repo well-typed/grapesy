@@ -31,6 +31,7 @@ import Network.HTTP.Semantics.Server qualified as Server
 import Network.Run.TCP qualified as Run
 import Network.Socket (Socket, AddrInfo, HostName, PortNumber)
 import Network.Socket qualified as Socket
+import System.IO (stderr, hPutStrLn)
 
 import Data.List.NonEmpty qualified as NE
 
@@ -236,7 +237,7 @@ runInsecure ::
 runInsecure http2 cfg socketTMVar server =
     openSock cfg $ \listenSock ->
     withTimeManager $ \_mgr ->
-    Run.runTCPServerWithSocket listenSock $ \clientSock -> do
+    Run.runTCPServerWithSocket listenSock $ \clientSock -> debugHandle $ do
         bsock <- mkBufferedSocket clientSock
         {-
         when (http2TcpNoDelay http2 && not isUnixSocket) $ do
@@ -273,6 +274,13 @@ runInsecure http2 cfg socketTMVar server =
         insecurePath
         socketTMVar
 
+    -- TODO: debugHandle is temporary
+    -- perfectly we should allow this action (or rather handler of exceptions)
+    -- be configurable, i.e. not just serverTopLevel, but allowing "monitoring"
+    -- whole request thread.
+    debugHandle :: IO () -> IO ()
+    debugHandle m = catch m $ \(SomeException e) -> do
+        hPutStrLn stderr ("runInsecure unhandled exception: " ++ displayException e)
 
 {-------------------------------------------------------------------------------
   Internal auxiliary

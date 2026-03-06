@@ -35,7 +35,7 @@ import qualified Data.ProtoLens.Runtime.Data.Vector.Generic as Data.Vector.Gener
 import qualified Data.ProtoLens.Runtime.Data.Vector.Unboxed as Data.Vector.Unboxed
 import qualified Data.ProtoLens.Runtime.Text.Read as Text.Read
 {- | Fields :
-     
+
          * 'Proto.Kvstore_Fields.key' @:: Lens' CreateRequest Data.ByteString.ByteString@
          * 'Proto.Kvstore_Fields.value' @:: Lens' CreateRequest Data.ByteString.ByteString@ -}
 data CreateRequest
@@ -252,7 +252,7 @@ instance Control.DeepSeq.NFData CreateResponse where
     = \ x__
         -> Control.DeepSeq.deepseq (_CreateResponse'_unknownFields x__) ()
 {- | Fields :
-     
+
          * 'Proto.Kvstore_Fields.key' @:: Lens' DeleteRequest Data.ByteString.ByteString@ -}
 data DeleteRequest
   = DeleteRequest'_constructor {_DeleteRequest'key :: !Data.ByteString.ByteString,
@@ -424,7 +424,7 @@ instance Control.DeepSeq.NFData DeleteResponse where
     = \ x__
         -> Control.DeepSeq.deepseq (_DeleteResponse'_unknownFields x__) ()
 {- | Fields :
-     
+
          * 'Proto.Kvstore_Fields.key' @:: Lens' RetrieveRequest Data.ByteString.ByteString@ -}
 data RetrieveRequest
   = RetrieveRequest'_constructor {_RetrieveRequest'key :: !Data.ByteString.ByteString,
@@ -534,7 +534,7 @@ instance Control.DeepSeq.NFData RetrieveRequest where
              (_RetrieveRequest'_unknownFields x__)
              (Control.DeepSeq.deepseq (_RetrieveRequest'key x__) ())
 {- | Fields :
-     
+
          * 'Proto.Kvstore_Fields.value' @:: Lens' RetrieveResponse Data.ByteString.ByteString@ -}
 data RetrieveResponse
   = RetrieveResponse'_constructor {_RetrieveResponse'value :: !Data.ByteString.ByteString,
@@ -645,7 +645,7 @@ instance Control.DeepSeq.NFData RetrieveResponse where
              (_RetrieveResponse'_unknownFields x__)
              (Control.DeepSeq.deepseq (_RetrieveResponse'value x__) ())
 {- | Fields :
-     
+
          * 'Proto.Kvstore_Fields.key' @:: Lens' UpdateRequest Data.ByteString.ByteString@
          * 'Proto.Kvstore_Fields.value' @:: Lens' UpdateRequest Data.ByteString.ByteString@ -}
 data UpdateRequest

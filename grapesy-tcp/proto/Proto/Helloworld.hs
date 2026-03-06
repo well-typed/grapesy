@@ -33,7 +33,7 @@ import qualified Data.ProtoLens.Runtime.Data.Vector.Generic as Data.Vector.Gener
 import qualified Data.ProtoLens.Runtime.Data.Vector.Unboxed as Data.Vector.Unboxed
 import qualified Data.ProtoLens.Runtime.Text.Read as Text.Read
 {- | Fields :
-     
+
          * 'Proto.Helloworld_Fields.message' @:: Lens' HelloReply Data.Text.Text@ -}
 data HelloReply
   = HelloReply'_constructor {_HelloReply'message :: !Data.Text.Text,
@@ -145,7 +145,7 @@ instance Control.DeepSeq.NFData HelloReply where
              (_HelloReply'_unknownFields x__)
              (Control.DeepSeq.deepseq (_HelloReply'message x__) ())
 {- | Fields :
-     
+
          * 'Proto.Helloworld_Fields.name' @:: Lens' HelloRequest Data.Text.Text@ -}
 data HelloRequest
   = HelloRequest'_constructor {_HelloRequest'name :: !Data.Text.Text,
