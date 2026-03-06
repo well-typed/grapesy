@@ -15,10 +15,11 @@ module Network.GRPC.Server.Handler (
   , runHandler
   ) where
 
-import Network.GRPC.Util.Imports
-
+import Control.Concurrent.STM
+import Control.Exception
 import System.ThreadManager (KilledByThreadManager(..))
 
+import Network.GRPC.Util.Imports
 import Network.GRPC.Server.Call
 import Network.GRPC.Server.Context
 import Network.GRPC.Util.GHC
@@ -230,32 +231,41 @@ waitForHandler ::
 waitForHandler unmask call handlerThread = loop
   where
     loop :: IO ()
-    loop = unmask (wait handlerThread) `catch` handleException
-
-    handleException :: SomeException -> IO ()
-    handleException err
-      | Just (KilledByThreadManager mErr) <- fromException err = do
-          let exitReason :: ExitCase ()
-              exitReason =
-                case mErr of
-                  Nothing -> ExitCaseSuccess ()
-                  Just exitWithException ->
-                    ExitCaseException . toException $
-                      ClientDisconnected exitWithException callStack
-          ignoreUncleanClose call exitReason
-          loop
-
-      | otherwise = do
-          -- If we get an exception while waiting on the handler, there
-          -- are two possibilities:
-          --
-          -- 1. The exception was an asynchronous exception, thrown to us
-          --    externally. In this case @cancalWith@ will throw the
-          --    exception to the handler (and wait for it to terminate).
-          -- 2. The exception was thrown by the handler itself. In this
-          --    case @cancelWith@ is a no-op.
-          cancelWith handlerThread err
-          throwIO err
+    loop = do
+         status <- waitAsyncStatus unmask handlerThread
+         case status of
+           AsyncDone () ->
+             -- Handler terminated
+             return ()
+           AsyncFailed e ->
+             -- Handler /itself/ failed
+             throwIO e
+           WaitInterrupted e ->
+             -- /We/ received an exception whilst waiting for the handler
+             --
+             -- We now distinguish between two cases:
+             --
+             -- * If the exception we received was 'KilledByThreadManager',
+             --   then this is http2 telling us the client disappeared. We leave
+             --   the handler running, but mark the connection as broken. /If/
+             --   the handler tries to communicate with the client, it will
+             --   receive an exception at that point.
+             -- * In all other cases, we cancel the handler. This might be when
+             --   someone is shutting down the server, for example.
+             case fromException e of
+               Just (KilledByThreadManager mErr) -> do
+                 let exitReason :: ExitCase ()
+                     exitReason =
+                       case mErr of
+                         Nothing -> ExitCaseSuccess ()
+                         Just exitWithException ->
+                           ExitCaseException . toException $
+                             ClientDisconnected exitWithException callStack
+                 ignoreUncleanClose call exitReason
+                 loop
+               Nothing -> do
+                 cancelWith handlerThread e
+                 throwIO e
 
 -- | Process exception thrown by a handler
 --
@@ -277,3 +287,17 @@ forwardException call@Call{callContext} err = do
  where
    handler :: SomeException -> IO Bool
    handler _e = return False
+
+{-------------------------------------------------------------------------------
+  Internal auxiliary
+-------------------------------------------------------------------------------}
+
+data AsyncStatus a =
+   AsyncDone a
+ | AsyncFailed SomeException
+ | WaitInterrupted SomeException
+
+waitAsyncStatus :: (forall x. IO x -> IO x) -> Async a -> IO (AsyncStatus a)
+waitAsyncStatus unmask async =
+    handle (return . WaitInterrupted) $
+      either AsyncFailed AsyncDone <$> unmask (atomically $ waitCatchSTM async)
