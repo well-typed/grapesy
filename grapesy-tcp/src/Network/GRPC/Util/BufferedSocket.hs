@@ -86,7 +86,7 @@ recvMoreData BufferedSocket { bsSocket, bsBuffer } _u v
     = do
         let ptr = plusPtr (mutableByteArrayContents bsBuffer) (dataOffset + v)
         i <- recvBuf bsSocket ptr bufferSize
-        putStrLn $ "recvMoreData " ++ show i
+        putStrLn $ "recvMoreData got " ++ show i
         writeV bsBuffer (v + i)
         return i
 
@@ -116,6 +116,7 @@ recvLBS _ len | len <= 0 = return LBS.empty
 recvLBS socket@BufferedSocket { bsBuffer } len = do
     u <- readU bsBuffer
     v <- readV bsBuffer
+    putStrLn $ "recvLBS " ++ show (u, v, len)
 
     -- if ther are data in the buffer
     if u < v
@@ -126,16 +127,54 @@ recvLBS socket@BufferedSocket { bsBuffer } len = do
             ba <- newPinnedByteArray len
             copyMutableByteArray ba 0 bsBuffer (dataOffset + u) len
             writeU bsBuffer (u + len)
+            putStrLn "nice"
             return (LBS.fromStrict (pinnedMutableByteArrayToBS ba len))
 
         -- if there aren't, create first chunk and go into the loop
-        else fail "TODO: recvLBS loop"
+        else do
+            let bufferLen = v - u
+            ba <- newPinnedByteArray bufferLen
+            copyMutableByteArray ba 0 bsBuffer (dataOffset + u) bufferLen
+            writeU bsBuffer 0
+            writeV bsBuffer 0
+            recvLBS' socket (pinnedMutableByteArrayToBS ba bufferLen  :) (len - bufferLen)
 
     else do
         i <- recvMoreData socket u v
         if i <= 0
         then fail "recvWord32be: EOF"
         else recvLBS socket len
+
+recvLBS' :: BufferedSocket -> ([ByteString] -> [ByteString]) -> Int -> IO LBS.ByteString
+recvLBS' socket@BufferedSocket { bsBuffer } acc len = do
+    -- we need more data
+    i <- recvMoreData socket 0 0
+    if i <= 0
+    then fail "recvLBS': EOF"
+    else do
+        u <- readU bsBuffer
+        v <- readV bsBuffer
+        let bufferLen = v - u
+        if len < bufferLen
+        then do
+            -- if we got enough
+            end <- copyToBS bsBuffer (dataOffset + u) len
+            writeU bsBuffer (u + len)
+            return (LBS.fromChunks (acc [end]))
+        else do
+            -- if we didn't, we make a chunk and loop
+            chunk <- copyToBS bsBuffer (dataOffset + u) bufferLen
+            writeU bsBuffer 0
+            writeV bsBuffer 0
+            recvLBS' socket (acc . (chunk :)) (len - bufferLen)
+    
+
+-- | Copy part of MutableByteArray (offset, length) to strict ByteString
+copyToBS :: MutableByteArray RealWorld -> Int -> Int -> IO ByteString
+copyToBS src off len = do
+    dst <- newPinnedByteArray len
+    copyMutableByteArray dst 0 src off len
+    return $! pinnedMutableByteArrayToBS dst len
 
 -------------------------------------------------------------------------------
 -- Sending

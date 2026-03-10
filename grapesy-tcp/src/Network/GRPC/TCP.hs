@@ -8,30 +8,27 @@ module Network.GRPC.TCP (
     writeRequest,
 ) where
 
-import Data.Coerce (coerce)
+import Data.Array (array)
 import Data.Binary qualified as Binary
-import Data.ByteString (ByteString)
-import Network.HTTP.Semantics.Server.Internal qualified as Server (Request (..), Response (..))
-import Network.HTTP.Semantics.Client.Internal qualified as Client (Request (..), Response (..))
-import Network.HTTP.Semantics (OutObj (..), InpObj (..), OutBody (..), OutBodyIface (..))
-import Data.ByteString.Lazy qualified as LBS
-import Data.ByteString.Builder qualified as BSB
 import Data.Binary.Put qualified as Binary.Put
+import Data.ByteString (ByteString)
+import Data.ByteString.Builder qualified as BSB
+import Data.ByteString.Lazy qualified as LBS
 import Data.CaseInsensitive qualified as CI
+import Data.Coerce (coerce)
+import Data.IORef (newIORef)
+import Network.HTTP.Semantics (OutObj (..), InpObj (..), OutBody (..), OutBodyIface (..), TokenHeaderTable, TokenHeaderList, ValueTable, toToken, InpBody)
+import Network.HTTP.Semantics qualified as HTTP
+import Network.HTTP.Semantics.Client.Internal qualified as Client (Request (..), Response (..))
+import Network.HTTP.Semantics.Server.Internal qualified as Server (Request (..), Response (..))
+import Network.HTTP.Types (Header)
 
 import Network.GRPC.Util.Imports
 import Network.GRPC.Util.BufferedSocket
 
-{-
-readMessage :: Socket -> IO LBS.ByteString
-readMessage _ = fail "TODO"
-
-_getRequest :: Get Request
-_getRequest = error "TODO"
-
-decodeRequest :: LBS.ByteString -> IO Request
-decodeRequest _ = fail "TODO"
--}
+-------------------------------------------------------------------------------
+-- Message
+-------------------------------------------------------------------------------
 
 -------------------------------------------------------------------------------
 -- Server
@@ -110,5 +107,34 @@ readInpObj bsock = do
         headers' = Binary.decode lbs -- TODO: don't use decode
     print headers'
 
+    -- ioref for trailers
+    trailers <- newIORef Nothing
+
     -- read body
-    fail "readInpObj: TODO read body"
+    let body :: InpBody -- IO (ByteString, Bool)
+        body = do
+            putStrLn $ "more body"
+            len <- recvWord32be bsock
+            putStrLn $ "body: " ++ show len
+            lbs <- recvLBS bsock (fromIntegral len)
+            print lbs
+            return (LBS.toStrict lbs, True)
+
+    return InpObj
+        { inpObjHeaders  = mkTokenHeaderTable headers'
+        , inpObjBodySize = Nothing
+        , inpObjTrailers = trailers
+        , inpObjBody     = body
+        }
+
+mkTokenHeaderTable :: [(ByteString, ByteString)] -> TokenHeaderTable
+mkTokenHeaderTable headers = (tokenHeader, valueTable)
+  where
+    tokenHeader :: TokenHeaderList
+    tokenHeader = map (first toToken) headers
+
+    valueTable :: ValueTable
+    valueTable = array (HTTP.minTokenIx, HTTP.maxTokenIx)
+        [ (HTTP.tokenIx token, Just value)
+        | (token, value) <- tokenHeader
+        ]
