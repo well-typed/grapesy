@@ -16,7 +16,7 @@ import Data.ByteString.Builder qualified as BSB
 import Data.ByteString.Lazy qualified as LBS
 import Data.CaseInsensitive qualified as CI
 import Data.Coerce (coerce)
-import Data.IORef (newIORef)
+import Data.IORef (newIORef, writeIORef, readIORef)
 import Network.HTTP.Semantics (OutObj (..), InpObj (..), OutBody (..), OutBodyIface (..), TokenHeaderTable, TokenHeaderList, ValueTable, toToken, InpBody)
 import Network.HTTP.Semantics qualified as HTTP
 import Network.HTTP.Semantics.Client.Internal qualified as Client (Request (..), Response (..))
@@ -108,17 +108,30 @@ readInpObj bsock = do
     print headers'
 
     -- ioref for trailers
-    trailers <- newIORef Nothing
+    -- TODO: actually read trailers.
+    trailers <- newIORef (Just (mkTokenHeaderTable headers')) -- TODO: for trailers we just copy headers for now.
+
+    -- read the length of first body chunk.
+    bodyLen <- recvWord32be bsock
+    lenRef <- newIORef bodyLen
 
     -- read body
     let body :: InpBody -- IO (ByteString, Bool)
-        body = do
-            putStrLn $ "more body"
-            len <- recvWord32be bsock
-            putStrLn $ "body: " ++ show len
-            lbs <- recvLBS bsock (fromIntegral len)
-            print lbs
-            return (LBS.toStrict lbs, True)
+        body
+            | bodyLen == 0 = return (mempty, True)
+            | otherwise = do
+                -- read the chunk size
+                bodyLen' <- readIORef lenRef
+                lbs <- recvLBS bsock (fromIntegral bodyLen')
+                putStrLn $ "body: " ++ show lbs
+
+                -- read the size of the next chunk
+                nextLen <- recvWord32be bsock
+                if nextLen == 0
+                then return (LBS.toStrict lbs, True)
+                else do
+                    writeIORef lenRef nextLen
+                    return (LBS.toStrict lbs, False)
 
     return InpObj
         { inpObjHeaders  = mkTokenHeaderTable headers'
@@ -134,7 +147,12 @@ mkTokenHeaderTable headers = (tokenHeader, valueTable)
     tokenHeader = map (first toToken) headers
 
     valueTable :: ValueTable
-    valueTable = array (HTTP.minTokenIx, HTTP.maxTokenIx)
+    valueTable = array (HTTP.minTokenIx, HTTP.maxTokenIx) $
+        -- populate with `Nothing`s.
+        [ (ix, Nothing)
+        | ix <- [HTTP.minTokenIx .. HTTP.maxTokenIx]
+        ] ++
+        -- and overwrite with real values
         [ (HTTP.tokenIx token, Just value)
         | (token, value) <- tokenHeader
         ]

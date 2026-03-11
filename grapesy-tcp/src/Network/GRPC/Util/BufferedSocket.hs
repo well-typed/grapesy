@@ -121,13 +121,15 @@ recvLBS socket@BufferedSocket { bsBuffer } len = do
     -- if ther are data in the buffer
     if u < v
     then do
+        putStrLn "nice1"
         -- check if there's enough data, if there are we are done.
-        if v - u <= len
+        if len <= v - u
         then do
+            putStrLn "nice2"
             ba <- newPinnedByteArray len
             copyMutableByteArray ba 0 bsBuffer (dataOffset + u) len
             writeU bsBuffer (u + len)
-            putStrLn "nice"
+            putStrLn "nice3"
             return (LBS.fromStrict (pinnedMutableByteArrayToBS ba len))
 
         -- if there aren't, create first chunk and go into the loop
@@ -167,7 +169,7 @@ recvLBS' socket@BufferedSocket { bsBuffer } acc len = do
             writeU bsBuffer 0
             writeV bsBuffer 0
             recvLBS' socket (acc . (chunk :)) (len - bufferLen)
-    
+
 
 -- | Copy part of MutableByteArray (offset, length) to strict ByteString
 copyToBS :: MutableByteArray RealWorld -> Int -> Int -> IO ByteString
