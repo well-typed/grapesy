@@ -565,7 +565,7 @@ sendMessageLoop sess st stream = do
 
 -- | Receive all messages sent by the node's peer
 recvMessageLoop :: forall sess.
-     IsSession sess
+     (IsSession sess, HasCallStack)
   => sess
   -> RegularFlowState (Inbound sess)
   -> InputStream
