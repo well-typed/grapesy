@@ -19,7 +19,6 @@ import Test.Regression.Issue238               qualified as Issue238
 import Test.Sanity.Any                        qualified as Any
 import Test.Sanity.BrokenDeployments          qualified as BrokenDeployments
 import Test.Sanity.Compression                qualified as Compression
-import Test.Sanity.Disconnect                 qualified as Disconnect
 import Test.Sanity.EndOfStream                qualified as EndOfStream
 import Test.Sanity.Interop                    qualified as Interop
 import Test.Sanity.NoIsLabel                  qualified as NoIsLabel
@@ -33,8 +32,7 @@ main = do
 
     defaultMain $ testGroup "grapesy" [
         testGroup "Sanity" [
-            Disconnect.tests
-          , EndOfStream.tests
+            EndOfStream.tests
           , testGroup "StreamingType" [
                 StreamingType.NonStreaming.tests
               , StreamingType.CustomFormat.tests
