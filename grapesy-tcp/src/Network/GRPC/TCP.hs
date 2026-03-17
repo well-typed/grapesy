@@ -13,10 +13,11 @@ import Data.Binary qualified as Binary
 import Data.Binary.Put qualified as Binary.Put
 import Data.ByteString (ByteString)
 import Data.ByteString.Builder qualified as BSB
+import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
 import Data.CaseInsensitive qualified as CI
 import Data.Coerce (coerce)
-import Data.IORef (newIORef, writeIORef, readIORef)
+import Data.IORef (newIORef, writeIORef, readIORef, IORef)
 import Network.HTTP.Semantics (OutObj (..), InpObj (..), OutBody (..), OutBodyIface (..), TokenHeaderTable, TokenHeaderList, ValueTable, toToken, InpBody)
 import Network.HTTP.Semantics qualified as HTTP
 import Network.HTTP.Semantics.Client.Internal qualified as Client (Request (..), Response (..))
@@ -55,14 +56,28 @@ writeRequest = coerce writeOutObj
 -------------------------------------------------------------------------------
 
 writeOutObj :: BufferedSocket -> OutObj -> IO ()
-writeOutObj bsock OutObj { outObjHeaders = headers, outObjBody = body, outObjTrailers = _trailers } = do
+writeOutObj bsock OutObj { outObjHeaders = headers, outObjBody = body, outObjTrailers = trailers } = do
     writeBuilder bsock headersBuilder
+    trailersRef <- newIORef trailers
     case body of
         OutBodyNone                 -> fail "none"
         OutBodyStreaming _body'     -> fail "streaming"
         OutBodyBuilder _builder     -> fail "builder"
         OutBodyFile _filespec       -> fail "OutBodyFile" -- TODO: do we need to support this?
-        OutBodyStreamingIface body' -> body' iface
+        OutBodyStreamingIface body' -> do
+            -- write body
+            body' (iface trailersRef)
+
+            -- now send the trailers
+            trailers <- readIORef trailersRef
+            last' <- trailers Nothing
+            case last' of
+                HTTP.Trailers t -> do
+                    putStrLn $ "sending TRAILERS: " ++ show t
+                HTTP.NextTrailersMaker _next ->
+                    putStrLn "ERROR: wrong trailersmaker"
+
+            -- TODO
 
   where
     headers' :: [(ByteString, ByteString)]
@@ -71,11 +86,18 @@ writeOutObj bsock OutObj { outObjHeaders = headers, outObjBody = body, outObjTra
     headersBuilder :: BSB.Builder
     headersBuilder = Binary.Put.execPut (Binary.put headers')
 
-    iface :: OutBodyIface
-    iface = OutBodyIface
+    iface :: IORef HTTP.TrailersMaker -> OutBodyIface
+    iface trailersRef = OutBodyIface
         { outBodyUnmask    = id
-        , outBodyPush      = writeBuilder bsock
-        , outBodyPushFinal = \b -> writeBuilder bsock b >> sendWord32be bsock 0
+        , outBodyPush      = writeBuilderTrailers bsock trailersRef
+        , outBodyPushFinal = \b -> do
+            -- debug
+            putStrLn "outBodyPushFinal"
+
+            -- send last builder-chunk
+            writeBuilderTrailers bsock trailersRef b
+            sendWord32be bsock 0
+
         , outBodyCancel    = \_ -> fail "cancel"
         , outBodyFlush     = return ()
         }
@@ -92,6 +114,41 @@ writeBuilder bsock builder
     lbs = BSB.toLazyByteString builder
     len = LBS.length lbs
 
+writeBuilderTrailers :: BufferedSocket -> IORef HTTP.TrailersMaker -> BSB.Builder -> IO ()
+writeBuilderTrailers bsock trailersRef builder
+    | null chunks = return ()
+    | otherwise = do
+        t <- readIORef trailersRef
+        loop t chunks
+  where
+    lbs = BSB.toLazyByteString builder
+    len = LBS.length lbs
+    chunks = LBS.toChunks lbs
+
+    loop :: HTTP.TrailersMaker -> [ByteString] -> IO ()
+    loop t [] = do
+        -- at the end write trailersmaker to the reference
+        writeIORef trailersRef t
+    loop t (c:cs) = do
+        -- debug
+        putStrLn $ "sending chunk: " ++ show c
+
+        -- send chunk
+        sendWord32be bsock (fromIntegral (BS.length c))
+        sendBS bsock c
+
+        -- next trailersmaker
+        t' <- t (Just c) >>= \case
+            HTTP.NextTrailersMaker next -> do
+                putStrLn "writeBuilderTrailers got next trailersmaker"
+                return next
+            res@(HTTP.Trailers ts) -> do
+                putStrLn $ "writeBuilderTrailers: got trailers " ++ show ts
+                return (\_ -> return res)
+
+        -- loop with rest of the chunks
+        loop t' cs
+
 -------------------------------------------------------------------------------
 -- Read object
 -------------------------------------------------------------------------------
@@ -105,7 +162,7 @@ readInpObj bsock = do
     -- decode headers from lbs
     let headers' :: [(ByteString, ByteString)]
         headers' = Binary.decode lbs -- TODO: don't use decode
-    print headers'
+    putStrLn $ "read headers: " ++ show headers'
 
     -- ioref for trailers
     -- TODO: actually read trailers.

@@ -105,6 +105,6 @@ setResponseTrailers ::
   -> Channel sess
   -> RegularFlowState (Outbound sess)
   -> Server.Response -> Server.Response
-setResponseTrailers sess channel regular resp =
+setResponseTrailers sess channel regular resp = do
     Server.setResponseTrailersMaker resp $
       outboundTrailersMaker sess channel regular
