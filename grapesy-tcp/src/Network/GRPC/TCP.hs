@@ -57,7 +57,7 @@ writeRequest = coerce writeOutObj
 
 writeOutObj :: BufferedSocket -> OutObj -> IO ()
 writeOutObj bsock OutObj { outObjHeaders = headers, outObjBody = body, outObjTrailers = trailers } = do
-    writeBuilder bsock headersBuilder
+    sendHeaders bsock headers
     trailersRef <- newIORef trailers
     case body of
         OutBodyNone                 -> fail "none"
@@ -74,18 +74,14 @@ writeOutObj bsock OutObj { outObjHeaders = headers, outObjBody = body, outObjTra
             case last' of
                 HTTP.Trailers t -> do
                     putStrLn $ "sending TRAILERS: " ++ show t
+                    sendHeaders bsock t
+
                 HTTP.NextTrailersMaker _next ->
                     putStrLn "ERROR: wrong trailersmaker"
 
             -- TODO
 
   where
-    headers' :: [(ByteString, ByteString)]
-    headers' = map (first CI.original) headers
-
-    headersBuilder :: BSB.Builder
-    headersBuilder = Binary.Put.execPut (Binary.put headers')
-
     iface :: IORef HTTP.TrailersMaker -> OutBodyIface
     iface trailersRef = OutBodyIface
         { outBodyUnmask    = id
@@ -101,6 +97,16 @@ writeOutObj bsock OutObj { outObjHeaders = headers, outObjBody = body, outObjTra
         , outBodyCancel    = \_ -> fail "cancel"
         , outBodyFlush     = return ()
         }
+
+sendHeaders :: BufferedSocket -> [Header] -> IO ()
+sendHeaders bsock headers = writeBuilder bsock headersBuilder
+  where
+    headers' :: [(ByteString, ByteString)]
+    headers' = map (first CI.original) headers
+
+    headersBuilder :: BSB.Builder
+    headersBuilder = Binary.Put.execPut (Binary.put headers')
+
 
 -- | write builder as single frame.
 writeBuilder :: BufferedSocket -> BSB.Builder -> IO ()
@@ -155,18 +161,12 @@ writeBuilderTrailers bsock trailersRef builder
 
 readInpObj :: BufferedSocket -> IO InpObj
 readInpObj bsock = do
-    len <- recvWord32be bsock
-    putStrLn $ "readInptObj len " ++ show len
-    lbs <- recvLBS bsock (fromIntegral len)
-
-    -- decode headers from lbs
-    let headers' :: [(ByteString, ByteString)]
-        headers' = Binary.decode lbs -- TODO: don't use decode
+    headers' <- readHeaders bsock
     putStrLn $ "read headers: " ++ show headers'
 
     -- ioref for trailers
     -- TODO: actually read trailers.
-    trailers <- newIORef (Just (mkTokenHeaderTable headers')) -- TODO: for trailers we just copy headers for now.
+    trailersRef <- newIORef (Just (mkTokenHeaderTable headers')) -- TODO: for trailers we just copy headers for now.
 
     -- read the length of first body chunk.
     bodyLen <- recvWord32be bsock
@@ -175,7 +175,9 @@ readInpObj bsock = do
     -- read body
     let body :: InpBody -- IO (ByteString, Bool)
         body
-            | bodyLen == 0 = return (mempty, True)
+            | bodyLen == 0 = do
+                fail "read trailers"
+                return (mempty, True)
             | otherwise = do
                 -- read the chunk size
                 bodyLen' <- readIORef lenRef
@@ -185,7 +187,11 @@ readInpObj bsock = do
                 -- read the size of the next chunk
                 nextLen <- recvWord32be bsock
                 if nextLen == 0
-                then return (LBS.toStrict lbs, True)
+                then do
+                    trailers <- readHeaders bsock
+                    putStrLn $ "read trailers " ++ show trailers
+                    writeIORef trailersRef (Just (mkTokenHeaderTable trailers))
+                    return (LBS.toStrict lbs, True)
                 else do
                     writeIORef lenRef nextLen
                     return (LBS.toStrict lbs, False)
@@ -193,9 +199,19 @@ readInpObj bsock = do
     return InpObj
         { inpObjHeaders  = mkTokenHeaderTable headers'
         , inpObjBodySize = Nothing
-        , inpObjTrailers = trailers
+        , inpObjTrailers = trailersRef
         , inpObjBody     = body
         }
+
+readHeaders :: BufferedSocket -> IO [(ByteString, ByteString)]
+readHeaders bsock = do
+    len <- recvWord32be bsock
+    putStrLn $ "readInptObj len " ++ show len
+    lbs <- recvLBS bsock (fromIntegral len)
+    let headers' :: [(ByteString, ByteString)]
+        headers' = Binary.decode lbs -- TODO: don't use decode
+    return headers'
+
 
 mkTokenHeaderTable :: [(ByteString, ByteString)] -> TokenHeaderTable
 mkTokenHeaderTable headers = (tokenHeader, valueTable)
