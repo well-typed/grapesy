@@ -17,9 +17,9 @@ extra-doc-files:    CHANGELOG.md
 tested-with:        GHC==8.10.7
                   , GHC==9.2.8
                   , GHC==9.4.8
-                  , GHC==9.6.6
-                  , GHC==9.8.2
-                  , GHC==9.10.1
+                  , GHC==9.6.7
+                  , GHC==9.8.4
+                  , GHC==9.10.3
 
 source-repository head
   type:     git
@@ -196,8 +196,8 @@ test-suite test-grpc-spec
       -- Additional dependencies
     , prettyprinter               >= 1.7   && < 1.8
     , prettyprinter-ansi-terminal >= 1.1   && < 1.2
-    , QuickCheck                  >= 2.14  && < 2.16
-    , quickcheck-instances        >= 0.3   && < 0.4
+    , QuickCheck                  >= 2.14  && < 2.19
+    , quickcheck-instances        >= 0.3   && < 0.5
     , tasty                       >= 1.4   && < 1.6
     , tasty-quickcheck            >= 0.10  && < 0.12
     , tree-diff                   >= 0.3   && < 0.4
