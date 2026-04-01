@@ -83,7 +83,13 @@ test_multipleMsgs = do
                       isJust (inboundCompressedSize meta)
                     assertEqual "" compressibleName $
                       resp ^. #message
+
+
+              -- Make sure to wait for the trailers, so that the handler doesn't
+              -- see an unexpected @ClientDisconnected@ exception
               Client.sendEndOfInput call
+              NoMetadata <- Client.recvTrailers call
+              return ()
       }
   where
     req :: Proto HelloRequest
