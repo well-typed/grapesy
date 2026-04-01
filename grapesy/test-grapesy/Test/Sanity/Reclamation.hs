@@ -52,11 +52,13 @@ serverException2 = testClientServer $ ClientServerTest {
         replicateM_ 1000 $
           Client.withConnection params testServer $ \conn ->
             Client.withRPC conn def (Proxy @Ping) $ \call -> do
-
-              -- The only difference between serverException1 is this line:
-              Client.sendFinalInput call defMessage
-
-              resp <- try $ Client.recvFinalOutput call
+              resp <- try $ do
+                -- The only difference between 'serverException1' is this call
+                -- to 'sendFinalInput'. We will probably get the exception when
+                -- we try to /receive/ a message from the server, but we
+                -- sometimes already get it when we /send/.
+                Client.sendFinalInput call defMessage
+                Client.recvFinalOutput call
               case resp of
                 Left GrpcException{} -> return ()
                 Right _ -> assertFailure "Unexpected response"
