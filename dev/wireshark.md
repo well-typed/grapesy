@@ -44,3 +44,49 @@ This is less useful when debugging connectivity issues, of course.
 
   Another symptom of this (especially when the server runs inside Docker) is
   when the client TLS handshake fails with `HandshakeFailed Error_EOF`.
+
+## `tshark`
+
+It is sometimes useful to use a CLI rather than the GUI, especially when there
+are non-deterministic test failures, and we want to repeatedly start and stop
+capture.
+
+* List available interfaces:
+
+  ```
+  dumpcap -D
+  ```
+
+* Capture traffic to and from 50051
+
+  ```
+  dumpcap -i lo -f "port 50051" -w capture.pcapng
+  ```
+
+* Example of repeatedly running a test until failure, capturing each test
+  separately:
+
+  ```bash
+  #!/bin/bash
+
+  for i in $(seq -f "%03g" 1 100)
+  do
+    echo "Test run $i"
+    dumpcap -i lo -f "port 50051" -w capture-$i.pcapng &
+    DUMPCAP=$!
+    cabal run -- test-grapesy -p multipleMsgs
+    TESTRESULT=$?
+    sleep 0.5
+    kill -SIGINT $DUMPCAP
+    if [ $TESTRESULT -ne 0 ]
+    then
+      break
+    fi
+  done
+  ```
+
+  The call to `sleep` is necessary to give `dumpcap` a chance to actually
+  write the packets (I don't know of a cleaner way to do this).
+
+  Note: the tests in the Grapesy test suite use random ports by default; they
+  must be modified before they will use a static port such as 50051.
