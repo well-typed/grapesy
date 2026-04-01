@@ -28,10 +28,10 @@ package grapesy
 --   https://github.com/google/proto-lens/pull/494
 
 -- we vendor packages in the repository; so we can code offline.
-packages: vendor/proto-lens-0.7.1.6.tar.gz
-packages: vendor/proto-lens-protobuf-types-0.7.2.2.tar.gz
-packages: vendor/proto-lens-protoc-0.9.0.0.tar.gz
-packages: vendor/proto-lens-runtime-0.7.0.7.tar.gz
+packages: vendor/proto-lens-0.7.1.7.tar.gz
+packages: vendor/proto-lens-protobuf-types-0.7.2.3.tar.gz
+packages: vendor/proto-lens-protoc-0.9.0.1.tar.gz
+packages: vendor/proto-lens-runtime-0.7.0.8.tar.gz
 
 -- alternatively, you can use source-repository-package,
 -- but then cabal-install wants to clone or update it once in a while.
