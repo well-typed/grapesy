@@ -279,7 +279,7 @@ jobs:
           if [ $((HCNUMVER >= 90200)) -ne 0 ] ; then echo "package garp" >> cabal.project ; fi
           if [ $((HCNUMVER >= 90200)) -ne 0 ] ; then echo "    ghc-options: -Werror=incomplete-patterns -Werror=incomplete-uni-patterns" >> cabal.project ; fi
           cat >> cabal.project <<EOF
-          packages:    $GITHUB_WORKSPACE/source/vendor/proto-lens-0.7.1.6.tar.gz
+          packages:   $GITHUB_WORKSPACE/source/vendor/proto-lens-0.7.1.6.tar.gz
           packages:
             $GITHUB_WORKSPACE/source/vendor/proto-lens-protobuf-types-0.7.2.2.tar.gz
 
@@ -289,15 +289,17 @@ jobs:
           packages:
             $GITHUB_WORKSPACE/source/vendor/proto-lens-runtime-0.7.0.7.tar.gz
 
-          constraints: diagrams-lib==1.4.6.2
-          tests:       True
-          benchmarks:  True
+          tests:      True
+          benchmarks: True
 
           package grpc-spec
             flags: +snappy
 
           package grapesy
             flags: +build-demo +build-stress-test
+
+          if impl ( ghc < 9.4 )
+            constraints: diagrams-lib==1.4.6.2
 
           package grpc-spec
             ghc-options: -Werror
