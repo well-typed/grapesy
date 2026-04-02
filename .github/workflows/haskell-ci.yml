@@ -289,19 +289,15 @@ jobs:
           packages:
             $GITHUB_WORKSPACE/source/vendor/proto-lens-runtime-0.7.0.7.tar.gz
 
-          packages:
-            $GITHUB_WORKSPACE/source/vendor/proto-lens-setup-0.4.0.9.tar.gz
-
           constraints: diagrams-lib==1.4.6.2
+          tests:       True
+          benchmarks:  True
 
           package grpc-spec
-            tests: True
             flags: +snappy
 
           package grapesy
-            tests:      True
-            benchmarks: True
-            flags:      +build-demo +build-stress-test
+            flags: +build-demo +build-stress-test
 
           package grpc-spec
             ghc-options: -Werror

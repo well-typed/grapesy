@@ -11,13 +11,13 @@ import Control.Monad.Catch (throwM)
 import Data.ByteString (ByteString)
 import Data.ByteString.Char8 qualified as C8
 import Data.ProtoLens.Labels ()
+import Data.Time (UTCTime)
 import Text.Read (readMaybe)
 
 import Network.GRPC.Common
 import Network.GRPC.Common.Protobuf
 
 import Proto.Fileserver
-import Data.Time (UTCTime)
 
 {-------------------------------------------------------------------------------
   Metadata
