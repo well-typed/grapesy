@@ -43,4 +43,5 @@ packages: vendor/proto-lens-runtime-0.7.0.7.tar.gz
 --   subdir: proto-lens proto-lens-runtime proto-lens-protoc proto-lens-protobuf-types
 
 -- avoid compilation errors in some dependencies
-constraints: diagrams-lib==1.4.6.2
+if impl(ghc < 9.4)
+  constraints: diagrams-lib==1.4.6.2
