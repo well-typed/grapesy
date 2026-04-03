@@ -13,6 +13,8 @@ import Data.ByteString qualified as BS.Strict
 import Data.ByteString qualified as Strict (ByteString)
 import Data.ByteString.Builder qualified as BS.Builder
 import Data.ByteString.Char8 qualified as BS.Strict.Char8
+import Data.ByteString.Lazy qualified as BS.Lazy
+import Data.ByteString.Lazy qualified as Lazy (ByteString)
 import Data.ByteString.UTF8 qualified as BS.Strict.UTF8
 import Data.String (fromString)
 import Network.HTTP2.Server qualified as HTTP2
@@ -50,14 +52,31 @@ withTestServer server k = do
               }
       k addr
 
--- | Server that responds with the given 'Response', independent of the request
-respondWith :: Response -> (Client.Address -> IO a) -> IO a
-respondWith resp = respondWithIO (return resp)
+-- | Pure version of 'respondWithiO'
+respondWith ::
+     (Lazy.ByteString -> Response)
+  -> (Client.Address -> IO a)
+  -> IO a
+respondWith resp = respondWithIO (return . resp)
 
--- | Version of 'respondWith' that constructs the response
-respondWithIO :: IO Response -> (Client.Address -> IO a) -> IO a
-respondWithIO mkResponse = withTestServer $ \_req _aux respond -> do
-    response <- mkResponse
+-- | Construct a response given the complete request body
+--
+-- NOTE: This does not work for streaming clients!
+respondWithIO ::
+     (Lazy.ByteString -> IO Response)
+  -> (Client.Address -> IO a)
+  -> IO a
+respondWithIO mkResponse = withTestServer $ \req _aux respond -> do
+    let getRequestBody :: [Strict.ByteString] -> IO Lazy.ByteString
+        getRequestBody acc = do
+            (chunk, isFinal) <- HTTP2.getRequestBodyChunk' req
+            let acc' = chunk : acc
+            if isFinal
+              then return $ BS.Lazy.fromChunks (reverse acc')
+              else getRequestBody acc'
+
+    requestBody <- getRequestBody []
+    response <- mkResponse requestBody
     respond (toHTTP2Response response) []
 
 data Response = Response {
@@ -66,6 +85,7 @@ data Response = Response {
     , responseBody     :: Strict.ByteString
     , responseTrailers :: [HTTP.Header]
     }
+  deriving stock (Show)
 
 instance Default Response where
   def = Response {
