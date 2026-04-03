@@ -74,7 +74,7 @@ connParams = def {
 -- We don't test all codes here; we'd just end up duplicating the logic in
 -- 'classifyServerResponse'. We just check one representative value.
 test_statusNon200 :: Assertion
-test_statusNon200 = respondWith response $ \addr -> do
+test_statusNon200 = respondWith (\_reqBody -> response) $ \addr -> do
     mResp :: Either GrpcException (Proto PongMessage) <- try $
       Client.withConnection connParams (Client.ServerInsecure addr) $ \conn ->
         Client.withRPC conn def (Proxy @Ping) $ \call -> do
@@ -93,7 +93,7 @@ test_statusNon200 = respondWith response $ \addr -> do
 
 -- | Ensure that we include the response body for errors, if any
 test_statusNon200Body :: Assertion
-test_statusNon200Body = respondWith response $ \addr -> do
+test_statusNon200Body = respondWith (\_reqBody -> response) $ \addr -> do
     mResp :: Either GrpcException (Proto PongMessage) <- try $
       Client.withConnection connParams (Client.ServerInsecure addr) $ \conn ->
         Client.withRPC conn def (Proxy @Ping) $ \call -> do
@@ -122,7 +122,7 @@ test_statusNon200Body = respondWith response $ \addr -> do
 -------------------------------------------------------------------------------}
 
 test_invalidContentType :: Response -> Assertion
-test_invalidContentType response = respondWith response $ \addr -> do
+test_invalidContentType response = respondWith (\_reqBody -> response) $ \addr -> do
     mResp <- try $
       Client.withConnection connParams (Client.ServerInsecure addr) $ \conn ->
         Client.withRPC conn def (Proxy @Ping) $ \call -> do
@@ -166,7 +166,7 @@ test_missingContentTypeTrailersOnly = test_invalidContentType def {
 -------------------------------------------------------------------------------}
 
 test_omitStatus :: Assertion
-test_omitStatus = respondWith response $ \addr -> do
+test_omitStatus = respondWith (\_reqBody -> response) $ \addr -> do
     mResp :: Either GrpcException
                     (StreamElem NoMetadata (Proto PongMessage)) <- try $
       Client.withConnection connParams (Client.ServerInsecure addr) $ \conn ->
@@ -189,7 +189,7 @@ test_omitStatus = respondWith response $ \addr -> do
         }
 
 test_omitStatusMessage :: Assertion
-test_omitStatusMessage = respondWith response $ \addr -> do
+test_omitStatusMessage = respondWith (\_reqBody -> response) $ \addr -> do
     mResp :: Either GrpcException
                     (StreamElem NoMetadata (Proto PongMessage)) <- try $
       Client.withConnection connParams (Client.ServerInsecure addr) $ \conn ->
@@ -210,7 +210,7 @@ test_omitStatusMessage = respondWith response $ \addr -> do
         }
 
 test_omitAllTrailers :: Assertion
-test_omitAllTrailers = respondWith response $ \addr -> do
+test_omitAllTrailers = respondWith (\_reqBody -> response) $ \addr -> do
     mResp :: Either GrpcException
                     (StreamElem NoMetadata (Proto PongMessage)) <- try $
       Client.withConnection connParams (Client.ServerInsecure addr) $ \conn ->
@@ -240,44 +240,24 @@ test_omitAllTrailers = respondWith response $ \addr -> do
 -------------------------------------------------------------------------------}
 
 test_invalidStatusMessage :: Assertion
-test_invalidStatusMessage = respondWith response $ \addr -> do
-    mResp <- try $
-        Client.withConnection connParams (Client.ServerInsecure addr) $ \conn ->
-          Client.withRPC conn def (Proxy @Ping) $ \call -> do
-            Client.sendFinalInput call defMessage
-            Client.recvOutputWithMeta call
-    checkResponse mResp
+test_invalidStatusMessage = respondWith (\_reqBody -> response) $ \addr -> do
+    mResp :: StreamElem
+               Client.ProperTrailers'
+               (InboundMeta, Proto PongMessage) <-
+      Client.withConnection connParams (Client.ServerInsecure addr) $ \conn ->
+        Client.withRPC conn def (Proxy @Ping) $ \call -> do
+          Client.sendFinalInput call defMessage
+          Client.recvOutputWithMeta call
+    case mResp of
+      NoMoreElems trailers
+        | Left invalid <- Client.properTrailersGrpcMessage trailers
+        , [ (_, headerValue) ] <- invalidHeaders invalid
+        , headerValue == BS.Strict.Char8.pack someInvalidMessage
+        ->
+        return ()
+      _otherwise ->
+        assertFailure $ "Unexpected response: " ++ show mResp
   where
-    checkResponse ::
-         Either SomeException
-                (StreamElem
-                  Client.ProperTrailers'
-                  (InboundMeta, Proto PongMessage))
-      -> Assertion
-    checkResponse (Left e) =
-        -- We might get the exception when calling 'sendFinalInput'
-        checkException e
-    checkResponse (Right streamElem) =
-        -- If we get it through 'recvOutputWithMeta', we should get the
-        -- trailers, and the exact unparsed message, even though it's invalid.
-        case streamElem of
-          NoMoreElems trailers
-            | Left invalid <- Client.properTrailersGrpcMessage trailers
-            , [ (_, headerValue) ] <- invalidHeaders invalid
-            , headerValue == BS.Strict.Char8.pack someInvalidMessage
-            ->
-            return ()
-          _otherwise ->
-            assertFailure $ "Unexpected response: " ++ show streamElem
-
-    checkException :: SomeException -> Assertion
-    checkException e =
-        case fromException e of
-          Just grpcException | grpcError grpcException == GrpcInternal ->
-            return ()
-          _otherwise ->
-            assertFailure $ "Unexpected exception " ++ show e
-
     response :: Response
     response = def {
           responseTrailers = [
@@ -290,7 +270,7 @@ test_invalidStatusMessage = respondWith response $ \addr -> do
     someInvalidMessage = "This is invalid: %X"
 
 test_invalidRequestMetadata :: Assertion
-test_invalidRequestMetadata = respondWith response $ \addr -> do
+test_invalidRequestMetadata = respondWith (\_reqBody -> response) $ \addr -> do
     mResp :: Either
                (Client.TrailersOnly'    HandledSynthesized)
                (Client.ResponseHeaders' HandledSynthesized) <-
@@ -325,7 +305,7 @@ test_invalidRequestMetadata = respondWith response $ \addr -> do
     someInvalidMetadata = "This is invalid: 你好"
 
 test_invalidTrailerMetadata :: Assertion
-test_invalidTrailerMetadata = respondWith response $ \addr -> do
+test_invalidTrailerMetadata = respondWith (\_reqBody -> response) $ \addr -> do
     mResp :: StreamElem
                Client.ProperTrailers'
                (InboundMeta, Proto PongMessage) <-
@@ -418,7 +398,7 @@ test_undefinedOutput = do
 --
 -- See also <https://github.com/well-typed/grapesy/issues/221>.
 test_serverIgnoresTimeout :: Assertion
-test_serverIgnoresTimeout = respondWithIO response $ \addr -> do
+test_serverIgnoresTimeout = respondWithIO (\_reqBody -> response) $ \addr -> do
     mResp :: Either GrpcException
                     (StreamElem NoMetadata (Proto PongMessage)) <- try $
       Client.withConnection connParams (Client.ServerInsecure addr) $ \conn ->
