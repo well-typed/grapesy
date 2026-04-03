@@ -55,13 +55,13 @@ server v config = handle swallowInterruptOrKilled $ do
 handlers :: Bool -> IORef String -> [SomeRpcHandler IO]
 handlers v idRef = [
       someRpcHandler @(Trivial' "non-streaming") $
-        mkRpcHandler $ clientDisconnectOkay . nonStreaming
+        mkRpcHandler $ wrapHandler nonStreaming
     , someRpcHandler @(Trivial' "server-streaming") $
-        mkRpcHandler $ clientDisconnectOkay . serverStreaming
+        mkRpcHandler $ wrapHandler serverStreaming
     , someRpcHandler @(Trivial' "client-streaming") $
-        mkRpcHandler $ clientDisconnectOkay . clientStreaming
+        mkRpcHandler $ wrapHandler clientStreaming
     , someRpcHandler @(Trivial' "bidi-streaming") $
-        mkRpcHandler $ clientDisconnectOkay . bidiStreaming
+        mkRpcHandler $ wrapHandler bidiStreaming
     ]
   where
     -- Single message from client, single message from server
@@ -111,8 +111,12 @@ handlers v idRef = [
         sendFinalOutput call (msg, NoMetadata)
         say' $ "sent and received final messages for bidi streaming call"
 
-    clientDisconnectOkay :: IO () -> IO ()
-    clientDisconnectOkay =
+    wrapHandler :: (Call rpc -> IO ()) -> (Call rpc -> IO ())
+    wrapHandler handler call = do
+        whitelistExceptions $ handler call
+
+    whitelistExceptions :: IO () -> IO ()
+    whitelistExceptions =
         handle $ \ClientDisconnected{} ->
           say' "client disconnected"
 

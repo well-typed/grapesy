@@ -2,12 +2,14 @@
 
 module Main (main) where
 
+import Control.Concurrent
 import Control.Exception
 import GHC.Conc (setUncaughtExceptionHandler)
-import System.IO.Temp (writeSystemTempFile)
-import Text.Show.Pretty (dumpStr)
+import GHC.Conc.Sync (threadLabel)
 import System.Environment (lookupEnv)
 import System.Exit (exitSuccess)
+import System.IO.Temp (writeSystemTempFile)
+import Text.Show.Pretty (dumpStr)
 
 #if defined(PROFILING) && MIN_VERSION_base(4,20,0)
 import Control.Exception.Backtrace
@@ -28,6 +30,8 @@ import Test.Stress.Server
 
 main :: IO ()
 main = do
+    mainThread <- myThreadId
+
     lookupEnv "GITHUB_ACTIONS" >>= \case
       Just "true" -> do
         putStrLn "Not running stress tests on GitHub Actions"
@@ -43,7 +47,7 @@ main = do
     say (optsTracing cmdGlobalOpts) $
       "parsed command-line options: " ++ show cmdline
 
-    setUncaughtExceptionHandler $ handleUncaughtExceptions cmdline
+    setUncaughtExceptionHandler $ handleUncaughtExceptions mainThread cmdline
 
     case cmdRole of
       Client{..} ->
@@ -64,11 +68,26 @@ main = do
           driverWorkingDir
           driverDuration
 
-handleUncaughtExceptions :: Cmdline -> SomeException -> IO ()
-handleUncaughtExceptions cmdline e = do
+handleUncaughtExceptions :: ThreadId -> Cmdline -> SomeException -> IO ()
+handleUncaughtExceptions mainThread cmdline e = do
+    myId    <- myThreadId
+    myLabel <- threadLabel myId
+
+    let isMainThread :: Bool
+        isMainThread = myId == mainThread
+
+        header :: String
+        header =
+            case (isMainThread, myLabel) of
+              (True, _)        -> "main thread"
+              (False, Just l)  -> "aux thread " ++ show myId ++ ": " ++ l
+              (False, Nothing) -> "aux thread " ++ show myId
+
     fp <- writeSystemTempFile "test-stress" $ unlines [
-        dumpStr cmdline
+        header
+      , dumpStr cmdline
+        -- TODO: for ghc >= 9.12, use displayExceptionWithInfo
       , displayException e
       ]
-    putStrLn $ "Abnormal termination. See " ++ show fp
+    putStrLn $ "Uncaught exception in " ++ header ++ ". See " ++ show fp
 

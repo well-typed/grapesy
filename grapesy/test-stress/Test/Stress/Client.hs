@@ -7,7 +7,6 @@ import Control.Concurrent.Async
 import Control.Exception
 import Control.Monad
 import Data.ByteString.Lazy.Char8 qualified as BS.Char8
-import GHC.IO.Exception
 import Network.HTTP2.Client (HTTP2Error(..))
 import Network.Socket
 import Network.TLS (TLSException(..))
@@ -82,7 +81,7 @@ runCalls v mServerValidation serverPort compr callNum (connNum, calls) = do
                 maxBound
 
           }
-    allowCertainFailures $
+    whitelistExceptions $
       withConnection connParams server $ \conn ->
         replicateM_ callNum $ mapM_ (runCall v serverPort conn) calls
   where
@@ -101,24 +100,26 @@ runCalls v mServerValidation serverPort compr callNum (connNum, calls) = do
           Nothing ->
             ServerInsecure addr
 
-    allowCertainFailures :: IO () -> IO ()
-    allowCertainFailures =
+    -- Server disconnect can materialize in various ways
+    whitelistExceptions :: IO () -> IO ()
+    whitelistExceptions =
       handle $ \case
         e | Just ServerDisconnected{} <- fromException e ->
-          say' v serverPort $ "server disconnected: " ++ show e
-          | Just IOError{} <- fromException e ->
-          say' v serverPort "failed to connect"
-          | Just ConnectionIsTimeout <- fromException e ->
-          say' v serverPort "got ConnectionIsTimeout"
-          | Just BadThingHappen{} <- fromException e ->
-          say' v serverPort "got BadThingHappen"
+              say' v serverPort (displayException e)
+          | Just ConnectionIsClosed <- fromException e ->
+              say' v serverPort (displayException e)
+          | Just GrpcException{grpcError} <- fromException e, grpcError == GrpcUnknown ->
+              -- "Call closed without trailers"
+              say' v serverPort (displayException e)
           | Just HandshakeFailed{} <- fromException e ->
-          say' v serverPort "got HandshakeFailed"
+              say' v serverPort (displayException e)
+          | Just BadThingHappen{} <- fromException e ->
+              say' v serverPort (displayException e)
           | Just BlockedIndefinitelyOnSTM{} <- fromException e ->
-          say' v serverPort "got BlockedIndefinitelyOnSTM"
+              say' v serverPort (displayException e)
           | otherwise -> do
-          say' v serverPort $ "got exception: " ++ displayException e
-          throwIO e
+              say' v serverPort $ "got exception: " ++ displayException e
+              throwIO e
 
     msg :: String
     msg =
