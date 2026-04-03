@@ -241,43 +241,23 @@ test_omitAllTrailers = respondWith response $ \addr -> do
 
 test_invalidStatusMessage :: Assertion
 test_invalidStatusMessage = respondWith response $ \addr -> do
-    mResp <- try $
-        Client.withConnection connParams (Client.ServerInsecure addr) $ \conn ->
-          Client.withRPC conn def (Proxy @Ping) $ \call -> do
-            Client.sendFinalInput call defMessage
-            Client.recvOutputWithMeta call
-    checkResponse mResp
+    mResp :: StreamElem
+               Client.ProperTrailers'
+               (InboundMeta, Proto PongMessage) <-
+      Client.withConnection connParams (Client.ServerInsecure addr) $ \conn ->
+        Client.withRPC conn def (Proxy @Ping) $ \call -> do
+          Client.sendFinalInput call defMessage
+          Client.recvOutputWithMeta call
+    case mResp of
+      NoMoreElems trailers
+        | Left invalid <- Client.properTrailersGrpcMessage trailers
+        , [ (_, headerValue) ] <- invalidHeaders invalid
+        , headerValue == BS.Strict.Char8.pack someInvalidMessage
+        ->
+        return ()
+      _otherwise ->
+        assertFailure $ "Unexpected response: " ++ show mResp
   where
-    checkResponse ::
-         Either SomeException
-                (StreamElem
-                  Client.ProperTrailers'
-                  (InboundMeta, Proto PongMessage))
-      -> Assertion
-    checkResponse (Left e) =
-        -- We might get the exception when calling 'sendFinalInput'
-        checkException e
-    checkResponse (Right streamElem) =
-        -- If we get it through 'recvOutputWithMeta', we should get the
-        -- trailers, and the exact unparsed message, even though it's invalid.
-        case streamElem of
-          NoMoreElems trailers
-            | Left invalid <- Client.properTrailersGrpcMessage trailers
-            , [ (_, headerValue) ] <- invalidHeaders invalid
-            , headerValue == BS.Strict.Char8.pack someInvalidMessage
-            ->
-            return ()
-          _otherwise ->
-            assertFailure $ "Unexpected response: " ++ show streamElem
-
-    checkException :: SomeException -> Assertion
-    checkException e =
-        case fromException e of
-          Just grpcException | grpcError grpcException == GrpcInternal ->
-            return ()
-          _otherwise ->
-            assertFailure $ "Unexpected exception " ++ show e
-
     response :: Response
     response = def {
           responseTrailers = [
