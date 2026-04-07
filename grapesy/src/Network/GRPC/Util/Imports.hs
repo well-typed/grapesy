@@ -24,7 +24,7 @@ import Data.Proxy as X (Proxy (..))
 import Data.Text as X (Text)
 import Data.Void as X (Void, absurd)
 import GHC.Generics as X (Generic)
-import GHC.Stack as X (HasCallStack, CallStack, callStack)
+import GHC.Stack as X (HasCallStack, callStack)
 import GHC.TypeLits as X (Symbol)
 
 -- from grpc-spec

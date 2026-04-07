@@ -38,22 +38,22 @@ import Control.Monad.Catch
 import Data.ByteString.Char8 qualified as BS.Strict.C8
 import Data.Foldable (asum)
 import Data.Text qualified as Text
-import GHC.Stack
 
 import Network.GRPC.Client.Connection (Connection, ConnParams(..))
 import Network.GRPC.Client.Connection qualified as Connection
 import Network.GRPC.Client.Session
-import Network.GRPC.Common.StreamElem (StreamElem(..))
-import Network.GRPC.Common.ProtocolException
-import Network.GRPC.Util.Session.Channel (ChannelDiscarded (..))
 import Network.GRPC.Common.Compression qualified as Compression
+import Network.GRPC.Common.ProtocolException
+import Network.GRPC.Common.StreamElem (StreamElem(..))
 import Network.GRPC.Common.StreamElem qualified as StreamElem
 import Network.GRPC.Spec.Util.HKD qualified as HKD
+import Network.GRPC.Util.Backtrace
 import Network.GRPC.Util.GHC
-import Network.GRPC.Util.Stream (ServerDisconnected(..))
 import Network.GRPC.Util.Session.API qualified as Session
+import Network.GRPC.Util.Session.Channel (ChannelDiscarded (..))
 import Network.GRPC.Util.Session.Channel qualified as Session
 import Network.GRPC.Util.Session.Client qualified as Session
+import Network.GRPC.Util.Stream (ServerDisconnected(..))
 import Network.GRPC.Util.Thread qualified as Thread
 
 import Network.GRPC.Util.Version qualified as Grapesy
@@ -235,13 +235,14 @@ startRPC conn _ callParams = do
       case status of
         Left _ -> return () -- Channel closed before the connection
         Right mErr -> do
+          backtrace <- collectBacktraces
           let exitReason :: ExitCase ()
               exitReason =
                 case mErr of
                   Nothing -> ExitCaseSuccess ()
                   Just exitWithException ->
                     ExitCaseException . toException $
-                      ServerDisconnected exitWithException callStack
+                      ServerDisconnected exitWithException backtrace
           _mAlreadyClosed <- Session.close channel exitReason
           return ()
 
@@ -366,7 +367,8 @@ closeRPC callChannel cancelRequest exitCase = liftIO $ do
   where
     -- Send a @RST_STREAM@ frame if necessary
     sendResetFrame :: IO ()
-    sendResetFrame =
+    sendResetFrame = do
+        backtrace <- collectBacktraces
         cancelRequest $
           case exitCase of
             ExitCaseSuccess _ ->
@@ -378,18 +380,18 @@ closeRPC callChannel cancelRequest exitCase = liftIO $ do
               -- that something has gone wrong (i.e. INTERNAL_ERROR), so we must
               -- pass an exception, however the exact nature of the exception is
               -- not particularly important as it is only recorded locally.
-              Just . toException $ Session.ChannelAborted callStack
+              Just . toException $ Session.ChannelAborted backtrace
             ExitCaseException e ->
               -- Error code will be INTERNAL_ERROR
               Just e
 
     throwCancelled :: ChannelDiscarded -> IO ()
-    throwCancelled (ChannelDiscarded cs) = do
+    throwCancelled (ChannelDiscarded backtrace) = do
         throwM $ GrpcException {
             grpcError         = GrpcCancelled
           , grpcErrorMessage  = Just $ mconcat [
                                     "Channel discarded by client at "
-                                  , Text.pack $ prettyCallStack cs
+                                  , Text.pack $ show backtrace
                                   ]
           , grpcErrorDetails  = Nothing
           , grpcErrorMetadata = []

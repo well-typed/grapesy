@@ -145,6 +145,7 @@ library
       Network.GRPC.Util.TLS
       Network.GRPC.Util.HeaderTable
       Network.GRPC.Util.Version
+      Network.GRPC.Util.Backtrace
 
   build-depends:
     , aeson                     >= 1.5     && < 2.3

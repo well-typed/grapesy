@@ -21,9 +21,10 @@ import System.ThreadManager (KilledByThreadManager(..))
 
 import Network.GRPC.Server.Call
 import Network.GRPC.Server.Context
+import Network.GRPC.Util.Backtrace
 import Network.GRPC.Util.GHC
-import Network.GRPC.Util.Stream (ClientDisconnected(..))
 import Network.GRPC.Util.Session.Channel qualified as Session
+import Network.GRPC.Util.Stream (ClientDisconnected(..))
 
 {-------------------------------------------------------------------------------
   Handlers
@@ -235,13 +236,14 @@ waitForHandler unmask call handlerThread = loop
     handleException :: SomeException -> IO ()
     handleException err
       | Just (KilledByThreadManager mErr) <- fromException err = do
+          backtrace <- collectBacktraces
           let exitReason :: ExitCase ()
               exitReason =
                 case mErr of
                   Nothing -> ExitCaseSuccess ()
                   Just exitWithException ->
                     ExitCaseException . toException $
-                      ClientDisconnected exitWithException callStack
+                      ClientDisconnected exitWithException backtrace
           ignoreUncleanClose call exitReason
           loop
 

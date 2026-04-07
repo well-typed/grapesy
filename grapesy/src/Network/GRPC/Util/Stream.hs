@@ -13,11 +13,12 @@ module Network.GRPC.Util.Stream (
   , wrapStreamExceptionsWith
   ) where
 
-import Network.GRPC.Util.Imports
-
 import Data.Binary.Builder (Builder)
 import Data.ByteString qualified as Strict (ByteString)
 import Network.HTTP.Types qualified as HTTP
+
+import Network.GRPC.Util.Backtrace
+import Network.GRPC.Util.Imports
 
 {-------------------------------------------------------------------------------
   Streams
@@ -70,7 +71,7 @@ getTrailers = _getTrailers
 -- record more information.
 data ClientDisconnected = ClientDisconnected {
       clientDisconnectedException :: SomeException
-    , clientDisconnectedCallStack :: CallStack
+    , clientDisconnectedCallStack :: Backtraces
     }
   deriving stock (Show)
   deriving anyclass (Exception)
@@ -80,15 +81,16 @@ data ClientDisconnected = ClientDisconnected {
 -- See comments for 'ClientDisconnected' on how to catch this exception.
 data ServerDisconnected = ServerDisconnected {
       serverDisconnectedException :: SomeException
-    , serverDisconnectedCallstack :: CallStack
+    , serverDisconnectedCallstack :: Backtraces
     }
   deriving stock (Show)
   deriving anyclass (Exception)
 
 wrapStreamExceptionsWith ::
      (HasCallStack, Exception e)
-  => (SomeException -> CallStack -> e)
+  => (SomeException -> Backtraces -> e)
   -> IO a -> IO a
 wrapStreamExceptionsWith f action =
-    action `catch` \err ->
-      throwIO $ f err callStack
+    action `catch` \err -> do
+      backtraces <- collectBacktraces
+      throwIO $ f err backtraces

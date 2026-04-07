@@ -30,9 +30,9 @@ import Control.Concurrent.STM (STM, atomically, retry, throwSTM)
 import Control.Concurrent.STM.TVar (TVar, newTVarIO, readTVar, readTVarIO, writeTVar, modifyTVar)
 import Control.Exception (mask_)
 import Foreign (newStablePtr, freeStablePtr)
-import GHC.Stack (popCallStack)
 import System.IO.Unsafe (unsafePerformIO)
 
+import Network.GRPC.Util.Backtrace
 import Network.GRPC.Util.GHC
 
 {-------------------------------------------------------------------------------
@@ -45,7 +45,7 @@ import Network.GRPC.Util.GHC
 -- but just enable us to distinguish one thread from another.
 data DebugThreadId = DebugThreadId {
       debugThreadId        :: Word
-    , debugThreadCreatedAt :: CallStack
+    , debugThreadCreatedAt :: Backtraces
     }
   deriving stock (Show)
 
@@ -54,20 +54,14 @@ nextDebugThreadId :: MVar Word
 nextDebugThreadId = unsafePerformIO $ newMVar 0
 
 newDebugThreadId :: HasCallStack => IO DebugThreadId
-newDebugThreadId =
+newDebugThreadId = do
+    backtrace <- collectBacktraces
     modifyMVar nextDebugThreadId $ \x -> do
       let !nextId = succ x
       return (
           nextId
-        , DebugThreadId x (popIrrelevant callStack)
+        , DebugThreadId x backtrace
         )
-  where
-    -- Pop off the call to 'newDebugThreadId'
-    --
-    -- We leave the call to 'newThreadState' on the stack because it is useful
-    -- to know where that was called /from/.
-    popIrrelevant :: CallStack -> CallStack
-    popIrrelevant = popCallStack
 
 {-------------------------------------------------------------------------------
   State
