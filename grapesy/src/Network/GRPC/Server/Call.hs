@@ -49,13 +49,14 @@ import Control.Concurrent.STM.TMVar (TMVar, putTMVar, tryPutTMVar, tryReadTMVar,
 import Network.HTTP.Types qualified as HTTP
 import Network.HTTP.Semantics.Server qualified as Server
 
-import Network.GRPC.Common.ProtocolException
-import Network.GRPC.Common.StreamElem (StreamElem(..))
 import Network.GRPC.Common.Compression qualified as Compr
 import Network.GRPC.Common.Headers
+import Network.GRPC.Common.ProtocolException
+import Network.GRPC.Common.StreamElem (StreamElem(..))
 import Network.GRPC.Common.StreamElem qualified as StreamElem
 import Network.GRPC.Server.Context
 import Network.GRPC.Server.Session
+import Network.GRPC.Util.Backtrace
 import Network.GRPC.Util.HeaderTable (fromHeaderTable)
 import Network.GRPC.Util.Session.API qualified as Session
 import Network.GRPC.Util.Session.Channel qualified as Session
@@ -102,8 +103,8 @@ data CallInitialMetadata rpc =
 
     -- | Initial metadata has been set
     --
-    -- We record the 'CallStack' of where the metadata was set.
-  | CallInitialMetadataSet (ResponseInitialMetadata rpc) CallStack
+    -- We record the backtrace of where the metadata was set.
+  | CallInitialMetadataSet (ResponseInitialMetadata rpc) Backtraces
 
 deriving stock instance IsRPC rpc => Show (CallInitialMetadata rpc)
 
@@ -122,15 +123,15 @@ deriving stock instance IsRPC rpc => Show (CallInitialMetadata rpc)
 -- We only need distinguish between (1 or 2) versus (3), corresponding precisely
 -- to the two constructors of 'FlowStart'.
 --
--- We record the 'CallStack' of the call that initiated the response.
+-- We record the backtrace of the call that initiated the response.
 data Kickoff =
-    KickoffRegular      CallStack
-  | KickoffTrailersOnly CallStack TrailersOnly
+    KickoffRegular      Backtraces
+  | KickoffTrailersOnly Backtraces TrailersOnly
   deriving (Show)
 
-kickoffCallStack :: Kickoff -> CallStack
-kickoffCallStack (KickoffRegular      cs  ) = cs
-kickoffCallStack (KickoffTrailersOnly cs _) = cs
+kickoffBacktrace :: Kickoff -> Backtraces
+kickoffBacktrace (KickoffRegular      backtrace  ) = backtrace
+kickoffBacktrace (KickoffTrailersOnly backtrace _) = backtrace
 
 {-------------------------------------------------------------------------------
   Open a call
@@ -238,7 +239,7 @@ startOutbound serverParams metadataVar kickoffVar cOut = do
     -- Session start
     flowStart :: Session.FlowStart (ServerOutbound rpc) <-
       case kickoff of
-        KickoffRegular _cs -> do
+        KickoffRegular _backtrace -> do
           -- Get response metadata (see 'setResponseMetadata')
           --
           -- It is important we do this only for 'KickoffRegular', because the
@@ -251,8 +252,10 @@ startOutbound serverParams metadataVar kickoffVar cOut = do
           responseMetadata <- do
             mMetadata <- atomically $ readTVar metadataVar
             case mMetadata of
-              CallInitialMetadataSet md _cs -> buildMetadataIO md
-              CallInitialMetadataNotSet     -> throwIO ResponseInitialMetadataNotSet
+              CallInitialMetadataSet md _backtrace ->
+                buildMetadataIO md
+              CallInitialMetadataNotSet ->
+                throwIO ResponseInitialMetadataNotSet
 
           return $ Session.FlowStartRegular $ OutboundHeaders {
               outHeaders = ResponseHeaders {
@@ -269,7 +272,7 @@ startOutbound serverParams metadataVar kickoffVar cOut = do
                 }
             , outCompression = cOut
             }
-        KickoffTrailersOnly _cs trailers ->
+        KickoffTrailersOnly _backtrace trailers ->
           return $ Session.FlowStartNoMessages trailers
 
     return (flowStart, buildResponseInfo flowStart)
@@ -517,13 +520,19 @@ setResponseInitialMetadata ::
 setResponseInitialMetadata Call{ callResponseMetadata
                                , callResponseKickoff
                                }
-                           md = atomically $ do
-    mKickoff <- fmap kickoffCallStack <$> tryReadTMVar callResponseKickoff
-    case mKickoff of
-      Nothing ->
-        writeTVar callResponseMetadata (CallInitialMetadataSet md callStack)
-      Just cs ->
-        throwSTM $ ResponseAlreadyInitiated cs callStack
+                           md = do
+    newBacktrace <- collectBacktraces
+    atomically $ do
+      mKickoff  <- fmap kickoffBacktrace <$> tryReadTMVar callResponseKickoff
+      case mKickoff of
+        Nothing ->
+          writeTVar callResponseMetadata $
+            CallInitialMetadataSet md newBacktrace
+        Just oldBacktrace ->
+          throwSTM $ ResponseAlreadyInitiated {
+              responseInitiatedFirst = oldBacktrace
+            , responseInitiatedAgain = newBacktrace
+            }
 
 {-------------------------------------------------------------------------------
   Low-level API
@@ -538,8 +547,9 @@ setResponseInitialMetadata Call{ callResponseMetadata
 -- headers, or trailers in the case of 'sendTrailersOnly', have already been
 -- sent).
 initiateResponse :: HasCallStack => Call rpc -> IO ()
-initiateResponse Call{callResponseKickoff} = void $
-    atomically $ tryPutTMVar callResponseKickoff $ KickoffRegular callStack
+initiateResponse Call{callResponseKickoff} = void $ do
+    backtrace <- collectBacktraces
+    atomically $ tryPutTMVar callResponseKickoff $ KickoffRegular backtrace
 
 -- | Use the gRPC @Trailers-Only@ case for non-error responses
 --
@@ -567,13 +577,18 @@ sendTrailersOnly ::
      HasCallStack
   => Call rpc -> ResponseTrailingMetadata rpc -> IO ()
 sendTrailersOnly Call{callContext, callResponseKickoff} metadata = do
-    metadata' <- buildMetadataIO metadata
+    metadata'    <- buildMetadataIO metadata
+    newBacktrace <- collectBacktraces
     atomically $ do
-      previously <- fmap kickoffCallStack <$> tryReadTMVar callResponseKickoff
+      previously <- fmap kickoffBacktrace <$> tryReadTMVar callResponseKickoff
       case previously of
-        Nothing -> putTMVar callResponseKickoff $
-                     KickoffTrailersOnly callStack (trailers metadata')
-        Just cs -> throwSTM $ ResponseAlreadyInitiated cs callStack
+        Nothing ->
+          putTMVar callResponseKickoff $
+            KickoffTrailersOnly newBacktrace (trailers metadata')
+        Just oldBacktrace -> throwSTM $ ResponseAlreadyInitiated {
+            responseInitiatedFirst = oldBacktrace
+          , responseInitiatedAgain = newBacktrace
+          }
   where
     ServerContext{serverParams} = callContext
 
@@ -689,11 +704,12 @@ recvEndOfInput call@Call{} = do
 sendProperTrailers :: Call rpc -> ProperTrailers -> IO ()
 sendProperTrailers Call{callContext, callResponseKickoff, callChannel}
                    trailers = do
+    backtrace <- collectBacktraces
     updated <-
       atomically $
         tryPutTMVar callResponseKickoff $
           KickoffTrailersOnly
-            callStack
+            backtrace
             ( properTrailersToTrailersOnly (
                 trailers
               , serverContentType serverParams
@@ -761,10 +777,10 @@ data HandlerTerminated = HandlerTerminated
 
 data ResponseAlreadyInitiated = ResponseAlreadyInitiated {
       -- | When was the response first initiated?
-      responseInitiatedFirst :: CallStack
+      responseInitiatedFirst :: Backtraces
 
       -- | Where did we attempt to initiate the response a second time?
-    , responseInitiatedAgain :: CallStack
+    , responseInitiatedAgain :: Backtraces
     }
   deriving stock (Show)
   deriving anyclass (Exception)

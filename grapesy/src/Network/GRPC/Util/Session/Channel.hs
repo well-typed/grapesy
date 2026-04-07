@@ -51,9 +51,10 @@ import Network.GRPC.Common.StreamElem (StreamElem(..))
 import Network.GRPC.Common.StreamElem qualified as StreamElem
 import Network.GRPC.Spec.Util.Parser (Parser)
 import Network.GRPC.Spec.Util.Parser qualified as Parser
-import Network.GRPC.Util.Stream
+import Network.GRPC.Util.Backtrace
 import Network.GRPC.Util.RedundantConstraint
 import Network.GRPC.Util.Session.API
+import Network.GRPC.Util.Stream
 import Network.GRPC.Util.Thread
 
 {-------------------------------------------------------------------------------
@@ -94,7 +95,7 @@ data Channel sess = Channel {
       -- The sole purpose of this 'TVar' is catching user mistakes: if there is
       -- another 'send' after the final message, we can throw an exception,
       -- rather than the message simply being lost or blockng indefinitely.
-    , channelSentFinal :: TVar (Maybe CallStack)
+    , channelSentFinal :: TVar (Maybe Backtraces)
 
       -- | Have we received the final message?
       --
@@ -112,7 +113,7 @@ data RecvFinal flow =
   | RecvWithoutTrailers (Trailers flow)
 
     -- | We delivered the final message and the trailers
-  | RecvFinal CallStack
+  | RecvFinal Backtraces
 
 -- | Data flow state
 data FlowState flow =
@@ -239,13 +240,15 @@ send :: forall sess.
   -> IO ()
 send Channel{channelOutbound, channelSentFinal} = \msg -> do
     msg' <- evaluate $ force <$> msg
-    withThreadInterface channelOutbound $ aux msg'
+    backtrace <- collectBacktraces
+    withThreadInterface channelOutbound $ aux backtrace msg'
   where
     aux ::
-         StreamElem (Trailers (Outbound sess)) (Message (Outbound sess))
+         Backtraces
+      -> StreamElem (Trailers (Outbound sess)) (Message (Outbound sess))
       -> FlowState (Outbound sess)
       -> STM ()
-    aux msg st = do
+    aux backtrace msg st = do
         -- By checking that we haven't sent the final message yet, we know that
         -- this call to 'putMVar' will not block indefinitely: the thread that
         -- sends messages to the peer will get to it eventually (unless it dies,
@@ -258,7 +261,7 @@ send Channel{channelOutbound, channelSentFinal} = \msg -> do
         case st of
           FlowStateRegular regular -> do
             StreamElem.whenDefinitelyFinal msg $ \_trailers ->
-              writeTVar channelSentFinal $ Just callStack
+              writeTVar channelSentFinal $ Just backtrace
 
             putTMVar (flowMsg regular) msg
           FlowStateNoMessages _ ->
@@ -323,13 +326,15 @@ recv' :: forall sess b.
 recv' messageWithoutTrailers
       trailersWithoutMessage
       messageWithTrailers
-      Channel{channelInbound, channelRecvFinal} =
-    withThreadInterface channelInbound aux
+      Channel{channelInbound, channelRecvFinal} = do
+    backtrace <- collectBacktraces
+    withThreadInterface channelInbound $ aux backtrace
   where
     aux ::
-         FlowState (Inbound sess)
+         Backtraces
+      -> FlowState (Inbound sess)
       -> STM (Either (NoMessages (Inbound sess)) b)
-    aux st = do
+    aux backtrace st = do
         -- By checking that we haven't received the final message yet, we know
         -- that this call to 'takeTMVar' will not block indefinitely: the thread
         -- that receives messages from the peer will get to it eventually
@@ -349,28 +354,28 @@ recv' messageWithoutTrailers
                   FinalElem msg trailers -> do
                     let (b, mTrailers) = messageWithTrailers (msg, trailers)
                     writeTVar channelRecvFinal $
-                      maybe (RecvFinal callStack) RecvWithoutTrailers mTrailers
+                      maybe (RecvFinal backtrace) RecvWithoutTrailers mTrailers
                     return $ b
                   NoMoreElems trailers -> do
-                    writeTVar channelRecvFinal $ RecvFinal callStack
+                    writeTVar channelRecvFinal $ RecvFinal backtrace
                     return $ trailersWithoutMessage trailers
               FlowStateNoMessages trailers -> do
-                writeTVar channelRecvFinal $ RecvFinal callStack
+                writeTVar channelRecvFinal $ RecvFinal backtrace
                 return $ Left trailers
           RecvWithoutTrailers trailers -> do
-            writeTVar channelRecvFinal $ RecvFinal callStack
+            writeTVar channelRecvFinal $ RecvFinal backtrace
             return $ Right $ trailersWithoutMessage trailers
           RecvFinal cs ->
             throwSTM $ RecvAfterFinal cs
 
 -- | Thrown by 'send'
 --
--- The 'CallStack' is the callstack of the final call to 'send'.
---
 -- See 'send' for additional discussion.
 data SendAfterFinal =
     -- | Call to 'send' after the final message was sent
-    SendAfterFinal CallStack
+    --
+    -- We record the backtrace of final call to 'send'.
+    SendAfterFinal Backtraces
 
     -- | Call to 'send', but we are in the Trailers-Only case
   | SendButTrailersOnly
@@ -379,12 +384,13 @@ data SendAfterFinal =
 
 -- | Thrown by 'recv'
 --
--- The 'CallStack' is the callstack of the final call to 'recv'.
 --
 -- See 'recv' for additional discussion.
 data RecvAfterFinal =
      -- | Call to 'recv' after the final message was already received
-     RecvAfterFinal CallStack
+     --
+     -- We record the backtrace of final call to 'recv'.
+     RecvAfterFinal Backtraces
   deriving stock (Show)
   deriving anyclass (Exception)
 
@@ -427,6 +433,14 @@ close ::
   -> ExitCase a    -- ^ The reason why the channel is being closed
   -> IO (Maybe SomeException)
 close Channel{channelOutbound} reason = do
+    backtrace <- collectBacktraces
+    let channelClosed :: SomeException
+        channelClosed =
+            case reason of
+              ExitCaseSuccess _   -> toException $ ChannelDiscarded backtrace
+              ExitCaseAbort       -> toException $ ChannelAborted   backtrace
+              ExitCaseException e -> e
+
     -- We leave the inbound thread running. Although the channel is closed,
     -- there might still be unprocessed messages in the queue. The inbound
     -- thread will terminate once it reaches the end of the queue.
@@ -440,19 +454,12 @@ close Channel{channelOutbound} reason = do
       Cancelled ->
         -- Proper procedure for outbound messages was not followed
         return $ Just channelClosed
-  where
-    channelClosed :: SomeException
-    channelClosed =
-        case reason of
-          ExitCaseSuccess _   -> toException $ ChannelDiscarded callStack
-          ExitCaseAbort       -> toException $ ChannelAborted   callStack
-          ExitCaseException e -> e
 
 -- | Channel was closed because it was discarded
 --
 -- This typically corresponds to leaving the scope of 'runHandler' or
 -- 'withRPC' (without throwing an exception).
-data ChannelDiscarded = ChannelDiscarded CallStack
+data ChannelDiscarded = ChannelDiscarded Backtraces
   deriving stock (Show)
   deriving anyclass (Exception)
 
@@ -460,7 +467,7 @@ data ChannelDiscarded = ChannelDiscarded CallStack
 --
 -- This will only be used in monad stacks that have error mechanisms other
 -- than exceptions.
-data ChannelAborted = ChannelAborted CallStack
+data ChannelAborted = ChannelAborted Backtraces
   deriving stock (Show)
   deriving anyclass (Exception)
 
