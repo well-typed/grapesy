@@ -257,7 +257,9 @@ exponentialBackoff ::
   -> Double
      -- ^ Exponent
   -> (Double, Double)
-     -- ^ Initial delay
+     -- ^ Initial delay (in seconds) will be chosen randomly from this range;
+     -- the exponent will be applied to these bounds each iteration,
+     -- and a new delay will be chosen from the new range.
   -> Word
      -- ^ Maximum number of attempts
   -> ReconnectPolicy
