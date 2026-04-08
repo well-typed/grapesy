@@ -47,11 +47,11 @@ import Network.HTTP.Semantics qualified as HTTP.Semantics (
   , NextTrailersMaker(..)
   )
 
+import Network.GRPC.Common.Exception
 import Network.GRPC.Common.StreamElem (StreamElem(..))
 import Network.GRPC.Common.StreamElem qualified as StreamElem
 import Network.GRPC.Spec.Util.Parser (Parser)
 import Network.GRPC.Spec.Util.Parser qualified as Parser
-import Network.GRPC.Util.Backtrace
 import Network.GRPC.Util.RedundantConstraint
 import Network.GRPC.Util.Session.API
 import Network.GRPC.Util.Stream
@@ -401,8 +401,8 @@ data RecvAfterFinal =
 -- | Wait for the outbound thread to terminate
 --
 -- See 'close' for discussion.
-waitForOutbound :: Channel sess -> IO ()
-waitForOutbound Channel{channelOutbound} = atomically $
+waitForOutbound :: HasCallStack => Channel sess -> IO ()
+waitForOutbound Channel{channelOutbound} =
     waitForNormalThreadTermination channelOutbound
 
 -- | Close the channel
@@ -431,11 +431,11 @@ close ::
      HasCallStack
   => Channel sess
   -> ExitCase a    -- ^ The reason why the channel is being closed
-  -> IO (Maybe SomeException)
+  -> IO (Maybe ExactException)
 close Channel{channelOutbound} reason = do
     backtrace <- collectBacktraces
-    let channelClosed :: SomeException
-        channelClosed =
+    let channelClosed :: ExactException
+        channelClosed = WrapExactException $
             case reason of
               ExitCaseSuccess _   -> toException $ ChannelDiscarded backtrace
               ExitCaseAbort       -> toException $ ChannelAborted   backtrace
@@ -479,7 +479,7 @@ type InboundResult sess =
        Either (NoMessages (Inbound sess))
               (Trailers   (Inbound sess))
 
--- | Should we allow for a half-clsoed connection state?
+-- | Should we allow for a half-closed connection state?
 --
 -- In HTTP2, streams are bidirectional and can be half-closed in either
 -- direction. This is however not true for all applications /of/ HTTP2. For
@@ -489,7 +489,7 @@ type InboundResult sess =
 -- sends the gRPC trailers and this terminates the call.
 data AllowHalfClosed sess =
     ContinueWhenInboundClosed
-  | TerminateWhenInboundClosed (InboundResult sess -> SomeException)
+  | TerminateWhenInboundClosed (InboundResult sess -> ExactException)
 
 -- | Link outbound thread to the inbound thread
 --
@@ -500,13 +500,13 @@ data AllowHalfClosed sess =
 -- the connection is lost. This is not true for the outbound thread, which
 -- spends most of its time blocked waiting for messages to send to the peer.
 linkOutboundToInbound :: forall sess.
-     IsSession sess
+     (IsSession sess, HasCallStack)
   => AllowHalfClosed sess
   -> Channel sess
   -> IO (InboundResult sess)
   -> IO ()
 linkOutboundToInbound allowHalfClosed channel inbound = do
-    mResult <- try inbound
+    mResult <- tryExact inbound
 
     -- Implementation note: After cancelThread returns, 'channelOutbound' has
     -- been updated, and considered dead, even if perhaps the thread is still
@@ -517,9 +517,9 @@ linkOutboundToInbound allowHalfClosed channel inbound = do
         return ()
       (Right result, TerminateWhenInboundClosed f) ->
         void $ cancelThread (channelOutbound channel) (f result)
-      (Left (exception :: SomeException), _) -> do
+      (Left (exception :: ExactException), _) -> do
         void $ cancelThread (channelOutbound channel) exception
-        throwIO exception
+        throwExact exception
   where
     _ = addConstraint @(IsSession sess)
 

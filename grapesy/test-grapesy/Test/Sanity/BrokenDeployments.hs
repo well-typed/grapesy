@@ -364,7 +364,7 @@ test_undefinedOutput = do
             Client.nonStreaming conn (Client.rpc @Ping) (defMessage & #id .~ 1)
           case mResp1 of
             Left err | Just msg <- grpcErrorMessage err ->
-              assertBool "" $ Text.pack "uhoh" `Text.isInfixOf` msg
+              assertBool "" $ Text.pack "DeliberateServerException" `Text.isInfixOf` msg
             _otherwise ->
               assertFailure "Unexpected response"
 
@@ -384,7 +384,7 @@ test_undefinedOutput = do
     handler st req = do
         isFirst <- atomicModifyIORef st $ \i -> (succ i, i == 0)
         if isFirst
-          then return $ throw $ DeliberateException (userError "uhoh")
+          then return $ throw $ DeliberateServerException 0
           else return $ defMessage & #id .~ req ^. #id
 
 {-------------------------------------------------------------------------------

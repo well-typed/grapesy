@@ -42,6 +42,7 @@ import Network.TLS qualified as TLS
 import Data.List.NonEmpty qualified as NE
 #endif
 
+import Network.GRPC.Common.Exception
 import Network.GRPC.Common.HTTP2Settings
 import Network.GRPC.Server
 import Network.GRPC.Util.HTTP2
@@ -222,12 +223,12 @@ forkServer http2 ServerConfig{serverInsecure, serverSecure} server k = do
 -- Note that under normal circumstances the server /never/ terminates.
 waitServerSTM ::
      RunningServer
-  -> STM ( Either SomeException ()
-         , Either SomeException ()
+  -> STM ( Either ExactException ()
+         , Either ExactException ()
          )
 waitServerSTM server = do
-    insecure <- waitCatchSTM (runningServerInsecure server)
-    secure   <- waitCatchSTM (runningServerSecure   server)
+    insecure <- waitCatchExact (runningServerInsecure server)
+    secure   <- waitCatchExact (runningServerSecure   server)
     return (insecure, secure)
 
 -- | IO version of 'waitServerSTM' that rethrows exceptions
@@ -235,8 +236,8 @@ waitServer :: RunningServer -> IO ()
 waitServer server =
     atomically (waitServerSTM server) >>= \case
       (Right (), Right ()) -> return ()
-      (Left  e , _       ) -> throwIO e
-      (_       , Left  e ) -> throwIO e
+      (Left  e , _       ) -> throwExact e
+      (_       , Left  e ) -> throwExact e
 
 -- | Get the socket used by the insecure server
 --
@@ -292,8 +293,8 @@ getServerPort server = do
 -- | Internal generalization of 'getInsecureSocket'/'getSecureSocket'
 getSocket :: Async () -> TMVar Socket -> STM Socket
 getSocket serverAsync socketTMVar = do
-    status <-  (Left  <$> waitCatchSTM serverAsync)
-      `orElse` (Right <$> readTMVar    socketTMVar)
+    status <-  (Left  <$> waitCatchExact serverAsync)
+      `orElse` (Right <$> readTMVar      socketTMVar)
     case status of
       Left (Left err) -> throwSTM err
       Left (Right ()) -> throwSTM $ ServerTerminated

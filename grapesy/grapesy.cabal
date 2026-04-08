@@ -47,6 +47,7 @@ common lang
       BangPatterns
       ConstraintKinds
       DataKinds
+      DefaultSignatures
       DeriveAnyClass
       DeriveFunctor
       DeriveGeneric
@@ -54,6 +55,7 @@ common lang
       DerivingStrategies
       DerivingVia
       DisambiguateRecordFields
+      EmptyCase
       FlexibleContexts
       FlexibleInstances
       GADTs
@@ -65,6 +67,7 @@ common lang
       MultiWayIf
       NamedFieldPuns
       NumericUnderscores
+      PatternSynonyms
       PolyKinds
       RankNTypes
       ScopedTypeVariables
@@ -101,6 +104,7 @@ library
       Network.GRPC.Common
       Network.GRPC.Common.Binary
       Network.GRPC.Common.Compression
+      Network.GRPC.Common.Exception
       Network.GRPC.Common.Headers
       Network.GRPC.Common.HTTP2Settings
       Network.GRPC.Common.JSON
@@ -116,15 +120,13 @@ library
       Network.GRPC.Server.StreamType
       Network.GRPC.Server.StreamType.Binary
   other-modules:
-      Network.GRPC.Util.Imports
-      Network.GRPC.Util.Stream
-      Network.GRPC.Common.ProtocolException
       Network.GRPC.Client.Call
       Network.GRPC.Client.Connection
-      Network.GRPC.Client.Run
       Network.GRPC.Client.Meta
+      Network.GRPC.Client.Run
       Network.GRPC.Client.Session
       Network.GRPC.Client.StreamType
+      Network.GRPC.Common.ProtocolException
       Network.GRPC.Server.Call
       Network.GRPC.Server.Context
       Network.GRPC.Server.Handler
@@ -133,21 +135,22 @@ library
       Network.GRPC.Server.RequestHandler.API
       Network.GRPC.Server.Session
       Network.GRPC.Util.AccumulatedByteString
-      Network.GRPC.Util.GHC
-      Network.GRPC.Util.HTTP2
       Network.GRPC.Util.ClientStream
-      Network.GRPC.Util.ServerStream
+      Network.GRPC.Util.GHC
+      Network.GRPC.Util.HeaderTable
+      Network.GRPC.Util.HTTP2
+      Network.GRPC.Util.Imports
       Network.GRPC.Util.RedundantConstraint
+      Network.GRPC.Util.ServerStream
       Network.GRPC.Util.Session.API
       Network.GRPC.Util.Session.Channel
       Network.GRPC.Util.Session.Client
       Network.GRPC.Util.Session.Server
+      Network.GRPC.Util.Stream
       Network.GRPC.Util.Thread
       Network.GRPC.Util.TimeManager
       Network.GRPC.Util.TLS
-      Network.GRPC.Util.HeaderTable
       Network.GRPC.Util.Version
-      Network.GRPC.Util.Backtrace
 
   build-depends:
     , aeson                     >= 1.5     && < 2.3
@@ -161,7 +164,6 @@ library
     , crypton-x509-system       >= 1.6     && < 1.7
     , data-default              >= 0.7     && < 0.9
     , deepseq                   >= 1.4     && < 1.6
-    , exceptions                >= 0.10    && < 0.11
     , grpc-spec                 >= 1.0     && < 1.1
     , http-semantics            >= 0.3.0   && < 0.3.1
     , http-types                >= 0.12    && < 0.13
@@ -181,6 +183,9 @@ library
     , unbounded-delays          >= 0.1.1   && < 0.2
     , unordered-containers      >= 0.2     && < 0.3
     , utf8-string               >= 1.0     && < 1.1
+
+    -- NOTE: If you want good backtraces, you'll want exceptions >= 0.10.12
+    , exceptions >= 0.10 && < 0.11
 
       -- We pin very specific versions of http2.
       --

@@ -25,6 +25,7 @@ import Data.Text qualified as Text
 import Network.HTTP.Types qualified as HTTP
 import Network.HTTP.Semantics.Server qualified as Server
 
+import Network.GRPC.Common.Exception
 import Network.GRPC.Server.Call
 import Network.GRPC.Server.Context (ServerContext (..), ServerParams(..))
 import Network.GRPC.Server.Handler
@@ -32,7 +33,6 @@ import Network.GRPC.Server.HandlerMap (HandlerMap)
 import Network.GRPC.Server.HandlerMap qualified as HandlerMap
 import Network.GRPC.Server.RequestHandler.API
 import Network.GRPC.Server.Session (CallSetupFailure(..))
-
 import Network.GRPC.Util.GHC
 import Network.GRPC.Util.Session.Server
 
@@ -82,13 +82,13 @@ findHandler handlers req = do
     -- We should do some request logging.
 
     resourceHeaders <-
-      either throwIO return . first CallSetupInvalidResourceHeaders $
+      either (throwIO . CallSetupInvalidResourceHeaders) return $
         parseResourceHeaders rawHeaders
     let path = resourcePath resourceHeaders
 
     -- We have to be careful looking up the handler; there might be pure
     -- exceptions in the list of handlers (most commonly @undefined@).
-    mHandler <- try $ evaluate $ HandlerMap.lookup path handlers
+    mHandler <- tryExact $ evaluate $ HandlerMap.lookup path handlers
     case mHandler of
       Right (Just h) -> return h
       Right Nothing  -> throwIO $ CallSetupUnimplementedMethod path
@@ -112,7 +112,7 @@ setupFailure ::
   -> IO a
 setupFailure params sendResponse failure = do
     response <- mkFailureResponse params failure
-    _ :: Either SomeException () <- try $ sendResponse response
+    void $ tryExact $ sendResponse response
     throwIO failure
 
 {-------------------------------------------------------------------------------

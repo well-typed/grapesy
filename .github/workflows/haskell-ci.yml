@@ -289,6 +289,11 @@ jobs:
           if [ $((HCNUMVER >= 90200)) -ne 0 ] ; then echo "package garp" >> cabal.project ; fi
           if [ $((HCNUMVER >= 90200)) -ne 0 ] ; then echo "    ghc-options: -Werror=incomplete-patterns -Werror=incomplete-uni-patterns" >> cabal.project ; fi
           cat >> cabal.project <<EOF
+          source-repository-package
+            type:     git
+            location: https://github.com/edsko/async.git
+            tag:      8fb34a0104498a5926ea8a907a9f3361bcfbe59b
+
           tests:      True
           benchmarks: True
 
@@ -299,7 +304,10 @@ jobs:
             flags: +build-demo +build-stress-test
 
           if impl ( ghc < 9.4 )
-            constraints: diagrams-lib==1.4.6.2
+            constraints: diagrams-lib == 1.4.6.2
+
+          if impl ( ghc >= 9.12 )
+            constraints: exceptions >= 0.10.12
 
           if impl ( ghc >= 9.14 )
             allow-newer: blaze-svg:base
@@ -353,7 +361,7 @@ jobs:
           package garp
             ghc-options: -Werror
           EOF
-          $HCPKG list --simple-output --names-only | perl -ne 'for (split /\s+/) { print "constraints: any.$_ installed\n" unless /^(basics-tutorial|conduit-tutorial|garp|grapesy|grpc-spec|lowlevel-tutorial|metadata-tutorial|monadstack-tutorial|quickstart-tutorial|trailers-only-tutorial)$/; }' >> cabal.project.local
+          $HCPKG list --simple-output --names-only | perl -ne 'for (split /\s+/) { print "constraints: any.$_ installed\n" unless /^(basics-tutorial|conduit-tutorial|directory|exceptions|filepath|garp|grapesy|grpc-spec|lowlevel-tutorial|metadata-tutorial|monadstack-tutorial|os-string|process|quickstart-tutorial|time|trailers-only-tutorial|unix)$/; }' >> cabal.project.local
           cat cabal.project
           cat cabal.project.local
       - name: dump install plan

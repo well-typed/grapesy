@@ -80,8 +80,8 @@ genLocalSteps genExceptions = sized $ \sz -> do
 
     genException :: Gen LocalStep
     genException = oneof [
-          ClientAction . Terminate . Just . SomeClientException <$> choose (0, 5)
-        , ServerAction . Terminate . Just . SomeServerException <$> choose (0, 5)
+          ClientAction . Terminate . Just . DeliberateClientException <$> choose (0, 5)
+        , ServerAction . Terminate . Just . DeliberateServerException <$> choose (0, 5)
         , pure $ ClientAction . Terminate $ Nothing
         , pure $ ServerAction . Terminate $ Nothing
         ]
@@ -411,14 +411,19 @@ shrinkLocalStep = \case
       map (ClientAction . Send) $ shrinkElem (const []) x
     ServerAction (Send x) ->
       map (ServerAction . Send) $ shrinkElem shrinkMetadata x
-    ClientAction (Terminate (Just (SomeClientException n))) ->
-      map (ClientAction . Terminate . Just . SomeClientException) (shrink n)
-    ServerAction (Terminate (Just (SomeServerException n))) ->
-      map (ServerAction . Terminate . Just . SomeServerException) (shrink n)
+    ClientAction (Terminate (Just e)) ->
+      map (ClientAction . Terminate . Just) (shrinkDeliberateException e)
+    ServerAction (Terminate (Just e)) ->
+      map (ServerAction . Terminate . Just) (shrinkDeliberateException e)
     ClientAction (Terminate Nothing) ->
       []
     ServerAction (Terminate Nothing) ->
       []
+
+shrinkDeliberateException :: DeliberateException -> [DeliberateException]
+shrinkDeliberateException = \case
+    DeliberateServerException n -> map DeliberateServerException $ shrink n
+    DeliberateClientException n -> map DeliberateClientException $ shrink n
 
 shrinkRPC :: RPC -> [RPC]
 shrinkRPC RPC1 = []

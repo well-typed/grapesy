@@ -23,6 +23,7 @@ import Network.GRPC.Client qualified as Client
 import Network.GRPC.Client.Binary qualified as Client.Binary
 import Network.GRPC.Common
 import Network.GRPC.Common.Binary
+import Network.GRPC.Common.Exception
 import Network.GRPC.Server qualified as Server
 import Network.GRPC.Server.Binary qualified as Server.Binary
 
@@ -177,7 +178,9 @@ clientLocal clock call = \(LocalSteps steps) ->
     --
     -- Returns 'True' if we should continue executing more actions, or
     -- exit (thereby closing the RPC call)
-    clientAct :: TestClock.Tick -> ClientAction -> StateT PeerHealth IO Bool
+    clientAct ::
+         HasCallStack
+      => TestClock.Tick -> ClientAction -> StateT PeerHealth IO Bool
     clientAct tick action =
         case action of
           Initiate _ ->
@@ -196,10 +199,12 @@ clientLocal clock call = \(LocalSteps steps) ->
               PeerAlive        -> within timeoutGreenLight action $
                                     TestClock.waitForGreenLight clock tick
             case mException of
-              Just ex -> throwM $ DeliberateException ex
+              Just ex -> throwM ex
               Nothing -> return False
 
-    reactToServer :: TestClock.Tick -> ServerAction -> StateT PeerHealth IO ()
+    reactToServer ::
+         HasCallStack
+      => TestClock.Tick -> ServerAction -> StateT PeerHealth IO ()
     reactToServer tick action =
         case action of
           Initiate expectedMetadata -> liftIO $ do
@@ -222,10 +227,9 @@ clientLocal clock call = \(LocalSteps steps) ->
           Terminate mErr -> do
             mOut <- try $ within timeoutReceive action $
                       Client.Binary.recvOutput call
-            let mErr'       = DeliberateException <$> mErr
-                expectation = isGrpcException mErr'
+            let expectation = isGrpcException mErr
             expect (tick, action) expectation mOut
-            modify $ ifPeerAlive $ PeerTerminated mErr'
+            modify $ ifPeerAlive $ PeerTerminated mErr
 
     -- Wait for the server disconnect to become visible
     --
@@ -235,7 +239,7 @@ clientLocal clock call = \(LocalSteps steps) ->
     -- consistency, however, we simply wait until sending fails.
     --
     -- See 'waitForClientDisconnect' for additional discussion.
-    waitForServerDisconnect :: IO ()
+    waitForServerDisconnect :: HasCallStack => IO ()
     waitForServerDisconnect =
         within timeoutFailure () $ loop
       where
@@ -355,7 +359,8 @@ clientGlobal clock connUsage global connParams testServer delimitTestScope =
 -------------------------------------------------------------------------------}
 
 serverLocal ::
-     TestClock
+     HasCallStack
+  => TestClock
   -> Server.Call (TestProtocol meth)
   -> LocalSteps -> IO ()
 serverLocal clock call = \(LocalSteps steps) -> do
@@ -378,7 +383,9 @@ serverLocal clock call = \(LocalSteps steps) -> do
     --
     -- Returns 'True' if we should continue executing the other actions, or
     -- terminate (thereby terminating the handler)
-    serverAct :: TestClock.Tick -> ServerAction -> StateT PeerHealth IO Bool
+    serverAct ::
+         HasCallStack
+      => TestClock.Tick -> ServerAction -> StateT PeerHealth IO Bool
     serverAct tick action =
         case action of
           Initiate metadata -> liftIO $ do
@@ -398,10 +405,12 @@ serverLocal clock call = \(LocalSteps steps) -> do
               PeerAlive        -> within timeoutGreenLight action $
                                     TestClock.waitForGreenLight clock tick
             case mException of
-              Just ex -> throwM $ DeliberateException ex
+              Just ex -> throwM ex
               Nothing -> return False
 
-    reactToClient :: TestClock.Tick -> ClientAction -> StateT PeerHealth IO ()
+    reactToClient ::
+         HasCallStack
+      => TestClock.Tick -> ClientAction -> StateT PeerHealth IO ()
     reactToClient tick action =
         case action of
           Initiate _ ->
@@ -414,7 +423,7 @@ serverLocal clock call = \(LocalSteps steps) -> do
             mInp <- liftIO $ try $ within timeoutReceive action $
                       Server.Binary.recvInput call
             expect (tick, action) isExpectedDisconnect mInp
-            modify $ ifPeerAlive $ PeerTerminated $ DeliberateException <$> mErr
+            modify $ ifPeerAlive $ PeerTerminated mErr
 
     -- Wait for the client disconnect to become visible
     --
@@ -423,7 +432,7 @@ serverLocal clock call = \(LocalSteps steps) -> do
     -- terminate more-or-less immediately, this does not necessarily indicate
     -- any kind of failure: the client may simply have put the call in
     -- half-closed mode.
-    waitForClientDisconnect :: IO ()
+    waitForClientDisconnect :: HasCallStack => IO ()
     waitForClientDisconnect =
         within timeoutFailure () $ loop
       where
@@ -449,13 +458,14 @@ serverLocal clock call = \(LocalSteps steps) -> do
     isExpectedDisconnect ::
          Either Server.ClientDisconnected (StreamElem NoMetadata Int)
       -> Bool
-    isExpectedDisconnect (Left (Server.ClientDisconnected e _))
+    isExpectedDisconnect (Left (Server.ClientDisconnected (WrapExactException e) _))
       | Just HTTP2.Client.ConnectionIsClosed <- fromException e
       = True
       | otherwise
       = False
     isExpectedDisconnect _ = False
 
+-- | Server RPC handler
 serverGlobal ::
      HasCallStack
   => TestClock
@@ -496,7 +506,9 @@ serverGlobal clock globalStepsVar call = do
 
 data ConnUsage = SharedConn | ConnPerRPC
 
-execGlobalSteps :: ConnUsage -> GlobalSteps -> IO ClientServerTest
+execGlobalSteps ::
+     HasCallStack
+  => ConnUsage -> GlobalSteps -> IO ClientServerTest
 execGlobalSteps connUsage steps = do
     globalStepsVar <- newMVar (order steps)
     clock          <- TestClock.new

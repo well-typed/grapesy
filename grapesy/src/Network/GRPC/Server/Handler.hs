@@ -19,11 +19,11 @@ import Control.Concurrent.STM
 import Control.Exception
 import System.ThreadManager (KilledByThreadManager(..))
 
-import Network.GRPC.Util.Imports
+import Network.GRPC.Common.Exception
 import Network.GRPC.Server.Call
 import Network.GRPC.Server.Context
-import Network.GRPC.Util.Backtrace
 import Network.GRPC.Util.GHC
+import Network.GRPC.Util.Imports
 import Network.GRPC.Util.Session.Channel qualified as Session
 import Network.GRPC.Util.Stream (ClientDisconnected(..))
 
@@ -163,15 +163,16 @@ runHandler unmask call handler = do
     -- The handler itself will run in a separate thread
     handler' :: IO ()
     handler' = do
-        result <- try $ runRpcHandler handler call
+        result <- tryExact $ runRpcHandler handler call
         handlerTeardown result
 
     -- Deal with any exceptions thrown in the handler
-    handlerTeardown :: Either SomeException () -> IO ()
+    handlerTeardown :: Either ExactException () -> IO ()
     handlerTeardown (Right ()) = do
         -- Handler terminated successfully, but may not have sent final message.
         -- /If/ the final message was sent, 'forwardException' does nothing.
-        forwarded <- forwardException call $ toException HandlerTerminated
+        forwarded <- forwardException call . WrapExactException $
+                        toException HandlerTerminated
         ignoreUncleanClose call $ ExitCaseSuccess ()
         when forwarded $
           -- The handler terminated before it sent the final message.
@@ -179,8 +180,8 @@ runHandler unmask call handler = do
     handlerTeardown (Left err) = do
         -- The handler threw an exception. Attempt to tell the client.
         _forwarded <- forwardException call err
-        ignoreUncleanClose call $ ExitCaseException err
-        throwIO err
+        ignoreUncleanClose call $ ExitCaseException (unwrapExactException err)
+        throwExact err
 
 -- | Close the connection to the client, ignoring errors
 --
@@ -238,36 +239,42 @@ waitForHandler unmask call handlerThread = loop
            AsyncDone () ->
              -- Handler terminated
              return ()
-           AsyncFailed e ->
+           AsyncFailed exact -> do
              -- Handler /itself/ failed
-             throwIO e
-           WaitInterrupted e ->
+             throwExact exact
+           WaitInterrupted exact@(WrapExactException se) ->
              -- /We/ received an exception whilst waiting for the handler
              --
              -- We now distinguish between two cases:
              --
-             -- * If the exception we received was 'KilledByThreadManager',
+             -- o If the exception we received was 'KilledByThreadManager',
              --   then this is http2 telling us the client disappeared. We leave
              --   the handler running, but mark the connection as broken. /If/
              --   the handler tries to communicate with the client, it will
              --   receive an exception at that point.
-             -- * In all other cases, we cancel the handler. This might be when
+             -- o In all other cases, we cancel the handler. This might be when
              --   someone is shutting down the server, for example.
-             case fromException e of
+             case fromException se of
                Just (KilledByThreadManager mErr) -> do
                  backtrace <- collectBacktraces
                  let exitReason :: ExitCase ()
                      exitReason =
                        case mErr of
                          Nothing -> ExitCaseSuccess ()
-                         Just exitWithException ->
+                         Just _exitWithException ->
                            ExitCaseException . toException $
-                             ClientDisconnected exitWithException backtrace
+                             clientDisconnected backtrace exact
                  ignoreUncleanClose call exitReason
                  loop
                Nothing -> do
-                 cancelWith handlerThread e
-                 throwIO e
+                 cancelWith handlerThread exact
+                 throwExact exact
+
+    clientDisconnected :: Backtraces -> ExactException -> ClientDisconnected
+    clientDisconnected backtrace e = ClientDisconnected{
+          clientDisconnectedException = e
+        , clientDisconnectedBacktrace = Just backtrace
+        }
 
 -- | Process exception thrown by a handler
 --
@@ -282,12 +289,12 @@ waitForHandler unmask call handlerThread = loop
 --
 -- We therefore catch and suppress all exceptions here. Returns @True@ if the
 -- forwarding was successful, @False@ if it raised an exception.
-forwardException :: Call rpc -> SomeException -> IO Bool
+forwardException :: HasCallStack => Call rpc -> ExactException -> IO Bool
 forwardException call@Call{callContext} err = do
     trailers <- serverExceptionToClientError (serverParams callContext) err
     (True <$ sendProperTrailers call trailers) `catch` handler
  where
-   handler :: SomeException -> IO Bool
+   handler :: ExactException -> IO Bool
    handler _e = return False
 
 {-------------------------------------------------------------------------------
@@ -296,10 +303,10 @@ forwardException call@Call{callContext} err = do
 
 data AsyncStatus a =
    AsyncDone a
- | AsyncFailed SomeException
- | WaitInterrupted SomeException
+ | AsyncFailed ExactException
+ | WaitInterrupted ExactException
 
 waitAsyncStatus :: (forall x. IO x -> IO x) -> Async a -> IO (AsyncStatus a)
 waitAsyncStatus unmask async =
     handle (return . WaitInterrupted) $
-      either AsyncFailed AsyncDone <$> unmask (atomically $ waitCatchSTM async)
+      either AsyncFailed AsyncDone <$> unmask (atomically $ waitCatchExact async)

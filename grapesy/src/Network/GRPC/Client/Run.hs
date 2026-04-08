@@ -44,6 +44,7 @@ import Network.Socket qualified as Socket
 import Network.TLS (TLSException)
 
 import Network.GRPC.Client.Meta qualified as Meta
+import Network.GRPC.Common.Exception
 import Network.GRPC.Common.HTTP2Settings
 import Network.GRPC.Util.GHC
 import Network.GRPC.Util.Session.Client qualified as Session
@@ -127,15 +128,13 @@ closeConnection conn = putMVar (connOutOfScope conn) ()
   Fatal exceptions (no point reconnecting)
 -------------------------------------------------------------------------------}
 
-isFatalException :: SomeException -> Bool
-isFatalException err
+isFatalException :: ExactException -> Bool
+isFatalException (WrapExactException err)
   | Just (_tlsException :: TLSException) <- fromException err
   = True
 
   | otherwise
   = False
-
-
 
 {-------------------------------------------------------------------------------
   Internal auxiliary
@@ -149,7 +148,7 @@ data Attempt = ConnectionAttempt {
     , attemptOnConnection :: OnConnection
     , attemptState        :: TVar ConnectionState
     , attemptOutOfScope   :: MVar ()
-    , attemptClosed       :: TMVar (Maybe SomeException)
+    , attemptClosed       :: TMVar (Maybe ExactException)
     }
 
 newConnectionAttempt ::
@@ -200,7 +199,7 @@ stayConnected connParams initialServer connStateVar connOutOfScope = do
         -- is the low-level exception reported by @http2@ (something about
         -- stream errors), rather than the informative gRPC exception we want.
 
-        mRes <- try $
+        mRes <- tryExact $
           case server of
             ServerInsecure addr ->
               connectInsecure connParams attempt addr

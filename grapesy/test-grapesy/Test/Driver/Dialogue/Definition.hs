@@ -13,23 +13,23 @@ module Test.Driver.Dialogue.Definition (
   , LocalSteps(..)
     -- * Exceptions
     -- ** User exceptions
-  , SomeClientException(..)
-  , SomeServerException(..)
+  , DeliberateException(..)
   , ExceptionId
     -- * Utility
   , hasEarlyTermination
   ) where
 
+import Control.Monad.Catch
 import Control.Monad.State (StateT, execStateT, modify)
 import Data.Bifunctor
 import Data.ByteString qualified as Strict (ByteString)
+import GHC.Show (appPrec1, showCommaSpace)
 
 import Network.GRPC.Common
+import Network.GRPC.Common.Exception
 
 import Test.Driver.Dialogue.TestClock qualified as TestClock
 import Test.Util.Exception
-import Control.Monad.Catch
-import GHC.Show (appPrec1, showCommaSpace)
 
 {-------------------------------------------------------------------------------
   Single RPC
@@ -40,10 +40,10 @@ data LocalStep =
   | ServerAction ServerAction
   deriving stock (Show, Eq)
 
-type ClientAction = Action (TestMetadata, RPC) NoMetadata   SomeClientException
-type ServerAction = Action TestMetadata        TestMetadata SomeServerException
+type ClientAction = Action (TestMetadata, RPC) NoMetadata
+type ServerAction = Action TestMetadata        TestMetadata
 
-data Action a b e =
+data Action a b =
     -- | Initiate request and response
     --
     -- When the client initiates a request, they can specify a timeout, initial
@@ -59,7 +59,7 @@ data Action a b e =
   | Send (StreamElem b Int)
 
     -- | Early termination (cleanly or with an exception)
-  | Terminate (Maybe e)
+  | Terminate (Maybe DeliberateException)
   deriving stock (Show, Eq)
 
 data RPC = RPC1 | RPC2 | RPC3
@@ -153,6 +153,7 @@ newtype GlobalSteps = GlobalSteps {
       getGlobalSteps :: [LocalSteps]
     }
   deriving stock (Show)
+  deriving ToExceptionDoc via LinesToExceptionDoc GlobalSteps
 
 {-------------------------------------------------------------------------------
   Utility

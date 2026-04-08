@@ -39,6 +39,7 @@ import System.Random (randomRIO)
 import Network.GRPC.Client.Meta (Meta)
 import Network.GRPC.Client.Meta qualified as Meta
 import Network.GRPC.Common.Compression qualified as Compr
+import Network.GRPC.Common.Exception
 import Network.GRPC.Common.HTTP2Settings
 import Network.GRPC.Util.Session.Client qualified as Session
 import Network.GRPC.Util.TLS (ServerValidation(..), SslKeyLog(..))
@@ -300,7 +301,7 @@ data Server =
 getConnectionToServer :: forall.
      HasCallStack
   => Connection
-  -> IO (TMVar (Maybe SomeException), Session.ConnectionToServer)
+  -> IO (TMVar (Maybe ExactException), Session.ConnectionToServer)
 getConnectionToServer Connection{connStateVar} = atomically $ do
     connState <- readTVar connStateVar
     case connState of
@@ -340,10 +341,10 @@ data ConnectionState =
     -- | The connection is ready
     --
     -- The nested @TMVar@ is written to when the connection is closed.
-  | ConnectionReady (TMVar (Maybe SomeException)) Session.ConnectionToServer
+  | ConnectionReady (TMVar (Maybe ExactException)) Session.ConnectionToServer
 
     -- | We gave up trying to (re)establish the connection
-  | ConnectionAbandoned SomeException
+  | ConnectionAbandoned ExactException
 
     -- | The connection was closed because it is no longer needed.
   | ConnectionOutOfScope

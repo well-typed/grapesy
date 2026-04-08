@@ -19,10 +19,10 @@ serverInputStream :: Server.Request -> IO InputStream
 serverInputStream req = do
     return InputStream {
         _getChunk =
-           wrapStreamExceptionsWith ClientDisconnected $
+           wrapClientDisconnected $
              Server.getRequestBodyChunk' req
       , _getTrailers =
-           wrapStreamExceptionsWith ClientDisconnected $
+           wrapClientDisconnected $
              maybe [] fromHeaderTable <$> Server.getRequestTrailers req
       }
 
@@ -68,13 +68,13 @@ serverOutputStream iface = do
 
     let outputStream = OutputStream {
             _writeChunk = \c ->
-               wrapStreamExceptionsWith ClientDisconnected $
+               wrapClientDisconnected $
                  outBodyPush iface c
           , _writeChunkFinal = \c ->
-               wrapStreamExceptionsWith ClientDisconnected $
+               wrapClientDisconnected $
                  outBodyPushFinal iface c
           , _flush =
-               wrapStreamExceptionsWith ClientDisconnected $
+               wrapClientDisconnected $
                  outBodyFlush iface
           }
 

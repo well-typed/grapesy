@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP               #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Test.Prop.Dialogue (tests) where
@@ -8,9 +9,11 @@ import Test.Tasty.HUnit
 import Test.Tasty.QuickCheck
 
 import Network.GRPC.Common
+import Network.GRPC.Common.Exception
 
 import Test.Driver.ClientServer
 import Test.Driver.Dialogue
+import GHC.Generics (Generic)
 
 tests :: TestTree
 tests = testGroup "Test.Prop.Dialogue" [
@@ -91,20 +94,32 @@ propDialogue connUsage dialogue =
     globalSteps :: GlobalSteps
     globalSteps = dialogueGlobalSteps dialogue
 
-regression :: ConnUsage -> Dialogue -> IO ()
+regression :: HasCallStack => ConnUsage -> Dialogue -> IO ()
 regression connUsage dialogue =
-    handle (throwIO . RegressionTestFailed globalSteps) $
+    catchAndWrap failure $
       testClientServer =<< execGlobalSteps connUsage globalSteps
   where
     globalSteps :: GlobalSteps
     globalSteps = dialogueGlobalSteps dialogue
 
+    failure :: ExactException -> RegressionTestFailed
+    failure = RegressionTestFailed globalSteps
+
 data RegressionTestFailed = RegressionTestFailed {
       regressionGlobalSteps :: GlobalSteps
-    , regressionException   :: SomeException
+    , regressionException   :: ExactException
     }
-  deriving stock (Show)
-  deriving anyclass (Exception)
+  deriving stock (Show, Generic)
+  deriving anyclass (ToExceptionDoc)
+
+instance Exception RegressionTestFailed where
+  displayException = renderException
+
+#if MIN_VERSION_base(4,20,0)
+  -- The backtrace to where we report that the regression failed only distracts;
+  -- we're interested in the backtrace of the exception itself.
+  backtraceDesired _ = False
+#endif
 
 {-------------------------------------------------------------------------------
   Regression tests
@@ -199,14 +214,14 @@ concurrent4 = NormalizedDialogue [
 exception1 :: Dialogue
 exception1 = NormalizedDialogue [
       (0, ClientAction $ Initiate (def, RPC1))
-    , (0, ServerAction $ Terminate (Just $ SomeServerException 0))
+    , (0, ServerAction $ Terminate (Just $ DeliberateServerException 0))
     ]
 
 -- | Client-side exception
 exception2 :: Dialogue
 exception2 = NormalizedDialogue [
       (0, ClientAction $ Initiate (def, RPC1))
-    , (0, ClientAction $ Terminate (Just (SomeClientException 0)))
+    , (0, ClientAction $ Terminate (Just (DeliberateClientException 0)))
     , (0, ServerAction $ Send (NoMoreElems def))
     ]
 
@@ -233,7 +248,7 @@ earlyTermination03 :: Dialogue
 earlyTermination03 = NormalizedDialogue [
       (1, ClientAction $ Initiate (def, RPC1 ))
     , (0, ClientAction $ Initiate (def, RPC1))
-    , (1, ClientAction $ Terminate (Just (SomeClientException 0)))
+    , (1, ClientAction $ Terminate (Just (DeliberateClientException 0)))
     , (0, ClientAction $ Send (NoMoreElems NoMetadata))
     , (1, ServerAction $ Send (NoMoreElems def))
     , (0, ServerAction $ Send (NoMoreElems def))
@@ -246,7 +261,7 @@ earlyTermination04 = NormalizedDialogue [
       (0, ClientAction $ Initiate (def, RPC1))
     , (0, ServerAction $ Initiate def)
     , (1, ClientAction $ Initiate (def, RPC1 ))
-    , (1, ClientAction $ Terminate (Just (SomeClientException 0)))
+    , (1, ClientAction $ Terminate (Just (DeliberateClientException 0)))
     , (1, ServerAction $ Send (NoMoreElems def))
     , (0, ClientAction $ Send (NoMoreElems NoMetadata))
     , (0, ServerAction $ Send (NoMoreElems def))
@@ -276,7 +291,7 @@ earlyTermination06 :: Dialogue
 earlyTermination06 = NormalizedDialogue [
       (0, ClientAction $ Initiate (def, RPC1))
     , (0, ClientAction $ Send (StreamElem 0))
-    , (0, ClientAction $ Terminate (Just (SomeClientException 0)))
+    , (0, ClientAction $ Terminate (Just (DeliberateClientException 0)))
     , (0, ServerAction $ Send (NoMoreElems def))
     ]
 
@@ -285,7 +300,7 @@ earlyTermination07 :: Dialogue
 earlyTermination07 = NormalizedDialogue [
       (0, ClientAction $ Initiate (def, RPC1))
     , (0, ServerAction $ Initiate def)
-    , (0, ServerAction $ Terminate (Just (SomeServerException 0)))
+    , (0, ServerAction $ Terminate (Just (DeliberateServerException 0)))
     ]
 
 -- | Server-side early termination, Trailers-Only case
@@ -296,7 +311,7 @@ earlyTermination07 = NormalizedDialogue [
 earlyTermination08 :: Dialogue
 earlyTermination08 = NormalizedDialogue [
       (0, ClientAction $ Initiate (def, RPC1))
-    , (0, ServerAction $ Terminate (Just (SomeServerException 0)))
+    , (0, ServerAction $ Terminate (Just (DeliberateServerException 0)))
     ]
 
 -- | Like 'earlyTermination07', but now without an exception
@@ -312,7 +327,7 @@ earlyTermination10 :: Dialogue
 earlyTermination10 = NormalizedDialogue [
       (0, ClientAction $ Initiate (def, RPC1))
     , (0, ServerAction $ Initiate def)
-    , (0, ClientAction $ Terminate (Just (SomeClientException 0)))
+    , (0, ClientAction $ Terminate (Just (DeliberateClientException 0)))
     , (0, ServerAction $ Send (NoMoreElems def))
     ]
 
@@ -321,7 +336,7 @@ earlyTermination11 :: Dialogue
 earlyTermination11 = NormalizedDialogue [
       (0, ClientAction $ Initiate (def, RPC1))
     , (0, ServerAction $ Initiate def)
-    , (0, ClientAction $ Terminate (Just (SomeClientException 0)))
+    , (0, ClientAction $ Terminate (Just (DeliberateClientException 0)))
     , (0, ServerAction $ Send (StreamElem 0))
     , (0, ServerAction $ Send (NoMoreElems def))
     ]
@@ -354,7 +369,7 @@ earlyTermination13 = NormalizedDialogue [
     , (1, ClientAction $ Initiate (def, RPC1))
     , (1, ServerAction $ Send (NoMoreElems def))
     , (0, ServerAction $ Send (StreamElem 3))
-    , (0, ServerAction $ Terminate (Just (SomeServerException 0)))
+    , (0, ServerAction $ Terminate (Just (DeliberateServerException 0)))
     ]
 
 -- | Both the server /and/ the client terminate early
@@ -365,7 +380,7 @@ earlyTermination14 :: Dialogue
 earlyTermination14 = NormalizedDialogue [
       (0, ClientAction $ Initiate (def, RPC1))
     , (0, ClientAction $ Terminate Nothing)
-    , (0, ServerAction $ Terminate (Just (SomeServerException 0)))
+    , (0, ServerAction $ Terminate (Just (DeliberateServerException 0)))
     ]
 
 unilateralTermination1 :: Dialogue
@@ -435,7 +450,7 @@ allowHalfClosed2 = NormalizedDialogue [
 allowHalfClosed3 :: Dialogue
 allowHalfClosed3 = NormalizedDialogue [
       (0, ClientAction $ Initiate (def,RPC1))
-    , (0, ClientAction $ Terminate (Just (SomeClientException 0)))
+    , (0, ClientAction $ Terminate (Just (DeliberateClientException 0)))
     , (0, ServerAction $ Initiate def)
     , (0, ServerAction $ Send (NoMoreElems def))
     ]

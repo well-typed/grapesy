@@ -13,6 +13,8 @@ import Test.Tasty
 import GHC.Conc.Sync (threadLabel)
 #endif
 
+import Network.GRPC.Common.Exception
+
 import Test.Prop.Dialogue                     qualified as Dialogue
 import Test.Regression.Issue102               qualified as Issue102
 import Test.Regression.Issue238               qualified as Issue238
@@ -68,5 +70,5 @@ uncaughtExceptionHandler e = do
       , " ("
       , fromMaybe "unlabelled" mLabel
       , "): "
-      , displayException e
+      , renderException e
       ]
