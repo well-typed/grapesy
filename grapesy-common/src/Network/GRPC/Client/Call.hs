@@ -365,6 +365,7 @@ closeRPC callChannel cancelRequest exitCase = liftIO $ do
             unless canDiscard $
               throwCancelled discarded
   where
+{-
     -- Send a @RST_STREAM@ frame if necessary
     sendResetFrame :: IO ()
     sendResetFrame = do
@@ -384,6 +385,7 @@ closeRPC callChannel cancelRequest exitCase = liftIO $ do
             ExitCaseException e ->
               -- Error code will be INTERNAL_ERROR
               Just e
+-}
 
     throwCancelled :: ChannelDiscarded -> IO ()
     throwCancelled (ChannelDiscarded backtrace) = do

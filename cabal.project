@@ -15,6 +15,7 @@ packages: grapesy-http2
 packages: grapesy-tcp
 
 packages: tutorials/quickstart-tcp
+packages: tutorials/basics-tcp
 
 tests: True
 benchmarks: True
