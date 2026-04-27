@@ -69,8 +69,8 @@ writeOutObj bsock OutObj { outObjHeaders = headers, outObjBody = body, outObjTra
             body' (iface trailersRef)
 
             -- now send the trailers
-            trailers <- readIORef trailersRef
-            last' <- trailers Nothing
+            trailersMaker <- readIORef trailersRef
+            last' <- trailersMaker Nothing
             case last' of
                 HTTP.Trailers t -> do
                     putStrLn $ "sending TRAILERS: " ++ show t
@@ -128,7 +128,7 @@ writeBuilderTrailers bsock trailersRef builder
         loop t chunks
   where
     lbs = BSB.toLazyByteString builder
-    len = LBS.length lbs
+    -- len = LBS.length lbs
     chunks = LBS.toChunks lbs
 
     loop :: HTTP.TrailersMaker -> [ByteString] -> IO ()
@@ -176,7 +176,7 @@ readInpObj bsock = do
     let body :: InpBody -- IO (ByteString, Bool)
         body
             | bodyLen == 0 = do
-                fail "read trailers"
+                _ <- fail "read trailers"
                 return (mempty, True)
             | otherwise = do
                 -- read the chunk size
