@@ -630,7 +630,8 @@ outboundTrailersMaker :: forall sess.
 outboundTrailersMaker sess Channel{channelOutbound} regular = go
   where
     go :: HTTP.Semantics.TrailersMaker
-    go (Just _) = return $ HTTP.Semantics.NextTrailersMaker go
+    go (Just _) = do
+        return $ HTTP.Semantics.NextTrailersMaker go
     go Nothing  = do
         mFlowState <- atomically $
           unlessAbnormallyTerminated channelOutbound $
