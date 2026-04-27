@@ -322,7 +322,7 @@ closeRPC ::
   -> Session.CancelRequest
   -> ExitCase a
   -> IO ()
-closeRPC callChannel cancelRequest exitCase = liftIO $ do
+closeRPC callChannel _cancelRequest exitCase = liftIO $ do
     -- /Before/ we do anything else (see below), check if we have evidence
     -- that we can discard the connection.
     canDiscard <- checkCanDiscard
