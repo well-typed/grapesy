@@ -20,28 +20,29 @@ package grpc-spec
 package grapesy
   flags: +build-demo +build-stress-test
 
--- The test suite relies on some unreleased fixes:
---
--- * "Don't import IsLabels instance in Data.ProtoLens.Any"
---   https://github.com/google/proto-lens/pull/515
--- * Possibly also ghc 9.10 support in some packages
---   https://github.com/google/proto-lens/pull/494
-
--- we vendor packages in the repository; so we can code offline.
-packages: vendor/proto-lens-0.7.1.6.tar.gz
-packages: vendor/proto-lens-protobuf-types-0.7.2.2.tar.gz
-packages: vendor/proto-lens-protoc-0.9.0.0.tar.gz
-packages: vendor/proto-lens-runtime-0.7.0.7.tar.gz
-
--- alternatively, you can use source-repository-package,
--- but then cabal-install wants to clone or update it once in a while.
-
--- source-repository-package
---   type: git
---   location: https://github.com/google/proto-lens
---   tag: f20c0e2d73ee86a0d06a0e3210f54ca6dfce4e86
---   subdir: proto-lens proto-lens-runtime proto-lens-protoc proto-lens-protobuf-types
-
 -- avoid compilation errors in some dependencies
 if impl(ghc < 9.4)
   constraints: diagrams-lib==1.4.6.2
+
+-- Necessary overrides as of 2026-05-08
+if impl(ghc >= 9.14)
+  allow-newer: blaze-svg:base
+  allow-newer: cborg:base
+  allow-newer: cborg:containers
+  allow-newer: diagrams-lib:base
+  allow-newer: diagrams-lib:containers
+  allow-newer: diagrams-postscript:base
+  allow-newer: diagrams-svg:base
+  allow-newer: diagrams-svg:containers
+  allow-newer: lens-family-core:containers
+  allow-newer: lens-family:containers
+  allow-newer: serialise:base
+  allow-newer: serialise:containers
+  allow-newer: serialise:time
+  allow-newer: statestack:base
+  allow-newer: svg-builder:base
+  allow-newer: SVGFonts:containers
+  allow-newer: tree-diff:base
+  allow-newer: tree-diff:containers
+  allow-newer: tree-diff:QuickCheck
+  allow-newer: tree-diff:time

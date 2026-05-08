@@ -13,9 +13,11 @@ data-files:         route_guide_db.json
 tested-with:        GHC==8.10.7
                   , GHC==9.2.8
                   , GHC==9.4.8
-                  , GHC==9.6.6
-                  , GHC==9.8.2
-                  , GHC==9.10.1
+                  , GHC==9.6.7
+                  , GHC==9.8.4
+                  , GHC==9.10.3
+                  , GHC==9.12.4
+                  , GHC==9.14.1
 
 common lang
   build-depends:    base >= 4.14 && < 5
@@ -45,11 +47,11 @@ library
 
   build-depends:
     , aeson              >= 1.5 && < 2.3
-    , containers         >= 0.6 && < 0.8
+    , containers         >= 0.6 && < 0.9
     , grapesy            >= 1.1 && < 1.2
     , proto-lens         >= 0.7 && < 0.8
     , proto-lens-runtime >= 0.7 && < 0.8
-    , time               >= 1.9 && < 1.15
+    , time               >= 1.9 && < 1.16
   exposed-modules:
       RouteGuide
       Proto.API.RouteGuide
@@ -58,7 +60,7 @@ library
       Paths_basics_tutorial
   autogen-modules:
       Paths_basics_tutorial
-      
+
 executable route_guide_server
   import:          lang
   main-is:         Server.hs

@@ -11,9 +11,11 @@ extra-source-files: proto/fileserver.proto
 tested-with:        GHC==8.10.7
                   , GHC==9.2.8
                   , GHC==9.4.8
-                  , GHC==9.6.6
-                  , GHC==9.8.2
-                  , GHC==9.10.1
+                  , GHC==9.6.7
+                  , GHC==9.8.4
+                  , GHC==9.10.3
+                  , GHC==9.12.4
+                  , GHC==9.14.1
 
 common lang
   build-depends:    base >= 4.14 && < 5
@@ -49,7 +51,7 @@ library
     , grapesy            >= 1.1  && < 1.2
     , proto-lens         >= 0.7  && < 0.8
     , proto-lens-runtime >= 0.7  && < 0.8
-    , time               >= 1.9  && < 1.15
+    , time               >= 1.9  && < 1.16
   exposed-modules:
       Proto.API.Fileserver
   other-modules:

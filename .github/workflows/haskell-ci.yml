@@ -8,9 +8,9 @@
 #
 # For more information, see https://github.com/haskell-CI/haskell-ci
 #
-# version: 0.19.20260209
+# version: 0.19.20260331
 #
-# REGENDATA ("0.19.20260209",["github","cabal.project"])
+# REGENDATA ("0.19.20260331",["github","cabal.project"])
 #
 name: Haskell-CI
 on:
@@ -37,19 +37,29 @@ jobs:
     strategy:
       matrix:
         include:
-          - compiler: ghc-9.10.1
+          - compiler: ghc-9.14.1
             compilerKind: ghc
-            compilerVersion: 9.10.1
+            compilerVersion: 9.14.1
             setup-method: ghcup
             allow-failure: false
-          - compiler: ghc-9.8.2
+          - compiler: ghc-9.12.4
             compilerKind: ghc
-            compilerVersion: 9.8.2
+            compilerVersion: 9.12.4
             setup-method: ghcup
             allow-failure: false
-          - compiler: ghc-9.6.6
+          - compiler: ghc-9.10.3
             compilerKind: ghc
-            compilerVersion: 9.6.6
+            compilerVersion: 9.10.3
+            setup-method: ghcup
+            allow-failure: false
+          - compiler: ghc-9.8.4
+            compilerKind: ghc
+            compilerVersion: 9.8.4
+            setup-method: ghcup
+            allow-failure: false
+          - compiler: ghc-9.6.7
+            compilerKind: ghc
+            compilerVersion: 9.6.7
             setup-method: ghcup
             allow-failure: false
           - compiler: ghc-9.4.8
@@ -279,16 +289,6 @@ jobs:
           if [ $((HCNUMVER >= 90200)) -ne 0 ] ; then echo "package garp" >> cabal.project ; fi
           if [ $((HCNUMVER >= 90200)) -ne 0 ] ; then echo "    ghc-options: -Werror=incomplete-patterns -Werror=incomplete-uni-patterns" >> cabal.project ; fi
           cat >> cabal.project <<EOF
-          packages:   $GITHUB_WORKSPACE/source/vendor/proto-lens-0.7.1.6.tar.gz
-          packages:
-            $GITHUB_WORKSPACE/source/vendor/proto-lens-protobuf-types-0.7.2.2.tar.gz
-
-          packages:
-            $GITHUB_WORKSPACE/source/vendor/proto-lens-protoc-0.9.0.0.tar.gz
-
-          packages:
-            $GITHUB_WORKSPACE/source/vendor/proto-lens-runtime-0.7.0.7.tar.gz
-
           tests:      True
           benchmarks: True
 
@@ -300,6 +300,28 @@ jobs:
 
           if impl ( ghc < 9.4 )
             constraints: diagrams-lib==1.4.6.2
+
+          if impl ( ghc >= 9.14 )
+            allow-newer: blaze-svg:base
+            allow-newer: cborg:base
+            allow-newer: cborg:containers
+            allow-newer: diagrams-lib:base
+            allow-newer: diagrams-lib:containers
+            allow-newer: diagrams-postscript:base
+            allow-newer: diagrams-svg:base
+            allow-newer: diagrams-svg:containers
+            allow-newer: lens-family-core:containers
+            allow-newer: lens-family:containers
+            allow-newer: serialise:base
+            allow-newer: serialise:containers
+            allow-newer: serialise:time
+            allow-newer: statestack:base
+            allow-newer: svg-builder:base
+            allow-newer: SVGFonts:containers
+            allow-newer: tree-diff:base
+            allow-newer: tree-diff:containers
+            allow-newer: tree-diff:QuickCheck
+            allow-newer: tree-diff:time
 
           package grpc-spec
             ghc-options: -Werror
