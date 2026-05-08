@@ -20,28 +20,6 @@ package grpc-spec
 package grapesy
   flags: +build-demo +build-stress-test
 
--- The test suite relies on some unreleased fixes:
---
--- * "Don't import IsLabels instance in Data.ProtoLens.Any"
---   https://github.com/google/proto-lens/pull/515
--- * Possibly also ghc 9.10 support in some packages
---   https://github.com/google/proto-lens/pull/494
-
--- we vendor packages in the repository; so we can code offline.
-packages: vendor/proto-lens-0.7.1.7.tar.gz
-packages: vendor/proto-lens-protobuf-types-0.7.2.3.tar.gz
-packages: vendor/proto-lens-protoc-0.9.0.1.tar.gz
-packages: vendor/proto-lens-runtime-0.7.0.8.tar.gz
-
--- alternatively, you can use source-repository-package,
--- but then cabal-install wants to clone or update it once in a while.
-
--- source-repository-package
---   type: git
---   location: https://github.com/google/proto-lens
---   tag: f20c0e2d73ee86a0d06a0e3210f54ca6dfce4e86
---   subdir: proto-lens proto-lens-runtime proto-lens-protoc proto-lens-protobuf-types
-
 -- avoid compilation errors in some dependencies
 if impl(ghc < 9.4)
   constraints: diagrams-lib==1.4.6.2

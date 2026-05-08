@@ -8,9 +8,9 @@
 #
 # For more information, see https://github.com/haskell-CI/haskell-ci
 #
-# version: 0.19.20260209
+# version: 0.19.20260331
 #
-# REGENDATA ("0.19.20260209",["github","cabal.project"])
+# REGENDATA ("0.19.20260331",["github","cabal.project"])
 #
 name: Haskell-CI
 on:
@@ -279,16 +279,6 @@ jobs:
           if [ $((HCNUMVER >= 90200)) -ne 0 ] ; then echo "package garp" >> cabal.project ; fi
           if [ $((HCNUMVER >= 90200)) -ne 0 ] ; then echo "    ghc-options: -Werror=incomplete-patterns -Werror=incomplete-uni-patterns" >> cabal.project ; fi
           cat >> cabal.project <<EOF
-          packages:   $GITHUB_WORKSPACE/source/vendor/proto-lens-0.7.1.6.tar.gz
-          packages:
-            $GITHUB_WORKSPACE/source/vendor/proto-lens-protobuf-types-0.7.2.2.tar.gz
-
-          packages:
-            $GITHUB_WORKSPACE/source/vendor/proto-lens-protoc-0.9.0.0.tar.gz
-
-          packages:
-            $GITHUB_WORKSPACE/source/vendor/proto-lens-runtime-0.7.0.7.tar.gz
-
           tests:      True
           benchmarks: True
 
