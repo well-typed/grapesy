@@ -23,3 +23,26 @@ package grapesy
 -- avoid compilation errors in some dependencies
 if impl(ghc < 9.4)
   constraints: diagrams-lib==1.4.6.2
+
+-- Necessary overrides as of 2026-05-08
+if impl(ghc >= 9.14)
+  allow-newer: blaze-svg:base
+  allow-newer: cborg:base
+  allow-newer: cborg:containers
+  allow-newer: diagrams-lib:base
+  allow-newer: diagrams-lib:containers
+  allow-newer: diagrams-postscript:base
+  allow-newer: diagrams-svg:base
+  allow-newer: diagrams-svg:containers
+  allow-newer: lens-family-core:containers
+  allow-newer: lens-family:containers
+  allow-newer: serialise:base
+  allow-newer: serialise:containers
+  allow-newer: serialise:time
+  allow-newer: statestack:base
+  allow-newer: svg-builder:base
+  allow-newer: SVGFonts:containers
+  allow-newer: tree-diff:base
+  allow-newer: tree-diff:containers
+  allow-newer: tree-diff:QuickCheck
+  allow-newer: tree-diff:time

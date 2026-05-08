@@ -37,19 +37,29 @@ jobs:
     strategy:
       matrix:
         include:
-          - compiler: ghc-9.10.1
+          - compiler: ghc-9.14.1
             compilerKind: ghc
-            compilerVersion: 9.10.1
+            compilerVersion: 9.14.1
             setup-method: ghcup
             allow-failure: false
-          - compiler: ghc-9.8.2
+          - compiler: ghc-9.12.4
             compilerKind: ghc
-            compilerVersion: 9.8.2
+            compilerVersion: 9.12.4
             setup-method: ghcup
             allow-failure: false
-          - compiler: ghc-9.6.6
+          - compiler: ghc-9.10.3
             compilerKind: ghc
-            compilerVersion: 9.6.6
+            compilerVersion: 9.10.3
+            setup-method: ghcup
+            allow-failure: false
+          - compiler: ghc-9.8.4
+            compilerKind: ghc
+            compilerVersion: 9.8.4
+            setup-method: ghcup
+            allow-failure: false
+          - compiler: ghc-9.6.7
+            compilerKind: ghc
+            compilerVersion: 9.6.7
             setup-method: ghcup
             allow-failure: false
           - compiler: ghc-9.4.8
@@ -290,6 +300,28 @@ jobs:
 
           if impl ( ghc < 9.4 )
             constraints: diagrams-lib==1.4.6.2
+
+          if impl ( ghc >= 9.14 )
+            allow-newer: blaze-svg:base
+            allow-newer: cborg:base
+            allow-newer: cborg:containers
+            allow-newer: diagrams-lib:base
+            allow-newer: diagrams-lib:containers
+            allow-newer: diagrams-postscript:base
+            allow-newer: diagrams-svg:base
+            allow-newer: diagrams-svg:containers
+            allow-newer: lens-family-core:containers
+            allow-newer: lens-family:containers
+            allow-newer: serialise:base
+            allow-newer: serialise:containers
+            allow-newer: serialise:time
+            allow-newer: statestack:base
+            allow-newer: svg-builder:base
+            allow-newer: SVGFonts:containers
+            allow-newer: tree-diff:base
+            allow-newer: tree-diff:containers
+            allow-newer: tree-diff:QuickCheck
+            allow-newer: tree-diff:time
 
           package grpc-spec
             ghc-options: -Werror

@@ -11,9 +11,11 @@ build-type:         Simple
 tested-with:        GHC==8.10.7
                   , GHC==9.2.8
                   , GHC==9.4.8
-                  , GHC==9.6.6
-                  , GHC==9.8.2
-                  , GHC==9.10.1
+                  , GHC==9.6.7
+                  , GHC==9.8.4
+                  , GHC==9.10.3
+                  , GHC==9.12.4
+                  , GHC==9.14.1
 
 common lang
   build-depends:    base >= 4.14 && < 5
@@ -47,7 +49,7 @@ executable route_guide_server
   build-depends:
     , grapesy >= 1.1 && < 1.2
     , mtl     >= 2.2 && < 2.4
-    , time    >= 1.9 && < 1.15
+    , time    >= 1.9 && < 1.16
 
 executable route_guide_client
   import:         lang
