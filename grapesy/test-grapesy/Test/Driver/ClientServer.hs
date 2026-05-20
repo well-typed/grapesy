@@ -37,6 +37,7 @@ import Control.Monad.Catch
 import Control.Monad.IO.Class
 import Data.ProtoLens.Labels ()
 import Data.Text qualified as Text
+import GHC.Generics (Generic)
 import Network.HTTP2.Server qualified as HTTP2.Server
 import Network.Socket (PortNumber)
 import Network.TLS
@@ -46,8 +47,10 @@ import Test.Tasty.QuickCheck qualified as QuickCheck
 import Network.GRPC.Client qualified as Client
 import Network.GRPC.Common
 import Network.GRPC.Common.Compression qualified as Compr
+import Network.GRPC.Common.Exception
 import Network.GRPC.Server qualified as Server
 import Network.GRPC.Server.Run qualified as Server
+
 import Test.Util.Exception
 
 import Paths_ (getDataFileName)
@@ -97,10 +100,10 @@ data ClientServerConfig = ClientServerConfig {
     , serverContentType :: ContentTypeOverride
 
       -- | Is this exception expected on the client?
-    , isExpectedClientException :: SomeException -> Bool
+    , isExpectedClientException :: ExactException -> Bool
 
       -- | Is this exception expected on the server?
-    , isExpectedServerException :: SomeException -> Bool
+    , isExpectedServerException :: ExactException -> Bool
     }
 
 data ContentTypeOverride =
@@ -171,26 +174,26 @@ data TlsFail =
     we don't see these exceptions server-side.
 -------------------------------------------------------------------------------}
 
-isDeliberateException :: SomeException -> Bool
-isDeliberateException e =
+isDeliberateException :: ExactException -> Bool
+isDeliberateException (WrapExactException e) =
     case fromException e of
-      Just DeliberateException{} -> True
+      Just (_e' :: DeliberateException) -> True
       _otherwise -> False
 
-isClientDisconnected :: SomeException -> Bool
-isClientDisconnected e =
+isClientDisconnected :: ExactException -> Bool
+isClientDisconnected (WrapExactException e) =
     case fromException e of
       Just Server.ClientDisconnected{} -> True
       _otherwise -> False
 
-isInvalidRequestHeaders :: SomeException -> Bool
-isInvalidRequestHeaders e =
+isInvalidRequestHeaders :: ExactException -> Bool
+isInvalidRequestHeaders (WrapExactException e) =
     case fromException e of
       Just Server.CallSetupInvalidRequestHeaders{} -> True
       _otherwise -> False
 
-isGrpc415 :: SomeException -> Bool
-isGrpc415 e =
+isGrpc415 :: ExactException -> Bool
+isGrpc415 (WrapExactException e) =
     case fromException e of
       Just err' | Just msg <- grpcErrorMessage err' -> and [
            grpcError err' == GrpcUnknown
@@ -202,8 +205,8 @@ isGrpc415 e =
 --
 -- We respond with 400 Bad Request, which gets turned into GrpcInternal
 -- by 'classifyServerResponse'.
-isGrpc400 :: SomeException -> Bool
-isGrpc400 e =
+isGrpc400 :: ExactException -> Bool
+isGrpc400 (WrapExactException e) =
     case fromException e of
       Just err' | Just msg <- grpcErrorMessage err' -> and [
            grpcError err' == GrpcInternal
@@ -211,32 +214,32 @@ isGrpc400 e =
         ]
       _otherwise -> False
 
-isGrpcCancelled :: SomeException -> Bool
-isGrpcCancelled e =
+isGrpcCancelled :: ExactException -> Bool
+isGrpcCancelled (WrapExactException e) =
     case fromException e of
       Just err'  -> grpcError err' == GrpcCancelled
       _otherwise -> False
 
-isHandshakeFailed :: SomeException -> Bool
-isHandshakeFailed e =
+isHandshakeFailed :: ExactException -> Bool
+isHandshakeFailed (WrapExactException e) =
     case fromException e of
       Just HandshakeFailed{} -> True
       _otherwise -> False
 
-isServerUnsupportedCompression :: SomeException -> Bool
-isServerUnsupportedCompression e =
+isServerUnsupportedCompression :: ExactException -> Bool
+isServerUnsupportedCompression (WrapExactException e) =
     case fromException e of
       Just Server.CallSetupUnsupportedCompression{} -> True
       _otherwise -> False
 
-isClientUnsupportedCompression :: SomeException -> Bool
-isClientUnsupportedCompression e =
+isClientUnsupportedCompression :: ExactException -> Bool
+isClientUnsupportedCompression (WrapExactException e) =
     case fromException e of
       Just Client.CallSetupUnsupportedCompression{} -> True
       _otherwise -> False
 
-isHandlerTerminated :: SomeException -> Bool
-isHandlerTerminated e =
+isHandlerTerminated :: ExactException -> Bool
+isHandlerTerminated (WrapExactException e) =
     case fromException e of
       Just Server.HandlerTerminated{} -> True
       _otherwise -> False
@@ -280,10 +283,23 @@ isHandlerTerminated e =
 -- the one exception cannot be the /cause/ for the other exception (if it was,
 -- then one must happen /before/ the other).
 data FirstTestFailure =
-    FirstFailureInClient SomeException
-  | FirstFailureInServer SomeException
-  deriving stock (Show)
-  deriving anyclass (Exception)
+    FirstFailureInClient ExactException
+  | FirstFailureInServer ExactException
+  deriving stock (Show, Generic)
+  deriving anyclass (ToExceptionDoc)
+
+instance Exception FirstTestFailure where
+  displayException = renderException
+
+#if MIN_VERSION_base(4,20,0)
+  -- The backtrace to the 'FirstTestFailure' /itself/ is merely distracting
+  -- (we're interested only in the backtrace of the actual test failure)
+  backtraceDesired _ = False
+#endif
+
+firstFailureInClient, firstFailureInServer :: ExactException -> FirstTestFailure
+firstFailureInClient = FirstFailureInClient
+firstFailureInServer = FirstFailureInServer
 
 data TestFailure = TestFailure
   deriving stock (Show)
@@ -336,14 +352,14 @@ topLevelWithHandlerLock cfg
       -> IO ()
     handler' req respond = do
         markActive
-        result <- try $ handler unmask req respond
+        result <- tryExact $ handler unmask req respond
         case result of
           Right () ->
             return ()
           Left err | isExpectedServerException cfg err ->
             return ()
           Left err ->
-            markTestFailure firstTestFailure (FirstFailureInServer err)
+            markTestFailure firstTestFailure (firstFailureInServer err)
         markDone
 
     markActive, markDone :: IO ()
@@ -533,14 +549,14 @@ runTestClient cfg firstTestFailure pathOrPort clientRun = do
 
         delimitTestScope :: IO () -> IO ()
         delimitTestScope test = do
-            result :: Either SomeException () <- try test
+            result <- tryExact test
             case result of
               Right () ->
                 return ()
               Left err | isExpectedClientException cfg err ->
                 return ()
               Left err -> do
-                markTestFailure firstTestFailure (FirstFailureInClient err)
+                markTestFailure firstTestFailure (firstFailureInClient err)
                 throwIO TestFailure
 
     clientRun clientParams clientServer delimitTestScope
@@ -612,19 +628,19 @@ waitForFailure server client firstTestFailure =
     `orElse`
       (Server.waitServerSTM server >>= serverAux)
     `orElse`
-      (waitCatchSTM client >>= clientAux)
+      (waitCatchExact client >>= clientAux)
   where
     serverAux ::
-         ( Either SomeException ()
-         , Either SomeException ()
+         ( Either ExactException ()
+         , Either ExactException ()
          )
       -> STM FirstTestFailure
-    serverAux (Left e, _) = return (FirstFailureInServer e)
-    serverAux (_, Left e) = return (FirstFailureInServer e)
+    serverAux (Left e, _) = return (firstFailureInServer e)
+    serverAux (_, Left e) = return (firstFailureInServer e)
     serverAux _otherwise  = throwSTM $ UnexpectedServerTermination
 
-    clientAux :: Either SomeException () -> STM FirstTestFailure
-    clientAux (Left e)   = return (FirstFailureInClient e)
+    clientAux :: Either ExactException () -> STM FirstTestFailure
+    clientAux (Left e)   = return (firstFailureInClient e)
     clientAux _otherwise = retry
 
 -- | We don't expect the server to shutdown until we kill it

@@ -1,3 +1,5 @@
+{-# LANGUAGE CPP #-}
+
 module Network.GRPC.Util.Stream (
     -- * Streams
     OutputStream(..)
@@ -10,14 +12,16 @@ module Network.GRPC.Util.Stream (
     -- * Exceptions
   , ClientDisconnected(..)
   , ServerDisconnected(..)
-  , wrapStreamExceptionsWith
+  , wrapServerDisconnected
+  , wrapClientDisconnected
   ) where
 
+import Control.Exception
 import Data.Binary.Builder (Builder)
 import Data.ByteString qualified as Strict (ByteString)
 import Network.HTTP.Types qualified as HTTP
 
-import Network.GRPC.Util.Backtrace
+import Network.GRPC.Common.Exception
 import Network.GRPC.Util.Imports
 
 {-------------------------------------------------------------------------------
@@ -64,33 +68,57 @@ getTrailers = _getTrailers
 -------------------------------------------------------------------------------}
 
 -- | Client disconnected unexpectedly
---
--- /If/ you choose to catch this exception, you are advised to match against
--- the type, rather than against the constructor, and then use the record
--- accessors to get access to the fields. Future versions of @grapesy@ may
--- record more information.
 data ClientDisconnected = ClientDisconnected {
-      clientDisconnectedException :: SomeException
-    , clientDisconnectedCallStack :: Backtraces
+      -- | The exception as reported by the transport (typically @http2@)
+      clientDisconnectedException :: ExactException
+
+      -- | Backtrace, /if/ different
+      --
+      -- In most cases we wrap the underlying exception the moment it arises.
+      -- When this happens, there is no meaningful difference between the
+      -- backtrace associated with the exception and the backtrace to where we
+      -- wrap it.
+      --
+      -- Sometimes, however, transport exceptions are thrown asynchronously. For
+      -- example, @http2@ will throw 'KilledByThreadManager' to server handlers
+      -- when a client disconnects. In this case the backtrace of the exception
+      -- and where we catch it might be quite different.
+    , clientDisconnectedBacktrace :: Maybe Backtraces
     }
-  deriving stock (Show)
-  deriving anyclass (Exception)
+  deriving stock (Show, Generic)
+  deriving anyclass ToExceptionDoc
 
 -- | Server disconnected unexpectedly
 --
--- See comments for 'ClientDisconnected' on how to catch this exception.
+-- See also 'ClientDisconnected' for additional discussion.
 data ServerDisconnected = ServerDisconnected {
-      serverDisconnectedException :: SomeException
-    , serverDisconnectedCallstack :: Backtraces
-    }
-  deriving stock (Show)
-  deriving anyclass (Exception)
+      -- | The exception as reported by the transport (typically @http2@)
+      serverDisconnectedException :: ExactException
 
-wrapStreamExceptionsWith ::
-     (HasCallStack, Exception e)
-  => (SomeException -> Backtraces -> e)
-  -> IO a -> IO a
-wrapStreamExceptionsWith f action =
-    action `catch` \err -> do
-      backtraces <- collectBacktraces
-      throwIO $ f err backtraces
+      -- | Backtrace, /if/ different
+      --
+      -- As discussed in 'clientDisconnectedBacktrace', normally we there is
+      -- no meaningful difference between the backtrace of the exception and the
+      -- backtrace to where we wrap it. An example where they /are/ different is
+      -- when the entire connection to the server is closed, and we notice this
+      -- elsewhere and close individual RPCs on that connection; the backtrace
+      -- of the latter will be different to the former.
+    , serverDisconnectedBacktrace :: Maybe Backtraces
+    }
+  deriving stock (Show, Generic)
+  deriving anyclass ToExceptionDoc
+
+#if MIN_VERSION_base(4,20,0)
+-- See discussion of 'clientDisconnectedBacktrace'
+instance Exception ClientDisconnected where backtraceDesired _ = False
+instance Exception ServerDisconnected where backtraceDesired _ = False
+#else
+instance Exception ClientDisconnected
+instance Exception ServerDisconnected
+#endif
+
+wrapClientDisconnected :: HasCallStack => IO a -> IO a
+wrapClientDisconnected = catchAndWrap $ \err -> ClientDisconnected err Nothing
+
+wrapServerDisconnected :: HasCallStack => IO a -> IO a
+wrapServerDisconnected = catchAndWrap $ \err -> ServerDisconnected err Nothing

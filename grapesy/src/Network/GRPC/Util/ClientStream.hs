@@ -19,10 +19,10 @@ clientInputStream :: Client.Response -> IO InputStream
 clientInputStream resp = do
     return InputStream {
         _getChunk =
-           wrapStreamExceptionsWith ServerDisconnected $
+           wrapServerDisconnected $
              Client.getResponseBodyChunk' resp
       , _getTrailers =
-           wrapStreamExceptionsWith ServerDisconnected $
+           wrapServerDisconnected $
              maybe [] fromHeaderTable <$> Client.getResponseTrailers resp
       }
 

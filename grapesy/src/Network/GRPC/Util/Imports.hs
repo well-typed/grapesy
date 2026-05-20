@@ -4,10 +4,10 @@ module Network.GRPC.Util.Imports (
     module Network.GRPC.Spec.Serialization,
 ) where
 
-import Control.Concurrent.Async as X (Async, cancelWith, wait, withAsync, waitCatchSTM)
+import Control.Concurrent.Async as X (Async, cancelWith, wait, withAsync)
 import Control.DeepSeq as X (NFData, force)
 import Control.Exception as X (evaluate)
-import Control.Exception as X (SomeException(..), Exception (toException, fromException, displayException), bracket, catch, try, throwIO)
+import Control.Exception as X (Exception (toException, fromException, displayException), bracket, catch, throwIO)
 import Control.Monad as X (void, when, unless, forM_)
 import Control.Monad.Catch as X (ExitCase(..))
 import Control.Monad.IO.Class as X (MonadIO(liftIO))

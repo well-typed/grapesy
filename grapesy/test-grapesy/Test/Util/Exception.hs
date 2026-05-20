@@ -1,11 +1,11 @@
 -- | Utility exception types for the tests
 module Test.Util.Exception
   ( -- * User exceptions
-    SomeServerException(..)
-  , SomeClientException(..)
+--    SomeServerException(..)
+--  , SomeClientException(..)
 
     -- * Deliberate exceptions
-  , DeliberateException(..)
+    DeliberateException(..)
   , ExceptionId
   ) where
 
@@ -19,18 +19,15 @@ import Control.Exception
   specific one).
 -------------------------------------------------------------------------------}
 
-data SomeServerException = SomeServerException ExceptionId
+-- | Deliberate exceptions do not constitute test failures
+data DeliberateException =
+    -- | Deliberate exception thrown in the server
+    DeliberateServerException ExceptionId
+
+    -- | Deliberate exception thrown in the client
+  | DeliberateClientException ExceptionId
   deriving stock (Show, Eq)
   deriving anyclass (Exception)
-
-data SomeClientException = SomeClientException ExceptionId
-  deriving stock (Show, Eq)
-  deriving anyclass (Exception)
-
--- | Exception thrown by client or handler to test exception handling
-data DeliberateException = forall e. Exception e => DeliberateException e
-  deriving anyclass (Exception)
-deriving stock instance Show DeliberateException
 
 -- | We distinguish exceptions from each other simply by a number
 type ExceptionId = Int

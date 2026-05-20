@@ -9,13 +9,13 @@ module Network.GRPC.Server.Context (
   , ServerParams(..)
   ) where
 
-import Network.GRPC.Util.Imports
-
+import Data.Text qualified as Text
 import System.IO (stderr, hPrint)
 
 import Network.GRPC.Common.Compression qualified as Compr
+import Network.GRPC.Common.Exception
 import Network.GRPC.Server.RequestHandler.API
-import Data.Text qualified as Text
+import Network.GRPC.Util.Imports
 
 {-------------------------------------------------------------------------------
   Context
@@ -63,7 +63,7 @@ data ServerParams = ServerParams {
       -- exception happens to contain sensitive information, this information
       -- will also be visible on the client. You may therefore wish to override
       -- the default behaviour.
-    , serverExceptionToClient :: SomeException -> IO (Maybe Text)
+    , serverExceptionToClient :: ExactException -> IO (Maybe Text)
 
       -- | Override content-type for response to client.
       --
@@ -96,15 +96,16 @@ defaultServerTopLevel :: RequestHandler () -> RequestHandler ()
 defaultServerTopLevel h unmask req resp =
     h unmask req resp `catch` handler
   where
-    handler :: SomeException -> IO ()
+    handler :: ExactException -> IO ()
     handler = hPrint stderr
 
 -- | Default implementation for 'serverExceptionToClient'
 --
--- We unwrap the 'SomeException' wrapper so that we do not include the exception
--- context in the output to the client (relevant for @ghc >= 9.10@ only).
---
--- See <https://github.com/ghc-proposals/ghc-proposals/blob/master/proposals/0330-exception-backtraces.rst>.
-defaultServerExceptionToClient :: SomeException -> IO (Maybe Text)
-defaultServerExceptionToClient (SomeException e) =
-    return $ Just (Text.pack $ "Server-side exception: " ++ displayException e)
+-- Exception annotations are not included: these reveal server implementation
+-- details and are not typicall relevant or even meaningful to clients.
+defaultServerExceptionToClient :: ExactException -> IO (Maybe Text)
+defaultServerExceptionToClient exact = return $
+    withoutAnnotations exact $ \e -> Just . Text.pack $ concat [
+        "Server-side exception: "
+      ,  displayException e
+      ]

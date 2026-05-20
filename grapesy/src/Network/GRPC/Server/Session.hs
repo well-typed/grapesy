@@ -7,9 +7,9 @@ module Network.GRPC.Server.Session (
   , CallSetupFailure(..)
   ) where
 
-import Network.GRPC.Util.Imports
-
+import Network.GRPC.Common.Exception
 import Network.GRPC.Server.Context
+import Network.GRPC.Util.Imports
 import Network.GRPC.Util.Session.API
 
 {-------------------------------------------------------------------------------
@@ -98,7 +98,7 @@ data CallSetupFailure =
     -- | An exception arose while we tried to look up the handler
     --
     -- This can arise when the list of handlers /itself/ is @undefined@.
-  | CallSetupHandlerLookupException SomeException
+  | CallSetupHandlerLookupException ExactException
 
 deriving stock    instance Show      CallSetupFailure
 deriving anyclass instance Exception CallSetupFailure

@@ -28,7 +28,7 @@ tests = testGroup "Test.Sanity.Reclamation" [
 
 -- | Handler that throws immediately
 brokenHandler :: Server.Call Ping -> IO ()
-brokenHandler _call = throwIO $ DeliberateException $ userError "Broken handler"
+brokenHandler _call = throwIO $ DeliberateServerException 1
 
 serverException1 :: Assertion
 serverException1 = testClientServer $ ClientServerTest {

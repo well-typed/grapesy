@@ -50,13 +50,13 @@ import Network.HTTP.Types qualified as HTTP
 import Network.HTTP.Semantics.Server qualified as Server
 
 import Network.GRPC.Common.Compression qualified as Compr
+import Network.GRPC.Common.Exception
 import Network.GRPC.Common.Headers
 import Network.GRPC.Common.ProtocolException
 import Network.GRPC.Common.StreamElem (StreamElem(..))
 import Network.GRPC.Common.StreamElem qualified as StreamElem
 import Network.GRPC.Server.Context
 import Network.GRPC.Server.Session
-import Network.GRPC.Util.Backtrace
 import Network.GRPC.Util.HeaderTable (fromHeaderTable)
 import Network.GRPC.Util.Session.API qualified as Session
 import Network.GRPC.Util.Session.Channel qualified as Session
@@ -332,12 +332,12 @@ getOutboundCompression session = \case
     ServerParams{serverCompression} = serverParams
 
 -- | Turn exception raised in server handler to error to be sent to the client
-serverExceptionToClientError :: ServerParams -> SomeException -> IO ProperTrailers
-serverExceptionToClientError params err
+serverExceptionToClientError :: ServerParams -> ExactException -> IO ProperTrailers
+serverExceptionToClientError params exact@(WrapExactException err)
   | Just (err' :: GrpcException) <- fromException err =
       return $ grpcExceptionToTrailers err'
   | otherwise = do
-      mMsg <- serverExceptionToClient params err
+      mMsg <- serverExceptionToClient params exact
       return $ simpleProperTrailers (GrpcError GrpcUnknown) mMsg Nothing mempty
 
 {-------------------------------------------------------------------------------
@@ -701,7 +701,7 @@ recvEndOfInput call@Call{} = do
 -- handlers to the client.
 --
 -- If no messages have been sent yet, we make use of the @Trailers-Only@ case.
-sendProperTrailers :: Call rpc -> ProperTrailers -> IO ()
+sendProperTrailers :: HasCallStack => Call rpc -> ProperTrailers -> IO ()
 sendProperTrailers Call{callContext, callResponseKickoff, callChannel}
                    trailers = do
     backtrace <- collectBacktraces

@@ -10,6 +10,7 @@ import Test.Tasty.HUnit
 import Network.GRPC.Client (rpc)
 import Network.GRPC.Client.StreamType.IO qualified as Client
 import Network.GRPC.Common
+import Network.GRPC.Common.Exception
 import Network.GRPC.Common.Protobuf
 import Network.GRPC.Common.Protobuf.Any (Any)
 import Network.GRPC.Common.Protobuf.Any qualified as Any
@@ -69,7 +70,7 @@ testAny = testClientServer $ ClientServerTest {
 testStatus :: Assertion
 testStatus = testClientServer $ ClientServerTest {
       config = def {
-          isExpectedServerException = \e ->
+          isExpectedServerException = \(WrapExactException e) ->
             case fromException e of
               Just err'  -> grpcError err' == GrpcNotFound
               _otherwise -> False

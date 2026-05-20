@@ -20,12 +20,13 @@ import Network.HTTP.Types qualified as HTTP
 import Network.HTTP.Semantics (OutBodyIface)
 import Network.HTTP.Semantics.Client qualified as Client
 
-import Network.GRPC.Util.HeaderTable (fromHeaderTable)
+import Network.GRPC.Common.Exception
 import Network.GRPC.Util.ClientStream
-import Network.GRPC.Util.Stream
+import Network.GRPC.Util.HeaderTable (fromHeaderTable)
 import Network.GRPC.Util.RedundantConstraint (addConstraint)
 import Network.GRPC.Util.Session.API
 import Network.GRPC.Util.Session.Channel
+import Network.GRPC.Util.Stream
 import Network.GRPC.Util.Thread
 
 {-------------------------------------------------------------------------------
@@ -89,7 +90,7 @@ class NoTrailers sess where
   -- | There is no interesting information in the trailers
   noTrailers :: Proxy sess -> Trailers (Outbound sess)
 
-type CancelRequest = Maybe SomeException -> IO ()
+type CancelRequest = Maybe ExactException -> IO ()
 
 -- | Setup request channel
 --
@@ -99,7 +100,7 @@ setupRequestChannel :: forall sess.
      (InitiateSession sess, NoTrailers sess)
   => sess
   -> ConnectionToServer
-  -> (InboundResult sess -> SomeException)
+  -> (InboundResult sess -> ExactException)
   -- ^ We assume that when the server closes their outbound connection to us,
   -- the entire conversation is over (i.e., the server cannot "half-close").
   -> FlowStart (Outbound sess)
@@ -195,7 +196,7 @@ setupRequestChannel sess
     outboundThread channel cancelRequestVar regular iface =
         threadBody "grapesy:clientOutbound" (channelOutbound channel) $ \markReady _debugId -> do
           markReady $ FlowStateRegular regular
-          putMVar cancelRequestVar (Client.outBodyCancel iface)
+          putMVar cancelRequestVar cancelRequest
           stream <- clientOutputStream iface
           -- Unlike the client inbound thread, or the inbound/outbound threads
           -- of the server, http2 knows about this particular thread and may
@@ -207,8 +208,11 @@ setupRequestChannel sess
           -- We don't have this top-level exception handler in other places
           -- because we don't want to mark /our own/ exceptions as
           -- 'ServerDisconnected' or 'ClientDisconnected'.
-          wrapStreamExceptionsWith ServerDisconnected $
+          wrapServerDisconnected $
             Client.outBodyUnmask iface $ sendMessageLoop sess regular stream
+      where
+        cancelRequest :: CancelRequest
+        cancelRequest = Client.outBodyCancel iface . fmap unwrapExactException
 
 {-------------------------------------------------------------------------------
    Auxiliary http2

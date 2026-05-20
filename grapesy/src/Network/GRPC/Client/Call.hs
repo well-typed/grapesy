@@ -43,11 +43,11 @@ import Network.GRPC.Client.Connection (Connection, ConnParams(..))
 import Network.GRPC.Client.Connection qualified as Connection
 import Network.GRPC.Client.Session
 import Network.GRPC.Common.Compression qualified as Compression
+import Network.GRPC.Common.Exception
 import Network.GRPC.Common.ProtocolException
 import Network.GRPC.Common.StreamElem (StreamElem(..))
 import Network.GRPC.Common.StreamElem qualified as StreamElem
 import Network.GRPC.Spec.Util.HKD qualified as HKD
-import Network.GRPC.Util.Backtrace
 import Network.GRPC.Util.GHC
 import Network.GRPC.Util.Session.API qualified as Session
 import Network.GRPC.Util.Session.Channel (ChannelDiscarded (..))
@@ -146,9 +146,10 @@ startRPC conn _ callParams = do
 
     let serverClosedConnection ::
              Either (TrailersOnly' HandledSynthesized) ProperTrailers'
-          -> SomeException
+          -> ExactException
         serverClosedConnection =
-              either toException toException
+              WrapExactException
+            . either toException toException
             . grpcClassifyTermination
             . either trailersOnlyToProperTrailers' id
 
@@ -185,8 +186,8 @@ startRPC conn _ callParams = do
         Nothing -> return Nothing
         Just t  -> fmap Just $ forkLabelled "grapesy:clientSideTimeout" $ do
           UnboundedDelays.delay (timeoutToMicro t)
-          let timeout :: SomeException
-              timeout = toException $ GrpcException {
+          let timeout :: ExactException
+              timeout = WrapExactException $ toException $ GrpcException {
                     grpcError         = GrpcDeadlineExceeded
                   , grpcErrorMessage  = Nothing
                   , grpcErrorDetails  = Nothing
@@ -219,7 +220,8 @@ startRPC conn _ callParams = do
           -- was slow, rather than the server).
 
           void $ Thread.cancelThread (Session.channelInbound channel) timeout
-          closeRPC channel cancelRequest $ ExitCaseException timeout
+          closeRPC channel cancelRequest $
+            ExitCaseException (unwrapExactException timeout)
 
     -- Spawn a thread to monitor the connection, and close the new channel when
     -- the connection is closed. To prevent a memory leak by hanging on to the
@@ -239,10 +241,11 @@ startRPC conn _ callParams = do
           let exitReason :: ExitCase ()
               exitReason =
                 case mErr of
-                  Nothing -> ExitCaseSuccess ()
+                  Nothing ->
+                    ExitCaseSuccess ()
                   Just exitWithException ->
                     ExitCaseException . toException $
-                      ServerDisconnected exitWithException backtrace
+                      serverDisconnected backtrace exitWithException
           _mAlreadyClosed <- Session.close channel exitReason
           return ()
 
@@ -287,6 +290,13 @@ startRPC conn _ callParams = do
     session = ClientSession {
           clientConnection = conn
         }
+
+    serverDisconnected :: Backtraces -> ExactException -> ServerDisconnected
+    serverDisconnected backtrace e = ServerDisconnected{
+          serverDisconnectedException = e
+        , serverDisconnectedBacktrace = Just backtrace
+        }
+
 
 -- | Close the RPC (internal API only)
 --
@@ -345,12 +355,12 @@ closeRPC callChannel cancelRequest exitCase = liftIO $ do
         -- The outbound thread had already terminated
         return ()
       Just ex ->
-        case fromException ex of
+        case fromException (unwrapExactException ex) of
           Nothing ->
             -- We are leaving the scope of 'withRPC' because of an exception
             -- in the client, just rethrow that exception.
             throwM ex
-          Just discarded ->
+          Just (discarded :: ChannelDiscarded) ->
             -- We are leaving the scope of 'withRPC' without having sent the
             -- final message.
             --
@@ -380,10 +390,12 @@ closeRPC callChannel cancelRequest exitCase = liftIO $ do
               -- that something has gone wrong (i.e. INTERNAL_ERROR), so we must
               -- pass an exception, however the exact nature of the exception is
               -- not particularly important as it is only recorded locally.
-              Just . toException $ Session.ChannelAborted backtrace
+              Just . WrapExactException $
+                toException $ Session.ChannelAborted backtrace
             ExitCaseException e ->
               -- Error code will be INTERNAL_ERROR
-              Just e
+              Just . WrapExactException $
+                e
 
     throwCancelled :: ChannelDiscarded -> IO ()
     throwCancelled (ChannelDiscarded backtrace) = do
@@ -391,7 +403,7 @@ closeRPC callChannel cancelRequest exitCase = liftIO $ do
             grpcError         = GrpcCancelled
           , grpcErrorMessage  = Just $ mconcat [
                                     "Channel discarded by client at "
-                                  , Text.pack $ show backtrace
+                                  , Text.pack $ displayBacktraces backtrace
                                   ]
           , grpcErrorDetails  = Nothing
           , grpcErrorMetadata = []

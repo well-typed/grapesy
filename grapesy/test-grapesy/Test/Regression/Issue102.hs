@@ -35,7 +35,6 @@ import Network.GRPC.Server.Binary qualified as Binary
 import Proto.API.Trivial
 
 import Test.Driver.ClientServer
-import Test.Util.Exception
 
 tests :: TestTree
 tests = testGroup "Issue102" [
@@ -61,7 +60,7 @@ test_clientException = testClientServer $ ClientServerTest {
             replicate 99 predicate ++
               [ \n ->
                      (n > 10)
-                  && throw (DeliberateException $ SomeClientException 1)
+                  && throw (DeliberateClientException 1)
               ]
 
         results <-
@@ -106,9 +105,8 @@ test_serverException = do
           -- Only one of the calls failed, and we got the appropriate
           -- exception
           case lefts results of
-            [GrpcException GrpcUnknown (Just msg) Nothing []] -> do
-              assertBool "" $ "DeliberateException"   `Text.isInfixOf` msg
-              assertBool "" $ "SomeServerException 1" `Text.isInfixOf` msg
+            [GrpcException GrpcUnknown (Just msg) Nothing []] ->
+              assertBool "" $ "DeliberateServerException" `Text.isInfixOf` msg
             _ ->
               assertFailure ""
 
@@ -124,8 +122,7 @@ test_serverException = do
                     handlerCount <-
                       atomicModifyIORef' handlerCounter (\n -> (n + 1, n))
                     when (handlerCount == 25) $
-                      throwIO $
-                        DeliberateException $ SomeServerException 1
+                      throwIO $ DeliberateServerException 1
                     incUntilFinal call
           ]
       }
@@ -142,7 +139,7 @@ test_earlyTerminationNoWait = testClientServer $ ClientServerTest {
         _mResult <-
           try @DeliberateException $
             Client.withRPC conn def (Proxy @Trivial) $ \_call ->
-              throwIO (DeliberateException $ SomeServerException 0)
+              throwIO (DeliberateServerException 0)
 
         result <- Client.withRPC conn def (Proxy @Trivial) $ \call -> do
           Binary.sendFinalInput @Word8 call 0

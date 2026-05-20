@@ -32,7 +32,6 @@ forkClientThread :: forall a.
 forkClientThread k = do
     clientConnected <- newEmptyTMVarIO
     clientResult    <- newEmptyTMVarIO
-
     let recordException :: SomeException -> IO ()
         recordException e = atomically $ do
             -- It's possible (indeed, likely) the exception happened after
