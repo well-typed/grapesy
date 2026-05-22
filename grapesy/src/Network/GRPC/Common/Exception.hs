@@ -36,6 +36,9 @@ module Network.GRPC.Common.Exception (
     -- * Shim: WithAnnotations (ExceptionWithContext)
   , WithAnnotations
   , pattern WithAnnotations
+
+    -- * Shim: annotateIO
+  , annotateIO
   ) where
 
 import Control.Concurrent.Async
@@ -265,15 +268,12 @@ instance Exception ExactException where
   backtraceDesired = const False
 #endif
 
-
 -- | Type-specialized wrapper around throwIO, to avoid mistakes
-throwExact :: HasCallStack => ExactException -> IO a
+--
+-- This does not need a `HasCallSTack` constraint, because no backtrace is
+-- added to `ExactException`.
+throwExact :: ExactException -> IO a
 throwExact = throwIO
-#if !MIN_VERSION_base(4,20,0)
-  where
-    _suppressWarning :: CallStack
-    _suppressWarning = callStack
-#endif
 
 withoutAnnotations :: ExactException -> (forall e. Exception e => e -> r) -> r
 withoutAnnotations (WrapExactException (SomeException e)) k = k e
@@ -415,6 +415,17 @@ data WhileHandling
 
 instance ToExceptionDoc WhileHandling where
   toExceptionDoc x = case x of {}
+
+#endif
+
+{-------------------------------------------------------------------------------
+  Shim: Make `annotateIO` a no-op for GHC < 9.10
+-------------------------------------------------------------------------------}
+
+#if !MIN_VERSION_base(4,20,0)
+
+annotateIO :: ann -> IO a -> IO a
+annotateIO _ = id
 
 #endif
 

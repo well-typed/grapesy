@@ -105,11 +105,9 @@ instance ExceptionAnnotation ThreadInterfaceUnavailable
 
 throwThreadException :: (MonadIO m, HasCallStack) => ThreadException -> m a
 throwThreadException e = liftIO $ do
-#if MIN_VERSION_base(4,20,0)
     backtraces <- collectBacktraces
     annotateIO (threadExceptionAnnotation e) $
       annotateIO (ThreadInterfaceUnavailable backtraces) $
-#endif
         throwExact (threadException e)
 
 {-------------------------------------------------------------------------------
