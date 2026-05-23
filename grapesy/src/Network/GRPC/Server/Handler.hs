@@ -66,8 +66,11 @@ import Network.GRPC.Util.Stream (ClientDisconnected(..))
 -- the client as 'GrpcException' with 'GrpcUnknown' error code.
 data RpcHandler (m :: Type -> Type) (rpc :: k) = RpcHandler {
       -- | Handler proper
-      runRpcHandler :: Call rpc -> m ()
+      runRpcHandler_ :: HasCallStack => Call rpc -> m ()
     }
+
+runRpcHandler :: HasCallStack => RpcHandler m rpc -> Call rpc -> m ()
+runRpcHandler RpcHandler{runRpcHandler_} = runRpcHandler_
 
 -- | Hoist an 'RpcHandler' to a different monad
 --
@@ -102,7 +105,8 @@ mkRpcHandler ::
      ( Default (ResponseInitialMetadata rpc)
      , MonadIO m
      )
-  => (Call rpc -> m ()) -> RpcHandler m rpc
+  => (HasCallStack => Call rpc -> m ())
+  -> RpcHandler m rpc
 mkRpcHandler k = RpcHandler $ \call -> do
     liftIO $ setResponseInitialMetadata call def
     k call

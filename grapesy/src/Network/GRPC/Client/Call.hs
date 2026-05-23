@@ -623,7 +623,7 @@ recvResponseInitialMetadata call@Call{} = liftIO $ do
       ResponseTrailingMetadata md' ->
         err $ UnexpectedTrailersOnly md'
   where
-    err :: ProtocolException rpc -> IO a
+    err :: HasCallStack => ProtocolException rpc -> IO a
     err = throwM . ProtocolException
 
 -- | Receive the next output
@@ -641,7 +641,7 @@ recvNextOutput call@Call{} = liftIO $ do
       Right (_env, out) ->
         return out
   where
-    err :: ProtocolException rpc -> IO a
+    err :: HasCallStack => ProtocolException rpc -> IO a
     err = throwM . ProtocolException
 
 -- | Receive output, which we expect to be the /final/ output
@@ -666,7 +666,7 @@ recvFinalOutput call@Call{} = liftIO $ do
           FinalElem  out' _ -> err $ TooManyOutputs @rpc out'
           StreamElem out'   -> err $ TooManyOutputs @rpc out'
   where
-    err :: ProtocolException rpc -> IO a
+    err :: HasCallStack => ProtocolException rpc -> IO a
     err = throwM . ProtocolException
 
 -- | Receive trailers
@@ -682,7 +682,7 @@ recvTrailers call@Call{} = liftIO $ do
       FinalElem  out _ts -> err $ TooManyOutputs @rpc out
       StreamElem out     -> err $ TooManyOutputs @rpc out
   where
-    err :: ProtocolException rpc -> IO a
+    err :: HasCallStack => ProtocolException rpc -> IO a
     err = throwM . ProtocolException
 
 {-------------------------------------------------------------------------------

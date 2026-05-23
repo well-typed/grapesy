@@ -104,8 +104,12 @@ data Channel sess = Channel {
     , channelRecvFinal :: TVar (RecvFinal (Inbound sess))
     }
 
+-- | Has the client code received the final message from the peer yet?
+--
+-- NOTE: \"delivered\" here means: put the final message that we received from
+-- the peer into the hands of the client code.
 data RecvFinal flow =
-    -- | We have not yet delivered the final message to the client
+    -- | We have not yet delivered the final message to the client code
     RecvNotFinal
 
     -- | We delivered the final message, but not yet the trailers
@@ -113,6 +117,8 @@ data RecvFinal flow =
 
     -- | We delivered the final message and the trailers
   | RecvFinal Backtraces
+
+deriving instance DataFlow flow => Show (RecvFinal flow)
 
 -- | Data flow state
 data FlowState flow =
@@ -276,7 +282,7 @@ send Channel{channelOutbound, channelSentFinal} = \msg -> do
 -- and the trailers together. It is a bug to call 'recvBoth' again after this;
 -- doing so will result in a 'RecvAfterFinal' exception.
 recvBoth :: forall sess.
-     HasCallStack
+     (HasCallStack, IsSession sess)
   => Channel sess
   -> IO ( Either
             (NoMessages (Inbound sess))
@@ -296,7 +302,7 @@ recvBoth =
 -- 'recvEither'. Call 'recvEither' again /after/ receiving the trailers is a
 -- bug; doing so will result in a 'RecvAfterFinal' exception.
 recvEither ::
-     HasCallStack
+     (HasCallStack, IsSession sess)
   => Channel sess
   -> IO ( Either
             (NoMessages (Inbound sess))
@@ -310,7 +316,7 @@ recvEither =
 
 -- | Internal generalization of 'recvBoth' and 'recvEither'
 recv' :: forall sess b.
-     HasCallStack
+     (HasCallStack, IsSession sess)
   => (Message    (Inbound sess) -> b)  -- ^ Message without trailers
   -> (Trailers   (Inbound sess) -> b)  -- ^ Trailers without (final) message
   -> (    (Message (Inbound sess), Trailers (Inbound sess))
@@ -329,6 +335,8 @@ recv' messageWithoutTrailers
     backtrace <- collectBacktraces
     withThreadInterface channelInbound $ aux backtrace
   where
+    _ = addConstraint @(IsSession sess)
+
     aux ::
          Backtraces
       -> FlowState (Inbound sess)

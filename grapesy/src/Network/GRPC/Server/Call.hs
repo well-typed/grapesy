@@ -650,7 +650,7 @@ recvNextInput call@Call{} = do
       NoNextElem   -> err $ TooFewInputs @rpc
       NextElem inp -> return inp
   where
-    err :: ProtocolException rpc -> IO a
+    err :: HasCallStack => ProtocolException rpc -> IO a
     err = throwIO . ProtocolException
 
 -- | Receive input, which we expect to be the /final/ input
@@ -672,7 +672,7 @@ recvFinalInput call@Call{} = do
           FinalElem  inp' NoMetadata -> err $ TooManyInputs @rpc inp'
           StreamElem inp'            -> err $ TooManyInputs @rpc inp'
   where
-    err :: ProtocolException rpc -> IO a
+    err :: HasCallStack => ProtocolException rpc -> IO a
     err = throwIO . ProtocolException
 
 -- | Wait for the client to indicate that there are no more inputs
@@ -686,7 +686,7 @@ recvEndOfInput call@Call{} = do
       FinalElem  inp NoMetadata -> err $ TooManyInputs @rpc inp
       StreamElem inp            -> err $ TooManyInputs @rpc inp
   where
-    err :: ProtocolException rpc -> IO a
+    err :: HasCallStack => ProtocolException rpc -> IO a
     err = throwIO . ProtocolException
 
 {-------------------------------------------------------------------------------
