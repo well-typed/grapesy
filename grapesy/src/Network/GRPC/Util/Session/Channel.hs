@@ -22,9 +22,6 @@ module Network.GRPC.Util.Session.Channel (
   , close
   , ChannelDiscarded(..)
   , ChannelAborted(..)
-    -- * Support for half-closing
-  , AllowHalfClosed(..)
-  , linkOutboundToInbound
     -- * Constructing channels
   , sendMessageLoop
   , recvMessageLoop
@@ -490,54 +487,6 @@ data ChannelAborted = ChannelAborted Backtraces
   deriving anyclass (Exception)
 
 {-------------------------------------------------------------------------------
-  Support for half-closing
--------------------------------------------------------------------------------}
-
--- | Should we allow for a half-closed connection state?
---
--- In HTTP2, streams are bidirectional and can be half-closed in either
--- direction. This is however not true for all applications /of/ HTTP2. For
--- example, in gRPC the stream can be half-closed from the client to the server
--- (indicating that the client will not send any more messages), but not from
--- the server to the client: when the server half-closes their connection, it
--- sends the gRPC trailers and this terminates the call.
-data AllowHalfClosed r =
-    ContinueWhenInboundClosed
-  | TerminateWhenInboundClosed (r -> ExactException)
-
--- | Link outbound thread to the inbound thread
---
--- This should be wrapped around the body of the inbound thread. It ensures that
--- when the inbound thread throws an exception, the outbound thread dies also.
--- This improves predictability of exceptions: the inbound thread spends most of
--- its time blocked on messages from the peer, and will therefore notice when
--- the connection is lost. This is not true for the outbound thread, which
--- spends most of its time blocked waiting for messages to send to the peer.
-linkOutboundToInbound :: forall sess r.
-     (IsSession sess, HasCallStack)
-  => AllowHalfClosed r
-  -> Channel sess
-  -> IO r -> IO r
-linkOutboundToInbound allowHalfClosed channel inbound = do
-    mResult <- tryExact inbound
-
-    -- Implementation note: After cancelThread returns, 'channelOutbound' has
-    -- been updated, and considered dead, even if perhaps the thread is still
-    -- cleaning up.
-
-    case (mResult, allowHalfClosed) of
-      (Right result, ContinueWhenInboundClosed) ->
-        return result
-      (Right result, TerminateWhenInboundClosed f) -> do
-        void $ cancelThread (channelOutbound channel) (f result)
-        return result
-      (Left (exception :: ExactException), _) -> do
-        void $ cancelThread (channelOutbound channel) exception
-        throwExact exception
-  where
-    _ = addConstraint @(IsSession sess)
-
-{-------------------------------------------------------------------------------
   Constructing channels
 
   Both 'sendMessageLoop' and 'recvMessageLoop' will be run in newly forked
@@ -550,13 +499,26 @@ linkOutboundToInbound allowHalfClosed channel inbound = do
 -------------------------------------------------------------------------------}
 
 -- | Send all messages to the node's peer
+--
+-- The outbound thread is set up to be monitoring the input thread. This
+-- improves predictability of exceptions: the inbound thread spends most of its
+-- time blocked on messages from the peer, and will therefore notice when the
+-- connection is lost. This is not true for the outbound thread, which spends
+-- most of its time blocked waiting for messages to send to the peer.
+--
+-- TODO: There is currently a race condition: suppose the client is waiting for
+-- the trailers from the server, and then disconnects. As it stands, we might
+-- send those trailers from the 'sendMessageLoop', but then before the thread
+-- can terminate cleanly it is killed by the monitor. We should ensure that
+-- we /demonitor/ the inbound thread just prior to sending the trailers.
 sendMessageLoop :: forall sess.
      IsSession sess
   => sess
   -> RegularFlowState (Outbound sess)
   -> OutputStream
+  -> MonitorRef -- ^ Monitor for the inbound thread
   -> IO (Trailers (Outbound sess))
-sendMessageLoop sess st stream = do
+sendMessageLoop sess st stream _monitorInbound = do
     trailers <- loop
     atomically $ STM.putTMVar (flowTerminated st) trailers
     return trailers

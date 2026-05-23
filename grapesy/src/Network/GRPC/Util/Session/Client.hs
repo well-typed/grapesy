@@ -181,10 +181,8 @@ setupRequestChannel sess
                 regular <- initFlowStateRegular headers
                 stream  <- clientInputStream resp
                 threadMainBody ctxt regular $
-                  linkOutboundToInbound (TerminateWhenInboundClosed (terminateCall . Right)) channel $
-                    recvMessageLoop sess regular stream
+                  recvMessageLoop sess regular stream
               FlowStartNoMessages trailers -> do
-                void $ cancelThread (channelOutbound channel) $ terminateCall (Left trailers)
                 threadTrivial ctxt trailers
 
     outboundThread ::
@@ -197,7 +195,8 @@ setupRequestChannel sess
         threadBody "grapesy:clientOutbound" (channelOutbound channel) $ \ctxt -> do
           threadMainBody ctxt regular $ do
             putMVar cancelRequestVar cancelRequest
-            stream <- clientOutputStream iface
+            monitor <- threadMonitor ctxt (channelInbound channel) monitorPred
+            stream  <- clientOutputStream iface
             -- Unlike the client inbound thread, or the inbound/outbound threads
             -- of the server, http2 knows about this particular thread and may
             -- raise an exception on it when the server dies. This results in a
@@ -209,10 +208,29 @@ setupRequestChannel sess
             -- because we don't want to mark /our own/ exceptions as
             -- 'ServerDisconnected' or 'ClientDisconnected'.
             wrapServerDisconnected $
-              Client.outBodyUnmask iface $ sendMessageLoop sess regular stream
+              Client.outBodyUnmask iface $
+                sendMessageLoop sess regular stream monitor
       where
         cancelRequest :: CancelRequest
         cancelRequest = Client.outBodyCancel iface . fmap unwrapExactException
+
+        -- In HTTP2, streams are bidirectional and can be half-closed in either
+        -- direction. However, in gRPC the stream can be half-closed from the
+        -- client to the server (indicating that the client will not send any
+        -- more messages), but not from the server to the client: when the
+        -- server half-closes their connection, it sends the gRPC trailers and
+        -- this terminates the call.
+        monitorPred ::
+              Either
+                ThreadException
+                ( Either
+                    (NoMessages (Inbound sess))
+                    (Trailers   (Inbound sess))
+                )
+           -> Maybe ExactException
+        monitorPred = \case
+            Left  e        -> Just $ threadException e
+            Right trailers -> Just $ terminateCall trailers
 
 {-------------------------------------------------------------------------------
    Auxiliary http2

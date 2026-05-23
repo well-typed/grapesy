@@ -113,8 +113,7 @@ setupResponseChannel sess
           regular <- initFlowStateRegular headers
           stream  <- serverInputStream (request conn)
           threadMainBody ctxt regular $
-            linkOutboundToInbound ContinueWhenInboundClosed channel $
-              recvMessageLoop sess regular stream
+            recvMessageLoop sess regular stream
         FlowStartNoMessages trailers ->
           -- The client sent a request with an empty body
           threadTrivial ctxt trailers
@@ -123,15 +122,34 @@ setupResponseChannel sess
       (outboundStart, responseInfo) <- startOutbound
       case outboundStart of
         FlowStartRegular headers -> do
+          monitor <- threadMonitor ctxt (channelInbound channel) monitorPred
           regular <- initFlowStateRegular headers
           threadMainBody ctxt regular $ do
             respondStreamingWithResult
                 conn
                 (outboundTrailersMaker sess channel regular)
                 responseInfo $ \stream ->
-              sendMessageLoop sess regular stream
+              sendMessageLoop sess regular stream monitor
         FlowStartNoMessages trailers -> do
           respondNoBody conn responseInfo
           threadTrivial ctxt trailers
 
     return channel
+  where
+    -- Unlike on the client-side, if the input thread terminates normally, the
+    -- server can continue to run normally (the stream can be half-closed from
+    -- the client). We only only terminate if the inbound thread threw an
+    -- exception, indicating that the client disconnected abruptly.
+    --
+    -- See also 'Network.GRPC.Util.Session.Client.setupRequestChannel'.
+    monitorPred ::
+          Either
+            ThreadException
+            ( Either
+                (NoMessages (Inbound sess))
+                (Trailers   (Inbound sess))
+            )
+       -> Maybe ExactException
+    monitorPred = \case
+        Left  e         -> Just $ threadException e
+        Right _trailers -> Nothing

@@ -8,6 +8,7 @@ module Network.GRPC.Util.Thread (
   , ThreadException(..)
     -- * Creating threads
   , ThreadContext(..)
+  , threadMonitor
   , ThreadBody
   , newThreadState
   , forkThread
@@ -25,6 +26,10 @@ module Network.GRPC.Util.Thread (
   , withThreadInterface
   , waitForNormalThreadTermination
   , waitForNormalOrAbnormalThreadTermination
+    -- * Monitoring
+  , MonitorRef -- opaque
+  , MonitorAnnotation(..)
+  , demonitor
   ) where
 
 import Network.GRPC.Util.Imports
@@ -204,9 +209,24 @@ data ThreadContext a r r' = ThreadContext{
       -- this case to have a diferent result type.
     , threadTrivial :: r' -> IO ()
 
+      -- | Monitor another thread
+    , threadMonitor_ :: forall a2 r2 r'2.
+            HasCallStack
+         => TVar (ThreadState a2 r2 r'2)
+         -> (Either ThreadException (Either r'2 r2) -> Maybe ExactException)
+         -> IO MonitorRef
+
       -- | Unique identifier for this thread
     , threadId :: DebugThreadId
     }
+
+threadMonitor ::
+     HasCallStack
+  => ThreadContext a r r'
+  -> TVar (ThreadState a2 r2 r'2)
+  -> (Either ThreadException (Either r'2 r2) -> Maybe ExactException)
+  -> IO MonitorRef
+threadMonitor ThreadContext{threadMonitor_} = threadMonitor_
 
 type ThreadBody a r r' =
       (forall x. IO x -> IO x)
@@ -315,7 +335,8 @@ threadBody label state body = do
     res <- tryExact $ body ThreadContext{
           threadMainBody
         , threadTrivial
-        , threadId = threadDebugId initState
+        , threadMonitor_ = monitorJust state
+        , threadId       = threadDebugId initState
         }
     atomically $ done res
   where
@@ -512,6 +533,84 @@ getThreadState_ state onNotRunning = do
       ThreadDone         _ _ r -> return $ ThreadDone_ r
       ThreadTrivial      _ r'  -> return $ ThreadTrivial_ r'
       ThreadDied         _   e -> return $ ThreadException_ e
+
+{-------------------------------------------------------------------------------
+  Monitoring
+-------------------------------------------------------------------------------}
+
+newtype MonitorRef = MonitorRef ThreadId
+  deriving stock (Show, Eq)
+  deriving ToExceptionDoc via LinesToExceptionDoc MonitorRef
+
+-- | Annotation added to exceptions that were thrown by 'monitorJust'.
+data MonitorAnnotation = MonitorAnnotation{
+      -- | Backtrace to where the monitor was first established
+      monitorAnnotationContext :: Backtraces
+
+      -- | The ID of the monitor
+      --
+      -- Although the 'MonitorRef' is opaque, it /does/ have an 'Eq' instance,
+      -- so this can occassionally be useful to relate an exception back to
+      -- a specific monitor instance.
+    , monitorAnnotationRef :: MonitorRef
+    }
+  deriving stock (Show, Generic)
+  deriving anyclass (ToExceptionDoc)
+
+#if MIN_VERSION_base(4,20,0)
+instance ExceptionAnnotation MonitorAnnotation where
+  displayExceptionAnnotation = renderDoc . toExceptionDoc
+#endif
+
+-- | Monitor another thread
+--
+-- Inspired by monitoring in Erlang
+-- <https://www.erlang.org/docs/23/reference_manual/processes.html#monitors>.
+--
+-- Just like in Erlang, if the target thread has already died when we start
+-- monitoring, the monitor exception (if any) is thrown immediately (we inherit
+-- this behaviour from 'waitForNormalOrAbnormalThreadTermination').
+monitorJust ::
+     (HasCallStack, Exception e)
+  => TVar (ThreadState a1 r1 r'1)
+     -- ^ Thread doing the monitoring
+     --
+     -- This is the thread that wants to receive the exception when the other
+     -- thread terminates.
+  -> TVar (ThreadState a2 r2 r'2)
+     -- ^ The thread to monitor
+  -> (Either ThreadException (Either r'2 r2) -> Maybe e)
+     -- ^ Given the termination result of the target, should we throw an
+     -- exception to the monitoring thread?
+     --
+     -- If 'Just', the exception is given a 'MonitorAnnotation'.
+  -> IO MonitorRef
+monitorJust us them p = do
+    -- Backtrace to where the monitor was established
+    backtrace <- collectBacktraces
+    MonitorRef <$> forkIO (aux backtrace)
+  where
+    aux :: Backtraces -> IO ()
+    aux backtrace = do
+        -- The 'MonitorRef' is the ID of the thread that /actually/ doing the
+        -- monitoring: that is, us.
+        ref <- MonitorRef <$> myThreadId
+        res <- atomically $ waitForNormalOrAbnormalThreadTermination them
+        forM_ (p res) $ \e -> do
+          let ann :: MonitorAnnotation
+              ann = MonitorAnnotation{
+                    monitorAnnotationContext = backtrace
+                  , monitorAnnotationRef     = ref
+                  }
+          let e' :: E.SomeException
+              e' = addExceptionContext ann (toException e)
+          cancelThread us (WrapExactException e')
+
+-- | Remove monitor
+--
+-- The caller is guaranteed that on return the monitor will no longer fire.
+demonitor :: MonitorRef -> IO ()
+demonitor (MonitorRef ref) = killThread ref
 
 {-------------------------------------------------------------------------------
   Internal auxiliary
