@@ -7,7 +7,6 @@ module Network.GRPC.Util.Session.Channel (
     Channel(..)
   , initChannel
     -- ** Flow state
-  , FlowState(..)
   , RegularFlowState(..)
   , initFlowStateRegular
     -- * Working with an open channel
@@ -24,7 +23,6 @@ module Network.GRPC.Util.Session.Channel (
   , ChannelDiscarded(..)
   , ChannelAborted(..)
     -- * Support for half-closing
-  , InboundResult
   , AllowHalfClosed(..)
   , linkOutboundToInbound
     -- * Constructing channels
@@ -84,10 +82,10 @@ import Network.GRPC.Util.Thread
 -- Each channel is constructed for a /single/ session (request/response).
 data Channel sess = Channel {
       -- | Thread state of the thread receiving messages from the peer
-      channelInbound :: TVar (ThreadState (FlowState (Inbound sess)))
+      channelInbound :: TVar (FlowThreadState (Inbound sess))
 
       -- | Thread state of the thread sending messages to the peer
-    , channelOutbound :: TVar (ThreadState (FlowState (Outbound sess)))
+    , channelOutbound :: TVar (FlowThreadState (Outbound sess))
 
       -- | Have we sent the final message?
       --
@@ -104,6 +102,19 @@ data Channel sess = Channel {
     , channelRecvFinal :: TVar (RecvFinal (Inbound sess))
     }
 
+-- | Thread that deals with inbound or outbound flow
+type FlowThreadState flow =
+       ThreadState
+         (RegularFlowState flow)
+         (Trailers         flow)
+         (NoMessages       flow)
+
+-- | Interface to 'FlowThreadState'
+type FlowThreadIface flow =
+       ThreadIface
+         (RegularFlowState flow)
+         (NoMessages       flow)
+
 -- | Has the client code received the final message from the peer yet?
 --
 -- NOTE: \"delivered\" here means: put the final message that we received from
@@ -119,11 +130,6 @@ data RecvFinal flow =
   | RecvFinal Backtraces
 
 deriving instance DataFlow flow => Show (RecvFinal flow)
-
--- | Data flow state
-data FlowState flow =
-    FlowStateRegular (RegularFlowState flow)
-  | FlowStateNoMessages (NoMessages flow)
 
 -- | Regular (streaming) flow state
 data RegularFlowState flow = RegularFlowState {
@@ -177,6 +183,13 @@ data RegularFlowState flow = RegularFlowState {
       --   available by 'recvMessageLoop'.
       --
       -- /Their/ sole purpose is to catch user errors, not capture data flow.
+      --
+      -- == Relation to 'ThreadState'
+      --
+      -- Although the threads write their final result (that is, the trailers)
+      -- to the 'ThreadState', we cannot use that in the trailers maker, because
+      -- the trailers are constructed /within/ the thread: that is, before it
+      -- terminates.
     , flowTerminated :: TMVar (Trailers flow)
     }
 
@@ -227,11 +240,10 @@ getInboundHeaders ::
 getInboundHeaders Channel{channelInbound} =
     withThreadInterface channelInbound (return . aux)
   where
-    aux :: forall flow.
-         FlowState flow
-      -> Either (NoMessages flow) (Headers flow)
-    aux (FlowStateRegular    regular)  = Right $ flowHeaders regular
-    aux (FlowStateNoMessages trailers) = Left trailers
+    aux :: FlowThreadIface flow -> Either (NoMessages flow) (Headers flow)
+    aux = \case
+      IfaceAvailable regular  -> Right $ flowHeaders regular
+      IfaceTrivial   trailers -> Left trailers
 
 -- | Send a message to the node's peer
 --
@@ -251,9 +263,9 @@ send Channel{channelOutbound, channelSentFinal} = \msg -> do
     aux ::
          Backtraces
       -> StreamElem (Trailers (Outbound sess)) (Message (Outbound sess))
-      -> FlowState (Outbound sess)
+      -> FlowThreadIface (Outbound sess)
       -> STM ()
-    aux backtrace msg st = do
+    aux backtrace msg iface = do
         -- By checking that we haven't sent the final message yet, we know that
         -- this call to 'putMVar' will not block indefinitely: the thread that
         -- sends messages to the peer will get to it eventually (unless it dies,
@@ -263,13 +275,12 @@ send Channel{channelOutbound, channelSentFinal} = \msg -> do
         case sentFinal of
           Just cs -> STM.throwSTM $ SendAfterFinal cs
           Nothing -> return ()
-        case st of
-          FlowStateRegular regular -> do
+        case iface of
+          IfaceAvailable regular -> do
             StreamElem.whenDefinitelyFinal msg $ \_trailers ->
               STM.writeTVar channelSentFinal $ Just backtrace
-
             STM.putTMVar (flowMsg regular) msg
-          FlowStateNoMessages _ ->
+          IfaceTrivial _trailers ->
             -- For outgoing messages, the caller decides to use Trailers-Only,
             -- so if they then subsequently call 'send', we throw an exception.
             -- This is different for /inbound/ messages; see 'recv', below.
@@ -339,9 +350,9 @@ recv' messageWithoutTrailers
 
     aux ::
          Backtraces
-      -> FlowState (Inbound sess)
+      -> FlowThreadIface (Inbound sess)
       -> STM (Either (NoMessages (Inbound sess)) b)
-    aux backtrace st = do
+    aux backtrace iface = do
         -- By checking that we haven't received the final message yet, we know
         -- that this call to 'takeTMVar' will not block indefinitely: the thread
         -- that receives messages from the peer will get to it eventually
@@ -350,8 +361,8 @@ recv' messageWithoutTrailers
         readFinal <- STM.readTVar channelRecvFinal
         case readFinal of
           RecvNotFinal ->
-            case st of
-              FlowStateRegular regular -> Right <$> do
+            case iface of
+              IfaceAvailable regular -> Right <$> do
                 streamElem <- STM.takeTMVar (flowMsg regular)
                 -- We update 'channelRecvFinal' in the same tx as the read, to
                 -- atomically change "there is a value" to "all values read".
@@ -366,7 +377,7 @@ recv' messageWithoutTrailers
                   NoMoreElems trailers -> do
                     STM.writeTVar channelRecvFinal $ RecvFinal backtrace
                     return $ trailersWithoutMessage trailers
-              FlowStateNoMessages trailers -> do
+              IfaceTrivial trailers -> do
                 STM.writeTVar channelRecvFinal $ RecvFinal backtrace
                 return $ Left trailers
           RecvWithoutTrailers trailers -> do
@@ -410,7 +421,7 @@ data RecvAfterFinal =
 -- See 'close' for discussion.
 waitForOutbound :: HasCallStack => Channel sess -> IO ()
 waitForOutbound Channel{channelOutbound} =
-    waitForNormalThreadTermination channelOutbound
+    void $ waitForNormalThreadTermination channelOutbound
 
 -- | Close the channel
 --
@@ -482,10 +493,6 @@ data ChannelAborted = ChannelAborted Backtraces
   Support for half-closing
 -------------------------------------------------------------------------------}
 
-type InboundResult sess =
-       Either (NoMessages (Inbound sess))
-              (Trailers   (Inbound sess))
-
 -- | Should we allow for a half-closed connection state?
 --
 -- In HTTP2, streams are bidirectional and can be half-closed in either
@@ -494,9 +501,9 @@ type InboundResult sess =
 -- (indicating that the client will not send any more messages), but not from
 -- the server to the client: when the server half-closes their connection, it
 -- sends the gRPC trailers and this terminates the call.
-data AllowHalfClosed sess =
+data AllowHalfClosed r =
     ContinueWhenInboundClosed
-  | TerminateWhenInboundClosed (InboundResult sess -> ExactException)
+  | TerminateWhenInboundClosed (r -> ExactException)
 
 -- | Link outbound thread to the inbound thread
 --
@@ -506,12 +513,11 @@ data AllowHalfClosed sess =
 -- its time blocked on messages from the peer, and will therefore notice when
 -- the connection is lost. This is not true for the outbound thread, which
 -- spends most of its time blocked waiting for messages to send to the peer.
-linkOutboundToInbound :: forall sess.
+linkOutboundToInbound :: forall sess r.
      (IsSession sess, HasCallStack)
-  => AllowHalfClosed sess
+  => AllowHalfClosed r
   -> Channel sess
-  -> IO (InboundResult sess)
-  -> IO ()
+  -> IO r -> IO r
 linkOutboundToInbound allowHalfClosed channel inbound = do
     mResult <- tryExact inbound
 
@@ -520,10 +526,11 @@ linkOutboundToInbound allowHalfClosed channel inbound = do
     -- cleaning up.
 
     case (mResult, allowHalfClosed) of
-      (Right _result, ContinueWhenInboundClosed) ->
-        return ()
-      (Right result, TerminateWhenInboundClosed f) ->
+      (Right result, ContinueWhenInboundClosed) ->
+        return result
+      (Right result, TerminateWhenInboundClosed f) -> do
         void $ cancelThread (channelOutbound channel) (f result)
+        return result
       (Left (exception :: ExactException), _) -> do
         void $ cancelThread (channelOutbound channel) exception
         throwExact exception
@@ -548,10 +555,11 @@ sendMessageLoop :: forall sess.
   => sess
   -> RegularFlowState (Outbound sess)
   -> OutputStream
-  -> IO ()
+  -> IO (Trailers (Outbound sess))
 sendMessageLoop sess st stream = do
     trailers <- loop
     atomically $ STM.putTMVar (flowTerminated st) trailers
+    return trailers
   where
     build :: (Message (Outbound sess) -> Builder)
     build = buildMsg sess (flowHeaders st)

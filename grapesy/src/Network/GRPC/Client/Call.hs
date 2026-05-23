@@ -436,7 +436,8 @@ closeRPC callChannel cancelRequest exitCase = liftIO $ do
             , case mTerminated of
                 Thread.ThreadNotYetRunning_ () -> False
                 Thread.ThreadRunning_          -> False
-                Thread.ThreadDone_             -> True
+                Thread.ThreadDone_ _           -> True
+                Thread.ThreadTrivial_ _        -> True
                 Thread.ThreadException_ _      -> True
             ]
 

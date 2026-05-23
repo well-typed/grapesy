@@ -91,6 +91,10 @@ class NoTrailers sess where
 
 type CancelRequest = Maybe ExactException -> IO ()
 
+type InboundResult sess =
+       Either (NoMessages (Inbound sess))
+              (Trailers   (Inbound sess))
+
 -- | Setup request channel
 --
 -- This initiates a new request.
@@ -127,10 +131,7 @@ setupRequestChannel sess
                 $ outboundThread channel cancelRequestVar regular
         forkRequest channel req
       FlowStartNoMessages trailers -> do
-        let state :: FlowState (Outbound sess)
-            state = FlowStateNoMessages trailers
-
-            req :: Client.Request
+        let req :: Client.Request
             req = Client.requestNoBody
                     (requestMethod  requestInfo)
                     (requestPath    requestInfo)
@@ -141,7 +142,7 @@ setupRequestChannel sess
           STM.modifyTVar (channelOutbound channel) $ \oldState ->
             case oldState of
               ThreadNotStarted debugId ->
-                ThreadDone debugId state
+                ThreadTrivial debugId trailers
               _otherwise ->
                 error "setupRequestChannel: expected thread state"
         forkRequest channel req
@@ -152,39 +153,39 @@ setupRequestChannel sess
 
     forkRequest :: Channel sess -> Client.Request -> IO ()
     forkRequest channel req =
-        forkThread "grapesy:clientInbound" (channelInbound channel) $ \unmask markReady _debugId -> unmask $
-          linkOutboundToInbound (TerminateWhenInboundClosed terminateCall) channel $
-            sendRequest req $ \resp -> do
-              responseStatus <-
-                case Client.responseStatus resp of
-                  Just x  -> return x
-                  Nothing -> throwIO PeerMissingPseudoHeaderStatus
+        forkThread "grapesy:clientInbound" (channelInbound channel) $ \unmask ctxt -> unmask $
+          sendRequest req $ \resp -> do
+            responseStatus <-
+              case Client.responseStatus resp of
+                Just x  -> return x
+                Nothing -> throwIO PeerMissingPseudoHeaderStatus
 
-              -- Read the entire response body in case of a non-OK response
-              responseBody :: Maybe Lazy.ByteString <-
-                if HTTP.statusIsSuccessful responseStatus then
-                  return Nothing
-                else
-                  Just <$> readResponseBody resp
+            -- Read the entire response body in case of a non-OK response
+            responseBody :: Maybe Lazy.ByteString <-
+              if HTTP.statusIsSuccessful responseStatus then
+                return Nothing
+              else
+                Just <$> readResponseBody resp
 
-              let responseHeaders =
-                    fromHeaderTable $ Client.responseHeaders resp
-                  responseInfo = ResponseInfo {
-                    responseHeaders
-                  , responseStatus
-                  , responseBody
-                  }
+            let responseHeaders =
+                  fromHeaderTable $ Client.responseHeaders resp
+                responseInfo = ResponseInfo {
+                  responseHeaders
+                , responseStatus
+                , responseBody
+                }
 
-              flowStart <- parseResponse sess responseInfo
-              case flowStart of
-                FlowStartRegular headers -> do
-                  state <- initFlowStateRegular headers
-                  stream  <- clientInputStream resp
-                  markReady $ FlowStateRegular state
-                  Right <$> recvMessageLoop sess state stream
-                FlowStartNoMessages trailers -> do
-                  markReady $ FlowStateNoMessages trailers
-                  return $ Left trailers
+            flowStart <- parseResponse sess responseInfo
+            case flowStart of
+              FlowStartRegular headers -> do
+                regular <- initFlowStateRegular headers
+                stream  <- clientInputStream resp
+                threadMainBody ctxt regular $
+                  linkOutboundToInbound (TerminateWhenInboundClosed (terminateCall . Right)) channel $
+                    recvMessageLoop sess regular stream
+              FlowStartNoMessages trailers -> do
+                void $ cancelThread (channelOutbound channel) $ terminateCall (Left trailers)
+                threadTrivial ctxt trailers
 
     outboundThread ::
          Channel sess
@@ -193,22 +194,22 @@ setupRequestChannel sess
       -> OutBodyIface
       -> IO ()
     outboundThread channel cancelRequestVar regular iface =
-        threadBody "grapesy:clientOutbound" (channelOutbound channel) $ \markReady _debugId -> do
-          markReady $ FlowStateRegular regular
-          putMVar cancelRequestVar cancelRequest
-          stream <- clientOutputStream iface
-          -- Unlike the client inbound thread, or the inbound/outbound threads
-          -- of the server, http2 knows about this particular thread and may
-          -- raise an exception on it when the server dies. This results in a
-          -- race condition between that exception and the exception we get from
-          -- attempting to read the next message. No matter who wins that race,
-          -- we need to mark that as 'ServerDisconnected'.
-          --
-          -- We don't have this top-level exception handler in other places
-          -- because we don't want to mark /our own/ exceptions as
-          -- 'ServerDisconnected' or 'ClientDisconnected'.
-          wrapServerDisconnected $
-            Client.outBodyUnmask iface $ sendMessageLoop sess regular stream
+        threadBody "grapesy:clientOutbound" (channelOutbound channel) $ \ctxt -> do
+          threadMainBody ctxt regular $ do
+            putMVar cancelRequestVar cancelRequest
+            stream <- clientOutputStream iface
+            -- Unlike the client inbound thread, or the inbound/outbound threads
+            -- of the server, http2 knows about this particular thread and may
+            -- raise an exception on it when the server dies. This results in a
+            -- race condition between that exception and the exception we get from
+            -- attempting to read the next message. No matter who wins that race,
+            -- we need to mark that as 'ServerDisconnected'.
+            --
+            -- We don't have this top-level exception handler in other places
+            -- because we don't want to mark /our own/ exceptions as
+            -- 'ServerDisconnected' or 'ClientDisconnected'.
+            wrapServerDisconnected $
+              Client.outBodyUnmask iface $ sendMessageLoop sess regular stream
       where
         cancelRequest :: CancelRequest
         cancelRequest = Client.outBodyCancel iface . fmap unwrapExactException
