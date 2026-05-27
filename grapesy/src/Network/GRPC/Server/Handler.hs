@@ -309,4 +309,15 @@ data AsyncStatus a =
 waitAsyncStatus :: (forall x. IO x -> IO x) -> Async a -> IO (AsyncStatus a)
 waitAsyncStatus unmask async =
     handle (return . WaitInterrupted) $
-      either AsyncFailed AsyncDone <$> unmask (atomically $ waitCatchExact async)
+      either AsyncFailed AsyncDone <$>
+        unmask (tryAgain $ atomically $ waitCatchExact async)
+  where
+    -- Ignore "blocked indefinitely" exceptions
+    --
+    -- This follows the implementation of `waitCatch` in async
+    -- <https://github.com/simonmar/async/issues/14>.
+    --
+    -- See also blog post “When "blocked indefinitely" is not indefinite”
+    -- <https://well-typed.com/blog/2024/01/when-blocked-indefinitely-is-not-indefinite/>.
+    tryAgain :: forall x. IO x -> IO x
+    tryAgain f = f `catch` \BlockedIndefinitelyOnSTM -> f
