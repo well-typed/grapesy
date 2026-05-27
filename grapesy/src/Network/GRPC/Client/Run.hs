@@ -32,9 +32,8 @@ import Network.GRPC.Client.Connection
 import Network.GRPC.Util.Imports
 
 import Control.Concurrent.MVar (MVar, newMVar, newEmptyMVar, putMVar, takeMVar)
-import Control.Concurrent.STM (atomically)
-import Control.Concurrent.STM.TVar (TVar, newTVarIO, writeTVar, readTVar)
-import Control.Concurrent.STM.TMVar (TMVar, newEmptyTMVarIO, putTMVar)
+import Control.Concurrent.STM (TVar, TMVar)
+import Control.Concurrent.STM qualified as STM
 import Network.HPACK qualified as HPACK
 import Network.HTTP2.Client qualified as HTTP2.Client
 import Network.HTTP2.TLS.Client qualified as HTTP2.TLS.Client
@@ -107,7 +106,7 @@ withConnection connParams server k = do
 openConnection :: ConnParams -> Server -> IO Connection
 openConnection connParams server = do
     connMetaVar  <- newMVar $ Meta.init (connInitCompression connParams)
-    connStateVar <- newTVarIO ConnectionNotReady
+    connStateVar <- STM.newTVarIO ConnectionNotReady
 
     connOutOfScope <- newEmptyMVar
     let stayConnectedThread :: IO ()
@@ -161,7 +160,7 @@ newConnectionAttempt attemptParams
                      attemptOnConnection
                      attemptState
                      attemptOutOfScope = do
-    attemptClosed <- newEmptyTMVarIO
+    attemptClosed <- STM.newEmptyTMVarIO
     return ConnectionAttempt{
         attemptParams
       , attemptOnConnection
@@ -209,8 +208,8 @@ stayConnected connParams initialServer connStateVar connOutOfScope = do
               connectUnix connParams attempt path
 
         thisReconnectPolicy <- atomically $ do
-          putTMVar (attemptClosed attempt) $ either Just (\() -> Nothing) mRes
-          connState <- readTVar connStateVar
+          STM.putTMVar (attemptClosed attempt) $ either Just (\() -> Nothing) mRes
+          connState <- STM.readTVar connStateVar
           return $ case connState of
             ConnectionReady{}->
               -- Suppose we have a maximum of 5x to try and connect to a server.
@@ -222,18 +221,18 @@ stayConnected connParams initialServer connStateVar connOutOfScope = do
 
         case mRes of
           Right () -> do
-            atomically $ writeTVar connStateVar $ ConnectionOutOfScope
+            atomically $ STM.writeTVar connStateVar $ ConnectionOutOfScope
           Left err
             | isFatalException err ->
-                atomically $ writeTVar connStateVar $ ConnectionAbandoned err
+                atomically $ STM.writeTVar connStateVar $ ConnectionAbandoned err
             | otherwise -> do
                 -- Mark the connection as not ready /before/ running the reconnt
                 -- policy. This prevents any attempts to use the connection
                 -- while the policy is running.
-                atomically $ writeTVar connStateVar $ ConnectionNotReady
+                atomically $ STM.writeTVar connStateVar $ ConnectionNotReady
                 runReconnectPolicy thisReconnectPolicy >>= \case
                   DontReconnect -> do
-                    atomically $ writeTVar connStateVar $ ConnectionAbandoned err
+                    atomically $ STM.writeTVar connStateVar $ ConnectionAbandoned err
                   DoReconnect reconnect -> do
                     let
                       nextServer =
@@ -280,7 +279,7 @@ connectSocket connParams attempt connAuthority sock = do
       HTTP2.Client.run clientConfig conf $ \sendRequest _aux -> do
         let conn = Session.ConnectionToServer sendRequest
         atomically $
-          writeTVar (attemptState attempt) $
+          STM.writeTVar (attemptState attempt) $
             ConnectionReady (attemptClosed attempt) conn
         runOnConnection $ attemptOnConnection attempt
         takeMVar $ attemptOutOfScope attempt
@@ -353,7 +352,7 @@ connectSecure connParams attempt validation sslKeyLog addr = do
         $ \sendRequest _aux -> do
       let conn = Session.ConnectionToServer sendRequest
       atomically $
-        writeTVar (attemptState attempt) $
+        STM.writeTVar (attemptState attempt) $
           ConnectionReady (attemptClosed attempt) conn
       runOnConnection $ attemptOnConnection attempt
       takeMVar $ attemptOutOfScope attempt

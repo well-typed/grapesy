@@ -15,7 +15,6 @@ module Network.GRPC.Server.Handler (
   , runHandler
   ) where
 
-import Control.Concurrent.STM
 import Control.Exception qualified as E
 import System.ThreadManager (KilledByThreadManager(..))
 
@@ -306,7 +305,10 @@ data AsyncStatus a =
  | AsyncFailed ExactException
  | WaitInterrupted ExactException
 
-waitAsyncStatus :: (forall x. IO x -> IO x) -> Async a -> IO (AsyncStatus a)
+waitAsyncStatus ::
+     HasCallStack
+  => (forall x. IO x -> IO x)
+  -> Async a -> IO (AsyncStatus a)
 waitAsyncStatus unmask async =
     E.handle (return . WaitInterrupted) $
       either AsyncFailed AsyncDone <$>

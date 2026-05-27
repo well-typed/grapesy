@@ -9,8 +9,7 @@ module Network.GRPC.Util.Session.Client (
 import Network.GRPC.Util.Imports
 
 import Control.Concurrent.MVar (MVar, newEmptyMVar, readMVar, putMVar)
-import Control.Concurrent.STM (atomically)
-import Control.Concurrent.STM.TVar (modifyTVar)
+import Control.Concurrent.STM qualified as STM
 import Control.Monad (join)
 import Data.ByteString qualified as BS.Strict
 import Data.ByteString qualified as Strict (ByteString)
@@ -139,7 +138,7 @@ setupRequestChannel sess
         -- Can't cancel non-streaming request
         putMVar cancelRequestVar $ \_ -> return ()
         atomically $
-          modifyTVar (channelOutbound channel) $ \oldState ->
+          STM.modifyTVar (channelOutbound channel) $ \oldState ->
             case oldState of
               ThreadNotStarted debugId ->
                 ThreadDone debugId state

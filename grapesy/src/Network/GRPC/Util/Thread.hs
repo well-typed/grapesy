@@ -28,7 +28,8 @@ module Network.GRPC.Util.Thread (
 import Network.GRPC.Util.Imports
 
 import Control.Concurrent
-import Control.Concurrent.STM
+import Control.Concurrent.STM (STM, TVar)
+import Control.Concurrent.STM qualified as STM
 import Control.Exception qualified as E
 import Foreign qualified
 import System.IO.Unsafe (unsafePerformIO)
@@ -167,7 +168,7 @@ type ThreadBody a =
 newThreadState :: HasCallStack => IO (TVar (ThreadState a))
 newThreadState = do
     debugId <- newDebugThreadId
-    newTVarIO $ ThreadNotStarted debugId
+    STM.newTVarIO $ ThreadNotStarted debugId
 
 forkThread ::
      HasCallStack
@@ -195,13 +196,13 @@ threadBody :: forall a.
 threadBody label state body = do
     labelThisThread label
     threadId  <- myThreadId
-    initState <- readTVarIO state
+    initState <- STM.readTVarIO state
 
     -- See discussion of 'ThreadNotStarted'
     -- It's critical that async exceptions are masked at this point.
     case initState of
       ThreadNotStarted debugId -> do
-        atomically $ writeTVar state $ ThreadInitializing debugId threadId
+        atomically $ STM.writeTVar state $ ThreadInitializing debugId threadId
       ThreadDied _ ThreadException{threadException} ->
         -- We don't change the thread status here: 'cancelThread' offers the
         -- guarantee that the thread status /will/ be in aborted or done state
@@ -214,7 +215,7 @@ threadBody label state body = do
 
     let markReady :: a -> STM ()
         markReady a = do
-            modifyTVar state $ \oldState ->
+            STM.modifyTVar state $ \oldState ->
               case oldState of
                 ThreadInitializing debugId _ ->
                   ThreadRunning debugId threadId a
@@ -225,7 +226,7 @@ threadBody label state body = do
 
         markDone :: Either ExactException () -> STM ()
         markDone mDone = do
-            modifyTVar state $ \oldState ->
+            STM.modifyTVar state $ \oldState ->
               case (oldState, mDone) of
                 (ThreadRunning debugId _ iface, Right ()) ->
                   ThreadDone debugId iface
@@ -299,16 +300,16 @@ cancelThread state e = do
   where
     aux :: ThreadException -> STM (CancelResult a, Maybe ThreadId)
     aux cancelled = do
-        st <- readTVar state
+        st <- STM.readTVar state
         case st of
           ThreadNotStarted debugId -> do
-            writeTVar state $ ThreadDied debugId cancelled
+            STM.writeTVar state $ ThreadDied debugId cancelled
             return (Cancelled, Nothing)
           ThreadInitializing debugId threadId -> do
-            writeTVar state $ ThreadDied debugId cancelled
+            STM.writeTVar state $ ThreadDied debugId cancelled
             return (Cancelled, Just threadId)
           ThreadRunning debugId threadId _ -> do
-            writeTVar state $ ThreadDied debugId cancelled
+            STM.writeTVar state $ ThreadDied debugId cancelled
             return (Cancelled, Just threadId)
           ThreadDied _debugId e' ->
             return (AlreadyAborted e', Nothing)
@@ -355,10 +356,10 @@ withThreadInterface state k = do
   where
     getThreadInterface :: STM (Either ThreadException a)
     getThreadInterface = do
-        st <- readTVar state
+        st <- STM.readTVar state
         case st of
-          ThreadNotStarted   _     -> retry
-          ThreadInitializing _ _   -> retry
+          ThreadNotStarted   _     -> STM.retry
+          ThreadInitializing _ _   -> STM.retry
           ThreadRunning      _ _ a -> return (Right a)
           ThreadDone         _   a -> return (Right a)
           ThreadDied         _   e -> return (Left e)
@@ -378,7 +379,7 @@ waitForNormalOrAbnormalThreadTermination ::
 waitForNormalOrAbnormalThreadTermination state =
     waitUntilInitialized state >>= \case
       ThreadNotYetRunning_ v -> absurd v
-      ThreadRunning_         -> retry
+      ThreadRunning_         -> STM.retry
       ThreadDone_            -> return $ Nothing
       ThreadException_ e     -> return $ Just e
 
@@ -398,7 +399,7 @@ unlessAbnormallyTerminated state f =
 waitUntilInitialized ::
      TVar (ThreadState a)
   -> STM (ThreadState_ Void)
-waitUntilInitialized state = getThreadState_ state retry
+waitUntilInitialized state = getThreadState_ state STM.retry
 
 -- | An abstraction of 'ThreadState' without the public interface type.
 data ThreadState_ notRunning =
@@ -412,7 +413,7 @@ getThreadState_ ::
   -> STM notRunning
   -> STM (ThreadState_ notRunning)
 getThreadState_ state onNotRunning = do
-    st <- readTVar state
+    st <- STM.readTVar state
     case st of
       ThreadNotStarted   _     -> ThreadNotYetRunning_ <$> onNotRunning
       ThreadInitializing _ _   -> ThreadNotYetRunning_ <$> onNotRunning

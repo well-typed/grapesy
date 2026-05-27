@@ -32,7 +32,8 @@ module Network.GRPC.Client.Call (
 import Network.GRPC.Util.Imports
 
 import Control.Concurrent
-import Control.Concurrent.STM
+import Control.Concurrent.STM (STM)
+import Control.Concurrent.STM qualified as STM
 import Control.Concurrent.Thread.Delay qualified as UnboundedDelays
 import Control.Monad.Catch (MonadMask)
 import Control.Monad.Catch qualified as Exceptions
@@ -232,8 +233,8 @@ startRPC conn _ callParams = do
       status <- atomically $ do
           (Left <$> Thread.waitForNormalOrAbnormalThreadTermination
                       (Session.channelInbound channel))
-        `orElse`
-          (Right <$> readTMVar connClosed)
+        `STM.orElse`
+          (Right <$> STM.readTMVar connClosed)
       forM_ mClientSideTimeout killThread
       case status of
         Left _ -> return () -- Channel closed before the connection
@@ -413,7 +414,7 @@ closeRPC callChannel cancelRequest exitCase = liftIO $ do
     checkCanDiscard :: IO Bool
     checkCanDiscard = do
         mRecvFinal  <- atomically $
-          readTVar $ Session.channelRecvFinal callChannel
+          STM.readTVar $ Session.channelRecvFinal callChannel
         let onNotRunning :: STM ()
             onNotRunning = return ()
         mTerminated <- atomically $

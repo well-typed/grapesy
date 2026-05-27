@@ -45,10 +45,14 @@ module Network.GRPC.Common.Exception (
   , pattern WithAnnotations
   , annotateIO
   , addExceptionContext
+
+    -- ** STM
+  , atomically
   ) where
 
 import Control.Concurrent.Async
-import Control.Concurrent.STM
+import Control.Concurrent.STM (STM)
+import Control.Concurrent.STM qualified as STM
 import Control.Exception (Exception(..), SomeException(..))
 import Control.Exception qualified as Base
 import Control.Monad.Catch qualified as Exceptions
@@ -538,3 +542,27 @@ instance ToExceptionDoc SpecialCaseAnnotation where
 #endif
 
 #endif
+
+{-------------------------------------------------------------------------------
+  STM support
+-------------------------------------------------------------------------------}
+
+-- | Backtrace to a call to 'atomically'
+--
+-- When an STM transaction throws an exception, this will tell us where that
+-- tranaction was invoked (though not where /within/ the transaction it
+-- threw an exception).
+newtype AtomicallyBacktrace = AtomicallyBacktrace Backtraces
+  deriving stock (Generic)
+  deriving anyclass (ToExceptionDoc)
+
+#if MIN_VERSION_base(4,20,0)
+instance ExceptionAnnotation AtomicallyBacktrace where
+  displayExceptionAnnotation = renderDoc . toExceptionDoc
+#endif
+
+atomically :: HasCallStack => STM a -> IO a
+atomically stm = do
+    backtraces <- collectBacktraces
+    annotateIO (AtomicallyBacktrace backtraces) $
+      STM.atomically stm

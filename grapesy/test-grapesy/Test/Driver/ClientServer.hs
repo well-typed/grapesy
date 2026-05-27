@@ -30,7 +30,8 @@ module Test.Driver.ClientServer (
 
 import Control.Concurrent
 import Control.Concurrent.Async
-import Control.Concurrent.STM
+import Control.Concurrent.STM (STM, TVar, TMVar)
+import Control.Concurrent.STM qualified as STM
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
@@ -309,7 +310,7 @@ data TestFailure = TestFailure
 -- Does nothing if an earlier test failure has already been marked.
 markTestFailure :: TMVar FirstTestFailure -> FirstTestFailure  -> IO ()
 markTestFailure firstTestFailure err =
-    void $ atomically $ tryPutTMVar firstTestFailure err
+    void $ atomically $ STM.tryPutTMVar firstTestFailure err
 
 {-------------------------------------------------------------------------------
   Server handler lock
@@ -325,12 +326,12 @@ markTestFailure firstTestFailure err =
 newtype ServerHandlerLock = ServerHandlerLock (TVar Int)
 
 newServerHandlerLock :: IO ServerHandlerLock
-newServerHandlerLock = ServerHandlerLock <$> newTVarIO 0
+newServerHandlerLock = ServerHandlerLock <$> STM.newTVarIO 0
 
 waitForHandlerTermination :: ServerHandlerLock -> STM ()
 waitForHandlerTermination (ServerHandlerLock lock) = do
-    activeHandlers <- readTVar lock
-    when (activeHandlers > 0) retry
+    activeHandlers <- STM.readTVar lock
+    when (activeHandlers > 0) STM.retry
 
 topLevelWithHandlerLock ::
      ClientServerConfig
@@ -362,8 +363,8 @@ topLevelWithHandlerLock cfg
         markDone
 
     markActive, markDone :: IO ()
-    markActive = atomically $ modifyTVar lock (\n -> n + 1)
-    markDone   = atomically $ modifyTVar lock (\n -> n - 1)
+    markActive = atomically $ STM.modifyTVar lock (\n -> n + 1)
+    markDone   = atomically $ STM.modifyTVar lock (\n -> n - 1)
 
 {-------------------------------------------------------------------------------
   Server
@@ -573,7 +574,7 @@ data ClientServerTest = ClientServerTest {
 runTestClientServer :: ClientServerTest -> IO ()
 runTestClientServer (ClientServerTest cfg clientRun handlers) = do
     -- Setup client and server
-    firstTestFailure  <- newEmptyTMVarIO
+    firstTestFailure  <- STM.newEmptyTMVarIO
     serverHandlerLock <- newServerHandlerLock
 
     let server :: (Server.RunningServer -> IO a) -> IO a
@@ -595,19 +596,19 @@ runTestClientServer (ClientServerTest cfg clientRun handlers) = do
         -- (the 'orElse' is only relevant if a /handler/ throws an exception)
         atomically $
             (void $ waitCatchSTM clientThread)
-          `orElse`
+          `STM.orElse`
             (void failure)
 
         -- Wait for handlers to terminate (or test failure)
         -- (Note that the server /itself/ normally never terminates)
         atomically $
             (waitForHandlerTermination serverHandlerLock)
-          `orElse`
+          `STM.orElse`
             (void failure)
 
         atomically $ do
-            (failure >>= throwSTM)
-          `orElse`
+            (failure >>= STM.throwSTM)
+          `STM.orElse`
             return ()
 
 -- | Wait for test failure (retries/blocks if tests have not yet failed)
@@ -623,10 +624,10 @@ waitForFailure ::
   -> TMVar FirstTestFailure  -- ^ First test failure
   -> STM FirstTestFailure
 waitForFailure server client firstTestFailure =
-      (readTMVar firstTestFailure)
-    `orElse`
+      (STM.readTMVar firstTestFailure)
+    `STM.orElse`
       (Server.waitServerSTM server >>= serverAux)
-    `orElse`
+    `STM.orElse`
       (waitCatchExact client >>= clientAux)
   where
     serverAux ::
@@ -636,11 +637,11 @@ waitForFailure server client firstTestFailure =
       -> STM FirstTestFailure
     serverAux (Left e, _) = return (firstFailureInServer e)
     serverAux (_, Left e) = return (firstFailureInServer e)
-    serverAux _otherwise  = throwSTM $ UnexpectedServerTermination
+    serverAux _otherwise  = STM.throwSTM $ UnexpectedServerTermination
 
     clientAux :: Either ExactException () -> STM FirstTestFailure
     clientAux (Left e)   = return (firstFailureInClient e)
-    clientAux _otherwise = retry
+    clientAux _otherwise = STM.retry
 
 -- | We don't expect the server to shutdown until we kill it
 data UnexpectedServerTermination = UnexpectedServerTermination

@@ -36,9 +36,8 @@ module Network.GRPC.Util.Session.Channel (
 
 import Network.GRPC.Util.Imports
 
-import Control.Concurrent.STM (STM, atomically, throwSTM)
-import Control.Concurrent.STM.TVar (TVar, newTVarIO, readTVar, writeTVar)
-import Control.Concurrent.STM.TMVar (TMVar, newEmptyTMVarIO, readTMVar, putTMVar, takeTMVar)
+import Control.Concurrent.STM (STM, TVar, TMVar)
+import Control.Concurrent.STM qualified as STM
 import Data.ByteString.Builder (Builder)
 import Data.ByteString.Lazy qualified as BS.Lazy
 
@@ -190,8 +189,8 @@ initChannel :: HasCallStack => IO (Channel sess)
 initChannel = do
     channelInbound   <- newThreadState
     channelOutbound  <- newThreadState
-    channelSentFinal <- newTVarIO Nothing
-    channelRecvFinal <- newTVarIO RecvNotFinal
+    channelSentFinal <- STM.newTVarIO Nothing
+    channelRecvFinal <- STM.newTVarIO RecvNotFinal
     return Channel{
         channelInbound
       , channelOutbound
@@ -201,8 +200,8 @@ initChannel = do
 
 initFlowStateRegular :: Headers flow -> IO (RegularFlowState flow)
 initFlowStateRegular flowHeaders = do
-   flowMsg        <- newEmptyTMVarIO
-   flowTerminated <- newEmptyTMVarIO
+   flowMsg        <- STM.newEmptyTMVarIO
+   flowTerminated <- STM.newEmptyTMVarIO
    return RegularFlowState {
        flowHeaders
      , flowMsg
@@ -254,21 +253,21 @@ send Channel{channelOutbound, channelSentFinal} = \msg -> do
         -- sends messages to the peer will get to it eventually (unless it dies,
         -- in which case the thread status will change and the call to
         -- 'getThreadInterface' will be retried).
-        sentFinal <- readTVar channelSentFinal
+        sentFinal <- STM.readTVar channelSentFinal
         case sentFinal of
-          Just cs -> throwSTM $ SendAfterFinal cs
+          Just cs -> STM.throwSTM $ SendAfterFinal cs
           Nothing -> return ()
         case st of
           FlowStateRegular regular -> do
             StreamElem.whenDefinitelyFinal msg $ \_trailers ->
-              writeTVar channelSentFinal $ Just backtrace
+              STM.writeTVar channelSentFinal $ Just backtrace
 
-            putTMVar (flowMsg regular) msg
+            STM.putTMVar (flowMsg regular) msg
           FlowStateNoMessages _ ->
             -- For outgoing messages, the caller decides to use Trailers-Only,
             -- so if they then subsequently call 'send', we throw an exception.
             -- This is different for /inbound/ messages; see 'recv', below.
-            throwSTM $ SendButTrailersOnly
+            STM.throwSTM $ SendButTrailersOnly
 
 -- | Receive a message from the node's peer
 --
@@ -340,12 +339,12 @@ recv' messageWithoutTrailers
         -- that receives messages from the peer will get to it eventually
         -- (unless it dies, in which case the thread status will change and the
         -- call to 'getThreadInterface' will be retried).
-        readFinal <- readTVar channelRecvFinal
+        readFinal <- STM.readTVar channelRecvFinal
         case readFinal of
           RecvNotFinal ->
             case st of
               FlowStateRegular regular -> Right <$> do
-                streamElem <- takeTMVar (flowMsg regular)
+                streamElem <- STM.takeTMVar (flowMsg regular)
                 -- We update 'channelRecvFinal' in the same tx as the read, to
                 -- atomically change "there is a value" to "all values read".
                 case streamElem of
@@ -353,20 +352,20 @@ recv' messageWithoutTrailers
                     return $ messageWithoutTrailers msg
                   FinalElem msg trailers -> do
                     let (b, mTrailers) = messageWithTrailers (msg, trailers)
-                    writeTVar channelRecvFinal $
+                    STM.writeTVar channelRecvFinal $
                       maybe (RecvFinal backtrace) RecvWithoutTrailers mTrailers
                     return $ b
                   NoMoreElems trailers -> do
-                    writeTVar channelRecvFinal $ RecvFinal backtrace
+                    STM.writeTVar channelRecvFinal $ RecvFinal backtrace
                     return $ trailersWithoutMessage trailers
               FlowStateNoMessages trailers -> do
-                writeTVar channelRecvFinal $ RecvFinal backtrace
+                STM.writeTVar channelRecvFinal $ RecvFinal backtrace
                 return $ Left trailers
           RecvWithoutTrailers trailers -> do
-            writeTVar channelRecvFinal $ RecvFinal backtrace
+            STM.writeTVar channelRecvFinal $ RecvFinal backtrace
             return $ Right $ trailersWithoutMessage trailers
           RecvFinal cs ->
-            throwSTM $ RecvAfterFinal cs
+            STM.throwSTM $ RecvAfterFinal cs
 
 -- | Thrown by 'send'
 --
@@ -544,14 +543,14 @@ sendMessageLoop :: forall sess.
   -> IO ()
 sendMessageLoop sess st stream = do
     trailers <- loop
-    atomically $ putTMVar (flowTerminated st) trailers
+    atomically $ STM.putTMVar (flowTerminated st) trailers
   where
     build :: (Message (Outbound sess) -> Builder)
     build = buildMsg sess (flowHeaders st)
 
     loop :: IO (Trailers (Outbound sess))
     loop = do
-        msg <- atomically $ takeTMVar (flowMsg st)
+        msg <- atomically $ STM.takeTMVar (flowMsg st)
         case msg of
           StreamElem x -> do
             writeChunk stream $ build x
@@ -592,23 +591,23 @@ recvMessageLoop sess st stream =
             return trailers
           Nothing -> do
             trailers <- processTrailers
-            atomically $ putTMVar (flowMsg st) $ NoMoreElems trailers
+            atomically $ STM.putTMVar (flowMsg st) $ NoMoreElems trailers
             return trailers
 
     processOne :: Message (Inbound sess) -> IO ()
     processOne msg = do
-        atomically $ putTMVar (flowMsg st) $ StreamElem msg
+        atomically $ STM.putTMVar (flowMsg st) $ StreamElem msg
 
     processFinal :: Message (Inbound sess) -> IO (Trailers (Inbound sess))
     processFinal msg = do
         trailers <- processTrailers
-        atomically $ putTMVar (flowMsg st) $ FinalElem msg trailers
+        atomically $ STM.putTMVar (flowMsg st) $ FinalElem msg trailers
         return trailers
 
     processTrailers :: IO (Trailers (Inbound sess))
     processTrailers = do
         trailers <- parseInboundTrailers sess =<< getTrailers stream
-        atomically $ putTMVar (flowTerminated st) $ trailers
+        atomically $ STM.putTMVar (flowTerminated st) $ trailers
         return trailers
 
     throwParseErrors :: Parser.ProcessResult String b -> IO (Maybe b)
@@ -634,7 +633,7 @@ outboundTrailersMaker sess Channel{channelOutbound} regular = go
     go Nothing  = do
         mFlowState <- atomically $
           unlessAbnormallyTerminated channelOutbound $
-            readTMVar (flowTerminated regular)
+            STM.readTMVar (flowTerminated regular)
         case mFlowState of
             Right trailers ->
               return $ HTTP.Semantics.Trailers $ buildOutboundTrailers sess trailers

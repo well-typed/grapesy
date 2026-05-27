@@ -31,9 +31,8 @@ module Network.GRPC.Client.Connection (
 import Network.GRPC.Util.Imports
 
 import Control.Concurrent.MVar (MVar, readMVar, modifyMVar_)
-import Control.Concurrent.STM (atomically, retry, throwSTM)
-import Control.Concurrent.STM.TVar (TVar, readTVar)
-import Control.Concurrent.STM.TMVar (TMVar)
+import Control.Concurrent.STM (TVar, TMVar)
+import Control.Concurrent.STM qualified as STM
 import System.Random (randomRIO)
 
 import Network.GRPC.Client.Meta (Meta)
@@ -303,11 +302,11 @@ getConnectionToServer :: forall.
   => Connection
   -> IO (TMVar (Maybe ExactException), Session.ConnectionToServer)
 getConnectionToServer Connection{connStateVar} = atomically $ do
-    connState <- readTVar connStateVar
+    connState <- STM.readTVar connStateVar
     case connState of
-      ConnectionNotReady              -> retry
+      ConnectionNotReady              -> STM.retry
       ConnectionReady connClosed conn -> return (connClosed, conn)
-      ConnectionAbandoned err         -> throwSTM err
+      ConnectionAbandoned err         -> STM.throwSTM err
       ConnectionOutOfScope            -> error "impossible"
 
 -- | Get outbound compression algorithm
