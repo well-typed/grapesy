@@ -16,7 +16,7 @@ module Network.GRPC.Server.Handler (
   ) where
 
 import Control.Concurrent.STM
-import Control.Exception
+import Control.Exception qualified as E
 import System.ThreadManager (KilledByThreadManager(..))
 
 import Network.GRPC.Common.Exception
@@ -308,7 +308,7 @@ data AsyncStatus a =
 
 waitAsyncStatus :: (forall x. IO x -> IO x) -> Async a -> IO (AsyncStatus a)
 waitAsyncStatus unmask async =
-    handle (return . WaitInterrupted) $
+    E.handle (return . WaitInterrupted) $
       either AsyncFailed AsyncDone <$>
         unmask (tryAgain $ atomically $ waitCatchExact async)
   where
@@ -320,4 +320,4 @@ waitAsyncStatus unmask async =
     -- See also blog post “When "blocked indefinitely" is not indefinite”
     -- <https://well-typed.com/blog/2024/01/when-blocked-indefinitely-is-not-indefinite/>.
     tryAgain :: forall x. IO x -> IO x
-    tryAgain f = f `catch` \BlockedIndefinitelyOnSTM -> f
+    tryAgain f = f `catch` \E.BlockedIndefinitelyOnSTM -> f

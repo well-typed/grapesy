@@ -37,6 +37,7 @@ import Data.Int (Int32)
 import Data.ProtoLens.Field (HasField(..), field)
 import Data.ProtoLens.Message (FieldDefault(..), Message(defMessage))
 
+import Network.GRPC.Common.Exception
 import Network.GRPC.Common.Protobuf.Any (Any)
 import Network.GRPC.Common.Protobuf.Any qualified as Any
 

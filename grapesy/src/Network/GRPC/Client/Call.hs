@@ -34,7 +34,8 @@ import Network.GRPC.Util.Imports
 import Control.Concurrent
 import Control.Concurrent.STM
 import Control.Concurrent.Thread.Delay qualified as UnboundedDelays
-import Control.Monad.Catch
+import Control.Monad.Catch (MonadMask)
+import Control.Monad.Catch qualified as Exceptions
 import Data.ByteString.Char8 qualified as BS.Strict.C8
 import Data.Foldable (asum)
 import Data.Text qualified as Text
@@ -114,7 +115,7 @@ withRPC :: forall rpc m a.
      (MonadMask m, MonadIO m, SupportsClientRpc rpc, HasCallStack)
   => Connection -> CallParams rpc -> Proxy rpc -> (Call rpc -> m a) -> m a
 withRPC conn callParams proxy k = fmap fst $
-    generalBracket
+    Exceptions.generalBracket
       (liftIO $
          startRPC conn proxy callParams)
       (\(Call{callChannel}, cancelRequest) exitCase -> liftIO $

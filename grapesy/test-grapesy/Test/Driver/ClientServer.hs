@@ -31,7 +31,6 @@ module Test.Driver.ClientServer (
 import Control.Concurrent
 import Control.Concurrent.Async
 import Control.Concurrent.STM
-import Control.Exception (throwIO)
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class

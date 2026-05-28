@@ -9,7 +9,8 @@
 -- depends on, such as @http2@.
 module Network.GRPC.Common.Exception (
     -- * Exception rendering
-    ToExceptionDoc -- opaque
+    ToExceptionDoc(..)
+  , renderDoc
   , renderException
   , LinesToExceptionDoc(..)
 
@@ -28,23 +29,31 @@ module Network.GRPC.Common.Exception (
   , tryExact
   , waitCatchExact
 
-    -- * Shim: backtraces
+    -- * Shims
+
+    -- ** Throwing
+  , throwIO
+  , throwM
+
+    -- ** Backtraces
   , Backtraces
   , collectBacktraces
   , displayBacktraces
 
-    -- * Shim: WithAnnotations (ExceptionWithContext)
+    -- ** Annotations
   , WithAnnotations
   , pattern WithAnnotations
-
-    -- * Shim: annotateIO
   , annotateIO
+  , addExceptionContext
   ) where
 
 import Control.Concurrent.Async
 import Control.Concurrent.STM
-import Control.Exception
+import Control.Exception (Exception(..), SomeException(..))
+import Control.Exception qualified as Base
+import Control.Monad.Catch qualified as Exceptions
 import Data.Bifunctor
+import Data.Foldable (asum)
 import Data.Foldable qualified as Foldable
 import Data.Semigroup
 import Data.String
@@ -52,6 +61,8 @@ import Data.Typeable
 import GHC.Generics
 import GHC.Stack
 import GHC.TypeLits
+import Network.HTTP2.Client qualified as HTTP2
+import System.ThreadManager qualified as TimeManager
 
 #if MIN_VERSION_base(4,20,0)
 import Control.Exception.Annotation
@@ -93,6 +104,12 @@ renderDoc = \d ->
           VCat    ds'   -> go $ map (i,) ds' ++ ds
           Indent     i' d' -> go $ (i + i', d') : ds
 
+withHeader :: String -> Doc -> Doc
+withHeader header body = mconcat [
+      fromString header
+    , Indent 2 body
+    ]
+
 {-------------------------------------------------------------------------------
   Construct readable exception rendering
 -------------------------------------------------------------------------------}
@@ -117,6 +134,7 @@ class ToExceptionDoc a where
 renderException :: ToExceptionDoc e => e -> String
 renderException = renderDoc . toExceptionDoc
 
+-- | Deriving-via support for 'ToExceptionDoc'
 newtype LinesToExceptionDoc a = LinesToExceptionDoc a
 
 instance Show a => ToExceptionDoc (LinesToExceptionDoc a) where
@@ -133,30 +151,23 @@ instance ( GToDoc p
          , KnownSymbol typ
          , KnownSymbol modl
          ) => GToDoc (D1 ('MetaData typ modl pkg isNewtype) p) where
-  gToDoc (M1 x) = mconcat [
-        fromString $ concat [
-            symbolVal (Proxy @modl)
-          , "."
-          , symbolVal (Proxy @typ)
-          ]
-      , Indent 2 $ gToDoc x
-      ]
+  gToDoc (M1 x) =
+      withHeader (symbolVal (Proxy @modl) ++ "." ++ symbolVal (Proxy @typ)) $
+        gToDoc x
 
 instance ( GToDoc p
          , KnownSymbol constr
          ) => GToDoc (C1 ('MetaCons constr fixity hasFields) p) where
-  gToDoc (M1 x) = mconcat [
-        fromString $ symbolVal (Proxy @constr)
-      , Indent 2 $ gToDoc x
-      ]
+  gToDoc (M1 x) =
+      withHeader (symbolVal (Proxy @constr)) $
+        gToDoc x
 
 instance ( GToDoc p
          , KnownSymbol fieldSel
          ) => GToDoc (S1 ('MetaSel (Just fieldSel) unpack strict lazy) p) where
-  gToDoc (M1 x) = mconcat [
-        fromString $ symbolVal (Proxy @fieldSel)
-      , Indent 2 $ gToDoc x
-      ]
+  gToDoc (M1 x) =
+      withHeader (symbolVal (Proxy @fieldSel)) $
+        gToDoc x
 
 instance GToDoc p => GToDoc (S1 ('MetaSel Nothing unpack strict lazy) p) where
   gToDoc (M1 x) = gToDoc x
@@ -184,37 +195,23 @@ instance ToExceptionDoc a => ToExceptionDoc (Maybe a) where
 instance ToExceptionDoc a => ToExceptionDoc [a] where
   toExceptionDoc = foldMap toExceptionDoc
 
-instance ToExceptionDoc SomeException where
-  toExceptionDoc se@(SomeException e) = mconcat [
-          fromString $ show (typeOf e)
-        , Indent 2 $ mconcat [
-              fromLines $ displayException e
-            , toExceptionDoc classified
-            ]
-        ]
-    where
-      classified :: Classified
-      classified = classifyAnnotations se
-
 instance ToExceptionDoc CallStack where
   toExceptionDoc cs =
       fromLines $ prettyCallStack cs
 
-#if MIN_VERSION_base(4,20,0)
-instance ToExceptionDoc SomeExceptionAnnotation where
-  toExceptionDoc (SomeExceptionAnnotation a) =
-      fromLines $ displayExceptionAnnotation a
+instance ToExceptionDoc Backtraces where
+  toExceptionDoc bt =
+      fromLines $ displayBacktraces bt
 
+#if MIN_VERSION_base(4,20,0)
 instance ToExceptionDoc ExceptionContext where
   toExceptionDoc (ExceptionContext anns) = toExceptionDoc anns
 #endif
 
 #if MIN_VERSION_base(4,21,0)
-instance ToExceptionDoc WhileHandling where
-  toExceptionDoc (WhileHandling e) = mconcat [
-        "WhileHandling"
-      , Indent 2 $ toExceptionDoc e
-      ]
+instance ToExceptionDoc Base.WhileHandling where
+  toExceptionDoc (Base.WhileHandling e) =
+      withHeader "WhileHandling" $ toExceptionDoc e
 #endif
 
 {-------------------------------------------------------------------------------
@@ -292,21 +289,39 @@ withoutAnnotations (WrapExactException (SomeException e)) k = k e
 -- since 'throwIO' /itself/ can be used safely with 'ExactException'.
 catchExact :: IO a -> (ExactException -> IO a) -> IO a
 #if !MIN_VERSION_base(4,21,0)
-catchExact = catch
+catchExact = Base.catch
 #else
 catchExact action handler =
-    catchNoPropagate action (handler . aux)
+    Base.catchNoPropagate action (handler . aux)
   where
     -- NOTE: only used in GHC 9.12 and up
-    aux :: ExceptionWithContext SomeException -> ExactException
-    aux (ExceptionWithContext _ctxt se) = WrapExactException se
+    aux :: Base.ExceptionWithContext SomeException -> ExactException
+    aux (Base.ExceptionWithContext _ctxt se) = WrapExactException se
 #endif
 
 tryExact :: IO a -> IO (Either ExactException a)
-tryExact = try
+tryExact = Base.try
 
 waitCatchExact :: Async a -> STM (Either ExactException a)
 waitCatchExact = fmap (first WrapExactException) . waitCatchSTM
+
+{-------------------------------------------------------------------------------
+  Shim: throwing
+-------------------------------------------------------------------------------}
+
+throwIO :: (Exception e, HasCallStack) => e -> IO a
+throwIO = Base.throwIO
+#if !MIN_VERSION_base(4,20,0)
+  where
+    _suppressRedundantConstraintWarning = callStack
+#endif
+
+throwM :: (Exception e, Exceptions.MonadThrow m, HasCallStack) => e -> m a
+throwM = Exceptions.throwM
+#if !MIN_VERSION_exceptions(0,10,6)
+  where
+    _suppressRedundantConstraintWarning = callStack
+#endif
 
 {-------------------------------------------------------------------------------
   Shim: bug-free version of 'ExceptionWithContext'
@@ -354,16 +369,16 @@ instance Exception a => Exception (WithAnnotations a) where
             in SomeException c
     fromException se = do
         e <- fromException se
-        return (WithAnnotations (someExceptionContext se) e)
+        return (WithAnnotations (Base.someExceptionContext se) e)
     backtraceDesired (WithAnnotations _ e) = backtraceDesired e
     displayException = displayException . toException
 
 #else
 
-type WithAnnotations = ExceptionWithContext
+type WithAnnotations = Base.ExceptionWithContext
 
 pattern WithAnnotations :: ExceptionContext -> a -> WithAnnotations a
-pattern WithAnnotations ctxt e = ExceptionWithContext ctxt e
+pattern WithAnnotations ctxt e = Base.ExceptionWithContext ctxt e
 
 #endif
 
@@ -401,23 +416,6 @@ displayBacktraces = Backtrace.displayBacktraces . unwrapBacktraces
 
 #endif
 
-instance ToExceptionDoc Backtraces where
-  toExceptionDoc bt =
-      fromLines $ displayBacktraces bt
-
-{-------------------------------------------------------------------------------
-  Shim: Make 'WhileHandling' an empty type for GHC < 9.12
--------------------------------------------------------------------------------}
-
-#if !MIN_VERSION_base(4,21,0)
-
-data WhileHandling
-
-instance ToExceptionDoc WhileHandling where
-  toExceptionDoc x = case x of {}
-
-#endif
-
 {-------------------------------------------------------------------------------
   Shim: Make `annotateIO` a no-op for GHC < 9.10
 -------------------------------------------------------------------------------}
@@ -427,59 +425,116 @@ instance ToExceptionDoc WhileHandling where
 annotateIO :: ann -> IO a -> IO a
 annotateIO _ = id
 
-#endif
-
-{-------------------------------------------------------------------------------
-  Classify exception annotations
--------------------------------------------------------------------------------}
-
-#if !MIN_VERSION_base(4,20,0)
-
--- No annotations prior to GHC 9.10
-data Classified = NoAnnotations
-
-classifyAnnotations :: SomeException -> Classified
-classifyAnnotations _ = NoAnnotations
-
-instance ToExceptionDoc Classified where
-  toExceptionDoc NoAnnotations = mempty
+addExceptionContext :: ann -> SomeException -> SomeException
+addExceptionContext _ = id
 
 #else
 
-data Classified = Classified{
-      other         :: [SomeExceptionAnnotation]
-    , backtraces    :: Maybe Backtraces
-    , whileHandling :: Maybe WhileHandling
-    }
+annotateIO ::
+     ExceptionAnnotation ann
+  => ann -> IO a -> IO a
+annotateIO = Base.annotateIO
 
-instance ToExceptionDoc Classified where
-  toExceptionDoc Classified{other, backtraces, whileHandling} = mconcat [
-        foldMap toExceptionDoc other
-      , foldMap toExceptionDoc backtraces
-      , foldMap toExceptionDoc whileHandling
-      ]
-
-classifyAnnotations :: SomeException -> Classified
-classifyAnnotations se =
-    let ExceptionContext annotations = someExceptionContext se
-    in go Classified{
-              other         = []
-            , backtraces    = Nothing
-            , whileHandling = Nothing
-            }
-          annotations
-  where
-    go :: Classified -> [SomeExceptionAnnotation] -> Classified
-    go acc [] = acc{other = reverse (other acc)}
-    go acc (sa@(SomeExceptionAnnotation a):as)
-      | Just a' <- cast a, Nothing <- backtraces acc
-      = go acc{backtraces = Just a'} as
-
-      | Just a' <- cast a, Nothing <- whileHandling acc
-      = go acc{whileHandling = Just a'} as
-
-      | otherwise
-      = go acc{other = sa:other acc} as
+addExceptionContext ::
+     ExceptionAnnotation ann
+  => ann -> SomeException -> SomeException
+addExceptionContext = Base.addExceptionContext
 
 #endif
 
+{-------------------------------------------------------------------------------
+  Special-casing: exception annotations
+-------------------------------------------------------------------------------}
+
+data SpecialCaseException =
+    CaseSomeAsyncException Base.SomeAsyncException
+  | CaseKilledByThreadManager TimeManager.KilledByThreadManager
+  | CaseHTTP2Error HTTP2.HTTP2Error
+
+specialCaseException :: Typeable e => e -> Maybe SpecialCaseException
+specialCaseException e = asum [
+      CaseSomeAsyncException    <$> cast e
+    , CaseKilledByThreadManager <$> cast e
+    , CaseHTTP2Error            <$> cast e
+    ]
+
+instance ToExceptionDoc SomeException where
+  toExceptionDoc (SomeException e) =
+      withHeader (show (typeOf e)) $ mconcat [
+          renderWithoutContext e
+#if MIN_VERSION_base(4,20,0)
+        , toExceptionDoc ?exceptionContext
+#endif
+        ]
+
+renderWithoutContext :: Exception e => e -> Doc
+renderWithoutContext e =
+    maybe (renderGenericException e) toExceptionDoc $
+      specialCaseException e
+
+-- | Display generic exception (no special-casing)
+--
+-- The exception context is handled in the 'ToExceptionDoc' instance for
+-- 'SomeException'.
+renderGenericException :: Exception e => e -> Doc
+renderGenericException = fromLines . displayException
+
+instance ToExceptionDoc SpecialCaseException where
+  toExceptionDoc = \case
+      CaseSomeAsyncException    x -> toExceptionDoc x
+      CaseKilledByThreadManager x -> toExceptionDoc x
+      CaseHTTP2Error            x -> toExceptionDoc x
+
+instance ToExceptionDoc Base.SomeAsyncException where
+  toExceptionDoc (Base.SomeAsyncException e) =
+      withHeader "SomeAsyncException" $ renderWithoutContext e
+
+instance ToExceptionDoc TimeManager.KilledByThreadManager where
+  toExceptionDoc = \case
+      TimeManager.KilledByThreadManager mse ->
+        withHeader "KilledByThreadManager" $ toExceptionDoc mse
+
+instance ToExceptionDoc HTTP2.HTTP2Error where
+  toExceptionDoc = \case
+      HTTP2.BadThingHappen se ->
+        withHeader "BadThingHappen" $ toExceptionDoc se
+      other ->
+        renderGenericException other
+
+{-------------------------------------------------------------------------------
+  Special-casing: exceptions
+-------------------------------------------------------------------------------}
+
+#if MIN_VERSION_base(4,20,0)
+
+data SpecialCaseAnnotation =
+    CaseBacktraces Backtraces
+#if MIN_VERSION_base(4,21,0)
+  | CaseWhileHandling Base.WhileHandling
+#endif
+
+specialCaseAnnotation :: Typeable ann => ann -> Maybe SpecialCaseAnnotation
+specialCaseAnnotation ann = asum [
+      CaseBacktraces    <$> cast ann
+#if MIN_VERSION_base(4,21,0)
+    , CaseWhileHandling <$> cast ann
+#endif
+    ]
+
+instance ToExceptionDoc SomeExceptionAnnotation where
+  toExceptionDoc (SomeExceptionAnnotation ann) =
+      maybe (renderGenericAnnotation ann) toExceptionDoc $
+        specialCaseAnnotation ann
+
+-- | Render generic annotation (no special-casing)
+renderGenericAnnotation :: ExceptionAnnotation ann => ann -> Doc
+renderGenericAnnotation = fromLines . displayExceptionAnnotation
+
+instance ToExceptionDoc SpecialCaseAnnotation where
+  toExceptionDoc = \case
+      CaseBacktraces    x -> toExceptionDoc x
+#if MIN_VERSION_base(4,21,0)
+      CaseWhileHandling x -> toExceptionDoc x
+#endif
+
+#endif

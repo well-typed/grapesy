@@ -29,7 +29,7 @@ import Network.GRPC.Util.Imports
 
 import Control.Concurrent
 import Control.Concurrent.STM
-import Control.Exception
+import Control.Exception qualified as E
 import Foreign qualified
 import System.IO.Unsafe (unsafePerformIO)
 
@@ -173,7 +173,7 @@ forkThread ::
      HasCallStack
   => ThreadLabel -> TVar (ThreadState a) -> ThreadBody a -> IO ()
 forkThread label state body =
-    void $ mask_ $ forkIOWithUnmask $ \unmask ->
+    void $ E.mask_ $ forkIOWithUnmask $ \unmask ->
       threadBody label state $ body unmask
 
 -- | Wrap the thread body
