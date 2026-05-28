@@ -47,7 +47,12 @@ module Network.GRPC.Common.Exception (
   , addExceptionContext
 
     -- ** STM
+#ifdef PATCHED_GHC_FOR_EXCEPTION_DEBUGGING
+  , STM.atomically
+#else
+  , AtomicallyBacktrace(..)
   , atomically
+#endif
   ) where
 
 import Control.Concurrent.Async
@@ -212,7 +217,14 @@ instance ToExceptionDoc ExceptionContext where
   toExceptionDoc (ExceptionContext anns) = toExceptionDoc anns
 #endif
 
-#if MIN_VERSION_base(4,21,0)
+#ifdef PATCHED_GHC_FOR_EXCEPTION_DEBUGGING
+instance ToExceptionDoc Base.WhileHandling where
+  toExceptionDoc (Base.WhileHandling cs e) =
+      withHeader "WhileHandling" $ mconcat [
+          fromLines $ prettyCallStack cs
+        , toExceptionDoc e
+        ]
+#elif MIN_VERSION_base(4,21,0)
 instance ToExceptionDoc Base.WhileHandling where
   toExceptionDoc (Base.WhileHandling e) =
       withHeader "WhileHandling" $ toExceptionDoc e
@@ -547,6 +559,9 @@ instance ToExceptionDoc SpecialCaseAnnotation where
   STM support
 -------------------------------------------------------------------------------}
 
+#ifdef PATCHED_GHC_FOR_EXCEPTION_DEBUGGING
+-- Nothing to do, part of the patch
+#else
 -- | Backtrace to a call to 'atomically'
 --
 -- When an STM transaction throws an exception, this will tell us where that
@@ -566,3 +581,4 @@ atomically stm = do
     backtraces <- collectBacktraces
     annotateIO (AtomicallyBacktrace backtraces) $
       STM.atomically stm
+#endif
