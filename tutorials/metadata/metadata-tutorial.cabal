@@ -51,7 +51,7 @@ library
     , grapesy            >= 1.1  && < 1.2
     , proto-lens         >= 0.7  && < 0.8
     , proto-lens-runtime >= 0.7  && < 0.8
-    , time               >= 1.9  && < 1.16
+    , time               >= 1.9  && < 1.17
   exposed-modules:
       Proto.API.Fileserver
   other-modules:
