@@ -44,4 +44,4 @@ executable route_guide_server
 
   build-depends:
     , grapesy >= 1.1 && < 1.2
-    , time    >= 1.9 && < 1.16
+    , time    >= 1.9 && < 1.17
