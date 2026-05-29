@@ -1,7 +1,22 @@
+{-# LANGUAGE CPP              #-}
 {-# LANGUAGE OverloadedLabels #-}
+
 {-# OPTIONS_GHC -Wno-orphans #-}
 
 module Test.Sanity.NoIsLabel (tests) where
+
+#if !defined(TEST_NO_ISLABEL)
+
+import Test.Tasty
+import Test.Tasty.HUnit
+
+tests :: TestTree
+tests = testGroup "Test.Sanity.NoIsLabel" [
+      testCaseInfo "Data.ProtoLens.Labels not in scope" $
+        return "Skipped (requires proto-lens-protobuf-types >= 0.7.2.3)"
+    ]
+
+#else
 
 import Data.Proxy
 import Data.String
@@ -38,3 +53,4 @@ thisShouldCompile =
     f :: Int -> String
     f = #hi
 
+#endif
