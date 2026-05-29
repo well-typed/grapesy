@@ -165,13 +165,10 @@ library
     , data-default              >= 0.7     && < 0.9
     , deepseq                   >= 1.4     && < 1.6
     , grpc-spec                 >= 1.0     && < 1.1
-    , http-semantics            >= 0.3.0   && < 0.5
     , http-types                >= 0.12    && < 0.13
-    , http2-tls                 >= 0.4.9   && < 0.5
     , lens                      >= 5.0     && < 5.4
     , mtl                       >= 2.2     && < 2.4
     , network                   >= 3.2.4   && < 3.3
-    , network-run               >= 0.4.3   && < 0.6
     , proto-lens                >= 0.7     && < 0.8
     , proto-lens-protobuf-types >= 0.7     && < 0.8
     , random                    >= 1.2     && < 1.4
@@ -187,12 +184,15 @@ library
     -- NOTE: If you want good backtraces, you'll want exceptions >= 0.10.12
     , exceptions >= 0.10 && < 0.11
 
-      -- We pin very specific versions of http2.
-      --
-      -- New versions should be tested against the full grapesy test suite
-      -- (regular tests and stress tests).
-    , http2 == 5.3.9
-
+  -- The following set of packages are all tightly coupled, and should be
+  -- bumped all at once. Moreover, we pin a very specific version of http2;
+  -- any new version should be tested against the full grapesy test suite
+  -- (regular tests, stress tests and interop tests).
+  build-depends:
+    , http2          == 5.3.9
+    , http-semantics >= 0.3.0 && < 0.4
+    , http2-tls      >= 0.4.9 && < 0.5
+    , network-run    >= 0.4.3 && < 0.5
 
   if(flag(patched-ghc-for-exception-debugging))
     cpp-options: -DPATCHED_GHC_FOR_EXCEPTION_DEBUGGING
