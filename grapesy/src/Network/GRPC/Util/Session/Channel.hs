@@ -500,17 +500,26 @@ data ChannelAborted = ChannelAborted Backtraces
 
 -- | Send all messages to the node's peer
 --
--- The outbound thread is set up to be monitoring the input thread. This
--- improves predictability of exceptions: the inbound thread spends most of its
--- time blocked on messages from the peer, and will therefore notice when the
--- connection is lost. This is not true for the outbound thread, which spends
--- most of its time blocked waiting for messages to send to the peer.
+-- The outbound thread is set up to monitor the input thread:
 --
--- TODO: There is currently a race condition: suppose the client is waiting for
--- the trailers from the server, and then disconnects. As it stands, we might
--- send those trailers from the 'sendMessageLoop', but then before the thread
--- can terminate cleanly it is killed by the monitor. We should ensure that
--- we /demonitor/ the inbound thread just prior to sending the trailers.
+-- * The outbound thread spends most of its time blocked waiting for messages to
+--   send to the network peer, and may not notice when the connection is lost.
+--   The inbound thread however spends most of its time blocked on waiting for
+--   messages /from/ the peer and so will notice more or less immediately.
+--
+-- * We need an important \"atomicity\" property however: once the outbound
+--   thread has sent the trailers, we _expect_ the client to disconnect. We
+--   must therefore stop monitoring the inboud thread prior to sending the
+--   trailers, to avoid a race condition where
+--
+--   1. the outbound thread sends the final chunk
+--   2. the client receives the trailers and disconnects
+--   3. the outbound thread gets the monitor notification before it gets a chance
+--      to terminate, and dies, resulting in unexpected exceptions
+--
+--   Note that the client disconnecting /before/ receiving the final chunk
+--   constitutes a violation of the protocol, and so it would be correct for
+--   the outbound thread to report abnormal termination.
 sendMessageLoop :: forall sess.
      IsSession sess
   => sess
@@ -518,7 +527,7 @@ sendMessageLoop :: forall sess.
   -> OutputStream
   -> MonitorRef -- ^ Monitor for the inbound thread
   -> IO (Trailers (Outbound sess))
-sendMessageLoop sess st stream _monitorInbound = do
+sendMessageLoop sess st stream monitorInbound = do
     trailers <- loop
     atomically $ STM.putTMVar (flowTerminated st) trailers
     return trailers
@@ -535,15 +544,20 @@ sendMessageLoop sess st stream _monitorInbound = do
             flush stream
             loop
           FinalElem x trailers -> do
+            demonitor monitorInbound
             writeChunkFinal stream $ build x
             return trailers
           NoMoreElems trailers -> do
+            demonitor monitorInbound
             -- It is crucial to still 'writeChunkFinal' here to guarantee that
             -- cancellation is a no-op. Without it, cancellation may result in a
             -- @RST_STREAM@ frame may being sent to the peer.
             --
             -- This does not necessarily write a DATA frame, since http2 avoids
             -- writing empty data frames unless they are marked @END_OF_STREAM@.
+            --
+            -- TODO: <https://github.com/well-typed/grapesy/issues/349>
+            -- This relation between cancellation and outbound messages is wrong.
             writeChunkFinal stream $ mempty
             return trailers
 
