@@ -153,46 +153,50 @@ library
       Network.GRPC.Util.Version
 
   build-depends:
-    , aeson                     >= 1.5     && < 2.3
-    , async                     >= 2.2     && < 2.3
-    , binary                    >= 0.8     && < 0.9
-    , bytestring                >= 0.10.12 && < 0.13
-    , conduit                   >= 1.3     && < 1.4
-    , containers                >= 0.6     && < 0.9
-    , crypton-x509              >= 1.7     && < 1.8
-    , crypton-x509-store        >= 1.6     && < 1.7
-    , crypton-x509-system       >= 1.6     && < 1.7
-    , data-default              >= 0.7     && < 0.9
-    , deepseq                   >= 1.4     && < 1.6
-    , grpc-spec                 >= 1.0     && < 1.1
-    , http-semantics            >= 0.3.0   && < 0.3.1
-    , http-types                >= 0.12    && < 0.13
-    , http2-tls                 >= 0.4.9   && < 0.5
-    , lens                      >= 5.0     && < 5.4
-    , mtl                       >= 2.2     && < 2.4
-    , network                   >= 3.2.4   && < 3.3
-    , network-run               >= 0.4.3   && < 0.5
-    , proto-lens                >= 0.7     && < 0.8
-    , proto-lens-protobuf-types >= 0.7     && < 0.8
-    , random                    >= 1.2     && < 1.4
-    , recv                      >= 0.1     && < 0.2
-    , stm                       >= 2.5     && < 2.6
-    , text                      >= 1.2     && < 2.2
-    , time-manager              >= 0.2.2   && < 0.3
-    , tls                       >= 1.7     && < 2.5
-    , unbounded-delays          >= 0.1.1   && < 0.2
-    , unordered-containers      >= 0.2     && < 0.3
-    , utf8-string               >= 1.0     && < 1.1
+    , aeson                >= 1.5     && < 2.4
+    , async                >= 2.2     && < 2.3
+    , binary               >= 0.8     && < 0.9
+    , bytestring           >= 0.10.12 && < 0.13
+    , conduit              >= 1.3     && < 1.4
+    , containers           >= 0.6     && < 0.9
+    , crypton-x509         >= 1.7     && < 1.10
+    , crypton-x509-store   >= 1.6     && < 1.10
+    , crypton-x509-system  >= 1.6     && < 1.10
+    , data-default         >= 0.7     && < 0.9
+    , deepseq              >= 1.4     && < 1.6
+    , grpc-spec            >= 1.0     && < 1.1
+    , http-types           >= 0.12    && < 0.13
+    , lens                 >= 5.0     && < 5.4
+    , mtl                  >= 2.2     && < 2.4
+    , network              >= 3.2.4   && < 3.3
+    , proto-lens           >= 0.7     && < 0.8
+    , random               >= 1.2     && < 1.4
+    , recv                 >= 0.1     && < 0.2
+    , stm                  >= 2.5     && < 2.6
+    , text                 >= 1.2     && < 2.2
+    , time-manager         >= 0.2.2   && < 0.4
+    , tls                  >= 1.7     && < 2.5
+    , unbounded-delays     >= 0.1.1   && < 0.2
+    , unordered-containers >= 0.2     && < 0.3
+    , utf8-string          >= 1.0     && < 1.1
 
-    -- NOTE: If you want good backtraces, you'll want exceptions >= 0.10.12
+      -- NOTE: If you want good backtraces, you'll want exceptions >= 0.10.12
     , exceptions >= 0.10 && < 0.11
 
-      -- We pin very specific versions of http2.
-      --
-      -- New versions should be tested against the full grapesy test suite
-      -- (regular tests and stress tests).
-    , http2 == 5.3.9
+      -- NOTE: If you want to avoid bringing in unnecessary IsLabel instances,
+      -- you'll want proto-lens-protobuf-types >= 0.7.2.3.
+      -- See also <https://github.com/well-typed/grapesy/pull/283>.
+    , proto-lens-protobuf-types >= 0.7 && < 0.8
 
+  -- The following set of packages are all tightly coupled, and should be
+  -- bumped all at once. Moreover, we pin a very specific version of http2;
+  -- any new version should be tested against the full grapesy test suite
+  -- (regular tests, stress tests and interop tests).
+  build-depends:
+    , http2          == 5.3.9
+    , http-semantics >= 0.3.0 && < 0.4
+    , http2-tls      >= 0.4.9 && < 0.5
+    , network-run    >= 0.4.3 && < 0.5
 
   if(flag(patched-ghc-for-exception-debugging))
     cpp-options: -DPATCHED_GHC_FOR_EXCEPTION_DEBUGGING
@@ -302,6 +306,10 @@ test-suite test-grapesy
     , tasty-quickcheck   >= 0.10    && < 0.12
     , temporary          >= 1.3     && < 1.4
 
+  if(flag(test-no-islabel))
+    build-depends: proto-lens-protobuf-types >= 0.7.2.3
+    cpp-options:   -DTEST_NO_ISLABEL
+
 test-suite test-disconnect
   import:         lang, common-executable-flags
   type:           exitcode-stdio-1.0
@@ -370,7 +378,7 @@ test-suite test-stress
     , directory            >= 1.3     && < 1.4
     , filepath             >= 1.4.2.1 && < 1.6
     , ghc-events           >= 0.17    && < 0.22
-    , optparse-applicative >= 0.16    && < 0.19
+    , optparse-applicative >= 0.16    && < 0.20
     , pretty-show          >= 1.10    && < 1.11
     , process              >= 1.6.12  && < 1.7
     , random               >= 1.2     && < 1.4
@@ -448,7 +456,7 @@ test-suite grapesy-interop
   build-depends:
       -- Additional dependencies
     , ansi-terminal        >= 1.1  && < 1.2
-    , optparse-applicative >= 0.16 && < 0.19
+    , optparse-applicative >= 0.16 && < 0.20
     , proto-lens-runtime   >= 0.7  && < 0.8
 
 benchmark grapesy-kvstore
@@ -491,7 +499,7 @@ benchmark grapesy-kvstore
     , base16-bytestring    >= 1.0  && < 1.1
     , base64-bytestring    >= 1.2  && < 1.3
     , hashable             >= 1.3  && < 1.6
-    , optparse-applicative >= 0.16 && < 0.19
+    , optparse-applicative >= 0.16 && < 0.20
     , proto-lens-runtime   >= 0.7  && < 0.8
     , splitmix             >= 0.1  && < 0.2
 
@@ -508,6 +516,11 @@ Flag strace
   description: Write events to /dev/null in @grapesy-kvstore@ so that they show up in strace
   default: False
   manual: True
+
+Flag test-no-islabel
+  description: Enable the test that checks that no IsLabel instances are in scope
+  default: True
+  manual: False
 
 Flag patched-ghc-for-exception-debugging
   description: Use custom patched GHC with some exception improvements (probably useful for grapesy devs only)

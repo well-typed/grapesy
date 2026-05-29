@@ -46,12 +46,12 @@ library
   hs-source-dirs: src, generated
 
   build-depends:
-    , aeson              >= 1.5 && < 2.3
+    , aeson              >= 1.5 && < 2.4
     , containers         >= 0.6 && < 0.9
     , grapesy            >= 1.1 && < 1.2
     , proto-lens         >= 0.7 && < 0.8
     , proto-lens-runtime >= 0.7 && < 0.8
-    , time               >= 1.9 && < 1.16
+    , time               >= 1.9 && < 1.17
   exposed-modules:
       RouteGuide
       Proto.API.RouteGuide
