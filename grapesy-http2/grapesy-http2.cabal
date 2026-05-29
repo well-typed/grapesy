@@ -176,7 +176,7 @@ test-suite test-grapesy
   hs-source-dirs:  test-grapesy, proto, paths
   main-is:         Main.hs
   build-depends:   grapesy-http2
-  ghc-options:     -with-rtsopts=-N
+  -- ghc-options:     -with-rtsopts=-N
 
   other-modules:
       Test.Driver.ClientServer
