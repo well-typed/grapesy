@@ -43,9 +43,8 @@ module Network.GRPC.Server.Call (
 
 import Network.GRPC.Util.Imports
 
-import Control.Concurrent.STM (atomically, throwSTM)
-import Control.Concurrent.STM.TVar (TVar, writeTVar, readTVar, newTVarIO)
-import Control.Concurrent.STM.TMVar (TMVar, putTMVar, tryPutTMVar, tryReadTMVar, newEmptyTMVarIO, readTMVar)
+import Control.Concurrent.STM (TVar, TMVar)
+import Control.Concurrent.STM qualified as STM
 import Network.HTTP.Types qualified as HTTP
 import Network.HTTP.Semantics.Server qualified as Server
 
@@ -148,8 +147,8 @@ setupCall :: forall rpc.
   -> ServerContext
   -> IO (Call rpc, Maybe Timeout)
 setupCall conn callContext@ServerContext{serverParams} = do
-    callResponseMetadata <- newTVarIO CallInitialMetadataNotSet
-    callResponseKickoff  <- newEmptyTMVarIO
+    callResponseMetadata <- STM.newTVarIO CallInitialMetadataNotSet
+    callResponseKickoff  <- STM.newEmptyTMVarIO
 
     (inboundHeaders, timeout) <- determineInbound callSession req
     let callRequestHeaders = inbHeaders inboundHeaders
@@ -234,7 +233,7 @@ startOutbound :: forall rpc.
   -> IO (Session.FlowStart (ServerOutbound rpc), Session.ResponseInfo)
 startOutbound serverParams metadataVar kickoffVar cOut = do
     -- Wait for kickoff (see 'Kickoff' for discussion)
-    kickoff <- atomically $ readTMVar kickoffVar
+    kickoff <- atomically $ STM.readTMVar kickoffVar
 
     -- Session start
     flowStart :: Session.FlowStart (ServerOutbound rpc) <-
@@ -250,7 +249,7 @@ startOutbound serverParams metadataVar kickoffVar cOut = do
           -- handler might not yet have had the opportunity to set the initial
           -- metdata prior to the error.
           responseMetadata <- do
-            mMetadata <- atomically $ readTVar metadataVar
+            mMetadata <- atomically $ STM.readTVar metadataVar
             case mMetadata of
               CallInitialMetadataSet md _backtrace ->
                 buildMetadataIO md
@@ -523,13 +522,13 @@ setResponseInitialMetadata Call{ callResponseMetadata
                            md = do
     newBacktrace <- collectBacktraces
     atomically $ do
-      mKickoff  <- fmap kickoffBacktrace <$> tryReadTMVar callResponseKickoff
+      mKickoff  <- fmap kickoffBacktrace <$> STM.tryReadTMVar callResponseKickoff
       case mKickoff of
         Nothing ->
-          writeTVar callResponseMetadata $
+          STM.writeTVar callResponseMetadata $
             CallInitialMetadataSet md newBacktrace
         Just oldBacktrace ->
-          throwSTM $ ResponseAlreadyInitiated {
+          STM.throwSTM $ ResponseAlreadyInitiated {
               responseInitiatedFirst = oldBacktrace
             , responseInitiatedAgain = newBacktrace
             }
@@ -549,7 +548,7 @@ setResponseInitialMetadata Call{ callResponseMetadata
 initiateResponse :: HasCallStack => Call rpc -> IO ()
 initiateResponse Call{callResponseKickoff} = void $ do
     backtrace <- collectBacktraces
-    atomically $ tryPutTMVar callResponseKickoff $ KickoffRegular backtrace
+    atomically $ STM.tryPutTMVar callResponseKickoff $ KickoffRegular backtrace
 
 -- | Use the gRPC @Trailers-Only@ case for non-error responses
 --
@@ -580,12 +579,12 @@ sendTrailersOnly Call{callContext, callResponseKickoff} metadata = do
     metadata'    <- buildMetadataIO metadata
     newBacktrace <- collectBacktraces
     atomically $ do
-      previously <- fmap kickoffBacktrace <$> tryReadTMVar callResponseKickoff
+      previously <- fmap kickoffBacktrace <$> STM.tryReadTMVar callResponseKickoff
       case previously of
         Nothing ->
-          putTMVar callResponseKickoff $
+          STM.putTMVar callResponseKickoff $
             KickoffTrailersOnly newBacktrace (trailers metadata')
-        Just oldBacktrace -> throwSTM $ ResponseAlreadyInitiated {
+        Just oldBacktrace -> STM.throwSTM $ ResponseAlreadyInitiated {
             responseInitiatedFirst = oldBacktrace
           , responseInitiatedAgain = newBacktrace
           }
@@ -651,7 +650,7 @@ recvNextInput call@Call{} = do
       NoNextElem   -> err $ TooFewInputs @rpc
       NextElem inp -> return inp
   where
-    err :: ProtocolException rpc -> IO a
+    err :: HasCallStack => ProtocolException rpc -> IO a
     err = throwIO . ProtocolException
 
 -- | Receive input, which we expect to be the /final/ input
@@ -673,7 +672,7 @@ recvFinalInput call@Call{} = do
           FinalElem  inp' NoMetadata -> err $ TooManyInputs @rpc inp'
           StreamElem inp'            -> err $ TooManyInputs @rpc inp'
   where
-    err :: ProtocolException rpc -> IO a
+    err :: HasCallStack => ProtocolException rpc -> IO a
     err = throwIO . ProtocolException
 
 -- | Wait for the client to indicate that there are no more inputs
@@ -687,7 +686,7 @@ recvEndOfInput call@Call{} = do
       FinalElem  inp NoMetadata -> err $ TooManyInputs @rpc inp
       StreamElem inp            -> err $ TooManyInputs @rpc inp
   where
-    err :: ProtocolException rpc -> IO a
+    err :: HasCallStack => ProtocolException rpc -> IO a
     err = throwIO . ProtocolException
 
 {-------------------------------------------------------------------------------
@@ -707,7 +706,7 @@ sendProperTrailers Call{callContext, callResponseKickoff, callChannel}
     backtrace <- collectBacktraces
     updated <-
       atomically $
-        tryPutTMVar callResponseKickoff $
+        STM.tryPutTMVar callResponseKickoff $
           KickoffTrailersOnly
             backtrace
             ( properTrailersToTrailersOnly (

@@ -7,7 +7,6 @@ module Network.GRPC.Util.Session.Channel (
     Channel(..)
   , initChannel
     -- ** Flow state
-  , FlowState(..)
   , RegularFlowState(..)
   , initFlowStateRegular
     -- * Working with an open channel
@@ -23,10 +22,6 @@ module Network.GRPC.Util.Session.Channel (
   , close
   , ChannelDiscarded(..)
   , ChannelAborted(..)
-    -- * Support for half-closing
-  , InboundResult
-  , AllowHalfClosed(..)
-  , linkOutboundToInbound
     -- * Constructing channels
   , sendMessageLoop
   , recvMessageLoop
@@ -36,9 +31,8 @@ module Network.GRPC.Util.Session.Channel (
 
 import Network.GRPC.Util.Imports
 
-import Control.Concurrent.STM (STM, atomically, throwSTM)
-import Control.Concurrent.STM.TVar (TVar, newTVarIO, readTVar, writeTVar)
-import Control.Concurrent.STM.TMVar (TMVar, newEmptyTMVarIO, readTMVar, putTMVar, takeTMVar)
+import Control.Concurrent.STM (STM, TVar, TMVar)
+import Control.Concurrent.STM qualified as STM
 import Data.ByteString.Builder (Builder)
 import Data.ByteString.Lazy qualified as BS.Lazy
 
@@ -85,10 +79,10 @@ import Network.GRPC.Util.Thread
 -- Each channel is constructed for a /single/ session (request/response).
 data Channel sess = Channel {
       -- | Thread state of the thread receiving messages from the peer
-      channelInbound :: TVar (ThreadState (FlowState (Inbound sess)))
+      channelInbound :: TVar (FlowThreadState (Inbound sess))
 
       -- | Thread state of the thread sending messages to the peer
-    , channelOutbound :: TVar (ThreadState (FlowState (Outbound sess)))
+    , channelOutbound :: TVar (FlowThreadState (Outbound sess))
 
       -- | Have we sent the final message?
       --
@@ -105,8 +99,25 @@ data Channel sess = Channel {
     , channelRecvFinal :: TVar (RecvFinal (Inbound sess))
     }
 
+-- | Thread that deals with inbound or outbound flow
+type FlowThreadState flow =
+       ThreadState
+         (RegularFlowState flow)
+         (Trailers         flow)
+         (NoMessages       flow)
+
+-- | Interface to 'FlowThreadState'
+type FlowThreadIface flow =
+       ThreadIface
+         (RegularFlowState flow)
+         (NoMessages       flow)
+
+-- | Has the client code received the final message from the peer yet?
+--
+-- NOTE: \"delivered\" here means: put the final message that we received from
+-- the peer into the hands of the client code.
 data RecvFinal flow =
-    -- | We have not yet delivered the final message to the client
+    -- | We have not yet delivered the final message to the client code
     RecvNotFinal
 
     -- | We delivered the final message, but not yet the trailers
@@ -115,10 +126,7 @@ data RecvFinal flow =
     -- | We delivered the final message and the trailers
   | RecvFinal Backtraces
 
--- | Data flow state
-data FlowState flow =
-    FlowStateRegular (RegularFlowState flow)
-  | FlowStateNoMessages (NoMessages flow)
+deriving instance DataFlow flow => Show (RecvFinal flow)
 
 -- | Regular (streaming) flow state
 data RegularFlowState flow = RegularFlowState {
@@ -172,6 +180,13 @@ data RegularFlowState flow = RegularFlowState {
       --   available by 'recvMessageLoop'.
       --
       -- /Their/ sole purpose is to catch user errors, not capture data flow.
+      --
+      -- == Relation to 'ThreadState'
+      --
+      -- Although the threads write their final result (that is, the trailers)
+      -- to the 'ThreadState', we cannot use that in the trailers maker, because
+      -- the trailers are constructed /within/ the thread: that is, before it
+      -- terminates.
     , flowTerminated :: TMVar (Trailers flow)
     }
 
@@ -190,8 +205,8 @@ initChannel :: HasCallStack => IO (Channel sess)
 initChannel = do
     channelInbound   <- newThreadState
     channelOutbound  <- newThreadState
-    channelSentFinal <- newTVarIO Nothing
-    channelRecvFinal <- newTVarIO RecvNotFinal
+    channelSentFinal <- STM.newTVarIO Nothing
+    channelRecvFinal <- STM.newTVarIO RecvNotFinal
     return Channel{
         channelInbound
       , channelOutbound
@@ -201,8 +216,8 @@ initChannel = do
 
 initFlowStateRegular :: Headers flow -> IO (RegularFlowState flow)
 initFlowStateRegular flowHeaders = do
-   flowMsg        <- newEmptyTMVarIO
-   flowTerminated <- newEmptyTMVarIO
+   flowMsg        <- STM.newEmptyTMVarIO
+   flowTerminated <- STM.newEmptyTMVarIO
    return RegularFlowState {
        flowHeaders
      , flowMsg
@@ -222,11 +237,10 @@ getInboundHeaders ::
 getInboundHeaders Channel{channelInbound} =
     withThreadInterface channelInbound (return . aux)
   where
-    aux :: forall flow.
-         FlowState flow
-      -> Either (NoMessages flow) (Headers flow)
-    aux (FlowStateRegular    regular)  = Right $ flowHeaders regular
-    aux (FlowStateNoMessages trailers) = Left trailers
+    aux :: FlowThreadIface flow -> Either (NoMessages flow) (Headers flow)
+    aux = \case
+      IfaceAvailable regular  -> Right $ flowHeaders regular
+      IfaceTrivial   trailers -> Left trailers
 
 -- | Send a message to the node's peer
 --
@@ -246,29 +260,28 @@ send Channel{channelOutbound, channelSentFinal} = \msg -> do
     aux ::
          Backtraces
       -> StreamElem (Trailers (Outbound sess)) (Message (Outbound sess))
-      -> FlowState (Outbound sess)
+      -> FlowThreadIface (Outbound sess)
       -> STM ()
-    aux backtrace msg st = do
+    aux backtrace msg iface = do
         -- By checking that we haven't sent the final message yet, we know that
         -- this call to 'putMVar' will not block indefinitely: the thread that
         -- sends messages to the peer will get to it eventually (unless it dies,
         -- in which case the thread status will change and the call to
         -- 'getThreadInterface' will be retried).
-        sentFinal <- readTVar channelSentFinal
+        sentFinal <- STM.readTVar channelSentFinal
         case sentFinal of
-          Just cs -> throwSTM $ SendAfterFinal cs
+          Just cs -> STM.throwSTM $ SendAfterFinal cs
           Nothing -> return ()
-        case st of
-          FlowStateRegular regular -> do
+        case iface of
+          IfaceAvailable regular -> do
             StreamElem.whenDefinitelyFinal msg $ \_trailers ->
-              writeTVar channelSentFinal $ Just backtrace
-
-            putTMVar (flowMsg regular) msg
-          FlowStateNoMessages _ ->
+              STM.writeTVar channelSentFinal $ Just backtrace
+            STM.putTMVar (flowMsg regular) msg
+          IfaceTrivial _trailers ->
             -- For outgoing messages, the caller decides to use Trailers-Only,
             -- so if they then subsequently call 'send', we throw an exception.
             -- This is different for /inbound/ messages; see 'recv', below.
-            throwSTM $ SendButTrailersOnly
+            STM.throwSTM $ SendButTrailersOnly
 
 -- | Receive a message from the node's peer
 --
@@ -277,7 +290,7 @@ send Channel{channelOutbound, channelSentFinal} = \msg -> do
 -- and the trailers together. It is a bug to call 'recvBoth' again after this;
 -- doing so will result in a 'RecvAfterFinal' exception.
 recvBoth :: forall sess.
-     HasCallStack
+     (HasCallStack, IsSession sess)
   => Channel sess
   -> IO ( Either
             (NoMessages (Inbound sess))
@@ -297,7 +310,7 @@ recvBoth =
 -- 'recvEither'. Call 'recvEither' again /after/ receiving the trailers is a
 -- bug; doing so will result in a 'RecvAfterFinal' exception.
 recvEither ::
-     HasCallStack
+     (HasCallStack, IsSession sess)
   => Channel sess
   -> IO ( Either
             (NoMessages (Inbound sess))
@@ -311,7 +324,7 @@ recvEither =
 
 -- | Internal generalization of 'recvBoth' and 'recvEither'
 recv' :: forall sess b.
-     HasCallStack
+     (HasCallStack, IsSession sess)
   => (Message    (Inbound sess) -> b)  -- ^ Message without trailers
   -> (Trailers   (Inbound sess) -> b)  -- ^ Trailers without (final) message
   -> (    (Message (Inbound sess), Trailers (Inbound sess))
@@ -330,22 +343,24 @@ recv' messageWithoutTrailers
     backtrace <- collectBacktraces
     withThreadInterface channelInbound $ aux backtrace
   where
+    _ = addConstraint @(IsSession sess)
+
     aux ::
          Backtraces
-      -> FlowState (Inbound sess)
+      -> FlowThreadIface (Inbound sess)
       -> STM (Either (NoMessages (Inbound sess)) b)
-    aux backtrace st = do
+    aux backtrace iface = do
         -- By checking that we haven't received the final message yet, we know
         -- that this call to 'takeTMVar' will not block indefinitely: the thread
         -- that receives messages from the peer will get to it eventually
         -- (unless it dies, in which case the thread status will change and the
         -- call to 'getThreadInterface' will be retried).
-        readFinal <- readTVar channelRecvFinal
+        readFinal <- STM.readTVar channelRecvFinal
         case readFinal of
           RecvNotFinal ->
-            case st of
-              FlowStateRegular regular -> Right <$> do
-                streamElem <- takeTMVar (flowMsg regular)
+            case iface of
+              IfaceAvailable regular -> Right <$> do
+                streamElem <- STM.takeTMVar (flowMsg regular)
                 -- We update 'channelRecvFinal' in the same tx as the read, to
                 -- atomically change "there is a value" to "all values read".
                 case streamElem of
@@ -353,20 +368,20 @@ recv' messageWithoutTrailers
                     return $ messageWithoutTrailers msg
                   FinalElem msg trailers -> do
                     let (b, mTrailers) = messageWithTrailers (msg, trailers)
-                    writeTVar channelRecvFinal $
+                    STM.writeTVar channelRecvFinal $
                       maybe (RecvFinal backtrace) RecvWithoutTrailers mTrailers
                     return $ b
                   NoMoreElems trailers -> do
-                    writeTVar channelRecvFinal $ RecvFinal backtrace
+                    STM.writeTVar channelRecvFinal $ RecvFinal backtrace
                     return $ trailersWithoutMessage trailers
-              FlowStateNoMessages trailers -> do
-                writeTVar channelRecvFinal $ RecvFinal backtrace
+              IfaceTrivial trailers -> do
+                STM.writeTVar channelRecvFinal $ RecvFinal backtrace
                 return $ Left trailers
           RecvWithoutTrailers trailers -> do
-            writeTVar channelRecvFinal $ RecvFinal backtrace
+            STM.writeTVar channelRecvFinal $ RecvFinal backtrace
             return $ Right $ trailersWithoutMessage trailers
           RecvFinal cs ->
-            throwSTM $ RecvAfterFinal cs
+            STM.throwSTM $ RecvAfterFinal cs
 
 -- | Thrown by 'send'
 --
@@ -403,7 +418,7 @@ data RecvAfterFinal =
 -- See 'close' for discussion.
 waitForOutbound :: HasCallStack => Channel sess -> IO ()
 waitForOutbound Channel{channelOutbound} =
-    waitForNormalThreadTermination channelOutbound
+    void $ waitForNormalThreadTermination channelOutbound
 
 -- | Close the channel
 --
@@ -472,58 +487,6 @@ data ChannelAborted = ChannelAborted Backtraces
   deriving anyclass (Exception)
 
 {-------------------------------------------------------------------------------
-  Support for half-closing
--------------------------------------------------------------------------------}
-
-type InboundResult sess =
-       Either (NoMessages (Inbound sess))
-              (Trailers   (Inbound sess))
-
--- | Should we allow for a half-closed connection state?
---
--- In HTTP2, streams are bidirectional and can be half-closed in either
--- direction. This is however not true for all applications /of/ HTTP2. For
--- example, in gRPC the stream can be half-closed from the client to the server
--- (indicating that the client will not send any more messages), but not from
--- the server to the client: when the server half-closes their connection, it
--- sends the gRPC trailers and this terminates the call.
-data AllowHalfClosed sess =
-    ContinueWhenInboundClosed
-  | TerminateWhenInboundClosed (InboundResult sess -> ExactException)
-
--- | Link outbound thread to the inbound thread
---
--- This should be wrapped around the body of the inbound thread. It ensures that
--- when the inbound thread throws an exception, the outbound thread dies also.
--- This improves predictability of exceptions: the inbound thread spends most of
--- its time blocked on messages from the peer, and will therefore notice when
--- the connection is lost. This is not true for the outbound thread, which
--- spends most of its time blocked waiting for messages to send to the peer.
-linkOutboundToInbound :: forall sess.
-     (IsSession sess, HasCallStack)
-  => AllowHalfClosed sess
-  -> Channel sess
-  -> IO (InboundResult sess)
-  -> IO ()
-linkOutboundToInbound allowHalfClosed channel inbound = do
-    mResult <- tryExact inbound
-
-    -- Implementation note: After cancelThread returns, 'channelOutbound' has
-    -- been updated, and considered dead, even if perhaps the thread is still
-    -- cleaning up.
-
-    case (mResult, allowHalfClosed) of
-      (Right _result, ContinueWhenInboundClosed) ->
-        return ()
-      (Right result, TerminateWhenInboundClosed f) ->
-        void $ cancelThread (channelOutbound channel) (f result)
-      (Left (exception :: ExactException), _) -> do
-        void $ cancelThread (channelOutbound channel) exception
-        throwExact exception
-  where
-    _ = addConstraint @(IsSession sess)
-
-{-------------------------------------------------------------------------------
   Constructing channels
 
   Both 'sendMessageLoop' and 'recvMessageLoop' will be run in newly forked
@@ -536,37 +499,65 @@ linkOutboundToInbound allowHalfClosed channel inbound = do
 -------------------------------------------------------------------------------}
 
 -- | Send all messages to the node's peer
+--
+-- The outbound thread is set up to monitor the input thread:
+--
+-- * The outbound thread spends most of its time blocked waiting for messages to
+--   send to the network peer, and may not notice when the connection is lost.
+--   The inbound thread however spends most of its time blocked on waiting for
+--   messages /from/ the peer and so will notice more or less immediately.
+--
+-- * We need an important \"atomicity\" property however: once the outbound
+--   thread has sent the trailers, we _expect_ the client to disconnect. We
+--   must therefore stop monitoring the inboud thread prior to sending the
+--   trailers, to avoid a race condition where
+--
+--   1. the outbound thread sends the final chunk
+--   2. the client receives the trailers and disconnects
+--   3. the outbound thread gets the monitor notification before it gets a chance
+--      to terminate, and dies, resulting in unexpected exceptions
+--
+--   Note that the client disconnecting /before/ receiving the final chunk
+--   constitutes a violation of the protocol, and so it would be correct for
+--   the outbound thread to report abnormal termination.
 sendMessageLoop :: forall sess.
      IsSession sess
   => sess
   -> RegularFlowState (Outbound sess)
   -> OutputStream
-  -> IO ()
-sendMessageLoop sess st stream = do
+  -> MonitorRef -- ^ Monitor for the inbound thread
+  -> IO (Trailers (Outbound sess))
+sendMessageLoop sess st stream monitorInbound = do
     trailers <- loop
-    atomically $ putTMVar (flowTerminated st) trailers
+    atomically $ STM.putTMVar (flowTerminated st) trailers
+    return trailers
   where
     build :: (Message (Outbound sess) -> Builder)
     build = buildMsg sess (flowHeaders st)
 
     loop :: IO (Trailers (Outbound sess))
     loop = do
-        msg <- atomically $ takeTMVar (flowMsg st)
+        msg <- atomically $ STM.takeTMVar (flowMsg st)
         case msg of
           StreamElem x -> do
             writeChunk stream $ build x
             flush stream
             loop
           FinalElem x trailers -> do
+            demonitor monitorInbound
             writeChunkFinal stream $ build x
             return trailers
           NoMoreElems trailers -> do
+            demonitor monitorInbound
             -- It is crucial to still 'writeChunkFinal' here to guarantee that
             -- cancellation is a no-op. Without it, cancellation may result in a
             -- @RST_STREAM@ frame may being sent to the peer.
             --
             -- This does not necessarily write a DATA frame, since http2 avoids
             -- writing empty data frames unless they are marked @END_OF_STREAM@.
+            --
+            -- TODO: <https://github.com/well-typed/grapesy/issues/349>
+            -- This relation between cancellation and outbound messages is wrong.
             writeChunkFinal stream $ mempty
             return trailers
 
@@ -592,23 +583,23 @@ recvMessageLoop sess st stream =
             return trailers
           Nothing -> do
             trailers <- processTrailers
-            atomically $ putTMVar (flowMsg st) $ NoMoreElems trailers
+            atomically $ STM.putTMVar (flowMsg st) $ NoMoreElems trailers
             return trailers
 
     processOne :: Message (Inbound sess) -> IO ()
     processOne msg = do
-        atomically $ putTMVar (flowMsg st) $ StreamElem msg
+        atomically $ STM.putTMVar (flowMsg st) $ StreamElem msg
 
     processFinal :: Message (Inbound sess) -> IO (Trailers (Inbound sess))
     processFinal msg = do
         trailers <- processTrailers
-        atomically $ putTMVar (flowMsg st) $ FinalElem msg trailers
+        atomically $ STM.putTMVar (flowMsg st) $ FinalElem msg trailers
         return trailers
 
     processTrailers :: IO (Trailers (Inbound sess))
     processTrailers = do
         trailers <- parseInboundTrailers sess =<< getTrailers stream
-        atomically $ putTMVar (flowTerminated st) $ trailers
+        atomically $ STM.putTMVar (flowTerminated st) $ trailers
         return trailers
 
     throwParseErrors :: Parser.ProcessResult String b -> IO (Maybe b)
@@ -634,7 +625,7 @@ outboundTrailersMaker sess Channel{channelOutbound} regular = go
     go Nothing  = do
         mFlowState <- atomically $
           unlessAbnormallyTerminated channelOutbound $
-            readTMVar (flowTerminated regular)
+            STM.readTMVar (flowTerminated regular)
         case mFlowState of
             Right trailers ->
               return $ HTTP.Semantics.Trailers $ buildOutboundTrailers sess trailers

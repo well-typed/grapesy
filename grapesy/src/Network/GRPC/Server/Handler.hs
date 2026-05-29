@@ -15,8 +15,7 @@ module Network.GRPC.Server.Handler (
   , runHandler
   ) where
 
-import Control.Concurrent.STM
-import Control.Exception
+import Control.Exception qualified as E
 import System.ThreadManager (KilledByThreadManager(..))
 
 import Network.GRPC.Common.Exception
@@ -67,8 +66,11 @@ import Network.GRPC.Util.Stream (ClientDisconnected(..))
 -- the client as 'GrpcException' with 'GrpcUnknown' error code.
 data RpcHandler (m :: Type -> Type) (rpc :: k) = RpcHandler {
       -- | Handler proper
-      runRpcHandler :: Call rpc -> m ()
+      runRpcHandler_ :: HasCallStack => Call rpc -> m ()
     }
+
+runRpcHandler :: HasCallStack => RpcHandler m rpc -> Call rpc -> m ()
+runRpcHandler RpcHandler{runRpcHandler_} = runRpcHandler_
 
 -- | Hoist an 'RpcHandler' to a different monad
 --
@@ -103,7 +105,8 @@ mkRpcHandler ::
      ( Default (ResponseInitialMetadata rpc)
      , MonadIO m
      )
-  => (Call rpc -> m ()) -> RpcHandler m rpc
+  => (HasCallStack => Call rpc -> m ())
+  -> RpcHandler m rpc
 mkRpcHandler k = RpcHandler $ \call -> do
     liftIO $ setResponseInitialMetadata call def
     k call
@@ -306,9 +309,12 @@ data AsyncStatus a =
  | AsyncFailed ExactException
  | WaitInterrupted ExactException
 
-waitAsyncStatus :: (forall x. IO x -> IO x) -> Async a -> IO (AsyncStatus a)
+waitAsyncStatus ::
+     HasCallStack
+  => (forall x. IO x -> IO x)
+  -> Async a -> IO (AsyncStatus a)
 waitAsyncStatus unmask async =
-    handle (return . WaitInterrupted) $
+    E.handle (return . WaitInterrupted) $
       either AsyncFailed AsyncDone <$>
         unmask (tryAgain $ atomically $ waitCatchExact async)
   where
@@ -320,4 +326,4 @@ waitAsyncStatus unmask async =
     -- See also blog post “When "blocked indefinitely" is not indefinite”
     -- <https://well-typed.com/blog/2024/01/when-blocked-indefinitely-is-not-indefinite/>.
     tryAgain :: forall x. IO x -> IO x
-    tryAgain f = f `catch` \BlockedIndefinitelyOnSTM -> f
+    tryAgain f = f `catch` \E.BlockedIndefinitelyOnSTM -> f

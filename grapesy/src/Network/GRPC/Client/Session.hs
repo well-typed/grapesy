@@ -17,6 +17,7 @@ import Network.HTTP.Types qualified as HTTP
 import Network.GRPC.Client.Connection (Connection, ConnParams(..))
 import Network.GRPC.Client.Connection qualified as Connection
 import Network.GRPC.Common.Compression qualified as Compr
+import Network.GRPC.Common.Exception
 import Network.GRPC.Common.Headers
 import Network.GRPC.Util.Session.API
 import Network.GRPC.Util.Session.Client

@@ -9,8 +9,7 @@ module Network.GRPC.Util.Session.Client (
 import Network.GRPC.Util.Imports
 
 import Control.Concurrent.MVar (MVar, newEmptyMVar, readMVar, putMVar)
-import Control.Concurrent.STM (atomically)
-import Control.Concurrent.STM.TVar (modifyTVar)
+import Control.Concurrent.STM qualified as STM
 import Control.Monad (join)
 import Data.ByteString qualified as BS.Strict
 import Data.ByteString qualified as Strict (ByteString)
@@ -92,6 +91,10 @@ class NoTrailers sess where
 
 type CancelRequest = Maybe ExactException -> IO ()
 
+type InboundResult sess =
+       Either (NoMessages (Inbound sess))
+              (Trailers   (Inbound sess))
+
 -- | Setup request channel
 --
 -- This initiates a new request.
@@ -128,10 +131,7 @@ setupRequestChannel sess
                 $ outboundThread channel cancelRequestVar regular
         forkRequest channel req
       FlowStartNoMessages trailers -> do
-        let state :: FlowState (Outbound sess)
-            state = FlowStateNoMessages trailers
-
-            req :: Client.Request
+        let req :: Client.Request
             req = Client.requestNoBody
                     (requestMethod  requestInfo)
                     (requestPath    requestInfo)
@@ -139,10 +139,10 @@ setupRequestChannel sess
         -- Can't cancel non-streaming request
         putMVar cancelRequestVar $ \_ -> return ()
         atomically $
-          modifyTVar (channelOutbound channel) $ \oldState ->
+          STM.modifyTVar (channelOutbound channel) $ \oldState ->
             case oldState of
               ThreadNotStarted debugId ->
-                ThreadDone debugId state
+                ThreadTrivial debugId trailers
               _otherwise ->
                 error "setupRequestChannel: expected thread state"
         forkRequest channel req
@@ -153,39 +153,37 @@ setupRequestChannel sess
 
     forkRequest :: Channel sess -> Client.Request -> IO ()
     forkRequest channel req =
-        forkThread "grapesy:clientInbound" (channelInbound channel) $ \unmask markReady _debugId -> unmask $
-          linkOutboundToInbound (TerminateWhenInboundClosed terminateCall) channel $
-            sendRequest req $ \resp -> do
-              responseStatus <-
-                case Client.responseStatus resp of
-                  Just x  -> return x
-                  Nothing -> throwIO PeerMissingPseudoHeaderStatus
+        forkThread "grapesy:clientInbound" (channelInbound channel) $ \unmask ctxt -> unmask $
+          sendRequest req $ \resp -> do
+            responseStatus <-
+              case Client.responseStatus resp of
+                Just x  -> return x
+                Nothing -> throwIO PeerMissingPseudoHeaderStatus
 
-              -- Read the entire response body in case of a non-OK response
-              responseBody :: Maybe Lazy.ByteString <-
-                if HTTP.statusIsSuccessful responseStatus then
-                  return Nothing
-                else
-                  Just <$> readResponseBody resp
+            -- Read the entire response body in case of a non-OK response
+            responseBody :: Maybe Lazy.ByteString <-
+              if HTTP.statusIsSuccessful responseStatus then
+                return Nothing
+              else
+                Just <$> readResponseBody resp
 
-              let responseHeaders =
-                    fromHeaderTable $ Client.responseHeaders resp
-                  responseInfo = ResponseInfo {
-                    responseHeaders
-                  , responseStatus
-                  , responseBody
-                  }
+            let responseHeaders =
+                  fromHeaderTable $ Client.responseHeaders resp
+                responseInfo = ResponseInfo {
+                  responseHeaders
+                , responseStatus
+                , responseBody
+                }
 
-              flowStart <- parseResponse sess responseInfo
-              case flowStart of
-                FlowStartRegular headers -> do
-                  state <- initFlowStateRegular headers
-                  stream  <- clientInputStream resp
-                  markReady $ FlowStateRegular state
-                  Right <$> recvMessageLoop sess state stream
-                FlowStartNoMessages trailers -> do
-                  markReady $ FlowStateNoMessages trailers
-                  return $ Left trailers
+            flowStart <- parseResponse sess responseInfo
+            case flowStart of
+              FlowStartRegular headers -> do
+                regular <- initFlowStateRegular headers
+                stream  <- clientInputStream resp
+                threadMainBody ctxt regular $
+                  recvMessageLoop sess regular stream
+              FlowStartNoMessages trailers -> do
+                threadTrivial ctxt trailers
 
     outboundThread ::
          Channel sess
@@ -194,25 +192,45 @@ setupRequestChannel sess
       -> OutBodyIface
       -> IO ()
     outboundThread channel cancelRequestVar regular iface =
-        threadBody "grapesy:clientOutbound" (channelOutbound channel) $ \markReady _debugId -> do
-          markReady $ FlowStateRegular regular
-          putMVar cancelRequestVar cancelRequest
-          stream <- clientOutputStream iface
-          -- Unlike the client inbound thread, or the inbound/outbound threads
-          -- of the server, http2 knows about this particular thread and may
-          -- raise an exception on it when the server dies. This results in a
-          -- race condition between that exception and the exception we get from
-          -- attempting to read the next message. No matter who wins that race,
-          -- we need to mark that as 'ServerDisconnected'.
-          --
-          -- We don't have this top-level exception handler in other places
-          -- because we don't want to mark /our own/ exceptions as
-          -- 'ServerDisconnected' or 'ClientDisconnected'.
-          wrapServerDisconnected $
-            Client.outBodyUnmask iface $ sendMessageLoop sess regular stream
+        threadBody "grapesy:clientOutbound" (channelOutbound channel) $ \ctxt -> do
+          threadMainBody ctxt regular $ do
+            putMVar cancelRequestVar cancelRequest
+            monitor <- threadMonitor ctxt (channelInbound channel) monitorPred
+            stream  <- clientOutputStream iface
+            -- Unlike the client inbound thread, or the inbound/outbound threads
+            -- of the server, http2 knows about this particular thread and may
+            -- raise an exception on it when the server dies. This results in a
+            -- race condition between that exception and the exception we get from
+            -- attempting to read the next message. No matter who wins that race,
+            -- we need to mark that as 'ServerDisconnected'.
+            --
+            -- We don't have this top-level exception handler in other places
+            -- because we don't want to mark /our own/ exceptions as
+            -- 'ServerDisconnected' or 'ClientDisconnected'.
+            wrapServerDisconnected $
+              Client.outBodyUnmask iface $
+                sendMessageLoop sess regular stream monitor
       where
         cancelRequest :: CancelRequest
         cancelRequest = Client.outBodyCancel iface . fmap unwrapExactException
+
+        -- In HTTP2, streams are bidirectional and can be half-closed in either
+        -- direction. However, in gRPC the stream can be half-closed from the
+        -- client to the server (indicating that the client will not send any
+        -- more messages), but not from the server to the client: when the
+        -- server half-closes their connection, it sends the gRPC trailers and
+        -- this terminates the call.
+        monitorPred ::
+              Either
+                ThreadException
+                ( Either
+                    (NoMessages (Inbound sess))
+                    (Trailers   (Inbound sess))
+                )
+           -> Maybe ExactException
+        monitorPred = \case
+            Left  e        -> Just $ threadException e
+            Right trailers -> Just $ terminateCall trailers
 
 {-------------------------------------------------------------------------------
    Auxiliary http2

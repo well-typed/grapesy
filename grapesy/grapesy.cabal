@@ -193,6 +193,10 @@ library
       -- (regular tests and stress tests).
     , http2 == 5.3.9
 
+
+  if(flag(patched-ghc-for-exception-debugging))
+    cpp-options: -DPATCHED_GHC_FOR_EXCEPTION_DEBUGGING
+
 test-suite test-record-dot
   import:         lang, common-executable-flags
   type:           exitcode-stdio-1.0
@@ -502,5 +506,10 @@ Flag build-stress-test
 
 Flag strace
   description: Write events to /dev/null in @grapesy-kvstore@ so that they show up in strace
+  default: False
+  manual: True
+
+Flag patched-ghc-for-exception-debugging
+  description: Use custom patched GHC with some exception improvements (probably useful for grapesy devs only)
   default: False
   manual: True

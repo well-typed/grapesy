@@ -15,7 +15,8 @@ module Test.Driver.Dialogue.TestClock (
 
 import Prelude hiding (id)
 
-import Control.Concurrent.STM
+import Control.Concurrent.STM (TVar)
+import Control.Concurrent.STM qualified as STM
 import Control.Exception
 import Control.Monad
 import Control.Monad.IO.Class
@@ -28,6 +29,8 @@ import Data.Set (Set)
 import Data.Set qualified as Set
 import GHC.Stack
 import Test.QuickCheck (Gen, choose)
+
+import Network.GRPC.Common.Exception
 
 {-------------------------------------------------------------------------------
   Definition
@@ -90,7 +93,7 @@ newtype Tick = Tick Word
 
 -- | Start the clock
 new :: IO TestClock
-new = TestClock <$> newTVarIO initState
+new = TestClock <$> STM.newTVarIO initState
   where
     initState :: State
     initState = State {
@@ -116,10 +119,10 @@ data TimePassed = TimePassed {
 -- If the clock has already gone past the specified time, throws 'TimePassed'.
 waitForTick :: MonadIO m => TestClock -> Tick -> m ()
 waitForTick (TestClock clock) t = liftIO . atomically $ do
-    State{stateNow} <- readTVar clock
-    if | stateNow < t  -> retry
+    State{stateNow} <- STM.readTVar clock
+    if | stateNow < t  -> STM.retry
        | stateNow == t -> return ()
-       | otherwise     -> throwSTM $ TimePassed {
+       | otherwise     -> STM.throwSTM $ TimePassed {
                               timePassedNow    = stateNow
                             , timePassedWanted = t
                             , timePassedAt     = callStack
@@ -131,7 +134,7 @@ waitForTick (TestClock clock) t = liftIO . atomically $ do
 -- at any given time.
 advance :: MonadIO m => TestClock -> m ()
 advance (TestClock clock) = liftIO . atomically $ do
-    modifyTVar clock $ \st@State{stateNow} ->
+    STM.modifyTVar clock $ \st@State{stateNow} ->
       st{stateNow = succ stateNow}
 
 {-------------------------------------------------------------------------------
@@ -143,15 +146,15 @@ advance (TestClock clock) = liftIO . atomically $ do
 -- See 'TestClock' for discussion.
 waitForGreenLight :: MonadIO m => TestClock -> Tick -> m ()
 waitForGreenLight (TestClock clock) t = liftIO . atomically $ do
-    State{stateGreen} <- readTVar clock
-    unless (t `Set.member` stateGreen) retry
+    State{stateGreen} <- STM.readTVar clock
+    unless (t `Set.member` stateGreen) STM.retry
 
 -- | Give green light
 --
 -- See 'TestClock' for discussion.
 giveGreenLight :: MonadIO m => TestClock -> Tick -> m ()
 giveGreenLight (TestClock clock) t = liftIO . atomically $ do
-    modifyTVar clock $ \st@State{stateGreen} ->
+    STM.modifyTVar clock $ \st@State{stateGreen} ->
       st{stateGreen = Set.insert t stateGreen}
 
 {-------------------------------------------------------------------------------

@@ -32,9 +32,11 @@ module Network.GRPC.Client.Call (
 import Network.GRPC.Util.Imports
 
 import Control.Concurrent
-import Control.Concurrent.STM
+import Control.Concurrent.STM (STM)
+import Control.Concurrent.STM qualified as STM
 import Control.Concurrent.Thread.Delay qualified as UnboundedDelays
-import Control.Monad.Catch
+import Control.Monad.Catch (MonadMask)
+import Control.Monad.Catch qualified as Exceptions
 import Data.ByteString.Char8 qualified as BS.Strict.C8
 import Data.Foldable (asum)
 import Data.Text qualified as Text
@@ -114,7 +116,7 @@ withRPC :: forall rpc m a.
      (MonadMask m, MonadIO m, SupportsClientRpc rpc, HasCallStack)
   => Connection -> CallParams rpc -> Proxy rpc -> (Call rpc -> m a) -> m a
 withRPC conn callParams proxy k = fmap fst $
-    generalBracket
+    Exceptions.generalBracket
       (liftIO $
          startRPC conn proxy callParams)
       (\(Call{callChannel}, cancelRequest) exitCase -> liftIO $
@@ -231,8 +233,8 @@ startRPC conn _ callParams = do
       status <- atomically $ do
           (Left <$> Thread.waitForNormalOrAbnormalThreadTermination
                       (Session.channelInbound channel))
-        `orElse`
-          (Right <$> readTMVar connClosed)
+        `STM.orElse`
+          (Right <$> STM.readTMVar connClosed)
       forM_ mClientSideTimeout killThread
       case status of
         Left _ -> return () -- Channel closed before the connection
@@ -412,7 +414,7 @@ closeRPC callChannel cancelRequest exitCase = liftIO $ do
     checkCanDiscard :: IO Bool
     checkCanDiscard = do
         mRecvFinal  <- atomically $
-          readTVar $ Session.channelRecvFinal callChannel
+          STM.readTVar $ Session.channelRecvFinal callChannel
         let onNotRunning :: STM ()
             onNotRunning = return ()
         mTerminated <- atomically $
@@ -434,7 +436,8 @@ closeRPC callChannel cancelRequest exitCase = liftIO $ do
             , case mTerminated of
                 Thread.ThreadNotYetRunning_ () -> False
                 Thread.ThreadRunning_          -> False
-                Thread.ThreadDone_             -> True
+                Thread.ThreadDone_ _           -> True
+                Thread.ThreadTrivial_ _        -> True
                 Thread.ThreadException_ _      -> True
             ]
 
@@ -621,7 +624,7 @@ recvResponseInitialMetadata call@Call{} = liftIO $ do
       ResponseTrailingMetadata md' ->
         err $ UnexpectedTrailersOnly md'
   where
-    err :: ProtocolException rpc -> IO a
+    err :: HasCallStack => ProtocolException rpc -> IO a
     err = throwM . ProtocolException
 
 -- | Receive the next output
@@ -639,7 +642,7 @@ recvNextOutput call@Call{} = liftIO $ do
       Right (_env, out) ->
         return out
   where
-    err :: ProtocolException rpc -> IO a
+    err :: HasCallStack => ProtocolException rpc -> IO a
     err = throwM . ProtocolException
 
 -- | Receive output, which we expect to be the /final/ output
@@ -664,7 +667,7 @@ recvFinalOutput call@Call{} = liftIO $ do
           FinalElem  out' _ -> err $ TooManyOutputs @rpc out'
           StreamElem out'   -> err $ TooManyOutputs @rpc out'
   where
-    err :: ProtocolException rpc -> IO a
+    err :: HasCallStack => ProtocolException rpc -> IO a
     err = throwM . ProtocolException
 
 -- | Receive trailers
@@ -680,7 +683,7 @@ recvTrailers call@Call{} = liftIO $ do
       FinalElem  out _ts -> err $ TooManyOutputs @rpc out
       StreamElem out     -> err $ TooManyOutputs @rpc out
   where
-    err :: ProtocolException rpc -> IO a
+    err :: HasCallStack => ProtocolException rpc -> IO a
     err = throwM . ProtocolException
 
 {-------------------------------------------------------------------------------

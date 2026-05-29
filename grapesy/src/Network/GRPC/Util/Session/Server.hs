@@ -4,11 +4,16 @@ module Network.GRPC.Util.Session.Server (
   , setupResponseChannel
   ) where
 
+import Control.Concurrent
+import Control.Exception
+import Control.Monad
 import Network.HTTP.Semantics.Server qualified as Server
 
+import Network.GRPC.Common.Exception
 import Network.GRPC.Util.ServerStream
 import Network.GRPC.Util.Session.API
 import Network.GRPC.Util.Session.Channel
+import Network.GRPC.Util.Stream
 import Network.GRPC.Util.Thread
 
 {-------------------------------------------------------------------------------
@@ -20,6 +25,54 @@ data ConnectionToClient = ConnectionToClient {
       request :: Server.Request
     , respond :: Server.Response -> IO ()
     }
+
+{-------------------------------------------------------------------------------
+  Internal auxiliary: constructing responses
+-------------------------------------------------------------------------------}
+
+respondStreaming ::
+     ConnectionToClient
+  -> Server.TrailersMaker
+  -> ResponseInfo
+  -> (OutputStream -> IO ())
+  -> IO ()
+respondStreaming conn trailers responseInfo body =
+    respond conn resp
+  where
+    resp :: Server.Response
+    resp =
+          flip Server.setResponseTrailersMaker trailers
+        . Server.responseStreamingIface
+            (responseStatus  responseInfo)
+            (responseHeaders responseInfo)
+        $ body <=< serverOutputStream
+
+respondStreamingWithResult :: forall a.
+     ConnectionToClient
+  -> Server.TrailersMaker
+  -> ResponseInfo
+  -> (OutputStream -> IO a)
+  -> IO a
+respondStreamingWithResult conn trailers responseInfo body = do
+    -- It's not completely clear what @http2@ will do if the callback for a
+    -- streaming response throws an exception. /If/ it rethrows that exception,
+    -- we're fine, but if not we need to ensure that we're not left blocking
+    -- indefinitely waiting for a result.
+    resultVar :: MVar (Either ExactException a) <- newEmptyMVar
+    respondStreaming conn trailers responseInfo $ \iface -> do
+      result <- try $ body iface
+      putMVar resultVar result
+      either throwExact (\_ -> return ()) result
+    either throwExact return =<< takeMVar resultVar
+
+respondNoBody :: ConnectionToClient -> ResponseInfo -> IO ()
+respondNoBody conn responseInfo =
+    respond conn resp
+  where
+    resp :: Server.Response
+    resp = Server.responseNoBody
+             (responseStatus  responseInfo)
+             (responseHeaders responseInfo)
 
 {-------------------------------------------------------------------------------
   Initiate response
@@ -54,57 +107,49 @@ setupResponseChannel sess
                    = do
     channel <- initChannel
 
-    forkThread "grapesy:serverInbound" (channelInbound channel) $
-      \unmask markReady _debugId -> unmask $
-        linkOutboundToInbound ContinueWhenInboundClosed channel $ do
-          case inboundStart of
-            FlowStartRegular headers -> do
-              regular <- initFlowStateRegular headers
-              stream  <- serverInputStream (request conn)
-              markReady $ FlowStateRegular regular
-              Right <$> recvMessageLoop sess regular stream
-            FlowStartNoMessages trailers -> do
-              -- The client sent a request with an empty body
-              markReady $ FlowStateNoMessages trailers
-              return $ Left trailers
-              -- Thread terminates immediately
+    forkThread "grapesy:serverInbound" (channelInbound channel) $ \unmask ctxt -> unmask $
+      case inboundStart of
+        FlowStartRegular headers -> do
+          regular <- initFlowStateRegular headers
+          stream  <- serverInputStream (request conn)
+          threadMainBody ctxt regular $
+            recvMessageLoop sess regular stream
+        FlowStartNoMessages trailers ->
+          -- The client sent a request with an empty body
+          threadTrivial ctxt trailers
 
-    forkThread "grapesy:serverOutbound" (channelOutbound channel) $
-      \unmask markReady _debugId -> unmask $ do
-        (outboundStart, responseInfo) <- startOutbound
-        case outboundStart of
-          FlowStartRegular headers -> do
-            regular <- initFlowStateRegular headers
-            markReady $ FlowStateRegular regular
-            let resp :: Server.Response
-                resp = setResponseTrailers sess channel regular
-                     $ Server.responseStreamingIface
-                             (responseStatus  responseInfo)
-                             (responseHeaders responseInfo)
-                     $ \iface -> do
-                          stream <- serverOutputStream iface
-                          sendMessageLoop sess regular stream
-            respond conn resp
-          FlowStartNoMessages trailers -> do
-            markReady $ FlowStateNoMessages trailers
-            let resp :: Server.Response
-                resp = Server.responseNoBody
-                         (responseStatus  responseInfo)
-                         (responseHeaders responseInfo)
-            respond conn $ resp
+    forkThread "grapesy:serverOutbound" (channelOutbound channel) $ \unmask ctxt -> unmask $ do
+      (outboundStart, responseInfo) <- startOutbound
+      case outboundStart of
+        FlowStartRegular headers -> do
+          monitor <- threadMonitor ctxt (channelInbound channel) monitorPred
+          regular <- initFlowStateRegular headers
+          threadMainBody ctxt regular $ do
+            respondStreamingWithResult
+                conn
+                (outboundTrailersMaker sess channel regular)
+                responseInfo $ \stream ->
+              sendMessageLoop sess regular stream monitor
+        FlowStartNoMessages trailers -> do
+          respondNoBody conn responseInfo
+          threadTrivial ctxt trailers
 
     return channel
-
-{-------------------------------------------------------------------------------
-  Auxiliary http2
--------------------------------------------------------------------------------}
-
-setResponseTrailers ::
-     IsSession sess
-  => sess
-  -> Channel sess
-  -> RegularFlowState (Outbound sess)
-  -> Server.Response -> Server.Response
-setResponseTrailers sess channel regular resp =
-    Server.setResponseTrailersMaker resp $
-      outboundTrailersMaker sess channel regular
+  where
+    -- Unlike on the client-side, if the input thread terminates normally, the
+    -- server can continue to run normally (the stream can be half-closed from
+    -- the client). We only only terminate if the inbound thread threw an
+    -- exception, indicating that the client disconnected abruptly.
+    --
+    -- See also 'Network.GRPC.Util.Session.Client.setupRequestChannel'.
+    monitorPred ::
+          Either
+            ThreadException
+            ( Either
+                (NoMessages (Inbound sess))
+                (Trailers   (Inbound sess))
+            )
+       -> Maybe ExactException
+    monitorPred = \case
+        Left  e         -> Just $ threadException e
+        Right _trailers -> Nothing

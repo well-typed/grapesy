@@ -19,7 +19,7 @@ module Test.Driver.Dialogue.Definition (
   , hasEarlyTermination
   ) where
 
-import Control.Monad.Catch
+import Control.Monad.Catch (MonadThrow)
 import Control.Monad.State (StateT, execStateT, modify)
 import Data.Bifunctor
 import Data.ByteString qualified as Strict (ByteString)

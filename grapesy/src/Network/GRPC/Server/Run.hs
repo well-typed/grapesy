@@ -28,8 +28,8 @@ module Network.GRPC.Server.Run (
 
 import Network.GRPC.Util.Imports
 
-import Control.Concurrent.STM (STM, atomically, catchSTM, throwSTM, orElse)
-import Control.Concurrent.STM.TMVar (TMVar, newEmptyTMVarIO, putTMVar, readTMVar)
+import Control.Concurrent.STM (STM, TMVar)
+import Control.Concurrent.STM qualified as STM
 import Network.HTTP.Semantics.Server qualified as Server
 import Network.HTTP2.Server qualified as HTTP2 (ServerConfig, run)
 import Network.HTTP2.TLS.Server qualified as HTTP2.TLS
@@ -195,8 +195,8 @@ forkServer ::
   -> (RunningServer -> IO a)
   -> IO a
 forkServer http2 ServerConfig{serverInsecure, serverSecure} server k = do
-    runningSocketInsecure <- newEmptyTMVarIO
-    runningSocketSecure   <- newEmptyTMVarIO
+    runningSocketInsecure <- STM.newEmptyTMVarIO
+    runningSocketSecure   <- STM.newEmptyTMVarIO
 
     let secure, insecure :: IO ()
         insecure =
@@ -266,15 +266,15 @@ getSecureSocket server = do
 -- Precondition: only one server must be enabled (secure or insecure).
 getServerSocket :: RunningServer -> STM Socket
 getServerSocket server = do
-    insecure <- catchSTM (Right <$> getInsecureSocket server) (return . Left)
-    secure   <- catchSTM (Right <$> getSecureSocket   server) (return . Left)
+    insecure <- STM.catchSTM (Right <$> getInsecureSocket server) (return . Left)
+    secure   <- STM.catchSTM (Right <$> getSecureSocket   server) (return . Left)
     case (insecure, secure) of
       (Right sock, Left ServerTerminated) ->
         return sock
       (Left ServerTerminated, Right sock) ->
         return sock
       (Left ServerTerminated, Left ServerTerminated) ->
-        throwSTM ServerTerminated
+        STM.throwSTM ServerTerminated
       (Right _, Right _) ->
         error $ "getServerSocket: precondition violated"
 
@@ -293,11 +293,11 @@ getServerPort server = do
 -- | Internal generalization of 'getInsecureSocket'/'getSecureSocket'
 getSocket :: Async () -> TMVar Socket -> STM Socket
 getSocket serverAsync socketTMVar = do
-    status <-  (Left  <$> waitCatchExact serverAsync)
-      `orElse` (Right <$> readTMVar      socketTMVar)
+    status <-      (Left  <$> waitCatchExact serverAsync)
+      `STM.orElse` (Right <$> STM.readTMVar  socketTMVar)
     case status of
-      Left (Left err) -> throwSTM err
-      Left (Right ()) -> throwSTM $ ServerTerminated
+      Left (Left err) -> STM.throwSTM err
+      Left (Right ()) -> STM.throwSTM $ ServerTerminated
       Right sock      -> return sock
 
 {-------------------------------------------------------------------------------
@@ -440,7 +440,7 @@ withServerSocket http2Settings socketTMVar host port k = do
     addr <- Run.resolve Socket.Stream host (show port) [Socket.AI_PASSIVE]
 #endif
     bracket (openServerSocket addr) Socket.close $ \sock -> do
-      atomically $ putTMVar socketTMVar sock
+      atomically $ STM.putTMVar socketTMVar sock
       k sock
   where
     openServerSocket :: AddrInfo -> IO Socket
@@ -457,7 +457,7 @@ withServerSocket http2Settings socketTMVar host port k = do
 withUnixSocket :: FilePath -> TMVar Socket -> (Socket -> IO a) -> IO a
 withUnixSocket path socketTMVar k = do
     bracket openServerSocket Socket.close $ \sock -> do
-      atomically $ putTMVar socketTMVar sock
+      atomically $ STM.putTMVar socketTMVar sock
       k sock
   where
     openServerSocket :: IO Socket

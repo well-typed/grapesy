@@ -8,8 +8,10 @@ module Test.Driver.Dialogue.Execution (
 
 import Control.Concurrent
 import Control.Concurrent.Async
+import Control.Exception (Exception(..))
 import Control.Monad
-import Control.Monad.Catch
+import Control.Monad.Catch (MonadThrow)
+import Control.Monad.Catch qualified as E
 import Control.Monad.State
 import Data.List (sortBy)
 import Data.Ord (comparing)
@@ -167,7 +169,7 @@ clientLocal clock call = \(LocalSteps steps) ->
         case step of
           ClientAction action -> do
             within timeoutClock step $ TestClock.waitForTick clock tick
-            continue <- clientAct tick action `finally` TestClock.advance clock
+            continue <- clientAct tick action `E.finally` TestClock.advance clock
             when continue $ go steps
           ServerAction action -> do
             TestClock.giveGreenLight clock tick
@@ -221,11 +223,11 @@ clientLocal clock call = \(LocalSteps steps) ->
             reactToServer tick $ Send (StreamElem a)
             reactToServer tick $ Send (NoMoreElems b)
           Send expectedElem -> do
-            mOut <- try $ within timeoutReceive action $
+            mOut <- E.try $ within timeoutReceive action $
                       Client.Binary.recvOutput call
             expect (tick, action) (isExpectedElem expectedElem) mOut
           Terminate mErr -> do
-            mOut <- try $ within timeoutReceive action $
+            mOut <- E.try $ within timeoutReceive action $
                       Client.Binary.recvOutput call
             let expectation = isGrpcException mErr
             expect (tick, action) expectation mOut
@@ -247,7 +249,7 @@ clientLocal clock call = \(LocalSteps steps) ->
         -- We only do this when we know the client has terminated, so the
         -- /type/ of the message we send here as a probe does not matter.
         loop = do
-            mFailed <- try $ Client.Binary.sendNextInput call ()
+            mFailed <- E.try $ Client.Binary.sendNextInput call ()
             case mFailed of
               Left (_ :: GrpcException) ->
                 return ()
@@ -372,7 +374,7 @@ serverLocal clock call = \(LocalSteps steps) -> do
         case step of
           ServerAction action -> do
             within timeoutClock step $ TestClock.waitForTick clock tick
-            continue <- serverAct tick action `finally` TestClock.advance clock
+            continue <- serverAct tick action `E.finally` TestClock.advance clock
             when continue $ go steps
           ClientAction action -> do
             TestClock.giveGreenLight clock tick
@@ -416,11 +418,11 @@ serverLocal clock call = \(LocalSteps steps) -> do
           Initiate _ ->
             error "serverLocal: unexpected ClientInitiateRequest"
           Send expectedElem -> do
-            mInp <- liftIO $ try $ within timeoutReceive action $
+            mInp <- liftIO $ E.try $ within timeoutReceive action $
                       Server.Binary.recvInput call
             expect (tick, action) (isExpectedElem expectedElem) mInp
           Terminate mErr -> do
-            mInp <- liftIO $ try $ within timeoutReceive action $
+            mInp <- liftIO $ E.try $ within timeoutReceive action $
                       Server.Binary.recvInput call
             expect (tick, action) isExpectedDisconnect mInp
             modify $ ifPeerAlive $ PeerTerminated mErr
@@ -440,7 +442,7 @@ serverLocal clock call = \(LocalSteps steps) -> do
         -- We only do this when we know the client has terminated, so the
         -- /type/ of the message we send here as a probe does not matter.
         loop = do
-            mFailed <- try $ Server.Binary.sendNextOutput call ()
+            mFailed <- E.try $ Server.Binary.sendNextOutput call ()
             case mFailed of
               Left (_ :: Server.ClientDisconnected) ->
                 return ()
