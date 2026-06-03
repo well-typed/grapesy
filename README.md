@@ -21,8 +21,8 @@ Legend:
 * 🚫 not supported by `grapesy`
 
 We last tested against version
-[v1.69.0](https://github.com/grpc/grpc/releases/tag/v1.69.0) (released Dec 24,
-2024).
+[v1.81.0](https://github.com/grpc/grpc/releases/tag/v1.81.0) (released May 29,
+2026).
 
 ### `grapesy` server versus reference client
 
