@@ -333,6 +333,30 @@ closeRPC ::
      Session.Channel rpc
   -> Session.CancelRequest
   -> ExitCase a
+     -- ^ Reason for closing the connection
+     --
+     -- This serves two purposes:
+     --
+     -- o Further interaction with the connection will throw an exception
+     --   reflecting the reason that the connection was closed.
+     --
+     -- o If 'closeRPC' is called /before/ the client sent their final message
+     --   to the server, the server is sent a @RST_FRAME@. The error code in
+     --   the @RST_FRAME@ depends on the 'ExitCase':
+     --
+     --   a. If the 'ExitCase' is 'ExitCaseSuccess', indicating that the client
+     --      terminated normally, this is interpreted as the client cancelling
+     --      the request. The error code in the @RST_FRAME@ will therefore be
+     --      @CANCEL@, and a 'GrpcCancelled' exception is raised in the thread
+     --      calling 'closeRPC' (as mandated by the gRPC spec).
+     --   b. If not, the client terminated with an exception; since gRPC does
+     --      not support client-side trailers, we have no way of communicating
+     --      the nature of the client error to the client; instead, the
+     --      @RST_FRAME@ will have error code @INTERNAL_ERROR@.
+     --
+     -- If (b), the exception is not re-raised by 'closeRPC'; the assumption is
+     -- that in this case 'closeRPC' is called /in response to/ an exception,
+     -- and the /caller/ will re-raise that exception; see 'withRPC'.
   -> IO ()
 closeRPC callChannel cancelRequest exitCase = liftIO $ do
     -- /Before/ we do anything else (see below), check if we have evidence
@@ -359,9 +383,9 @@ closeRPC callChannel cancelRequest exitCase = liftIO $ do
       Just ex ->
         case fromException (unwrapExactException ex) of
           Nothing ->
-            -- We are leaving the scope of 'withRPC' because of an exception
-            -- in the client, just rethrow that exception.
-            throwM ex
+            -- We are leaving the scope of 'withRPC' because of an exception in
+            -- the client; caller is responsible for re-raising that exception.
+            return ()
           Just (discarded :: ChannelDiscarded) ->
             -- We are leaving the scope of 'withRPC' without having sent the
             -- final message.
