@@ -57,7 +57,6 @@ import Network.GRPC.Util.Session.Channel qualified as Session
 import Network.GRPC.Util.Session.Client qualified as Session
 import Network.GRPC.Util.Stream (ServerDisconnected(..))
 import Network.GRPC.Util.Thread qualified as Thread
-
 import Network.GRPC.Util.Version qualified as Grapesy
 
 {-------------------------------------------------------------------------------
@@ -196,34 +195,31 @@ startRPC conn _ callParams = do
                   , grpcErrorMetadata = []
                   }
 
-          -- We recognized client-side that the timeout we imposed on the server
-          -- has passed. Acting on this is however tricky:
-          --
-          -- o A call to 'closeRPC' will only terminate the /outbound/ thread;
-          --   the idea is the inbound thread might still be reading in-flight
-          --   messages, and it will terminate once the last message is read or
-          --   the thread notices a broken connection.
-          -- o Unfortunately, this does not work in the timeout case: /if/ the
-          --   outbound thread has not yet terminated (that is, the client has
-          --   not yet sent their final message), then calling 'closeRPC' will
-          --   result in a RST_STREAM being sent to the server, which /should/
-          --   result in the inbound connection being closed also, but may not,
-          --   in the case of a non-compliant server.
-          -- o Worse, if the client /did/ already send their final message, the
-          --   outbound thread has already terminated, no RST_STREAM will be
-          --   sent, and the we will continue to wait for messages from the
-          --   server.
-          --
-          -- Ideally we'd inform the receiving thread that a timeout has been
-          -- reached and to "continue until it would block", but that is hard
-          -- to do. So instead we just kill the receiving thread, which means
-          -- that once the timeout is reached, the client will not be able to
-          -- receive any further messages (even if that is because the /client/
-          -- was slow, rather than the server).
+              timeoutExitCase :: ExitCase ()
+              timeoutExitCase = ExitCaseException (unwrapExactException timeout)
 
+          -- We recognized client-side that the timeout we imposed on the server
+          -- has passed, and don't want to rely on a compliant server
+          -- implementation to enforce that timeout. We will therefore close the
+          -- connection in the client, but the normal procedure for closing the
+          -- connection (implemented in 'closeRPC'), is not quite right here:
+          --
+          -- o Unless the client has sent their final message to the server,
+          --   closing the connection is normally considered a cancellation,
+          --   which should result in a RST_STREAM frame being sent to the
+          --   server and 'GrpcCancelled' cancelled raised in the client.
+          -- o We normally terminate only the /outbound/ thread, to allow the
+          --   inbound thread to continue to read any messages that might still
+          --   be in-flight; we then rely on the serve closing the connection
+          --   (normally or abnormally) to close the inbound thread.
+          --
+          -- Neither of these apply in the case of a timeout, so instead we just
+          -- terminate both the inbound and the output thread. This /does/ mean
+          -- that once the timeout is reached, the client will not be able to
+          -- receive any further messages, even if that is because the /client/
+          -- was slow, rather than the server.
           void $ Thread.cancelThread (Session.channelInbound channel) timeout
-          closeRPC channel cancelRequest $
-            ExitCaseException (unwrapExactException timeout)
+          void $ Session.close channel timeoutExitCase
 
     -- Spawn a thread to monitor the connection, and close the new channel when
     -- the connection is closed. To prevent a memory leak by hanging on to the
