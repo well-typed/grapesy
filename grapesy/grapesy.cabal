@@ -432,6 +432,7 @@ test-suite grapesy-interop
       Interop.Util.ANSI
       Interop.Util.Exceptions
       Interop.Util.Messages
+      Interop.Util.NonInterleaved
 
       Paths_
 

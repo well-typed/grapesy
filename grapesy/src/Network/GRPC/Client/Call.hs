@@ -57,7 +57,6 @@ import Network.GRPC.Util.Session.Channel qualified as Session
 import Network.GRPC.Util.Session.Client qualified as Session
 import Network.GRPC.Util.Stream (ServerDisconnected(..))
 import Network.GRPC.Util.Thread qualified as Thread
-
 import Network.GRPC.Util.Version qualified as Grapesy
 
 {-------------------------------------------------------------------------------
@@ -196,34 +195,31 @@ startRPC conn _ callParams = do
                   , grpcErrorMetadata = []
                   }
 
-          -- We recognized client-side that the timeout we imposed on the server
-          -- has passed. Acting on this is however tricky:
-          --
-          -- o A call to 'closeRPC' will only terminate the /outbound/ thread;
-          --   the idea is the inbound thread might still be reading in-flight
-          --   messages, and it will terminate once the last message is read or
-          --   the thread notices a broken connection.
-          -- o Unfortunately, this does not work in the timeout case: /if/ the
-          --   outbound thread has not yet terminated (that is, the client has
-          --   not yet sent their final message), then calling 'closeRPC' will
-          --   result in a RST_STREAM being sent to the server, which /should/
-          --   result in the inbound connection being closed also, but may not,
-          --   in the case of a non-compliant server.
-          -- o Worse, if the client /did/ already send their final message, the
-          --   outbound thread has already terminated, no RST_STREAM will be
-          --   sent, and the we will continue to wait for messages from the
-          --   server.
-          --
-          -- Ideally we'd inform the receiving thread that a timeout has been
-          -- reached and to "continue until it would block", but that is hard
-          -- to do. So instead we just kill the receiving thread, which means
-          -- that once the timeout is reached, the client will not be able to
-          -- receive any further messages (even if that is because the /client/
-          -- was slow, rather than the server).
+              timeoutExitCase :: ExitCase ()
+              timeoutExitCase = ExitCaseException (unwrapExactException timeout)
 
+          -- We recognized client-side that the timeout we imposed on the server
+          -- has passed, and don't want to rely on a compliant server
+          -- implementation to enforce that timeout. We will therefore close the
+          -- connection in the client, but the normal procedure for closing the
+          -- connection (implemented in 'closeRPC'), is not quite right here:
+          --
+          -- o Unless the client has sent their final message to the server,
+          --   closing the connection is normally considered a cancellation,
+          --   which should result in a RST_STREAM frame being sent to the
+          --   server and 'GrpcCancelled' cancelled raised in the client.
+          -- o We normally terminate only the /outbound/ thread, to allow the
+          --   inbound thread to continue to read any messages that might still
+          --   be in-flight; we then rely on the serve closing the connection
+          --   (normally or abnormally) to close the inbound thread.
+          --
+          -- Neither of these apply in the case of a timeout, so instead we just
+          -- terminate both the inbound and the output thread. This /does/ mean
+          -- that once the timeout is reached, the client will not be able to
+          -- receive any further messages, even if that is because the /client/
+          -- was slow, rather than the server.
           void $ Thread.cancelThread (Session.channelInbound channel) timeout
-          closeRPC channel cancelRequest $
-            ExitCaseException (unwrapExactException timeout)
+          void $ Session.close channel timeoutExitCase
 
     -- Spawn a thread to monitor the connection, and close the new channel when
     -- the connection is closed. To prevent a memory leak by hanging on to the
@@ -333,6 +329,30 @@ closeRPC ::
      Session.Channel rpc
   -> Session.CancelRequest
   -> ExitCase a
+     -- ^ Reason for closing the connection
+     --
+     -- This serves two purposes:
+     --
+     -- o Further interaction with the connection will throw an exception
+     --   reflecting the reason that the connection was closed.
+     --
+     -- o If 'closeRPC' is called /before/ the client sent their final message
+     --   to the server, the server is sent a @RST_FRAME@. The error code in
+     --   the @RST_FRAME@ depends on the 'ExitCase':
+     --
+     --   a. If the 'ExitCase' is 'ExitCaseSuccess', indicating that the client
+     --      terminated normally, this is interpreted as the client cancelling
+     --      the request. The error code in the @RST_FRAME@ will therefore be
+     --      @CANCEL@, and a 'GrpcCancelled' exception is raised in the thread
+     --      calling 'closeRPC' (as mandated by the gRPC spec).
+     --   b. If not, the client terminated with an exception; since gRPC does
+     --      not support client-side trailers, we have no way of communicating
+     --      the nature of the client error to the client; instead, the
+     --      @RST_FRAME@ will have error code @INTERNAL_ERROR@.
+     --
+     -- If (b), the exception is not re-raised by 'closeRPC'; the assumption is
+     -- that in this case 'closeRPC' is called /in response to/ an exception,
+     -- and the /caller/ will re-raise that exception; see 'withRPC'.
   -> IO ()
 closeRPC callChannel cancelRequest exitCase = liftIO $ do
     -- /Before/ we do anything else (see below), check if we have evidence
@@ -359,9 +379,9 @@ closeRPC callChannel cancelRequest exitCase = liftIO $ do
       Just ex ->
         case fromException (unwrapExactException ex) of
           Nothing ->
-            -- We are leaving the scope of 'withRPC' because of an exception
-            -- in the client, just rethrow that exception.
-            throwM ex
+            -- We are leaving the scope of 'withRPC' because of an exception in
+            -- the client; caller is responsible for re-raising that exception.
+            return ()
           Just (discarded :: ChannelDiscarded) ->
             -- We are leaving the scope of 'withRPC' without having sent the
             -- final message.

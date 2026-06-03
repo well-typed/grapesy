@@ -11,6 +11,7 @@ import System.Timeout
 import Interop.Cmdline
 import Interop.Util.ANSI
 import Interop.Util.Exceptions
+import Interop.Util.NonInterleaved qualified as NI
 
 import Interop.Client.TestCase.EmptyUnary                qualified as EmptyUnary
 import Interop.Client.TestCase.LargeUnary                qualified as LargeUnary
@@ -119,7 +120,7 @@ initTestStats = TestStats {
 
 testOK :: IORef TestStats -> TestCase -> IO ()
 testOK statsRef test = do
-    putDocLn $ mconcat [
+    NI.putDocLn $ mconcat [
         Show test
       , ": "
       , Color Green "OK"
@@ -129,7 +130,7 @@ testOK statsRef test = do
 
 testFailed :: IORef TestStats -> TestCase -> String -> IO ()
 testFailed statsRef test err = do
-    putDocLn $ mconcat [
+    NI.putDocLn $ mconcat [
         Show test
       , ": "
       , Color Red "Failed: "
@@ -140,7 +141,7 @@ testFailed statsRef test err = do
 
 testSkipped :: IORef TestStats -> TestCase -> String -> IO ()
 testSkipped statsRef test reason = do
-    putDocLn $ mconcat [
+    NI.putDocLn $ mconcat [
         Show test
       , ": "
       , Color Yellow "Skipped: "
@@ -154,7 +155,7 @@ ranAllTests statsRef = do
     stats <- readIORef statsRef
 
     when (numSucceeded stats + numFailed stats > 1 || numSkipped stats > 0) $
-      putStrLn $ concat [
+      NI.putStrLn $ concat [
           show $ numSucceeded stats
         , " succeeded, "
         , show $ numFailed stats

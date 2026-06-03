@@ -8,6 +8,7 @@ import Interop.Client.Ping (ping)
 import Interop.Cmdline
 import Interop.SelfTest (selfTest)
 import Interop.Server (runInteropServer)
+import Interop.Util.Exceptions
 
 {-------------------------------------------------------------------------------
   Top-level application driver
@@ -15,9 +16,7 @@ import Interop.Server (runInteropServer)
 
 main :: IO ()
 main = do
-    setUncaughtExceptionHandler $ \err -> do
-      hPutStrLn stderr $ "Uncaught exception: " ++ show err
-      hFlush stderr
+    setUncaughtExceptionHandler uncaughtExceptionHandler
 
     -- Ensure we see server output when running inside docker
     hSetBuffering stdout NoBuffering

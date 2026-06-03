@@ -13,6 +13,7 @@ import Network.GRPC.Server.Run
 import Network.GRPC.Server.StreamType
 
 import Interop.Cmdline
+import Interop.Util.NonInterleaved qualified as NI
 
 import Interop.Server.PingService.Ping                qualified as Ping
 import Interop.Server.TestService.EmptyCall           qualified as EmptyCall
@@ -123,10 +124,10 @@ showStartStop act = fst <$>
       (\() -> act)
   where
     start :: IO ()
-    start = putStrLn "grapesy interop server started"
+    start = NI.putStrLn "grapesy interop server started"
 
     stop :: ExitCase a -> IO ()
-    stop (ExitCaseSuccess _)   = putStrLn $ "server terminated normally"
-    stop (ExitCaseException e) = putStrLn $ "server exception: " ++ show e
+    stop (ExitCaseSuccess _)   = NI.putStrLn $ "server terminated normally"
+    stop (ExitCaseException e) = NI.putStrLn $ "server exception: " ++ show e
     stop  ExitCaseAbort        = error "impossible in IO"
 
