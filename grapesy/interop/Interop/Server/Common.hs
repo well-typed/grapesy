@@ -7,7 +7,6 @@ module Interop.Server.Common (
   , checkInboundCompression
   ) where
 
-import Control.Exception
 import Data.ProtoLens.Labels ()
 
 import Network.GRPC.Common
