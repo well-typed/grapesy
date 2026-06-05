@@ -57,8 +57,8 @@ import Control.Exception.Annotation
 -- Unlike 'ThreadId', these do not correspond to a /running/ thread necessarily,
 -- but just enable us to distinguish one thread from another.
 data DebugThreadId = DebugThreadId {
-      debugThreadId        :: Word
-    , debugThreadCreatedAt :: Backtraces
+      debugThreadId    :: Word
+    , debugThreadLabel :: String
     }
   deriving stock (Show)
 
@@ -66,14 +66,13 @@ nextDebugThreadId :: MVar Word
 {-# NOINLINE nextDebugThreadId #-}
 nextDebugThreadId = unsafePerformIO $ newMVar 0
 
-newDebugThreadId :: HasCallStack => IO DebugThreadId
-newDebugThreadId = do
-    backtrace <- collectBacktraces
+newDebugThreadId :: String -> IO DebugThreadId
+newDebugThreadId label = do
     modifyMVar nextDebugThreadId $ \x -> do
       let !nextId = succ x
       return (
           nextId
-        , DebugThreadId x backtrace
+        , DebugThreadId x label
         )
 
 {-------------------------------------------------------------------------------
@@ -239,9 +238,9 @@ type ThreadBody a r r' =
       -- This allows the thread body to inspect and manipulate its own context.
    -> IO ()
 
-newThreadState :: HasCallStack => IO (TVar (ThreadState a r r'))
-newThreadState = do
-    debugId <- newDebugThreadId
+newThreadState :: String -> IO (TVar (ThreadState a r r'))
+newThreadState label = do
+    debugId <- newDebugThreadId label
     STM.newTVarIO $ ThreadNotStarted debugId
 
 forkThread ::
@@ -361,6 +360,7 @@ data CancelResult a r r' =
 
     -- | We killed the thread with the specified exception
   | Cancelled
+  deriving stock (Show)
 
 -- | Kill thread if it is running
 --

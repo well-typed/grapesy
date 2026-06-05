@@ -7,6 +7,7 @@ module Network.GRPC.Util.Session.Server (
 import Control.Concurrent
 import Control.Exception
 import Control.Monad
+import GHC.Stack
 import Network.HTTP.Semantics.Server qualified as Server
 
 import Network.GRPC.Common.Exception
@@ -86,7 +87,7 @@ respondNoBody conn responseInfo =
 -- * We assume that the client is allowed to close their outbound stream to us.
 -- * 'setupResponseChannel' will not throw any exceptions.
 setupResponseChannel :: forall sess.
-     IsSession sess
+     (HasCallStack, IsSession sess)
   => sess
   -> ConnectionToClient
   -> FlowStart (Inbound sess)
@@ -105,7 +106,7 @@ setupResponseChannel sess
                      inboundStart
                      startOutbound
                    = do
-    channel <- initChannel
+    channel <- initChannel "server"
 
     forkThread "grapesy:serverInbound" (channelInbound channel) $ \unmask ctxt -> unmask $
       case inboundStart of

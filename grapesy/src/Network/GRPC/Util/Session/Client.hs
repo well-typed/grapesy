@@ -100,7 +100,7 @@ type InboundResult sess =
 -- This initiates a new request.
 --
 setupRequestChannel :: forall sess.
-     (InitiateSession sess, NoTrailers sess)
+     (HasCallStack, InitiateSession sess, NoTrailers sess)
   => sess
   -> ConnectionToServer
   -> (InboundResult sess -> ExactException)
@@ -113,7 +113,7 @@ setupRequestChannel sess
                     terminateCall
                     outboundStart
                   = do
-    channel <- initChannel
+    channel <- initChannel "client"
     let requestInfo = buildRequestInfo sess outboundStart
 
     cancelRequestVar <- newEmptyMVar

@@ -201,10 +201,15 @@ deriving instance (
   Initialization
 -------------------------------------------------------------------------------}
 
-initChannel :: HasCallStack => IO (Channel sess)
-initChannel = do
-    channelInbound   <- newThreadState
-    channelOutbound  <- newThreadState
+initChannel ::
+     String
+     -- ^ Role (server or client)
+     --
+     -- This is used for debugging, to label the inbound and outbound thread.
+  -> IO (Channel sess)
+initChannel role = do
+    channelInbound   <- newThreadState (role ++ "/inbound")
+    channelOutbound  <- newThreadState (role ++ "/outbound")
     channelSentFinal <- STM.newTVarIO Nothing
     channelRecvFinal <- STM.newTVarIO RecvNotFinal
     return Channel{

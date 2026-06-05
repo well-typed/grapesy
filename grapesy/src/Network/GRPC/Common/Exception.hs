@@ -13,6 +13,7 @@ module Network.GRPC.Common.Exception (
   , renderDoc
   , renderException
   , LinesToExceptionDoc(..)
+  , ShowFromExceptionDoc(..)
 
     -- * Util
   , catchAndWrap
@@ -148,6 +149,21 @@ newtype LinesToExceptionDoc a = LinesToExceptionDoc a
 
 instance Show a => ToExceptionDoc (LinesToExceptionDoc a) where
   toExceptionDoc (LinesToExceptionDoc x) = fromLines (show x)
+
+-- | Deriving-via support for defining 'Show' in terms of 'ToExceptionDoc'
+--
+-- Typical usage:
+--
+-- > data Foo = ..
+-- >   deriving stock (Generic)
+-- >   deriving anyclass ToExceptionDoc
+-- >   deriving Show via ShowFromExceptionDoc Foo
+--
+-- This is the dual combinator to 'LinesToExceptionDoc'.
+newtype ShowFromExceptionDoc a = ShowFromExceptionDoc a
+
+instance ToExceptionDoc a => Show (ShowFromExceptionDoc a) where
+  show (ShowFromExceptionDoc x) = renderException x
 
 {-------------------------------------------------------------------------------
   Generics for 'ToDoc'
