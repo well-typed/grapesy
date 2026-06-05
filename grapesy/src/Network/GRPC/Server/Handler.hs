@@ -308,6 +308,7 @@ data AsyncStatus a =
    AsyncDone a
  | AsyncFailed ExactException
  | WaitInterrupted ExactException
+ deriving stock (Show)
 
 waitAsyncStatus ::
      HasCallStack
