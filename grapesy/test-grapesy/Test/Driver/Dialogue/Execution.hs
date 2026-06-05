@@ -460,12 +460,21 @@ serverLocal clock call = \(LocalSteps steps) -> do
     isExpectedDisconnect ::
          Either Server.ClientDisconnected (StreamElem NoMetadata Int)
       -> Bool
-    isExpectedDisconnect (Left (Server.ClientDisconnected (WrapExactException e) _))
-      | Just HTTP2.Client.ConnectionIsClosed <- fromException e
-      = True
-      | otherwise
-      = False
-    isExpectedDisconnect _ = False
+    isExpectedDisconnect = \case
+         Left (Server.ClientDisconnected (WrapExactException e) _) ->
+           case fromException e of
+             Just HTTP2.Client.ConnectionIsClosed ->
+               True
+             _otherwise ->
+               False
+         Right streamElem ->
+           -- We cannot always reliably distinguish between clean and unclean
+           -- disconnects.
+           case streamElem of
+             NoMoreElems{} ->
+               True
+             _otherwise ->
+               False
 
 -- | Server RPC handler
 serverGlobal ::
