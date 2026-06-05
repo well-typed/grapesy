@@ -55,15 +55,20 @@ respondStreamingWithResult :: forall a.
   -> (OutputStream -> IO a)
   -> IO a
 respondStreamingWithResult conn trailers responseInfo body = do
-    -- It's not completely clear what @http2@ will do if the callback for a
-    -- streaming response throws an exception. /If/ it rethrows that exception,
-    -- we're fine, but if not we need to ensure that we're not left blocking
-    -- indefinitely waiting for a result.
     resultVar :: MVar (Either ExactException a) <- newEmptyMVar
     respondStreaming conn trailers responseInfo $ \iface -> do
+      -- This will be running in an auxiliary thread, spawned by http2. Any
+      -- exceptions that are thrown by that thread will remain uncaught, and
+      -- will trigger the top-level uncaught exception handler. We therefore
+      -- catch all of these and store them in 'resultVar', which the main
+      -- grapesy outbound thread is waiting on.
+      --
+      -- When the connection is closed, this thread will be cleaned up by
+      -- the ThreadManager in http2.
       result <- try $ body iface
       putMVar resultVar result
-      either throwExact (\_ -> return ()) result
+
+    -- Any exception thrown here is thrown in the context of a 'Thread'.
     either throwExact return =<< takeMVar resultVar
 
 respondNoBody :: ConnectionToClient -> ResponseInfo -> IO ()
@@ -123,9 +128,14 @@ setupResponseChannel sess
       (outboundStart, responseInfo) <- startOutbound
       case outboundStart of
         FlowStartRegular headers -> do
-          monitor <- threadMonitor ctxt (channelInbound channel) monitorPred
           regular <- initFlowStateRegular headers
           threadMainBody ctxt regular $ do
+            -- Monitoring here is a bit subtle: http2 will spawn an auxiliary
+            -- thread, which will be the one that will actually run the
+            -- 'sendMessageLoop'. Meanwhile, we will simply be waiting for that
+            -- auxiliary thread to terminate; if the monitor fires, is it
+            -- /this/ thread that receives it, not the auxiliary http2 thread.
+            monitor <- threadMonitor ctxt (channelInbound channel) monitorPred
             respondStreamingWithResult
                 conn
                 (outboundTrailersMaker sess channel regular)

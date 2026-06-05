@@ -554,15 +554,10 @@ sendMessageLoop sess st stream monitorInbound = do
             return trailers
           NoMoreElems trailers -> do
             demonitor monitorInbound
-            -- It is crucial to still 'writeChunkFinal' here to guarantee that
-            -- cancellation is a no-op. Without it, cancellation may result in a
-            -- @RST_STREAM@ frame may being sent to the peer.
-            --
-            -- This does not necessarily write a DATA frame, since http2 avoids
-            -- writing empty data frames unless they are marked @END_OF_STREAM@.
-            --
-            -- TODO: <https://github.com/well-typed/grapesy/issues/349>
-            -- This relation between cancellation and outbound messages is wrong.
+            -- Send empty chunk marked \"final\" to let our peer know that we
+            -- have sent our last message. Note that this does not /necessarily/
+            -- write a DATA frame, since http2 avoids writing empty data frames
+            -- unless they are marked @END_OF_STREAM@.
             writeChunkFinal stream $ mempty
             return trailers
 
