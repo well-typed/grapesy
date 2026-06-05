@@ -28,6 +28,12 @@ if impl(ghc < 9.4)
 if impl(ghc >= 9.12)
   constraints: exceptions >= 0.10.12
 
+-- https://github.com/kazu-yamamoto/http2/pull/167
+source-repository-package
+  type: git
+  location: https://github.com/edsko/http2.git
+  tag: 7b2b81f78d93b9e9eeb230501d4417690e9ec02e
+
 -- This fork of async is not strictly needed, but results in better backtraces
 -- See https://github.com/simonmar/async/pull/185
 source-repository-package
