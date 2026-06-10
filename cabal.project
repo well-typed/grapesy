@@ -8,7 +8,6 @@ packages:
   , ./tutorials/monadstack
   , ./tutorials/conduit
   , ./tutorials/trailers-only
-  , ../forks/http2
 
 package grpc-spec
   tests: True
