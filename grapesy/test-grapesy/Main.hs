@@ -4,6 +4,7 @@ module Main (main) where
 
 import Control.Concurrent
 import Control.Exception
+import Data.Function ((&))
 import Data.Maybe (fromMaybe)
 import GHC.Conc (setUncaughtExceptionHandler)
 import System.IO
@@ -12,6 +13,8 @@ import Test.Tasty
 #if MIN_VERSION_base(4,18,0)
 import GHC.Conc.Sync (threadLabel)
 #endif
+
+import Network.HTTP2.Client qualified as HTTP2
 
 import Network.GRPC.Common.Exception
 
@@ -74,5 +77,16 @@ uncaughtExceptionHandler e = do
       , " ("
       , fromMaybe "unlabelled" mLabel
       , "): "
-      , renderException e
+      , renderException formatCtx e
       ]
+  where
+    formatCtx :: FormatCtx
+    formatCtx = defaultFormatCtx
+        & insertFormatCtx http2
+
+    http2 :: FormatCtx -> HTTP2.HTTP2Error -> Doc
+    http2 ctx = \case
+      HTTP2.BadThingHappen se ->
+        withHeader "BadThingHappen" $ toExceptionDoc ctx se
+      other ->
+        fromLines (displayException other)

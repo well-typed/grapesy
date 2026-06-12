@@ -9,11 +9,17 @@
 -- depends on, such as @http2@.
 module Network.GRPC.Common.Exception (
     -- * Exception rendering
-    ToExceptionDoc(..)
-  , renderDoc
-  , renderException
+    renderException
+  , formatException
+  , FormatCtx
+  , defaultFormatCtx
+  , insertFormatCtx
   , LinesToExceptionDoc(..)
-  , ShowFromExceptionDoc(..)
+  , ToExceptionDoc(..)
+  , renderDoc
+  , Doc
+  , withHeader
+  , fromLines
 
     -- * Util
   , catchAndWrap
@@ -59,11 +65,10 @@ module Network.GRPC.Common.Exception (
 import Control.Concurrent.Async
 import Control.Concurrent.STM (STM)
 import Control.Concurrent.STM qualified as STM
-import Control.Exception (Exception(..), SomeException(..))
+import Control.Exception (SomeException(..))
 import Control.Exception qualified as Base
 import Control.Monad.Catch qualified as Exceptions
 import Data.Bifunctor
-import Data.Foldable (asum)
 import Data.Foldable qualified as Foldable
 import Data.Semigroup
 import Data.String
@@ -71,14 +76,17 @@ import Data.Typeable
 import GHC.Generics
 import GHC.Stack
 import GHC.TypeLits
-import Network.HTTP2.Client qualified as HTTP2
 import System.ThreadManager qualified as TimeManager
+import Type.Reflection qualified as Reflection
 
 #if MIN_VERSION_base(4,20,0)
 import Control.Exception.Annotation
 import Control.Exception.Backtrace qualified as Backtrace
 import Control.Exception.Context
+import Control.Exception (backtraceDesired)
 #endif
+
+import Network.GRPC.Util.Imports
 
 {-------------------------------------------------------------------------------
   Internal auxiliary: barebones rendering abstraction for nested indentation
@@ -135,115 +143,136 @@ withHeader header body = mconcat [
 -- additional benefit that we will see all nested exceptions (see also blog post
 -- "Exception Annotations: Lay of the Land",
 -- <https://well-typed.com/blog/2026/05/lay-annotation-land/>).
+--
+-- The 'FormatCtx' argument allows user to add ways to print the exceptions
+-- they are interested about. 'Exception's being 'Typeable' allows us to not rely
+-- on static / type-class mechanisms which in turn allows us to not depend on
+-- all downstream packages "too early".
+renderException :: Exception e => FormatCtx -> e -> String
+renderException d e = renderDoc (formatException d e)
+
+-- | 'ToExceptionDoc' is a convenience class
 class ToExceptionDoc a where
-  toExceptionDoc :: a -> Doc
+  toExceptionDoc :: FormatCtx -> a -> Doc
 
-  default toExceptionDoc :: (Generic a, GToDoc (Rep a)) => a -> Doc
-  toExceptionDoc = gToDoc . from
+  default toExceptionDoc :: (Generic a, GToDoc (Rep a)) => FormatCtx -> a -> Doc
+  toExceptionDoc d = gToDoc d . from
 
-renderException :: ToExceptionDoc e => e -> String
-renderException = renderDoc . toExceptionDoc
+newtype FormatCtx = FormatCtx [Renderer] -- we would like to use dependent-map but it doesn't support GHC-9.14
+
+data Renderer where
+    Renderer :: Reflection.TypeRep e -> (FormatCtx -> e -> Doc) -> Renderer
+
+defaultFormatCtx :: FormatCtx
+defaultFormatCtx = FormatCtx []
+  & insertFormatCtx_ (Proxy @Base.SomeAsyncException)
+  & insertFormatCtx_ (Proxy @TimeManager.KilledByThreadManager)
+
+insertFormatCtx :: Typeable e => (FormatCtx -> e -> Doc) -> FormatCtx -> FormatCtx
+insertFormatCtx f (FormatCtx xs) = FormatCtx (Renderer Reflection.typeRep f : xs)
+
+insertFormatCtx_ :: forall e. (Typeable e, ToExceptionDoc e) => Proxy e -> FormatCtx -> FormatCtx
+insertFormatCtx_ _ = insertFormatCtx (toExceptionDoc @e)
+
+lookupFormatCtx :: Reflection.TypeRep e -> FormatCtx -> Maybe (FormatCtx -> e -> Doc)
+lookupFormatCtx ty (FormatCtx xs) = go xs where
+    go [] = Nothing
+    go (Renderer ty' f : xs') = case Reflection.eqTypeRep ty ty' of
+        Just HRefl -> Just f
+        Nothing    -> go xs'
+
+formatException :: Exception e => FormatCtx -> e -> Doc
+formatException ctx e = case lookupFormatCtx ty ctx of
+    Just f  -> f ctx e
+    Nothing -> withHeader (show ty) $ fromLines $ displayException e
+  where
+    ty = Reflection.typeOf e
 
 -- | Deriving-via support for 'ToExceptionDoc'
 newtype LinesToExceptionDoc a = LinesToExceptionDoc a
 
 instance Show a => ToExceptionDoc (LinesToExceptionDoc a) where
-  toExceptionDoc (LinesToExceptionDoc x) = fromLines (show x)
-
--- | Deriving-via support for defining 'Show' in terms of 'ToExceptionDoc'
---
--- Typical usage:
---
--- > data Foo = ..
--- >   deriving stock (Generic)
--- >   deriving anyclass ToExceptionDoc
--- >   deriving Show via ShowFromExceptionDoc Foo
---
--- This is the dual combinator to 'LinesToExceptionDoc'.
-newtype ShowFromExceptionDoc a = ShowFromExceptionDoc a
-
-instance ToExceptionDoc a => Show (ShowFromExceptionDoc a) where
-  show (ShowFromExceptionDoc x) = renderException x
+  toExceptionDoc _ (LinesToExceptionDoc x) = fromLines (show x)
 
 {-------------------------------------------------------------------------------
   Generics for 'ToDoc'
 -------------------------------------------------------------------------------}
 
 class GToDoc p where
-  gToDoc :: p a -> Doc
+  gToDoc :: FormatCtx -> p a -> Doc
 
 instance ( GToDoc p
          , KnownSymbol typ
          , KnownSymbol modl
          ) => GToDoc (D1 ('MetaData typ modl pkg isNewtype) p) where
-  gToDoc (M1 x) =
+  gToDoc ctx (M1 x) =
       withHeader (symbolVal (Proxy @modl) ++ "." ++ symbolVal (Proxy @typ)) $
-        gToDoc x
+        gToDoc ctx x
 
 instance ( GToDoc p
          , KnownSymbol constr
          ) => GToDoc (C1 ('MetaCons constr fixity hasFields) p) where
-  gToDoc (M1 x) =
+  gToDoc ctx (M1 x) =
       withHeader (symbolVal (Proxy @constr)) $
-        gToDoc x
+        gToDoc ctx x
 
 instance ( GToDoc p
          , KnownSymbol fieldSel
          ) => GToDoc (S1 ('MetaSel (Just fieldSel) unpack strict lazy) p) where
-  gToDoc (M1 x) =
+  gToDoc ctx (M1 x) =
       withHeader (symbolVal (Proxy @fieldSel)) $
-        gToDoc x
+        gToDoc ctx x
 
 instance GToDoc p => GToDoc (S1 ('MetaSel Nothing unpack strict lazy) p) where
-  gToDoc (M1 x) = gToDoc x
+  gToDoc ctx (M1 x) = gToDoc ctx x
 
 instance (GToDoc f, GToDoc g) => GToDoc (f :*: g) where
-  gToDoc (x :*: y) = gToDoc x <> gToDoc y
+  gToDoc ctx (x :*: y) = gToDoc ctx x <> gToDoc ctx y
 
 instance (GToDoc f, GToDoc g) => GToDoc (f :+: g) where
-  gToDoc (L1 x) = gToDoc x
-  gToDoc (R1 x) = gToDoc x
+  gToDoc ctx (L1 x) = gToDoc ctx x
+  gToDoc ctx (R1 x) = gToDoc ctx x
 
 instance GToDoc U1 where
-  gToDoc U1 = mempty
+  gToDoc _ U1 = mempty
 
 instance ToExceptionDoc a => GToDoc (K1 r a) where
-  gToDoc (K1 x) = toExceptionDoc x
+  gToDoc ctx (K1 x) = toExceptionDoc ctx x
 
 {-------------------------------------------------------------------------------
   Instances for specific types
 -------------------------------------------------------------------------------}
 
 instance ToExceptionDoc a => ToExceptionDoc (Maybe a) where
-  toExceptionDoc = foldMap toExceptionDoc
+  toExceptionDoc ctx = foldMap (toExceptionDoc ctx)
 
 instance ToExceptionDoc a => ToExceptionDoc [a] where
-  toExceptionDoc = foldMap toExceptionDoc
+  toExceptionDoc ctx = foldMap (toExceptionDoc ctx)
 
 instance ToExceptionDoc CallStack where
-  toExceptionDoc cs =
+  toExceptionDoc _ cs =
       fromLines $ prettyCallStack cs
 
 instance ToExceptionDoc Backtraces where
-  toExceptionDoc bt =
+  toExceptionDoc _ bt =
       fromLines $ displayBacktraces bt
 
 #if MIN_VERSION_base(4,20,0)
 instance ToExceptionDoc ExceptionContext where
-  toExceptionDoc (ExceptionContext anns) = toExceptionDoc anns
+  toExceptionDoc ctx (ExceptionContext anns) = toExceptionDoc ctx anns
 #endif
 
 #ifdef PATCHED_GHC_FOR_EXCEPTION_DEBUGGING
 instance ToExceptionDoc Base.WhileHandling where
-  toExceptionDoc (Base.WhileHandling cs e) =
+  toExceptionDoc ctx (Base.WhileHandling cs e) =
       withHeader "WhileHandling" $ mconcat [
           fromLines $ prettyCallStack cs
-        , toExceptionDoc e
+        , toExceptionDoc ctx e
         ]
 #elif MIN_VERSION_base(4,21,0)
 instance ToExceptionDoc Base.WhileHandling where
-  toExceptionDoc (Base.WhileHandling e) =
-      withHeader "WhileHandling" $ toExceptionDoc e
+  toExceptionDoc ctx (Base.WhileHandling e) =
+      withHeader "WhileHandling" $ toExceptionDoc ctx e
 #endif
 
 {-------------------------------------------------------------------------------
@@ -386,12 +415,11 @@ instance Exception e => Exception (WithAnnotations e) where
 
 -- | Bug-free replacement for 'ExceptionWithContext' in GHC 9.10
 data WithAnnotations e = WithAnnotations ExceptionContext e
-  deriving stock (Generic)
+  deriving stock Generic
   deriving anyclass ToExceptionDoc
 
-instance Show a => Show (WithAnnotations a) where
-  show (WithAnnotations ctxt e) =
-      renderException $ WithAnnotations ctxt (LinesToExceptionDoc e)
+instance Exception a => Show (WithAnnotations a) where
+  show (WithAnnotations _ctxt e) = show e
 
 instance Exception a => Exception (WithAnnotations a) where
     toException (WithAnnotations ctxt e) =
@@ -478,60 +506,28 @@ addExceptionContext = Base.addExceptionContext
   Special-casing: exception annotations
 -------------------------------------------------------------------------------}
 
-data SpecialCaseException =
-    CaseSomeAsyncException Base.SomeAsyncException
-  | CaseKilledByThreadManager TimeManager.KilledByThreadManager
-  | CaseHTTP2Error HTTP2.HTTP2Error
-
-specialCaseException :: Typeable e => e -> Maybe SpecialCaseException
-specialCaseException e = asum [
-      CaseSomeAsyncException    <$> cast e
-    , CaseKilledByThreadManager <$> cast e
-    , CaseHTTP2Error            <$> cast e
-    ]
-
 instance ToExceptionDoc SomeException where
-  toExceptionDoc (SomeException e) =
-      withHeader (show (typeOf e)) $ mconcat [
-          renderWithoutContext e
+  toExceptionDoc ctx (SomeException e) =
+      mconcat [
+          formatException ctx e
 #if MIN_VERSION_base(4,20,0)
-        , toExceptionDoc ?exceptionContext
+        , toExceptionDoc ctx ?exceptionContext
 #endif
         ]
 
-renderWithoutContext :: Exception e => e -> Doc
-renderWithoutContext e =
-    maybe (renderGenericException e) toExceptionDoc $
-      specialCaseException e
-
--- | Display generic exception (no special-casing)
---
--- The exception context is handled in the 'ToExceptionDoc' instance for
--- 'SomeException'.
-renderGenericException :: Exception e => e -> Doc
-renderGenericException = fromLines . displayException
-
-instance ToExceptionDoc SpecialCaseException where
-  toExceptionDoc = \case
-      CaseSomeAsyncException    x -> toExceptionDoc x
-      CaseKilledByThreadManager x -> toExceptionDoc x
-      CaseHTTP2Error            x -> toExceptionDoc x
-
 instance ToExceptionDoc Base.SomeAsyncException where
-  toExceptionDoc (Base.SomeAsyncException e) =
-      withHeader "SomeAsyncException" $ renderWithoutContext e
+  toExceptionDoc ctx (Base.SomeAsyncException e) =
+      withHeader "SomeAsyncException" $ formatException ctx e
 
 instance ToExceptionDoc TimeManager.KilledByThreadManager where
-  toExceptionDoc = \case
+  toExceptionDoc ctx = \case
       TimeManager.KilledByThreadManager mse ->
-        withHeader "KilledByThreadManager" $ toExceptionDoc mse
+        withHeader "KilledByThreadManager" $ toExceptionDoc ctx mse
 
+{- TODO: add to the http2 specific tests.
 instance ToExceptionDoc HTTP2.HTTP2Error where
-  toExceptionDoc = \case
-      HTTP2.BadThingHappen se ->
-        withHeader "BadThingHappen" $ toExceptionDoc se
-      other ->
-        renderGenericException other
+
+-}
 
 {-------------------------------------------------------------------------------
   Special-casing: exceptions
@@ -554,8 +550,8 @@ specialCaseAnnotation ann = asum [
     ]
 
 instance ToExceptionDoc SomeExceptionAnnotation where
-  toExceptionDoc (SomeExceptionAnnotation ann) =
-      maybe (renderGenericAnnotation ann) toExceptionDoc $
+  toExceptionDoc ctx (SomeExceptionAnnotation ann) =
+      maybe (renderGenericAnnotation ann) (toExceptionDoc ctx) $
         specialCaseAnnotation ann
 
 -- | Render generic annotation (no special-casing)
@@ -563,10 +559,10 @@ renderGenericAnnotation :: ExceptionAnnotation ann => ann -> Doc
 renderGenericAnnotation = fromLines . displayExceptionAnnotation
 
 instance ToExceptionDoc SpecialCaseAnnotation where
-  toExceptionDoc = \case
-      CaseBacktraces    x -> toExceptionDoc x
+  toExceptionDoc ctx = \case
+      CaseBacktraces    x -> toExceptionDoc ctx x
 #if MIN_VERSION_base(4,21,0)
-      CaseWhileHandling x -> toExceptionDoc x
+      CaseWhileHandling x -> toExceptionDoc ctx x
 #endif
 
 #endif
@@ -589,7 +585,7 @@ newtype AtomicallyBacktrace = AtomicallyBacktrace Backtraces
 
 #if MIN_VERSION_base(4,20,0)
 instance ExceptionAnnotation AtomicallyBacktrace where
-  displayExceptionAnnotation = renderDoc . toExceptionDoc
+  displayExceptionAnnotation = renderDoc . toExceptionDoc defaultFormatCtx
 #endif
 
 atomically :: HasCallStack => STM a -> IO a

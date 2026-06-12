@@ -38,7 +38,6 @@ import Control.Concurrent.Thread.Delay qualified as UnboundedDelays
 import Control.Monad.Catch (MonadMask)
 import Control.Monad.Catch qualified as Exceptions
 import Data.ByteString.Char8 qualified as BS.Strict.C8
-import Data.Foldable (asum)
 import Data.Text qualified as Text
 
 import Network.GRPC.Client.Connection (Connection, ConnParams(..))

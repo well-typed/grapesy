@@ -289,7 +289,7 @@ data FirstTestFailure =
   deriving anyclass (ToExceptionDoc)
 
 instance Exception FirstTestFailure where
-  displayException = renderException
+  displayException = renderException defaultFormatCtx -- add insertFormatCtx as needed.
 
 #if MIN_VERSION_base(4,20,0)
   -- The backtrace to the 'FirstTestFailure' /itself/ is merely distracting
