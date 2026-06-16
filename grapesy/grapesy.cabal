@@ -239,6 +239,7 @@ test-suite test-grapesy
   ghc-options:     -with-rtsopts=-N
 
   other-modules:
+      Test.Common.Exception
       Test.Driver.ClientServer
       Test.Driver.Dialogue
       Test.Driver.Dialogue.Definition
@@ -292,6 +293,7 @@ test-suite test-grapesy
     , proto-lens-protobuf-types
     , stm
     , text
+    , time-manager
     , tls
     , utf8-string
 
