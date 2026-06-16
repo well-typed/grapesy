@@ -32,7 +32,6 @@ import Network.GRPC.Util.Imports
 import Control.Lens ((.~), (^.), (%~))
 import Control.Monad ((<=<))
 import Control.Monad.Except (throwError)
-import Data.Function ((&))
 import Data.Int (Int32)
 import Data.ProtoLens.Field (HasField(..), field)
 import Data.ProtoLens.Message (FieldDefault(..), Message(defMessage))
