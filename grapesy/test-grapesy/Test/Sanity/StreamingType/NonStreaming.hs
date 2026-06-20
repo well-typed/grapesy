@@ -126,6 +126,8 @@ tests = testGroup "Test.Sanity.StreamingType.NonStreaming" [
                     test_increment def {
                         isExpectedClientException =
                            isClientUnsupportedCompression
+                      , isExpectedServerException =
+                           isClientDisconnected
                       , clientCompr =
                           Compr.none
                       , serverCompr =

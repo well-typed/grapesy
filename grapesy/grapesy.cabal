@@ -193,10 +193,10 @@ library
   -- any new version should be tested against the full grapesy test suite
   -- (regular tests, stress tests and interop tests).
   build-depends:
-    , http2          == 5.3.9
-    , http-semantics >= 0.3.0 && < 0.4
-    , http2-tls      >= 0.4.9 && < 0.5
-    , network-run    >= 0.4.3 && < 0.5
+    , http2          == 5.4.0
+    , http-semantics >= 0.4 && < 0.5
+    , http2-tls      >= 0.5 && < 0.6
+    , network-run    >= 0.5 && < 0.6
 
   if(flag(patched-ghc-for-exception-debugging))
     cpp-options: -DPATCHED_GHC_FOR_EXCEPTION_DEBUGGING
