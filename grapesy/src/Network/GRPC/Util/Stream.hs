@@ -85,9 +85,8 @@ data ClientDisconnected = ClientDisconnected {
       -- and where we catch it might be quite different.
     , clientDisconnectedBacktrace :: Maybe Backtraces
     }
-  deriving stock (Generic)
+  deriving stock (Generic, Show)
   deriving anyclass ToExceptionDoc
-  deriving Show via ShowFromExceptionDoc ClientDisconnected
 
 -- | Server disconnected unexpectedly
 --
@@ -106,9 +105,8 @@ data ServerDisconnected = ServerDisconnected {
       -- of the latter will be different to the former.
     , serverDisconnectedBacktrace :: Maybe Backtraces
     }
-  deriving stock (Generic)
+  deriving stock (Generic, Show)
   deriving anyclass ToExceptionDoc
-  deriving Show via ShowFromExceptionDoc ServerDisconnected
 
 #if MIN_VERSION_base(4,20,0)
 -- See discussion of 'clientDisconnectedBacktrace'

@@ -17,6 +17,6 @@ tests = testGroup "Test.Common.Exception"
                 , "    user error (foo)"
                 ]
 
-        let ex = ThreadManager.KilledByThreadManager $ Just $ SomeException $ userError "foo"
-        ediffEq expected (renderException ex)
+        let exc = ThreadManager.KilledByThreadManager $ Just $ SomeException $ userError "foo"
+        ediffEq expected (renderException defaultFormatCtx exc)
     ]

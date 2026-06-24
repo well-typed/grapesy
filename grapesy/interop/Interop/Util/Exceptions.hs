@@ -120,6 +120,6 @@ uncaughtExceptionHandler e = do
       , " ("
       , fromMaybe "unlabelled" mLabel
       , "): "
-      , renderException e
+      , renderException defaultFormatCtx e
       ]
 

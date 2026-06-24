@@ -113,7 +113,7 @@ data RegressionTestFailed = RegressionTestFailed {
   deriving anyclass (ToExceptionDoc)
 
 instance Exception RegressionTestFailed where
-  displayException = renderException
+  displayException = renderException defaultFormatCtx
 
 #if MIN_VERSION_base(4,20,0)
   -- The backtrace to where we report that the regression failed only distracts;
