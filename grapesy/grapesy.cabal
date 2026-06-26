@@ -152,6 +152,15 @@ library
       Network.GRPC.Util.TLS
       Network.GRPC.Util.Version
 
+      -- Exception utilities
+      --
+      -- Perhaps this could become its own little library?
+      Network.GRPC.Util.Exception.Doc
+      Network.GRPC.Util.Exception.Exact
+      Network.GRPC.Util.Exception.FormatCtx
+      Network.GRPC.Util.Exception.Shims
+      Network.GRPC.Util.Exception.ToExceptionDoc
+
   build-depends:
     , aeson                >= 1.5     && < 2.4
     , async                >= 2.2     && < 2.3
@@ -328,6 +337,7 @@ test-suite test-disconnect
       Test.Disconnect.Echo.RPC
       Test.Disconnect.Echo.Server
       Test.Disconnect.Util.Client
+      Test.Disconnect.Util.Exception
       Test.Disconnect.Util.Process
       Test.Disconnect.Util.Server
 
@@ -335,6 +345,7 @@ test-suite test-disconnect
 
   build-depends:
       -- Inherited dependencies
+    , http2
     , network
     , stm
 

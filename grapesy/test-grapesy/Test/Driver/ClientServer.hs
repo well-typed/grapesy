@@ -26,6 +26,8 @@ module Test.Driver.ClientServer (
     -- * Constructing clients
   , TestClient
   , simpleTestClient
+    -- * Test failures
+  , FirstTestFailure(..)
   ) where
 
 import Control.Concurrent
@@ -50,8 +52,6 @@ import Network.GRPC.Common.Compression qualified as Compr
 import Network.GRPC.Common.Exception
 import Network.GRPC.Server qualified as Server
 import Network.GRPC.Server.Run qualified as Server
-
-import Test.Util.Exception
 
 import Paths_ (getDataFileName)
 
@@ -174,6 +174,23 @@ data TlsFail =
     we don't see these exceptions server-side.
 -------------------------------------------------------------------------------}
 
+-- | Deliberate exceptions thrown in tests (do not constitute test failures)
+--
+--  When a test calls for the client or the server to throw an exception, we throw
+--  one of these. Their sole purpose is to be "any" kind of exception (not a
+--  specific one).
+data DeliberateException =
+    -- | Deliberate exception thrown in the server
+    DeliberateServerException ExceptionId
+
+    -- | Deliberate exception thrown in the client
+  | DeliberateClientException ExceptionId
+  deriving stock (Show, Eq)
+  deriving anyclass (Exception)
+
+-- | We distinguish exceptions from each other simply by a number
+type ExceptionId = Int
+
 isDeliberateException :: ExactException -> Bool
 isDeliberateException (WrapExactException e) =
     case fromException e of
@@ -289,8 +306,6 @@ data FirstTestFailure =
   deriving anyclass (ToExceptionDoc)
 
 instance Exception FirstTestFailure where
-  displayException = renderException
-
 #if MIN_VERSION_base(4,20,0)
   -- The backtrace to the 'FirstTestFailure' /itself/ is merely distracting
   -- (we're interested only in the backtrace of the actual test failure)

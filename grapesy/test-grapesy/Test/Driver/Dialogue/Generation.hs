@@ -19,6 +19,7 @@ import Test.QuickCheck
 
 import Network.GRPC.Common
 
+import Test.Driver.ClientServer (DeliberateException(..))
 import Test.Driver.Dialogue.Definition
 import Test.Driver.Dialogue.TestClock qualified as TestClock
 
