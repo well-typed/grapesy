@@ -1,9 +1,13 @@
 {-# LANGUAGE CPP               #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module Test.Prop.Dialogue (tests) where
+module Test.Prop.Dialogue (
+    tests
+  , RegressionTestFailed(..)
+  ) where
 
 import Control.Exception
+import GHC.Generics (Generic)
 import Test.Tasty
 import Test.Tasty.HUnit
 import Test.Tasty.QuickCheck
@@ -13,7 +17,6 @@ import Network.GRPC.Common.Exception
 
 import Test.Driver.ClientServer
 import Test.Driver.Dialogue
-import GHC.Generics (Generic)
 
 tests :: TestTree
 tests = testGroup "Test.Prop.Dialogue" [
@@ -113,8 +116,6 @@ data RegressionTestFailed = RegressionTestFailed {
   deriving anyclass (ToExceptionDoc)
 
 instance Exception RegressionTestFailed where
-  displayException = renderException defaultFormatCtx
-
 #if MIN_VERSION_base(4,20,0)
   -- The backtrace to where we report that the regression failed only distracts;
   -- we're interested in the backtrace of the exception itself.

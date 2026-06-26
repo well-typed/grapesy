@@ -54,7 +54,6 @@ import Network.GRPC.Util.Session.API qualified as Session
 import Network.GRPC.Util.Session.Channel (ChannelDiscarded (..))
 import Network.GRPC.Util.Session.Channel qualified as Session
 import Network.GRPC.Util.Session.Client qualified as Session
-import Network.GRPC.Util.Stream (ServerDisconnected(..))
 import Network.GRPC.Util.Thread qualified as Thread
 import Network.GRPC.Util.Version qualified as Grapesy
 

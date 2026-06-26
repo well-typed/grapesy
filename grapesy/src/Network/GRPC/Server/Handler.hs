@@ -24,7 +24,6 @@ import Network.GRPC.Server.Context
 import Network.GRPC.Util.GHC
 import Network.GRPC.Util.Imports
 import Network.GRPC.Util.Session.Channel qualified as Session
-import Network.GRPC.Util.Stream (ClientDisconnected(..))
 
 {-------------------------------------------------------------------------------
   Handlers
