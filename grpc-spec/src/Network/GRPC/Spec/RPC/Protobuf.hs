@@ -13,6 +13,7 @@ import Control.DeepSeq (NFData)
 import Control.Lens hiding (lens)
 import Data.ByteString qualified as Strict (ByteString)
 import Data.ByteString.Char8 qualified as BS.Char8
+import Data.Default
 import Data.Int
 import Data.Kind
 import Data.Map (Map)
@@ -82,8 +83,7 @@ instance ( IsRPC (Protobuf serv meth)
 
            -- Metadata constraints
          , BuildMetadata (RequestMetadata (Protobuf serv meth))
-         , ParseMetadata (ResponseInitialMetadata (Protobuf serv meth))
-         , ParseMetadata (ResponseTrailingMetadata (Protobuf serv meth))
+         , Default (ParseMetadata (ResponseTrailingMetadata (Protobuf serv meth)))
          ) => SupportsClientRpc (Protobuf serv meth) where
   rpcSerializeInput    _ = Protobuf.buildLazy
   rpcDeserializeOutput _ = Protobuf.parseLazy
@@ -92,7 +92,7 @@ instance ( IsRPC (Protobuf serv meth)
          , HasMethodImpl serv meth
 
            -- Metadata constraints
-         , ParseMetadata (RequestMetadata (Protobuf serv meth))
+         , Default (ParseMetadata (RequestMetadata (Protobuf serv meth)))
          , BuildMetadata (ResponseInitialMetadata (Protobuf serv meth))
          , StaticMetadata (ResponseTrailingMetadata (Protobuf serv meth))
          ) => SupportsServerRpc (Protobuf serv meth) where
@@ -271,8 +271,8 @@ protoFieldDescriptor (FieldDescriptor name typ acc) =
     FieldDescriptor name typ (protoFieldAccessor acc)
 
 protoFieldAccessor :: FieldAccessor msg value -> FieldAccessor (Proto msg) value
-protoFieldAccessor (PlainField def lens) =
-    PlainField def (coerced . lens)
+protoFieldAccessor (PlainField fallback lens) =
+    PlainField fallback (coerced . lens)
 protoFieldAccessor (OptionalField lens) =
     OptionalField (coerced . lens)
 protoFieldAccessor (RepeatedField packing lens) =
