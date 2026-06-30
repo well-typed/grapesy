@@ -156,6 +156,7 @@ class MkStreamingHandler (styp :: StreamingType) where
   mkStreamingHandler ::
        ( CanCallRPC m
        , SupportsClientRpc rpc
+       , Default (ParseMetadata (ResponseInitialMetadata rpc))
        , SupportsStreamingType rpc styp
        )
     => CallParams rpc -> ClientHandler' styp m rpc
@@ -180,6 +181,7 @@ class MkStreamingHandler (styp :: StreamingType) where
 rpc :: forall rpc styp m.
      ( CanCallRPC m
      , SupportsClientRpc rpc
+     , Default (ParseMetadata (ResponseInitialMetadata rpc))
      , SupportsStreamingType rpc styp
      , Default (RequestMetadata rpc)
      )
@@ -190,6 +192,7 @@ rpc = rpcWith def
 rpcWith :: forall rpc styp m.
      ( CanCallRPC m
      , SupportsClientRpc rpc
+     , Default (ParseMetadata (ResponseInitialMetadata rpc))
      , SupportsStreamingType rpc styp
      )
   => CallParams rpc -> ClientHandler' styp m rpc
@@ -204,6 +207,7 @@ instance MkStreamingHandler NonStreaming where
   mkStreamingHandler :: forall rpc m.
        ( CanCallRPC m
        , SupportsClientRpc rpc
+       , Default (ParseMetadata (ResponseInitialMetadata rpc))
        , SupportsStreamingType rpc NonStreaming
        )
     => CallParams rpc -> ClientHandler' NonStreaming m rpc
@@ -218,6 +222,7 @@ instance MkStreamingHandler ClientStreaming where
   mkStreamingHandler :: forall rpc m.
        ( CanCallRPC m
        , SupportsClientRpc rpc
+       , Default (ParseMetadata (ResponseInitialMetadata rpc))
        , SupportsStreamingType rpc ClientStreaming
        )
     => CallParams rpc -> ClientHandler' ClientStreaming m rpc
@@ -232,6 +237,7 @@ instance MkStreamingHandler ServerStreaming where
   mkStreamingHandler :: forall rpc m.
        ( CanCallRPC m
        , SupportsClientRpc rpc
+       , Default (ParseMetadata (ResponseInitialMetadata rpc))
        , SupportsStreamingType rpc ServerStreaming
        )
     => CallParams rpc -> ClientHandler' ServerStreaming m rpc
@@ -245,6 +251,7 @@ instance MkStreamingHandler BiDiStreaming where
   mkStreamingHandler :: forall rpc m.
        ( CanCallRPC m
        , SupportsClientRpc rpc
+       , Default (ParseMetadata (ResponseInitialMetadata rpc))
        , SupportsStreamingType rpc BiDiStreaming
        )
     => CallParams rpc -> ClientHandler' BiDiStreaming m rpc

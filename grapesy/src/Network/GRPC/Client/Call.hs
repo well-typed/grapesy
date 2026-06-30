@@ -67,7 +67,9 @@ import Network.GRPC.Util.Version qualified as Grapesy
 --
 -- This type is kept abstract (opaque) in the public facing API.
 data Call rpc = SupportsClientRpc rpc => Call {
-      callChannel :: Session.Channel (ClientSession rpc)
+      callChannel          :: Session.Channel (ClientSession rpc)
+    , callInitialMetadata  :: ParseMetadata (ResponseInitialMetadata rpc)
+    , callTrailingMetadata :: ParseMetadata (ResponseTrailingMetadata rpc)
     }
 
 -- | Scoped RPC call
@@ -112,15 +114,34 @@ data Call rpc = SupportsClientRpc rpc => Call {
 -- specification, this does /not/ rely on the server; this does mean that the
 -- same deadline also applies if the /client/ is slow (rather than the server).
 withRPC :: forall rpc m a.
-     (MonadMask m, MonadIO m, SupportsClientRpc rpc, HasCallStack)
+     ( MonadMask m
+     , MonadIO m
+     , SupportsClientRpc rpc
+     , Default (ParseMetadata (ResponseInitialMetadata rpc))
+     , HasCallStack
+     )
   => Connection -> CallParams rpc -> Proxy rpc -> (Call rpc -> m a) -> m a
-withRPC conn callParams proxy k = fmap fst $
+withRPC conn callParams proxy = withRPCUsingParser conn callParams def proxy
+
+-- | Generalization of 'withRPC'
+--
+-- This is especially useful when the parser for the request metadata needs
+-- state (e.g., a previously established key).
+withRPCUsingParser :: forall rpc m a.
+     (MonadMask m, MonadIO m, SupportsClientRpc rpc, HasCallStack)
+  => Connection
+  -> CallParams rpc
+  -> ParseMetadata (ResponseInitialMetadata rpc)
+  -> Proxy rpc
+  -> (Call rpc -> m a) -> m a
+withRPCUsingParser conn callParams initialMetadata proxy k = fmap fst $
     Exceptions.generalBracket
       (liftIO $
-         startRPC conn proxy callParams)
+         startRPC conn proxy callParams initialMetadata)
       (\(Call{callChannel}, cancelRequest) exitCase -> liftIO $
          closeRPC callChannel cancelRequest exitCase)
       (k . fst)
+
 
 -- | Open new channel to the server
 --
@@ -134,8 +155,9 @@ startRPC :: forall rpc.
   => Connection
   -> Proxy rpc
   -> CallParams rpc
+  -> ParseMetadata (ResponseInitialMetadata rpc)
   -> IO (Call rpc, Session.CancelRequest)
-startRPC conn _ callParams = do
+startRPC conn _ callParams initialMetadata = do
     (connClosed, connToServer) <- Connection.getConnectionToServer conn
     cOut     <- Connection.getOutboundCompression conn
     metadata <- buildMetadataIO $ callRequestMetadata callParams
@@ -247,7 +269,14 @@ startRPC conn _ callParams = do
           _mAlreadyClosed <- Session.close channel exitReason
           return ()
 
-    return (Call channel, cancelRequest)
+    let call :: Call rpc
+        call = Call{
+            callChannel          = channel
+          , callInitialMetadata  = initialMetadata
+          , callTrailingMetadata = def
+          }
+
+    return (call, cancelRequest)
   where
     connParams :: ConnParams
     connParams = Connection.connParams conn
@@ -560,8 +589,8 @@ recvOutputWithMeta = recvBoth
 recvResponseMetadata :: forall rpc m.
      MonadIO m
   => Call rpc -> m (ResponseMetadata rpc)
-recvResponseMetadata call@Call{} = liftIO $
-    recvInitialResponse call >>= aux
+recvResponseMetadata call@Call{callInitialMetadata, callTrailingMetadata} =
+    liftIO $ recvInitialResponse call >>= aux
   where
     aux ::
          Either (TrailersOnly'    HandledSynthesized)
@@ -571,14 +600,16 @@ recvResponseMetadata call@Call{} = liftIO $
         case grpcClassifyTermination properTrailers of
           Left exception ->
             throwM exception
-          Right terminatedNormally -> do
-            ResponseTrailingMetadata <$>
-              parseMetadata (grpcTerminatedMetadata terminatedNormally)
+          Right terminatedNormally ->
+            fmap ResponseTrailingMetadata $
+              parseMetadata callTrailingMetadata $
+                grpcTerminatedMetadata terminatedNormally
       where
         properTrailers = trailersOnlyToProperTrailers' trailers
     aux (Right headers) =
-        ResponseInitialMetadata <$>
-          parseMetadata (customMetadataMapToList $ responseMetadata headers)
+        fmap ResponseInitialMetadata $
+          parseMetadata callInitialMetadata $
+            customMetadataMapToList (responseMetadata headers)
 
 -- | Return the initial response from the server
 --
@@ -751,13 +782,13 @@ responseTrailingMetadata ::
      MonadIO m
   => Call rpc
   -> ProperTrailers' -> m (ResponseTrailingMetadata rpc)
-responseTrailingMetadata Call{} trailers = liftIO $
+responseTrailingMetadata Call{callTrailingMetadata} trailers = liftIO $
     case grpcClassifyTermination trailers of
-      Right terminatedNormally -> do
-        parseMetadata $ grpcTerminatedMetadata terminatedNormally
+      Right terminatedNormally ->
+        parseMetadata callTrailingMetadata $
+          grpcTerminatedMetadata terminatedNormally
       Left exception ->
         throwM exception
-
 
 -- | Forget that we are in the Trailers-Only case
 --

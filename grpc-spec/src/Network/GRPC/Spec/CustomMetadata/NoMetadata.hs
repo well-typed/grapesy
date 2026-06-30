@@ -20,9 +20,10 @@ instance Default NoMetadata where
 instance BuildMetadata NoMetadata where
   buildMetadata NoMetadata = []
 
-instance ParseMetadata NoMetadata where
-  parseMetadata []   = return NoMetadata
-  parseMetadata hdrs = throwM $ UnexpectedMetadata hdrs
+instance Default (ParseMetadata NoMetadata) where
+  def = ParseMetadata $ \case
+      []   -> return NoMetadata
+      hdrs -> throwM $ UnexpectedMetadata hdrs
 
 instance StaticMetadata NoMetadata where
   metadataHeaderNames _ = []
