@@ -11,10 +11,6 @@ module Test.Driver.Dialogue.Definition (
     -- * Bird's-eye view
   , GlobalSteps(..)
   , LocalSteps(..)
-    -- * Exceptions
-    -- ** User exceptions
-  , DeliberateException(..)
-  , ExceptionId
     -- * Utility
   , hasEarlyTermination
   ) where
@@ -28,8 +24,8 @@ import GHC.Show (appPrec1, showCommaSpace)
 import Network.GRPC.Common
 import Network.GRPC.Common.Exception
 
+import Test.Driver.ClientServer (DeliberateException)
 import Test.Driver.Dialogue.TestClock qualified as TestClock
-import Test.Util.Exception
 
 {-------------------------------------------------------------------------------
   Single RPC
@@ -172,4 +168,3 @@ hasEarlyTermination =
     isEarlyTermination (ClientAction (Terminate _)) = (True, False)
     isEarlyTermination (ServerAction (Terminate _)) = (False, True)
     isEarlyTermination _                            = (False, False)
-

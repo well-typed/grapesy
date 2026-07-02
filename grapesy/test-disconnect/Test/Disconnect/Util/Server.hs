@@ -7,9 +7,9 @@ module Test.Disconnect.Util.Server (
 
 import Control.Concurrent
 import Control.Concurrent.STM
-import Control.Exception (SomeException, fromException)
 import Control.Exception qualified as Exception
 import Control.Monad
+import GHC.Exception
 
 import Network.GRPC.Common
 import Network.GRPC.Server qualified as Server
