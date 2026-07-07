@@ -18,22 +18,27 @@ module Network.GRPC.Util.Exception.Shims (
     -- * STM
 #ifndef PATCHED_GHC_FOR_EXCEPTION_DEBUGGING
   , AtomicallyBacktrace(..)
-#endif
   , atomically
+#else
+  , STM.atomically
+#endif
   ) where
 
-import Control.Concurrent.STM (STM)
 import Control.Concurrent.STM qualified as STM
 import Control.Exception (Exception(..))
 import Control.Exception qualified as Base
 import Control.Monad.Catch qualified as Exceptions
-import GHC.Generics
 import GHC.Stack
 
 #if MIN_VERSION_base(4,20,0)
 import Control.Exception.Annotation
 import Control.Exception.Backtrace qualified as Backtrace
 import Control.Exception.Context
+#endif
+
+#ifndef PATCHED_GHC_FOR_EXCEPTION_DEBUGGING
+import Control.Concurrent.STM (STM)
+import GHC.Generics
 #endif
 
 {-------------------------------------------------------------------------------
