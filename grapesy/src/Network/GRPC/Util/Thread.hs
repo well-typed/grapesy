@@ -139,6 +139,9 @@ data ThreadState a r r' =
     ThreadNotStarted DebugThreadId
 
     -- | The externally visible thread interface is still being initialized
+    --
+    -- This period ends once the thread body calls 'threadMainBody' or
+    -- 'threadTrivial'.
   | ThreadInitializing DebugThreadId ThreadId
 
     -- | Thread is ready
@@ -196,7 +199,11 @@ threadDebugId (ThreadDied         debugId   _) = debugId
 -- ready through 'threadMainBody' or 'threadTrivial' (or it dies).
 data ThreadContext a r r' = ThreadContext{
       -- | Mark thread ready, providing the main thread body
-      threadMainBody :: a -> IO r -> IO ()
+      --
+      -- The thread body is given a callback that it can use to declare itself
+      -- done. Once declared done, any further exceptions that happen in the
+      -- thread will not be recorded in the thread state anymore.
+      threadMainBody :: a -> ((r -> IO ()) -> IO ()) -> IO ()
 
       -- | Terminate the thread immediately
       --
@@ -253,7 +260,8 @@ forkThread label state body =
 -- | Wrap the thread body
 --
 -- This should be wrapped around the body of the thread, and should be called
--- with exceptions masked.
+-- with exceptions masked; the thread body itself should unmask when appropriate
+-- (by using the 'ThreadContext').
 --
 -- This is intended for integration with existing libraries (such as @http2@),
 -- which might do the forking under the hood.
@@ -284,67 +292,100 @@ threadBody label state body = do
         -- actions before it can actually terminate.
         void . forkIO $ throwTo threadId threadException
       _otherwise -> do
-        unexpected "initState" initState
+        unexpected initState
 
-    let threadMainBody :: a -> IO r -> IO ()
-        threadMainBody a mainBody = do
-            atomically $ STM.modifyTVar state $ \oldState ->
-              case oldState of
-                ThreadInitializing debugId _ ->
-                  ThreadRunning debugId threadId a
-                ThreadDied _ _ ->
-                  oldState -- leave alone (see discussion above)
-                _otherwise ->
-                  unexpected "mainBody before" oldState
-            r <- mainBody
-            atomically $ STM.modifyTVar state $ \oldState ->
-              case oldState of
-                ThreadRunning debugId _ _ ->
-                  ThreadDone debugId a r
-                ThreadDied{} ->
-                  oldState
-                _otherwise ->
-                  unexpected "mainBody after" oldState
+    -- 'markRunning' is invoked when the thread body calls 'threadMainBody'
+    let markRunning :: a -> IO ()
+        markRunning a = atomically $ do
+             oldState <- STM.readTVar state
+             case oldState of
+               ThreadInitializing debugId _ -> do
+                 STM.writeTVar state $ ThreadRunning debugId threadId a
+               ThreadDied{} ->
+                 -- leave alone (see discussion above)
+                 return ()
+               _otherwise ->
+                 unexpected oldState
 
-        threadTrivial :: r' -> IO ()
-        threadTrivial r' = do
-            atomically $ STM.modifyTVar state $ \oldState ->
-              case oldState of
-                ThreadInitializing debugId _ ->
-                  ThreadTrivial debugId r'
-                ThreadDied{} ->
-                  oldState
-                _otherwise ->
-                  unexpected "markReady before" oldState
+    -- 'markDone' is invoked /by/ the thread body, to mark itself done
+    let markDone :: r -> IO ()
+        markDone r = atomically $ do
+            oldState <- STM.readTVar state
+            case oldState of
+              ThreadRunning debugId _ a ->
+                STM.writeTVar state $ ThreadDone debugId a r
+              ThreadDied{} ->
+                -- Thread got cancelled before it could mark itself done.
+                return ()
+              _otherwise ->
+                unexpected oldState
 
-        done :: Either ExactException () -> STM ()
-        done mDone = do
-            STM.modifyTVar state $ \oldState ->
-              case (oldState, mDone) of
-                (ThreadDied{}, _) ->
-                  oldState -- record /first/ exception
-                (_, Left e) ->
-                  ThreadDied (threadDebugId oldState) ThreadException{
-                      threadException = e
-                    , threadExceptionAnnotation = ThreadThrewException
-                    }
-                _otherwise ->
-                  oldState
+    -- 'markTrivial' is invoked when the thread body calls 'threadTrivial'
+    let markTrivial :: r' -> IO ()
+        markTrivial r' = atomically $ do
+            oldState <- STM.readTVar state
+            case oldState of
+              ThreadInitializing debugId _ ->
+                STM.writeTVar state $ ThreadTrivial debugId r'
+              ThreadDied{} ->
+                -- Bit of a weird case: trivial thread, but cancelled;
+                -- we record it as cancelled.
+                return ()
+              _otherwise ->
+                unexpected oldState
+
+    -- 'markResult' is invoked on the result of the thread body.
+    let markResult :: Either ExactException () -> IO ()
+        markResult (Right ()) = atomically $ do
+            -- Thread completed normally; thread state is already updated,
+            -- /provided/ the thread body called 'markDone'. If it didn't,
+            -- that's a bug in the thread body.
+            oldState <- STM.readTVar state
+            case oldState of
+              ThreadRunning{} ->
+                unexpected oldState
+              _otherwise ->
+                return ()
+        markResult (Left e) = atomically $ do
+          oldState <- STM.readTVar state
+          case oldState of
+            ThreadDone{} ->
+              -- Thread died /after/ it marked itself done. Such an exception
+              -- is invisible; see 'threadMainBody'.
+              return ()
+            ThreadDied{} ->
+              -- If the state is /already/ 'ThreadDied', that means the thread
+              -- was cancelled. The actual exception that we catch may be the
+              -- same exception, or (depending on when the thread unmasked
+              -- exceptions), it may be a different one. Either way, we keep
+              -- the exception passed to 'cancelThread' as the reason.
+              return ()
+            ThreadTrivial{} ->
+              -- Cannot happen; trivial threads don't run anything
+              unexpected oldState
+            ThreadNotStarted{} ->
+              -- Can't happen
+              unexpected oldState
+            ThreadInitializing debugId _ ->
+              -- Thread died before it could decide between 'threadMainBody' or
+              -- 'threadTrivial'
+              STM.writeTVar state $
+                ThreadDied debugId (ThreadException e ThreadThrewException)
+            ThreadRunning debugId _ _ ->
+              -- Thread died before it could declare itself done
+              STM.writeTVar state $
+                ThreadDied debugId (ThreadException e ThreadThrewException)
 
     res <- tryExact $ body ThreadContext{
-          threadMainBody
-        , threadTrivial
+          threadMainBody = \a k -> markRunning a >> k markDone
+        , threadTrivial  = markTrivial
         , threadMonitor_ = monitorJust state
         , threadId       = threadDebugId initState
         }
-    atomically $ done res
+    markResult res
   where
-    unexpected :: HasCallStack => String -> ThreadState a r r' -> x
-    unexpected msg st = error $ concat [
-          msg
-        , ": unexpected "
-        , show (showableState st)
-        ]
+    unexpected :: HasCallStack => ThreadState a r r' -> x
+    unexpected st = error $ "unexpected " <> show (showableState st)
 
 {-------------------------------------------------------------------------------
   Stopping
@@ -433,7 +474,7 @@ data ThreadIface a r' =
 
 -- | Get the thread's interface
 --
--- The behaviour of this 'getThreadInterface' depends on the thread state; it
+-- The behaviour of 'withThreadInterface' depends on the thread state; it
 --
 -- * blocks if the thread in case of 'ThreadNotStarted' or 'ThreadInitializing'
 -- * throws 'ThreadInterfaceUnavailable' in case of 'ThreadException'.
