@@ -118,8 +118,8 @@ setupResponseChannel sess
         FlowStartRegular headers -> do
           regular <- initFlowStateRegular headers
           stream  <- serverInputStream (request conn)
-          threadMainBody ctxt regular $
-            recvMessageLoop sess regular stream
+          threadMainBody ctxt regular $ \markDone ->
+            markDone =<< recvMessageLoop sess regular stream
         FlowStartNoMessages trailers ->
           -- The client sent a request with an empty body
           threadTrivial ctxt trailers
@@ -129,18 +129,18 @@ setupResponseChannel sess
       case outboundStart of
         FlowStartRegular headers -> do
           regular <- initFlowStateRegular headers
-          threadMainBody ctxt regular $ do
+          threadMainBody ctxt regular $ \markDone -> do
             -- Monitoring here is a bit subtle: http2 will spawn an auxiliary
             -- thread, which will be the one that will actually run the
             -- 'sendMessageLoop'. Meanwhile, we will simply be waiting for that
             -- auxiliary thread to terminate; if the monitor fires, is it
             -- /this/ thread that receives it, not the auxiliary http2 thread.
-            monitor <- threadMonitor ctxt (channelInbound channel) monitorPred
+            _monitor <- threadMonitor ctxt (channelInbound channel) monitorPred
             respondStreamingWithResult
                 conn
                 (outboundTrailersMaker sess channel regular)
                 responseInfo $ \stream ->
-              sendMessageLoop sess regular stream monitor
+              sendMessageLoop sess regular stream markDone
         FlowStartNoMessages trailers -> do
           respondNoBody conn responseInfo
           threadTrivial ctxt trailers

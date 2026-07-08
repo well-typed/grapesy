@@ -505,37 +505,89 @@ data ChannelAborted = ChannelAborted Backtraces
 
 -- | Send all messages to the node's peer
 --
--- The outbound thread is set up to monitor the input thread:
+-- == Invariant: eventual progress
 --
--- * The outbound thread spends most of its time blocked waiting for messages to
---   send to the network peer, and may not notice when the connection is lost.
---   The inbound thread however spends most of its time blocked on waiting for
---   messages /from/ the peer and so will notice more or less immediately.
+-- The outbound thread, the thread running `sendMessageLoop`, communicates by
+-- reading a shared 'TMVar'. When a write to this 'TMVar' is blocked (in another
+-- thread), eventually one of the following two things will happen:
 --
--- * We need an important \"atomicity\" property however: once the outbound
---   thread has sent the trailers, we _expect_ the client to disconnect. We
---   must therefore stop monitoring the inboud thread prior to sending the
---   trailers, to avoid a race condition where
+-- * The outbound thread empties the 'TMVar'
+-- * The outbound thread dies (itself observable;
+--   see 'Network.GRPC.Util.Thread.withThreadInterface').
 --
---   1. the outbound thread sends the final chunk
---   2. the client receives the trailers and disconnects
---   3. the outbound thread gets the monitor notification before it gets a chance
---      to terminate, and dies, resulting in unexpected exceptions
+-- This invariant will cease to be true after the final message ('FinalElem' or
+-- 'NoMoreElems') is consumed: the thread will not read from the 'TMVar' after
+-- that point.
 --
---   Note that the client disconnecting /before/ receiving the final chunk
---   constitutes a violation of the protocol, and so it would be correct for
---   the outbound thread to report abnormal termination.
+-- == Exceptions
+--
+-- When a write /fails/ (say, connection lost) we'd like to be able to
+-- communicate this back to the caller: the outbound thread dies, which is
+-- observable (see above). It is important to note that the /absence/ of such an
+-- exception (a quote-unquote \"successful\" write) is no guarantee of anything;
+-- for example, it may be that the connection is lost after the message was
+-- successfully enqueued in some OS buffer but before it was put on the wire; or
+-- indeed somewhere along the way across the network to the destination.
+--
+-- However, the outbound thread spends most of its time blocked waiting for
+-- messages to send to the network peer, and may not notice when the connection
+-- is lost. It therefore /monitors/ the inbound thread, which spends most of its
+-- time blocked on waiting for messages /from/ the peer and so will notice more
+-- or less immediately.
+--
+-- We need an important \"atomicity\" property however: once the outbound thread
+-- has sent the trailers, we /expect/ the client to disconnect. We therefore
+-- mark ourselves as done prior to sending the trailers, to avoid a race
+-- condition where
+--
+-- 1. the outbound thread sends the final chunk
+-- 2. the client receives the trailers and disconnects
+-- 3. before the outbound thread gets the chance to terminate (the only thing
+--    left to do), it is killed (perhaps due to a monitor notification, or due
+--    to @http2@ sending an async exception to a server handler)
+--
+-- Such a race condition would result in timing-sensitive, non-deterministic
+-- exceptions. By marking ourselves done, /we cannot be killed anymore/, hence
+-- preventing the problem.
+--
+-- Note that if a client disconnects /before/ receiving the final chunk, this
+-- constitutes a violation of the protocol, and so it would be correct for the
+-- outbound thread to report abnormal termination.
+--
+-- == Failure on the final message
+--
+-- Conceptually, we'd want something like
+--
+-- > do ..
+-- >    writeChunkFinal ..
+-- >    -- .. prevent async exceptions here ..
+--
+-- but of course that is impossible to do /literally/; anything we do /after/
+-- the call to 'writeChunkFinal' still leaves a gap in between 'writeChunkFinal'
+-- and the next instruction. However, we cannot mask async exceptions /before/
+-- the call to 'writeChunkFinal' either, because 'writeChunkFinal' itself may
+-- block, and if it does, we do want to be interruptible while we wait.
+--
+-- By declaring ourselves done /before/ sending the final chunk (see previous
+-- section) we side-step the problem, at the cost of being unable to report if
+-- that final send fails. However, this is a small price to pay:
+--
+-- * As discussed above, the absence of a reported failure of a send is /anyway/
+--   no guarantee of success
+-- * Reporting failed sends is primarily useful for code that is repeatedly
+--   sending messages, and so if one message fails to send there is no point in
+--   sending the next. But for the final message there /cannot be/ a next
+--   message: this must anyway be the final write.
 sendMessageLoop :: forall sess.
      IsSession sess
   => sess
   -> RegularFlowState (Outbound sess)
   -> OutputStream
-  -> MonitorRef -- ^ Monitor for the inbound thread
-  -> IO (Trailers (Outbound sess))
-sendMessageLoop sess st stream monitorInbound = do
+  -> (Trailers (Outbound sess) -> IO ())
+  -> IO ()
+sendMessageLoop sess st stream markDone = do
     trailers <- loop
     atomically $ STM.putTMVar (flowTerminated st) trailers
-    return trailers
   where
     build :: (Message (Outbound sess) -> Builder)
     build = buildMsg sess (flowHeaders st)
@@ -549,11 +601,11 @@ sendMessageLoop sess st stream monitorInbound = do
             flush stream
             loop
           FinalElem x trailers -> do
-            demonitor monitorInbound
+            markDone trailers
             writeChunkFinal stream $ build x
             return trailers
           NoMoreElems trailers -> do
-            demonitor monitorInbound
+            markDone trailers
             -- Send empty chunk marked \"final\" to let our peer know that we
             -- have sent our last message. Note that this does not /necessarily/
             -- write a DATA frame, since http2 avoids writing empty data frames

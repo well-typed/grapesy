@@ -180,8 +180,8 @@ setupRequestChannel sess
               FlowStartRegular headers -> do
                 regular <- initFlowStateRegular headers
                 stream  <- clientInputStream resp
-                threadMainBody ctxt regular $
-                  recvMessageLoop sess regular stream
+                threadMainBody ctxt regular $ \markDone ->
+                  markDone =<< recvMessageLoop sess regular stream
               FlowStartNoMessages trailers -> do
                 threadTrivial ctxt trailers
 
@@ -193,10 +193,10 @@ setupRequestChannel sess
       -> IO ()
     outboundThread channel cancelRequestVar regular iface =
         threadBody "grapesy:clientOutbound" (channelOutbound channel) $ \ctxt -> do
-          threadMainBody ctxt regular $ do
+          threadMainBody ctxt regular $ \markDone -> do
             putMVar cancelRequestVar cancelRequest
-            monitor <- threadMonitor ctxt (channelInbound channel) monitorPred
-            stream  <- clientOutputStream iface
+            _monitor <- threadMonitor ctxt (channelInbound channel) monitorPred
+            stream   <- clientOutputStream iface
             -- Unlike the client inbound thread, or the inbound/outbound threads
             -- of the server, http2 knows about this particular thread and may
             -- raise an exception on it when the server dies. This results in a
@@ -209,7 +209,7 @@ setupRequestChannel sess
             -- 'ServerDisconnected' or 'ClientDisconnected'.
             wrapServerDisconnected $
               Client.outBodyUnmask iface $
-                sendMessageLoop sess regular stream monitor
+                sendMessageLoop sess regular stream markDone
       where
         cancelRequest :: CancelRequest
         cancelRequest = Client.outBodyCancel iface . fmap unwrapExactException
