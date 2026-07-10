@@ -183,7 +183,7 @@ library
     , recv                 >= 0.1     && < 0.2
     , stm                  >= 2.5     && < 2.6
     , text                 >= 1.2     && < 2.2
-    , time-manager         >= 0.2.2   && < 0.4
+    , time-manager         >= 0.3.2   && < 0.4
     , tls                  >= 1.7     && < 2.5
     , unbounded-delays     >= 0.1.1   && < 0.2
     , unordered-containers >= 0.2     && < 0.3
