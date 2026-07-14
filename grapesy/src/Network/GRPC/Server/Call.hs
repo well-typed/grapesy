@@ -188,6 +188,7 @@ setupCall conn callContext@ServerContext{serverParams} = do
     callSession :: ServerSession rpc
     callSession = ServerSession {
           serverSessionContext = callContext
+        , serverParseMetadata  = def
         }
 
     req :: Server.Request
@@ -499,8 +500,8 @@ sendGrpcException call = sendProperTrailers call . grpcExceptionToTrailers
 -- be ignored. If 'getRequestMetadata' /is/ called, this amounts to check that
 -- no metadata is present.
 getRequestMetadata :: Call rpc -> IO (RequestMetadata rpc)
-getRequestMetadata Call{callRequestHeaders} =
-    parseMetadata . customMetadataMapToList $
+getRequestMetadata Call{callSession, callRequestHeaders} =
+    sessionParseMetadata callSession . customMetadataMapToList $
       requestMetadata callRequestHeaders
 
 -- | Set the initial response metadata

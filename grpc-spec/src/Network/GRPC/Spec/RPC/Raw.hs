@@ -4,6 +4,7 @@ module Network.GRPC.Spec.RPC.Raw (RawRpc) where
 
 import Data.ByteString.Char8 qualified as BS.Char8
 import Data.ByteString.Lazy qualified as Lazy (ByteString)
+import Data.Default
 import Data.Proxy
 import GHC.TypeLits
 
@@ -43,8 +44,7 @@ instance ( IsRPC (RawRpc serv meth)
 
            -- Metadata constraints
          , BuildMetadata (RequestMetadata (RawRpc serv meth))
-         , ParseMetadata (ResponseInitialMetadata (RawRpc serv meth))
-         , ParseMetadata (ResponseTrailingMetadata (RawRpc serv meth))
+         , Default (ParseMetadata (ResponseTrailingMetadata (RawRpc serv meth)))
          ) => SupportsClientRpc (RawRpc serv meth) where
   rpcSerializeInput    _ = id
   rpcDeserializeOutput _ = return
@@ -52,7 +52,7 @@ instance ( IsRPC (RawRpc serv meth)
 instance ( IsRPC (RawRpc serv meth)
 
            -- Metadata constraints
-         , ParseMetadata (RequestMetadata (RawRpc serv meth))
+         , Default (ParseMetadata (RequestMetadata (RawRpc serv meth)))
          , BuildMetadata (ResponseInitialMetadata (RawRpc serv meth))
          , StaticMetadata (ResponseTrailingMetadata (RawRpc serv meth))
          ) => SupportsServerRpc (RawRpc serv meth) where

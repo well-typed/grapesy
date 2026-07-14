@@ -16,6 +16,7 @@ import Data.Aeson (ToJSON(..), FromJSON(..), (.=), (.:), (.:?))
 import Data.Aeson qualified as Aeson
 import Data.Aeson.Types qualified as Aeson
 import Data.ByteString.Char8 qualified as BS.Char8
+import Data.Default
 import Data.Kind
 import Data.Proxy
 import Data.String
@@ -85,9 +86,8 @@ instance ( IsRPC (JsonRpc serv meth)
          , FromJSON (Output (JsonRpc serv meth))
 
            -- Metadata constraints
-         , BuildMetadata (RequestMetadata          (JsonRpc serv meth))
-         , ParseMetadata (ResponseInitialMetadata  (JsonRpc serv meth))
-         , ParseMetadata (ResponseTrailingMetadata (JsonRpc serv meth))
+         , BuildMetadata (RequestMetadata (JsonRpc serv meth))
+         , Default (ParseMetadata (ResponseTrailingMetadata (JsonRpc serv meth)))
          ) => SupportsClientRpc (JsonRpc serv meth) where
   rpcSerializeInput    _ = Aeson.encode
   rpcDeserializeOutput _ = Aeson.eitherDecode
@@ -99,7 +99,7 @@ instance ( IsRPC (JsonRpc serv meth)
          , ToJSON   (Output (JsonRpc serv meth))
 
            -- Metadata constraints
-         , ParseMetadata (RequestMetadata           (JsonRpc serv meth))
+         , Default (ParseMetadata (RequestMetadata  (JsonRpc serv meth)))
          , BuildMetadata (ResponseInitialMetadata   (JsonRpc serv meth))
          , StaticMetadata (ResponseTrailingMetadata (JsonRpc serv meth))
          ) => SupportsServerRpc (JsonRpc serv meth) where

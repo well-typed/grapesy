@@ -12,6 +12,7 @@ module Network.GRPC.Spec.RPC (
 import Control.DeepSeq (NFData)
 import Data.ByteString qualified as Strict (ByteString)
 import Data.ByteString.Lazy qualified as Lazy
+import Data.Default
 import Data.Kind
 import Data.Typeable
 import GHC.Stack
@@ -104,8 +105,7 @@ class ( IsRPC rpc
 
         -- Serialization
       , BuildMetadata (RequestMetadata rpc)
-      , ParseMetadata (ResponseInitialMetadata rpc)
-      , ParseMetadata (ResponseTrailingMetadata rpc)
+      , Default (ParseMetadata (ResponseTrailingMetadata rpc))
       ) => SupportsClientRpc rpc where
 
   -- | Serialize RPC input
@@ -132,7 +132,7 @@ class ( IsRPC rpc
 class ( IsRPC rpc
 
         -- Serialization
-      , ParseMetadata (RequestMetadata rpc)
+      , Default (ParseMetadata (RequestMetadata rpc))
       , BuildMetadata (ResponseInitialMetadata rpc)
       , StaticMetadata (ResponseTrailingMetadata rpc)
       ) => SupportsServerRpc rpc where

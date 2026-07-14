@@ -120,8 +120,9 @@ class BuildMetadata a => StaticMetadata a where
 --   no single right answer here: ignoring additional metadata runs the risk of
 --   not realizing that the peer is trying to tell you something important, but
 --   throwing an error runs the risk of unnecessarily aborting an RPC.
-class ParseMetadata a where
-  parseMetadata :: MonadThrow m => [CustomMetadata] -> m a
+data ParseMetadata a = ParseMetadata{
+      parseMetadata :: forall m. MonadThrow m => [CustomMetadata] -> m a
+    }
 
 -- | Unexpected metadata
 --

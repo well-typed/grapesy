@@ -3,6 +3,7 @@ module Network.GRPC.Server.Session (
   , ServerInbound
   , ServerOutbound
   , Headers(..)
+  , sessionParseMetadata
     -- * Exceptions
   , CallSetupFailure(..)
   ) where
@@ -18,7 +19,14 @@ import Network.GRPC.Util.Session.API
 
 data ServerSession rpc = ServerSession {
       serverSessionContext :: ServerContext
+    , serverParseMetadata  :: ParseMetadata (RequestMetadata rpc)
     }
+
+sessionParseMetadata ::
+     ServerSession rpc
+  -> [CustomMetadata]
+  -> IO (RequestMetadata rpc)
+sessionParseMetadata = parseMetadata . serverParseMetadata
 
 {-------------------------------------------------------------------------------
   Instances
