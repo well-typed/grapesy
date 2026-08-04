@@ -14,7 +14,6 @@ import Data.ByteString qualified as Strict (ByteString)
 import Foreign (mallocBytes, free)
 import Network.HPACK (BufferSize)
 import Network.HTTP2.Server qualified as Server
-import Network.HTTP2.Server.Internal qualified as Server (Config (..))
 import Network.HTTP2.TLS.Server qualified as Server.TLS
 import Network.Socket (Socket, SockAddr)
 import Network.Socket qualified as Socket
@@ -87,16 +86,14 @@ withConfig ::
 withConfig mgr send recv mysa peersa k =
     bracket (mallocBytes writeBufferSize) free $ \buf -> do
       recvN <- Recv.makeRecvN mempty recv
-      k Server.Config {
-          confWriteBuffer       = buf
-        , confBufferSize        = writeBufferSize
-        , confSendAll           = send
-        , confReadN             = recvN
-        , confReadNTimeout      = False
-        , confPositionReadMaker = Server.defaultPositionReadMaker
-        , confTimeoutManager    = mgr
-        , confMySockAddr        = mysa
-        , confPeerSockAddr      = peersa
+      k Server.defaultConfig{
+          Server.confWriteBuffer    = buf
+        , Server.confBufferSize     = writeBufferSize
+        , Server.confSendAll        = send
+        , Server.confReadN          = recvN
+        , Server.confTimeoutManager = mgr
+        , Server.confMySockAddr     = mysa
+        , Server.confPeerSockAddr   = peersa
         }
   where
     -- This is the default value for @settingsSendBufferSize@ in @http2-tls@
