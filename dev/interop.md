@@ -35,9 +35,8 @@ All tests should pass.
 ## Running development `grapesy` against reference implementation
 
 > [!NOTE]
-> At the time of writing (2026-06-03) version
-> [v1.81.0](https://github.com/grpc/grpc/releases/tag/v1.81.0) is the most
-> recent.
+> At the time of writing (2026-08-04) version
+> [v1.83.0](https://github.com/grpc/grpc/releases) is the most recent.
 
 In this section we will describe how to run a development `grapesy` server or
 client (that is, a local checkout of the git repository, run simply using
@@ -45,19 +44,19 @@ client (that is, a local checkout of the git repository, run simply using
 checkout of the [official gRPC repo](https://github.com/grpc/grpc/).
 
 ```bash
-$ git clone https://github.com/grpc/grpc.git -b v1.81.0 ./grpc-repo
-grpc-repo$ git switch -c v1.81.0
+$ git clone https://github.com/grpc/grpc.git -b v1.83.0 ./grpc-repo
+grpc-repo$ git switch -c v1.83.0
 grpc-repo$ git submodule update --init --recursive
 ```
 
 For some languages, the gRPC implementation lives in a separate repository.
 
 ```bash
-$ git clone https://github.com/grpc/grpc-java.git -b v1.81.0
-grpc-java$ git switch -c v1.81.0
+$ git clone https://github.com/grpc/grpc-java.git -b v1.83.0
+grpc-java$ git switch -c v1.83.0
 
-$ git clone https://github.com/grpc/grpc-go.git -b v1.81.0
-grpc-go$ git switch -c v1.81.0
+$ git clone https://github.com/grpc/grpc-go.git -b v1.83.0
+grpc-go$ git switch -c v1.83.0
 ```
 
 These need to be checked out alongside `grpc-repo`, so that you end up with
@@ -84,28 +83,6 @@ Submodule 'third_party/abseil-cpp' (https://github.com/abseil/abseil-cpp.git) re
 Cloning into '/var/local/git/grpc/third_party/abseil-cpp'...
 fatal: reference repository '/var/local/jenkins/grpc/third_party/abseil-cpp' is shallow
 fatal: clone of 'https://github.com/abseil/abseil-cpp.git' into submodule path '/var/local/git/grpc/third_party/abseil-cpp' failed
-```
-
-> [!WARNING]
-> The official interop tests fail when IPv6 is enabled on the host machine. For
-> convenience, there is a script in the `grapesy` repo at
-> [/dev/disable-ipv6.sh](/dev/disable-ipv6.sh) that can be used to disable IPv6
-> on Linux machines (run with `sudo`). If IPv6 is enabled, tests will fail with
-> an error such as the one below (this error is in the test _infrastructure_,
-> independent from the reference client or server):
-
-```
-Traceback (most recent call last):
-  File "../grpc-repo/tools/run_tests/run_interop_tests.py", line 1583, in <module>
-    job.mapped_port(_DEFAULT_SERVER_PORT),
-    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "../grpc-repo/tools/run_tests/python_utils/dockerjob.py", line 165, in mapped_port
-    return docker_mapped_port(self._container_name, port)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "../grpc-repo/tools/run_tests/python_utils/dockerjob.py", line 58, in docker_mapped_port
-    return int(output.split(":", 2)[1])
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-ValueError: invalid literal for int() with base 10: '32768\n['
 ```
 
 ### Test infrastructure dependencies
@@ -181,17 +158,6 @@ grpc-repo$ tools/run_tests/run_interop_tests.py -l java -s java --use_docker --m
   mv interop_server_cmds.sh java_server.sh &&
   mv interop_client_cmds.sh java_client.sh
 ```
-
-> [!NOTE]
-> It seems that the generated script for the Python server and client have a bug
-> in v1.81.0; running them results in
->
-> ```
-> Testing grpc_interop_python:74916014-2d91-4673-9c8d-e3c27969de24
-> bash: line 1: py39/bin/python: No such file or directory
-> ```
->
-> The fix is to replace references to `py39/bin/python` by `py310/bin/python`.
 
 ### Running `grapesy` as a client
 
@@ -296,6 +262,10 @@ grpc-repo$ SERVER_PORT=50052 bash ./java_client.sh
 
 Only the ORCA tests are expected to fail (you may wish to disable those by
 editing the client scripts).
+
+(The Java client fails the `max_concurrent_streams_connection_scaling` test,
+but before it even talks to the grapesy server. This is anyway a new and
+eperimental feature.)
 
 The C++ client tests generate a lot of output; test failures will be reported
 as `SIGABRT`/`SIGSEGV`.

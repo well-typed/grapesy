@@ -21,7 +21,7 @@ Legend:
 * 🚫 not supported by `grapesy`
 
 We last tested against version
-[v1.81.0](https://github.com/grpc/grpc/releases/tag/v1.81.0) (released May 29,
+[v1.83.0](https://github.com/grpc/grpc/releases/tag/v1.83.0) (released July 21,
 2026).
 
 ### `grapesy` server versus reference client
@@ -77,8 +77,8 @@ We last tested against version
 ### Unsupported tests
 
 There are additional tests that are not supported by `grapesy`, but since these
-are not supported by _any_ of the reference implementations that we tested, we
-did not consider them any further. The full list is:
+are not supported by most (or indeed any) of the reference implementations that
+we tested, we did not consider them any further. The full list is:
 
 * [`cacheable_unary`](https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptions.md#cacheable_unary)
 * [`channel_soak`](https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptions.md#channel_soak)
@@ -88,6 +88,7 @@ did not consider them any further. The full list is:
 * [`google_default_credentials`](https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptions.md#google_default_credentials)
 * [`jwt_token_creds`](https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptions.md#jwt_token_creds)
 * [`long_lived_channel`](https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptions.md#long_lived_channel)
+* [`max_concurrent_streams_connection_scaling`](https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptions.md#max_concurrent_streams_connection_scaling)
 * [`oauth2_auth_token`](https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptions.md#oauth2_auth_token)
 * [`per_rpc_creds`](https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptions.md#per_rpc_creds)
 * [`rpc_soak`](https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptions.md#rpc_soak)
