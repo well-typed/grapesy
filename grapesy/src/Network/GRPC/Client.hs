@@ -56,6 +56,7 @@ module Network.GRPC.Client (
   , recvNextOutput
   , recvFinalOutput
   , recvTrailers
+  , waitForTrailers
 
     -- ** Low-level\/specialized API
   , ResponseHeaders_(..)

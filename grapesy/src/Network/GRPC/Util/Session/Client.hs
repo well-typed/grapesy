@@ -15,9 +15,9 @@ import Data.ByteString qualified as BS.Strict
 import Data.ByteString qualified as Strict (ByteString)
 import Data.ByteString.Lazy qualified as BS.Lazy
 import Data.ByteString.Lazy qualified as Lazy (ByteString)
-import Network.HTTP.Types qualified as HTTP
-import Network.HTTP.Semantics (OutBodyIface)
+import Network.HTTP.Semantics qualified as HTTP
 import Network.HTTP.Semantics.Client qualified as Client
+import Network.HTTP.Types qualified as HTTP
 
 import Network.GRPC.Common.Exception
 import Network.GRPC.Util.ClientStream
@@ -189,7 +189,7 @@ setupRequestChannel sess
          Channel sess
       -> MVar CancelRequest
       -> RegularFlowState (Outbound sess)
-      -> OutBodyIface
+      -> HTTP.OutBodyIface
       -> IO ()
     outboundThread channel cancelRequestVar regular iface =
         threadBody "grapesy:clientOutbound" (channelOutbound channel) $ \ctxt -> do
@@ -208,11 +208,11 @@ setupRequestChannel sess
             -- because we don't want to mark /our own/ exceptions as
             -- 'ServerDisconnected' or 'ClientDisconnected'.
             wrapServerDisconnected $
-              Client.outBodyUnmask iface $
+              HTTP.outBodyUnmask iface $
                 sendMessageLoop sess regular stream markDone
       where
         cancelRequest :: CancelRequest
-        cancelRequest = Client.outBodyCancel iface . fmap unwrapExactException
+        cancelRequest = HTTP.outBodyCancel iface . fmap unwrapExactException
 
         -- In HTTP2, streams are bidirectional and can be half-closed in either
         -- direction. However, in gRPC the stream can be half-closed from the

@@ -11,6 +11,7 @@ import Test.Regression.Issue102               qualified as Issue102
 import Test.Regression.Issue238               qualified as Issue238
 import Test.Sanity.Any                        qualified as Any
 import Test.Sanity.BrokenDeployments          qualified as BrokenDeployments
+import Test.Sanity.Cancellation               qualified as Cancellation
 import Test.Sanity.Compression                qualified as Compression
 import Test.Sanity.EndOfStream                qualified as EndOfStream
 import Test.Sanity.Interop                    qualified as Interop
@@ -38,6 +39,7 @@ main = do
           , BrokenDeployments.tests
           , NoIsLabel.tests
           , Metadata.tests
+          , Cancellation.tests
           ]
       , testGroup "Regression" [
             Issue102.tests

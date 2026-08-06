@@ -21,6 +21,7 @@ module Network.GRPC.Client.Call (
   , recvNextOutput
   , recvFinalOutput
   , recvTrailers
+  , waitForTrailers
 
     -- ** Low-level\/specialized API
   , sendInputWithMeta
@@ -51,7 +52,6 @@ import Network.GRPC.Common.StreamElem qualified as StreamElem
 import Network.GRPC.Spec.Util.HKD qualified as HKD
 import Network.GRPC.Util.GHC
 import Network.GRPC.Util.Session.API qualified as Session
-import Network.GRPC.Util.Session.Channel (ChannelDiscarded (..))
 import Network.GRPC.Util.Session.Channel qualified as Session
 import Network.GRPC.Util.Session.Client qualified as Session
 import Network.GRPC.Util.Thread qualified as Thread
@@ -216,8 +216,8 @@ startRPC conn _ callParams = do
           -- that once the timeout is reached, the client will not be able to
           -- receive any further messages, even if that is because the /client/
           -- was slow, rather than the server.
-          void $ Thread.cancelThread (Session.channelInbound channel) timeout
-          void $ Session.close channel timeoutExitCase
+          Thread.cancelThread (Session.channelInbound channel) timeout
+          Session.close channel timeoutExitCase
 
     -- Spawn a thread to monitor the connection, and close the new channel when
     -- the connection is closed. To prevent a memory leak by hanging on to the
@@ -242,8 +242,7 @@ startRPC conn _ callParams = do
                   Just exitWithException ->
                     ExitCaseException . toException $
                       serverDisconnected backtrace exitWithException
-          _mAlreadyClosed <- Session.close channel exitReason
-          return ()
+          Session.close channel exitReason
 
     return (Call channel, cancelRequest)
   where
@@ -293,7 +292,6 @@ startRPC conn _ callParams = do
         , serverDisconnectedBacktrace = Just backtrace
         }
 
-
 -- | Close the RPC (internal API only)
 --
 -- This is more subtle than one might think. The spec mandates that when a
@@ -304,7 +302,7 @@ startRPC conn _ callParams = do
 -- which could mean one of two things:
 --
 -- o The client received the final message from the server
--- o The server threw an exception (and the client saw this)
+-- o The server threw an exception, and the client saw this
 --
 -- We can check for the former using 'channelRecvFinal', and the latter using
 -- 'hasThreadTerminated'. By checking both, we avoid race conditions:
@@ -324,7 +322,8 @@ startRPC conn _ callParams = do
 -- o <https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptions.md#cancel_after_begin>
 -- o <https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptions.md#cancel_after_first_response>
 closeRPC ::
-     Session.Channel rpc
+     HasCallStack
+  => Session.Channel rpc
   -> Session.CancelRequest
   -> ExitCase a
      -- ^ Reason for closing the connection
@@ -347,58 +346,31 @@ closeRPC ::
      --      not support client-side trailers, we have no way of communicating
      --      the nature of the client error to the client; instead, the
      --      @RST_FRAME@ will have error code @INTERNAL_ERROR@.
-     --
-     -- If (b), the exception is not re-raised by 'closeRPC'; the assumption is
-     -- that in this case 'closeRPC' is called /in response to/ an exception,
-     -- and the /caller/ will re-raise that exception; see 'withRPC'.
   -> IO ()
-closeRPC callChannel cancelRequest exitCase = liftIO $ do
-    -- /Before/ we do anything else (see below), check if we have evidence
-    -- that we can discard the connection.
+closeRPC callChannel cancelRequest exitCase = do
+    backtrace  <- collectBacktraces
     canDiscard <- checkCanDiscard
 
-    -- Send the RST_STREAM frame /before/ closing the outbound thread.
+    -- Send the @RST_STREAM@ prior to calling 'Session.close' to ensure that the
+    -- server receives @RST_STREAM@ /before/ receiving @END_STREAM@.
     --
-    -- When we call 'Session.close', we will terminate the
-    -- 'sendMessageLoop', @http2@ will interpret this as a clean termination
-    -- of the stream. We must therefore cancel this stream before calling
-    -- 'Session.close'. /If/ the final message has already been sent,
-    -- @http2@ guarantees (as a postcondition of @outBodyPushFinal@) that
-    -- cancellation will be a no-op.
-    sendResetFrame
+    -- The opposite order is permitted by the HTTP2 spec (it merely means that
+    -- the client tells the server that it won't /send/ any further messages
+    -- before telling the server that it doesn't want to /receive/ any further
+    -- messages), but some servers might interpret this as a clean client
+    -- termination rather than a cancellation.
+    unless canDiscard $ sendResetFrame backtrace
+    Session.close callChannel exitCase
 
-    -- Now close the /outbound/ thread, see docs of 'Session.close' for
-    -- details.
-    mException <- liftIO $ Session.close callChannel exitCase
-    case mException of
-      Nothing ->
-        -- The outbound thread had already terminated
-        return ()
-      Just ex ->
-        case fromException (unwrapExactException ex) of
-          Nothing ->
-            -- We are leaving the scope of 'withRPC' because of an exception in
-            -- the client; caller is responsible for re-raising that exception.
-            return ()
-          Just (discarded :: ChannelDiscarded) ->
-            -- We are leaving the scope of 'withRPC' without having sent the
-            -- final message.
-            --
-            -- If the server was closed before we cancelled the stream, this
-            -- means that the server unilaterally closed the connection.
-            -- This should be regarded as normal termination of the RPC (see
-            -- the docs for 'withRPC')
-            --
-            -- Otherwise, the client left the scope of 'withRPC' before the
-            -- RPC was complete, which the gRPC spec mandates to result in a
-            -- 'GrpcCancelled' exception. See docs of 'throwCancelled'.
-            unless canDiscard $
-              throwCancelled discarded
+    -- Throw the gRPC mandated local 'GrpcCancelled' exception, unless the
+    -- client itself already terminated with an exception
+    unless canDiscard $
+      case exitCase of
+        ExitCaseException e -> throwIO e
+        _otherwise          -> throwCancelled backtrace
   where
-    -- Send a @RST_STREAM@ frame if necessary
-    sendResetFrame :: IO ()
-    sendResetFrame = do
-        backtrace <- collectBacktraces
+    sendResetFrame :: Backtraces -> IO ()
+    sendResetFrame backtrace = do
         cancelRequest $
           case exitCase of
             ExitCaseSuccess _ ->
@@ -417,8 +389,8 @@ closeRPC callChannel cancelRequest exitCase = liftIO $ do
               Just . WrapExactException $
                 e
 
-    throwCancelled :: ChannelDiscarded -> IO ()
-    throwCancelled (ChannelDiscarded backtrace) = do
+    throwCancelled :: Backtraces -> IO ()
+    throwCancelled backtrace = do
         throwM $ GrpcException {
             grpcError         = GrpcCancelled
           , grpcErrorMessage  = Just $ mconcat [
@@ -709,6 +681,36 @@ recvTrailers call@Call{} = liftIO $ do
   where
     err :: HasCallStack => ProtocolException rpc -> IO a
     err = throwM . ProtocolException
+
+-- | Wait to receive the trailers, discarding any outputs
+--
+-- The gRPC spec mandates that when a client terminates a connection early,
+-- this is considered a cancellation, which raises a 'GrpcCancelled' exception
+-- in the client and a @RST_STREAM@ message sent to the server. Most clients
+-- don't need to worry about this, since they will /either/ anyway wait for
+-- that final message from the server, /or/ intentionally terminate early, in
+-- which case regarding this as cancellation is in fact correct.
+--
+-- In some cases, however, a client might want to /wait/ for the trailers,
+-- discarding any further outputs, prior to termination. One case where this can
+-- be useful is when a client /has/ received the final message, but may or may
+-- not have received the trailers also (that is, 'StreamElem' vs 'FinalElem');
+-- calling 'recvTrailers' after 'FinalElem' is a bug, so client code would have
+-- to distingush between these two cases. By contrast, 'waitForTrailers' is
+-- idemponent and can be called at any point, though be aware that /if/ the
+-- server is stil sending messages, they will all be discarded, and this can
+-- of course take an unbounded time.
+waitForTrailers :: forall rpc m.
+     (MonadIO m, HasCallStack)
+  => Call rpc -> m (ResponseTrailingMetadata rpc)
+waitForTrailers call@Call{} = liftIO $ go
+  where
+    go :: IO (ResponseTrailingMetadata rpc)
+    go = do
+        mOut <- recvEither call
+        case mOut of
+          Left  trailers      -> responseTrailingMetadata call trailers
+          Right (_meta, _out) -> go
 
 {-------------------------------------------------------------------------------
   Internal auxiliary: deal with final message

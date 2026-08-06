@@ -7,7 +7,8 @@ module Network.GRPC.Util.ClientStream (
 import Network.GRPC.Util.Stream
 
 import Network.HTTP.Semantics.Client qualified as Client
-import Network.HTTP.Semantics (OutBodyIface(..))
+import Network.HTTP.Semantics (OutBodyIface)
+import Network.HTTP.Semantics qualified as HTTP
 
 import Network.GRPC.Util.HeaderTable (fromHeaderTable)
 
@@ -36,9 +37,9 @@ clientOutputStream :: OutBodyIface -> IO OutputStream
 clientOutputStream iface =
     return OutputStream {
         _writeChunk = \c ->
-          Client.outBodyPush iface c
+          HTTP.outBodyPush iface c
       , _writeChunkFinal = \c ->
-          Client.outBodyPushFinal iface c
+          HTTP.outBodyPushFinal iface c
       , _flush =
-          Client.outBodyFlush iface
+          HTTP.outBodyFlush iface
       }

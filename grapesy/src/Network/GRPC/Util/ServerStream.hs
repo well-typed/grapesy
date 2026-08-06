@@ -4,12 +4,13 @@ module Network.GRPC.Util.ServerStream (
     serverInputStream,
 ) where
 
-import Network.GRPC.Util.Stream
-
+import Network.HTTP.Semantics (OutBodyIface)
+import Network.HTTP.Semantics qualified as HTTP
 import Network.HTTP.Semantics.Server qualified as Server
-import Network.HTTP.Semantics (OutBodyIface(..))
 
 import Network.GRPC.Util.HeaderTable (fromHeaderTable)
+import Network.GRPC.Util.Imports
+import Network.GRPC.Util.Stream
 
 {-------------------------------------------------------------------------------
   Server API
@@ -50,7 +51,7 @@ serverInputStream req = do
 -- 'sendTrailersOnly'); when that API is used, we do not make use of this
 -- 'OutputStream' abstraction (indeed, we do not stream at all). In streaming
 -- cases (the default) we do not make use of @Trailers-Only@.
-serverOutputStream :: OutBodyIface -> IO OutputStream
+serverOutputStream :: HasCallStack => OutBodyIface -> IO OutputStream
 serverOutputStream iface = do
     -- Make sure that http2 does not wait for the first message before sending
     -- the response headers. This is important: the client might want the
@@ -69,13 +70,13 @@ serverOutputStream iface = do
     let outputStream = OutputStream {
             _writeChunk = \c ->
                wrapClientDisconnected $
-                 outBodyPush iface c
+                 HTTP.outBodyPush iface c
           , _writeChunkFinal = \c ->
                wrapClientDisconnected $
-                 outBodyPushFinal iface c
+                 HTTP.outBodyPushFinal iface c
           , _flush =
                wrapClientDisconnected $
-                 outBodyFlush iface
+                 HTTP.outBodyFlush iface
           }
 
     flush outputStream

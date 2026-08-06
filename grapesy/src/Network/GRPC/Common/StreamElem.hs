@@ -6,11 +6,12 @@
 --
 -- "Network.GRPC.Common" (intended for unqualified import) exports
 -- @StreamElem(..)@, but none of the operations on 'StreamElem'.
+--
+-- See also "Network.GRPC.Common.NextElem" for a slightly simpler API.
 module Network.GRPC.Common.StreamElem (
     StreamElem(..)
     -- * Conversion
   , value
-    -- * Iteration
     -- * Iteration
   , mapM_
   , forM_
@@ -129,7 +130,7 @@ mapM_ f = go
 forM_ :: Monad m => [a] -> b -> (StreamElem b a -> m ()) -> m ()
 forM_ as b f = mapM_ f as b
 
--- | Invoke a function on each 'NextElem', until 'FinalElem' or 'NoMoreElems'
+-- | Invoke a function on each 'StreamElem', until 'FinalElem' or 'NoMoreElems'
 whileNext_ :: forall m a b. Monad m => m (StreamElem b a) -> (a -> m ()) -> m b
 whileNext_ f g = go
   where

@@ -463,6 +463,8 @@ serverLocal clock call = \(LocalSteps steps) -> do
     isExpectedDisconnect (Left (Server.ClientDisconnected (WrapExactException e) _))
       | Just HTTP2.Client.ConnectionIsClosed <- fromException e
       = True
+      | Just HTTP2.Client.StreamResetIsReceived{} <- fromException e
+      = True
       | otherwise
       = False
     isExpectedDisconnect _ = False

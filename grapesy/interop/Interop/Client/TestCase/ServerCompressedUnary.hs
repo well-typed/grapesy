@@ -1,8 +1,10 @@
 module Interop.Client.TestCase.ServerCompressedUnary (runTest) where
 
+import Control.Monad
 import Data.Maybe (isJust)
 
 import Network.GRPC.Client
+import Network.GRPC.Client qualified as Client
 import Network.GRPC.Common
 import Network.GRPC.Common.Protobuf
 import Network.GRPC.Common.StreamElem qualified as StreamElem
@@ -22,11 +24,13 @@ runTest cmdline =
       withRPC conn def (Proxy @UnaryCall) $ \call -> do
         sendInputWithMeta call $ FinalElem (request True) NoMetadata
         resp <- recvOutputWithMeta call
+        void $ Client.waitForTrailers call
         verifyResponse True (StreamElem.value resp)
 
       withRPC conn def (Proxy @UnaryCall) $ \call -> do
         sendInputWithMeta call $ FinalElem (request False) NoMetadata
         resp <- recvOutputWithMeta call
+        void $ Client.waitForTrailers call
         verifyResponse False (StreamElem.value resp)
   where
     -- To keep the test simple, we disable /outbound/ compression

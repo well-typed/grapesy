@@ -17,7 +17,6 @@ module Network.GRPC.Util.Thread (
   , DebugThreadId -- opaque
   , threadDebugId
     -- * Access thread state
-  , CancelResult(..)
   , cancelThread
   , ThreadState_(..)
   , getThreadState_
@@ -391,18 +390,6 @@ threadBody label state body = do
   Stopping
 -------------------------------------------------------------------------------}
 
--- | Result of cancelling a thread
-data CancelResult a r r' =
-    -- | The thread terminated normally before we could cancel it
-    AlreadyTerminated (Either (a, r)  r')
-
-    -- | The thread terminated with an exception before we could cancel it
-  | AlreadyAborted ThreadException
-
-    -- | We killed the thread with the specified exception
-  | Cancelled
-  deriving stock (Show)
-
 -- | Kill thread if it is running
 --
 -- * If the thread is in `ThreadNotStarted` state, we merely change the state to
@@ -422,7 +409,7 @@ cancelThread :: forall a r r'.
      HasCallStack
   => TVar (ThreadState a r r')
   -> ExactException
-  -> IO (CancelResult a r r')
+  -> IO ()
 cancelThread state e = do
     backtrace <- collectBacktraces
 
@@ -432,29 +419,27 @@ cancelThread state e = do
             , threadExceptionAnnotation = ThreadCancelled backtrace
             }
 
-    (result, mTid) <- atomically $ aux cancelled
+    mTid <- atomically $ aux cancelled
     forM_ mTid $ flip throwTo e
-    return result
   where
-    aux :: ThreadException -> STM (CancelResult a r r', Maybe ThreadId)
+    aux :: ThreadException -> STM (Maybe ThreadId)
     aux cancelled = do
         st <- STM.readTVar state
         case st of
           ThreadNotStarted debugId -> do
             STM.writeTVar state $ ThreadDied debugId cancelled
-            return (Cancelled, Nothing)
+            return Nothing
           ThreadInitializing debugId threadId -> do
             STM.writeTVar state $ ThreadDied debugId cancelled
-            return (Cancelled, Just threadId)
+            return $ Just threadId
           ThreadRunning debugId threadId _ -> do
             STM.writeTVar state $ ThreadDied debugId cancelled
-            return (Cancelled, Just threadId)
-          ThreadDied _debugId e' ->
-            return (AlreadyAborted e', Nothing)
-          ThreadDone _debugId a r ->
-            return (AlreadyTerminated (Left (a, r)), Nothing)
-          ThreadTrivial _debugId r' ->
-            return (AlreadyTerminated (Right r'), Nothing)
+            return $ Just threadId
+
+          -- already died
+          ThreadDied{}    -> return Nothing
+          ThreadDone{}    -> return Nothing
+          ThreadTrivial{} -> return Nothing
 
 {-------------------------------------------------------------------------------
   Interacting with the thread

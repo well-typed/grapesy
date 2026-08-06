@@ -6,11 +6,11 @@ module Network.GRPC.Util.Session.Server (
 
 import Control.Concurrent
 import Control.Exception
-import Control.Monad
-import GHC.Stack
+import Network.HTTP.Semantics qualified as HTTP
 import Network.HTTP.Semantics.Server qualified as Server
 
 import Network.GRPC.Common.Exception
+import Network.GRPC.Util.Imports
 import Network.GRPC.Util.ServerStream
 import Network.GRPC.Util.Session.API
 import Network.GRPC.Util.Session.Channel
@@ -31,45 +31,46 @@ data ConnectionToClient = ConnectionToClient {
   Internal auxiliary: constructing responses
 -------------------------------------------------------------------------------}
 
-respondStreaming ::
-     ConnectionToClient
-  -> Server.TrailersMaker
-  -> ResponseInfo
-  -> (OutputStream -> IO ())
-  -> IO ()
-respondStreaming conn trailers responseInfo body =
-    respond conn resp
-  where
-    resp :: Server.Response
-    resp =
-          flip Server.setResponseTrailersMaker trailers
-        . Server.responseStreamingIface
-            (responseStatus  responseInfo)
-            (responseHeaders responseInfo)
-        $ body <=< serverOutputStream
-
 respondStreamingWithResult :: forall a.
-     ConnectionToClient
+     HasCallStack
+  => ConnectionToClient
   -> Server.TrailersMaker
   -> ResponseInfo
   -> (OutputStream -> IO a)
   -> IO a
 respondStreamingWithResult conn trailers responseInfo body = do
     resultVar :: MVar (Either ExactException a) <- newEmptyMVar
-    respondStreaming conn trailers responseInfo $ \iface -> do
-      -- This will be running in an auxiliary thread, spawned by http2. Any
-      -- exceptions that are thrown by that thread will remain uncaught, and
-      -- will trigger the top-level uncaught exception handler. We therefore
-      -- catch all of these and store them in 'resultVar', which the main
-      -- grapesy outbound thread is waiting on.
-      --
-      -- When the connection is closed, this thread will be cleaned up by
-      -- the ThreadManager in http2.
-      result <- try $ body iface
-      putMVar resultVar result
+    let resp :: Server.Response
+        resp = flip Server.setResponseTrailersMaker trailers
+             . Server.responseStreamingIface
+                 (responseStatus  responseInfo)
+                 (responseHeaders responseInfo)
+             $ auxThreadBody resultVar
+
+    respond conn resp
 
     -- Any exception thrown here is thrown in the context of a 'Thread'.
     either throwExact return =<< takeMVar resultVar
+  where
+    -- This will be running in an auxiliary thread, spawned by http2. Any
+    -- exceptions that are thrown by that thread will remain uncaught, and
+    -- will trigger the top-level uncaught exception handler. We therefore
+    -- catch all of these and store them in 'resultVar', which the main
+    -- grapesy outbound thread is waiting on.
+    --
+    -- When the connection is closed, this thread will be cleaned up by
+    -- the ThreadManager in http2.
+    auxThreadBody ::
+         MVar (Either ExactException a)
+      -> HTTP.OutBodyIface
+      -> IO ()
+    auxThreadBody resultVar iface = do
+        result <- try $ do
+          -- It is important we create the output stream inside the body of the
+          -- exception handler, since that too can fail.
+          ostrm <- serverOutputStream iface
+          body ostrm
+        putMVar resultVar result
 
 respondNoBody :: ConnectionToClient -> ResponseInfo -> IO ()
 respondNoBody conn responseInfo =
