@@ -8,9 +8,7 @@ module Network.GRPC.Util.Session.Client (
 
 import Network.GRPC.Util.Imports
 
-import Control.Concurrent.MVar (MVar, newEmptyMVar, readMVar, putMVar)
 import Control.Concurrent.STM qualified as STM
-import Control.Monad (join)
 import Data.ByteString qualified as BS.Strict
 import Data.ByteString qualified as Strict (ByteString)
 import Data.ByteString.Lazy qualified as BS.Lazy
@@ -113,9 +111,13 @@ setupRequestChannel sess conn terminateCall outboundStart = do
     monitorInbound terminateCall channel
     let requestInfo = buildRequestInfo sess outboundStart
 
-    cancelRequestVar <- newEmptyMVar
+    cancelRequestVar <- STM.newEmptyTMVarIO
     let cancelRequest :: CancelRequest
-        cancelRequest e = join . (fmap ($ e)) $ readMVar cancelRequestVar
+        cancelRequest e = do
+            -- If the outbound thread died, cancelRequestVar might never be set
+            cancel <- withThreadInterface (channelOutbound channel) $ \_ ->
+                         STM.readTMVar cancelRequestVar
+            cancel e
 
     case outboundStart of
       FlowStartRegular headers -> do
@@ -133,9 +135,9 @@ setupRequestChannel sess conn terminateCall outboundStart = do
                     (requestMethod  requestInfo)
                     (requestPath    requestInfo)
                     (requestHeaders requestInfo)
-        -- Can't cancel non-streaming request
-        putMVar cancelRequestVar $ \_ -> return ()
-        atomically $
+        atomically $ do
+          -- Can't cancel non-streaming request
+          STM.putTMVar cancelRequestVar $ \_ -> return ()
           STM.modifyTVar (channelOutbound channel) $ \oldState ->
             case oldState of
               ThreadNotStarted debugId ->
@@ -184,14 +186,14 @@ setupRequestChannel sess conn terminateCall outboundStart = do
 
     outboundThread ::
          Channel sess
-      -> MVar CancelRequest
+      -> STM.TMVar CancelRequest
       -> RegularFlowState (Outbound sess)
       -> HTTP.OutBodyIface
       -> IO ()
     outboundThread channel cancelRequestVar regular iface =
         threadBody "grapesy:clientOutbound" (channelOutbound channel) $ \ctxt -> do
           threadMainBody ctxt regular $ \markDone -> do
-            putMVar cancelRequestVar cancelRequest
+            atomically $ STM.putTMVar cancelRequestVar cancelRequest
             stream   <- clientOutputStream iface
             -- Unlike the client inbound thread, or the inbound/outbound threads
             -- of the server, http2 knows about this particular thread and may
