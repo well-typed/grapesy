@@ -108,12 +108,9 @@ setupRequestChannel :: forall sess.
   -- the entire conversation is over (i.e., the server cannot "half-close").
   -> FlowStart (Outbound sess)
   -> IO (Channel sess, CancelRequest)
-setupRequestChannel sess
-                    ConnectionToServer{sendRequest}
-                    terminateCall
-                    outboundStart
-                  = do
+setupRequestChannel sess conn terminateCall outboundStart = do
     channel <- initChannel "client"
+    monitorInbound terminateCall channel
     let requestInfo = buildRequestInfo sess outboundStart
 
     cancelRequestVar <- newEmptyMVar
@@ -154,7 +151,7 @@ setupRequestChannel sess
     forkRequest :: Channel sess -> Client.Request -> IO ()
     forkRequest channel req =
         forkThread "grapesy:clientInbound" (channelInbound channel) $ \unmask ctxt -> unmask $
-          sendRequest req $ \resp -> do
+          sendRequest conn req $ \resp -> do
             responseStatus <-
               case Client.responseStatus resp of
                 Just x  -> return x
@@ -195,7 +192,6 @@ setupRequestChannel sess
         threadBody "grapesy:clientOutbound" (channelOutbound channel) $ \ctxt -> do
           threadMainBody ctxt regular $ \markDone -> do
             putMVar cancelRequestVar cancelRequest
-            _monitor <- threadMonitor ctxt (channelInbound channel) monitorPred
             stream   <- clientOutputStream iface
             -- Unlike the client inbound thread, or the inbound/outbound threads
             -- of the server, http2 knows about this particular thread and may
@@ -214,23 +210,43 @@ setupRequestChannel sess
         cancelRequest :: CancelRequest
         cancelRequest = HTTP.outBodyCancel iface . fmap unwrapExactException
 
-        -- In HTTP2, streams are bidirectional and can be half-closed in either
-        -- direction. However, in gRPC the stream can be half-closed from the
-        -- client to the server (indicating that the client will not send any
-        -- more messages), but not from the server to the client: when the
-        -- server half-closes their connection, it sends the gRPC trailers and
-        -- this terminates the call.
-        monitorPred ::
-              Either
-                ThreadException
-                ( Either
-                    (NoMessages (Inbound sess))
-                    (Trailers   (Inbound sess))
-                )
-           -> Maybe ExactException
-        monitorPred = \case
-            Left  e        -> Just $ threadException e
-            Right trailers -> Just $ terminateCall trailers
+-- | Make outbound thread monitor the input thread
+--
+-- The outbound thread is started by http2 when the request is successfully
+-- initiated from the inbound thread. This means that monitoring must be setup
+-- /outside of/ the outbound thread, because if not the monitor might never be
+-- setup, and an attempt to interact with the outbound thread might block
+-- indefinitely because it never makes it past its 'ThreadNotStarted' not
+-- started state, even though the inbound thread has died.
+--
+-- In HTTP2, streams are bidirectional and can be half-closed in either
+-- direction. However, in gRPC the stream can be half-closed from the client to
+-- the server (indicating that the client will not send any more messages), but
+-- not from the server to the client: when the server half-closes their
+-- connection, it sends the gRPC trailers and this terminates the call.
+monitorInbound :: forall sess.
+    (InboundResult sess -> ExactException)
+ -> Channel sess -> IO ()
+monitorInbound terminateCall channel = do
+    _monitorRef <-
+      threadMonitor
+        (channelOutbound channel)
+        (channelInbound channel)
+        monitorPred
+    return ()
+  where
+    monitorPred ::
+          Either
+            ThreadException
+            ( Either
+                (NoMessages (Inbound sess))
+                (Trailers   (Inbound sess))
+            )
+       -> Maybe ExactException
+    monitorPred = \case
+        Left  e        -> Just $ threadException e
+        Right trailers -> Just $ terminateCall trailers
+
 
 {-------------------------------------------------------------------------------
    Auxiliary http2

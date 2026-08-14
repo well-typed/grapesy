@@ -113,6 +113,7 @@ setupResponseChannel sess
                      startOutbound
                    = do
     channel <- initChannel "server"
+    monitorInbound channel
 
     forkThread "grapesy:serverInbound" (channelInbound channel) $ \unmask ctxt -> unmask $
       case inboundStart of
@@ -131,12 +132,6 @@ setupResponseChannel sess
         FlowStartRegular headers -> do
           regular <- initFlowStateRegular headers
           threadMainBody ctxt regular $ \markDone -> do
-            -- Monitoring here is a bit subtle: http2 will spawn an auxiliary
-            -- thread, which will be the one that will actually run the
-            -- 'sendMessageLoop'. Meanwhile, we will simply be waiting for that
-            -- auxiliary thread to terminate; if the monitor fires, is it
-            -- /this/ thread that receives it, not the auxiliary http2 thread.
-            _monitor <- threadMonitor ctxt (channelInbound channel) monitorPred
             respondStreamingWithResult
                 conn
                 (outboundTrailersMaker sess channel regular)
@@ -147,6 +142,22 @@ setupResponseChannel sess
           threadTrivial ctxt trailers
 
     return channel
+
+-- | Make outbound thread monitor the input thread
+--
+-- Monitoring here is a bit subtle: http2 will spawn an auxiliary thread, which
+-- will be the one that will actually run the 'sendMessageLoop'. Meanwhile, our
+-- \"outbound thread\" will simply be waiting for that auxiliary thread to
+-- terminate; if the monitor fires, is it /this/ thread that receives it, not
+-- the auxiliary http2 thread.
+monitorInbound :: forall sess. Channel sess -> IO ()
+monitorInbound channel = do
+    _monitorRef <-
+      threadMonitor
+        (channelOutbound channel)
+        (channelInbound channel)
+        monitorPred
+    return ()
   where
     -- Unlike on the client-side, if the input thread terminates normally, the
     -- server can continue to run normally (the stream can be half-closed from
