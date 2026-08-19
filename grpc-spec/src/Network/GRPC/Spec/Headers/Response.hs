@@ -33,6 +33,7 @@ import Data.List.NonEmpty (NonEmpty)
 import Data.Proxy
 import Data.Text (Text)
 import GHC.Generics (Generic)
+import Network.HTTP.Types qualified as HTTP
 
 import Network.GRPC.Spec.Compression (CompressionId)
 import Network.GRPC.Spec.CustomMetadata.Map
@@ -60,6 +61,14 @@ data ResponseHeaders_ f = ResponseHeaders {
       --
       -- Set to 'Nothing' to omit the content-type header altogether.
     , responseContentType :: HKD f (Maybe ContentType)
+
+      -- | Response trailers
+      --
+      -- The initial response headers should announce which trailers can be
+      -- expected after the response body.
+      --
+      -- See <https://datatracker.ietf.org/doc/html/rfc9110#name-trailer>
+    , responseTrailerNames :: HKD f (Maybe [HTTP.HeaderName])
 
       -- | Initial response metadata
       --
@@ -96,6 +105,7 @@ instance HKD.Traversable ResponseHeaders_ where
         <$> (f    $ responseCompression       x)
         <*> (f    $ responseAcceptCompression x)
         <*> (f    $ responseContentType       x)
+        <*> (f    $ responseTrailerNames      x)
         <*> (pure $ responseMetadata          x)
         <*> (f    $ responseUnrecognized      x)
 

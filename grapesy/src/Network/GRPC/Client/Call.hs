@@ -595,8 +595,8 @@ recvInitialResponse :: forall rpc m.
      MonadIO m
   => Call rpc
   -> m ( Either (TrailersOnly'    HandledSynthesized)
-                 (ResponseHeaders' HandledSynthesized)
-        )
+                (ResponseHeaders' HandledSynthesized)
+       )
 recvInitialResponse Call{callChannel} = liftIO $
     fmap inbHeaders <$> Session.getInboundHeaders callChannel
 

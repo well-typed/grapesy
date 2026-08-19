@@ -438,11 +438,13 @@ instance Arbitrary (Awkward ResponseHeaders) where
       responseCompression       <- awkward
       responseAcceptCompression <- awkward
       responseContentType       <- Just <$> awkward
+      responseTrailerNames      <- awkward
       responseMetadata          <- awkward
       return ResponseHeaders {
           responseCompression
         , responseAcceptCompression
         , responseContentType
+        , responseTrailerNames
         , responseMetadata
         , responseUnrecognized = ()
         }

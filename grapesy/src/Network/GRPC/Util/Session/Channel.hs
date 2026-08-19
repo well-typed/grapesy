@@ -139,7 +139,7 @@ data RegularFlowState flow = RegularFlowState {
       --
       -- On the server side, the inbound headers are recorded when the request
       -- comes in, and the outbound headers are specified
-      -- ('setResponseMetadata') before the response is initiated
+      -- ('setResponseInitialMetadata') before the response is initiated
       -- ('initiateResponse'/'sendTrailersOnly').
       flowHeaders :: Headers flow
 

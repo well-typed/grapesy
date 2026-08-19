@@ -119,6 +119,7 @@ module Network.GRPC.Spec (
   , customMetadataValue
   , safeCustomMetadata
   , HeaderName(BinaryHeader, AsciiHeader)
+  , getHeaderName
   , safeHeaderName
   , isValidAsciiValue
   , NoMetadata(..)

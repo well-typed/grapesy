@@ -113,6 +113,7 @@ class FromStreamingHandler (styp :: StreamingType) where
   -- specification of the server's API, you can use 'fromStreamingHandler'.
   fromStreamingHandler :: forall k (rpc :: k) m.
         ( SupportsServerRpc rpc
+        , StaticMetadata (ResponseTrailingMetadata rpc)
         , Default (ResponseInitialMetadata rpc)
         , Default (ResponseTrailingMetadata rpc)
         , MonadIO m
@@ -232,6 +233,7 @@ data Methods (m :: Type -> Type) (rpcs :: [k]) where
   -- the example above).
   Method ::
        ( SupportsServerRpc rpc
+       , StaticMetadata (ResponseTrailingMetadata rpc)
        , Default (ResponseInitialMetadata rpc)
        , Default (ResponseTrailingMetadata rpc)
        , SupportsStreamingType rpc styp
@@ -295,9 +297,10 @@ data Services m (servs :: [[k]]) where
 -- > Server.fromMethod @Ping $ Server.mkNonStreaming $ ..
 fromMethod :: forall rpc styp m.
      ( SupportsServerRpc rpc
-     , ValidStreamingType styp
+     , StaticMetadata (ResponseTrailingMetadata rpc)
      , Default (ResponseInitialMetadata rpc)
      , Default (ResponseTrailingMetadata rpc)
+     , ValidStreamingType styp
      , MonadIO m
      )
   => ServerHandler' styp m rpc -> SomeRpcHandler m
@@ -385,6 +388,7 @@ instance SimpleMethods m '[] rpcs (Methods m rpcs) where
 instance
     ( -- Requirements inherited from the 'Method' constructor
       SupportsServerRpc rpc
+    , StaticMetadata (ResponseTrailingMetadata rpc)
     , Default (ResponseInitialMetadata rpc)
     , Default (ResponseTrailingMetadata rpc)
     , SupportsStreamingType rpc (RpcStreamingType rpc)

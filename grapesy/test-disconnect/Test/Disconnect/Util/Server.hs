@@ -32,6 +32,7 @@ data HandlerResults = HandlerResults{
 -- | Construct 'TVar' that records the result of each handler invocation
 monitoredHandler :: forall rpc.
      ( SupportsServerRpc rpc
+     , StaticMetadata (ResponseTrailingMetadata rpc)
      , Default (ResponseInitialMetadata rpc)
      )
   => (Server.Call rpc -> IO ())

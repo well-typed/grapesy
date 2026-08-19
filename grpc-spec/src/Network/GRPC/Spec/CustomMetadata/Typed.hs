@@ -84,6 +84,9 @@ deriving stock instance
 class BuildMetadata a where
   buildMetadata :: a -> [CustomMetadata]
 
+instance BuildMetadata [CustomMetadata] where
+  buildMetadata = id
+
 -- | Wrapper around 'buildMetadata' that catches any pure exceptions
 --
 -- These pure exceptions can arise when invalid headers are generated (for
@@ -122,6 +125,9 @@ class BuildMetadata a => StaticMetadata a where
 --   throwing an error runs the risk of unnecessarily aborting an RPC.
 class ParseMetadata a where
   parseMetadata :: MonadThrow m => [CustomMetadata] -> m a
+
+instance ParseMetadata [CustomMetadata] where
+  parseMetadata = pure
 
 -- | Unexpected metadata
 --

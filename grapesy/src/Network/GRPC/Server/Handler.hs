@@ -101,7 +101,8 @@ hoistRpcHandler f (RpcHandler h) = RpcHandler (f . h)
 -- response metadata needs the request metadata from the client, or even some
 -- messages from the client), you can use 'mkRpcHandlerNoDefMetadata'.
 mkRpcHandler ::
-     ( Default (ResponseInitialMetadata rpc)
+     ( Default        (ResponseInitialMetadata  rpc)
+     , StaticMetadata (ResponseTrailingMetadata rpc)
      , MonadIO m
      )
   => (HasCallStack => Call rpc -> m ())

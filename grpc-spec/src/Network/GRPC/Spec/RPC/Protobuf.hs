@@ -92,9 +92,9 @@ instance ( IsRPC (Protobuf serv meth)
          , HasMethodImpl serv meth
 
            -- Metadata constraints
-         , ParseMetadata (RequestMetadata (Protobuf serv meth))
-         , BuildMetadata (ResponseInitialMetadata (Protobuf serv meth))
-         , StaticMetadata (ResponseTrailingMetadata (Protobuf serv meth))
+         , ParseMetadata (RequestMetadata          (Protobuf serv meth))
+         , BuildMetadata (ResponseInitialMetadata  (Protobuf serv meth))
+         , BuildMetadata (ResponseTrailingMetadata (Protobuf serv meth))
          ) => SupportsServerRpc (Protobuf serv meth) where
   rpcDeserializeInput _ = Protobuf.parseLazy
   rpcSerializeOutput  _ = Protobuf.buildLazy

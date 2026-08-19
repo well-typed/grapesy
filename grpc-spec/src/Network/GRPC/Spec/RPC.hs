@@ -132,9 +132,9 @@ class ( IsRPC rpc
 class ( IsRPC rpc
 
         -- Serialization
-      , ParseMetadata (RequestMetadata rpc)
-      , BuildMetadata (ResponseInitialMetadata rpc)
-      , StaticMetadata (ResponseTrailingMetadata rpc)
+      , ParseMetadata (RequestMetadata          rpc)
+      , BuildMetadata (ResponseInitialMetadata  rpc)
+      , BuildMetadata (ResponseTrailingMetadata rpc)
       ) => SupportsServerRpc rpc where
 
   -- | Deserialize RPC input
