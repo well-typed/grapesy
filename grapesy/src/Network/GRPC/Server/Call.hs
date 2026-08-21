@@ -15,6 +15,7 @@ module Network.GRPC.Server.Call (
   , sendGrpcException
   , getRequestMetadata
   , setResponseInitialMetadata
+  , setResponseInitialMetadataAndTrailers
 
     -- ** Protocol specific wrappers
   , sendNextOutput
@@ -85,7 +86,7 @@ data Call rpc = SupportsServerRpc rpc => Call {
       --
       -- Can be updated until the first message (see 'callFirstMessage'), at
       -- which point it /must/ have been set (if not, an exception is thrown).
-    , callResponseMetadata :: TVar (CallInitialMetadata rpc)
+    , callResponseMetadata :: TVar (Maybe (CallInitialMetadata rpc))
 
       -- | What kicked off the response?
       --
@@ -96,14 +97,16 @@ data Call rpc = SupportsServerRpc rpc => Call {
 -- | Initial metadata
 --
 -- See 'callResponseMetadata' for discussion.
-data CallInitialMetadata rpc =
-    -- | Initial metadata not yet set
-    CallInitialMetadataNotSet
+data CallInitialMetadata rpc = CallInitialMetadata{
+      -- | Initial response metadata
+      callInitialResponseMetadata :: ResponseInitialMetadata rpc
 
-    -- | Initial metadata has been set
-    --
-    -- We record the backtrace of where the metadata was set.
-  | CallInitialMetadataSet (ResponseInitialMetadata rpc) Backtraces
+      -- | The set of trailers that the client can expect
+    , callInitialExpectedTrailers :: Maybe [HeaderName]
+
+      -- | Backtrace of where the metadata was set.
+    , callInitialMetadataBacktrace :: Backtraces
+    }
 
 deriving stock instance IsRPC rpc => Show (CallInitialMetadata rpc)
 
@@ -147,7 +150,7 @@ setupCall :: forall rpc.
   -> ServerContext
   -> IO (Call rpc, Maybe Timeout)
 setupCall conn callContext@ServerContext{serverParams} = do
-    callResponseMetadata <- STM.newTVarIO CallInitialMetadataNotSet
+    callResponseMetadata <- STM.newTVarIO Nothing
     callResponseKickoff  <- STM.newEmptyTMVarIO
 
     (inboundHeaders, timeout) <- determineInbound callSession req
@@ -227,7 +230,7 @@ determineInbound session req = do
 startOutbound :: forall rpc.
      SupportsServerRpc rpc
   => ServerParams
-  -> TVar (CallInitialMetadata rpc)
+  -> TVar (Maybe (CallInitialMetadata rpc))
   -> TMVar Kickoff
   -> Compression
   -> IO (Session.FlowStart (ServerOutbound rpc), Session.ResponseInfo)
@@ -236,65 +239,73 @@ startOutbound serverParams metadataVar kickoffVar cOut = do
     kickoff <- atomically $ STM.readTMVar kickoffVar
 
     -- Session start
-    flowStart :: Session.FlowStart (ServerOutbound rpc) <-
-      case kickoff of
-        KickoffRegular _backtrace -> do
-          -- Get response metadata (see 'setResponseMetadata')
-          --
-          -- It is important we do this only for 'KickoffRegular', because the
-          -- initial metadata is not used in the Trailers-Only case, and we
-          -- should not unecessarily throw the 'ResponseInitialMetadataNotSet'
-          -- exception. This is especially important when that Trailers-Only
-          -- case was triggered by an exception in the handler, because the
-          -- handler might not yet have had the opportunity to set the initial
-          -- metdata prior to the error.
-          responseMetadata <- do
-            mMetadata <- atomically $ STM.readTVar metadataVar
-            case mMetadata of
-              CallInitialMetadataSet md _backtrace ->
-                buildMetadataIO md
-              CallInitialMetadataNotSet ->
-                throwIO ResponseInitialMetadataNotSet
+    case kickoff of
+      KickoffRegular _backtrace -> do
+        -- Get response metadata (see 'setResponseInitialMetadata')
+        --
+        -- It is important we do this only for 'KickoffRegular', because the
+        -- initial metadata is not used in the Trailers-Only case, and we
+        -- should not unecessarily throw the 'ResponseInitialMetadataNotSet'
+        -- exception. This is especially important when that Trailers-Only
+        -- case was triggered by an exception in the handler, because the
+        -- handler might not yet have had the opportunity to set the initial
+        -- metdata prior to the error.
+        (responseMetadata, trailers) <- do
+          mMetadata <- atomically $ STM.readTVar metadataVar
+          case mMetadata of
+            Just md ->
+              (, callInitialExpectedTrailers md) <$>
+                buildMetadataIO (callInitialResponseMetadata md)
+            Nothing ->
+              throwIO ResponseInitialMetadataNotSet
 
-          return $ Session.FlowStartRegular $ OutboundHeaders {
-              outHeaders = ResponseHeaders {
-                  responseCompression =
-                    Just $ Compr.compressionId cOut
-                , responseAcceptCompression =
-                    Just $ Compr.offer compr
-                , responseContentType =
-                    serverContentType serverParams
-                , responseMetadata =
-                    customMetadataMapFromList responseMetadata
-                , responseUnrecognized =
-                    ()
-                }
-            , outCompression = cOut
-            }
-        KickoffTrailersOnly _backtrace trailers ->
-          return $ Session.FlowStartNoMessages trailers
-
-    return (flowStart, buildResponseInfo flowStart)
+        let headers :: Headers (ServerOutbound rpc)
+            headers = OutboundHeaders {
+                outHeaders = ResponseHeaders {
+                    responseCompression =
+                      Just $ Compr.compressionId cOut
+                  , responseAcceptCompression =
+                      Just $ Compr.offer compr
+                  , responseContentType =
+                      serverContentType serverParams
+                  , responseTrailerNames =
+                      allPotentialTrailers <$> trailers
+                  , responseMetadata =
+                      customMetadataMapFromList responseMetadata
+                  , responseUnrecognized =
+                      ()
+                  }
+              , outCompression = cOut
+              }
+        return (
+            Session.FlowStartRegular headers
+          , responseInfoRegular headers
+          )
+      KickoffTrailersOnly _backtrace trailers ->
+        return (
+            Session.FlowStartNoMessages trailers
+          , responseInfoTrailersOnly trailers
+          )
   where
     compr :: Compr.Negotation
     compr = serverCompression serverParams
 
-    buildResponseInfo ::
-         Session.FlowStart (ServerOutbound rpc)
-      -> Session.ResponseInfo
-    buildResponseInfo start = Session.ResponseInfo {
+    responseInfoRegular :: Headers (ServerOutbound rpc) -> Session.ResponseInfo
+    responseInfoRegular headers = Session.ResponseInfo {
           responseStatus  = HTTP.ok200
-        , responseHeaders =
-            case start of
-              Session.FlowStartRegular headers ->
-                buildResponseHeaders
-                  (Proxy @rpc)
-                  (outHeaders headers)
-              Session.FlowStartNoMessages trailers ->
-                buildTrailersOnly
-                  (Just . chooseContentType (Proxy @rpc))
-                  trailers
-        , responseBody = Nothing
+        , responseHeaders = buildResponseHeaders
+                              (Proxy @rpc)
+                              (outHeaders headers)
+        , responseBody    = Nothing
+        }
+
+    responseInfoTrailersOnly :: TrailersOnly -> Session.ResponseInfo
+    responseInfoTrailersOnly trailers = Session.ResponseInfo {
+          responseStatus  = HTTP.ok200
+        , responseHeaders = buildTrailersOnly
+                              (Just . chooseContentType (Proxy @rpc))
+                              trailers
+        , responseBody    = Nothing
         }
 
 -- | Determine compression used by the peer for messages to us
@@ -513,26 +524,72 @@ getRequestMetadata Call{callRequestHeaders} =
 --
 -- Note that this is about the /initial/ metadata; additional metadata can be
 -- sent after the final message; see 'sendOutput'.
-setResponseInitialMetadata ::
+setResponseInitialMetadata :: forall rpc.
+     ( StaticMetadata (ResponseTrailingMetadata rpc)
+     , HasCallStack
+     )
+  => Call rpc
+  -> ResponseInitialMetadata rpc
+  -> IO ()
+setResponseInitialMetadata call md =
+    setResponseInitialMetadataAndTrailers call md $
+      Just $ metadataHeaderNames (Proxy @(ResponseTrailingMetadata rpc))
+
+-- | Generalization of 'setResponseInitialMetadata'
+--
+-- Trailers are HTTP headers that come /after/ the response body; a typical
+-- example is a trailer containing a checksum of the body. Clients must be told
+-- /ahead of time/ which trailers to expect (that is, their names). For most
+-- RPCs this set of trailers is static, determined only by the endpoint (indeed,
+-- the vast majority of gRPC endpoints don't use custom trailers at all, using
+-- only the standard gRPC trailers @grpc-status@, @grpc-message@, and
+-- @grpc-status-details-bin@); this is why 'setResponseInitialMetadata' needs
+--
+-- > StaticMetadata (ResponseTrailingMetadata rpc)
+--
+-- Occassionally however the set of trailers can vary from request to request,
+-- even for the same RPC; 'setResponseInitialMetadataAndTrailers' can be used to
+-- declare which trailers the client can expect in such a case. Note that this
+-- does not mean that those trailers /must/ be present, only that they /can/ be;
+-- to quote RFC9110:
+--
+-- > The "Trailer" header field (Section 6.6.2) can be sent to indicate fields
+-- > likely to be sent in the trailer section, which allows recipients to
+-- > prepare for their receipt before processing the content.
+setResponseInitialMetadataAndTrailers ::
      HasCallStack
-  => Call rpc -> ResponseInitialMetadata rpc -> IO ()
-setResponseInitialMetadata Call{ callResponseMetadata
-                               , callResponseKickoff
-                               }
-                           md = do
+  => Call rpc
+  -> ResponseInitialMetadata rpc
+  -> Maybe [HeaderName]
+     -- ^ Trailers
+     --
+     -- If 'Just', the standard gRPC trailers will be added automatically.
+     --
+     -- Use 'Nothing' if you do not want to announce the trailers ahead of time;
+     -- this is permitted by the HTTP2 spec, but it is not recommended: it can
+     -- result in trailers being dropped, for example by some proxies.
+  -> IO ()
+setResponseInitialMetadataAndTrailers call md trailers = do
     newBacktrace <- collectBacktraces
     atomically $ do
       mKickoff  <- fmap kickoffBacktrace <$> STM.tryReadTMVar callResponseKickoff
       case mKickoff of
         Nothing ->
-          STM.writeTVar callResponseMetadata $
-            CallInitialMetadataSet md newBacktrace
+          STM.writeTVar callResponseMetadata $ Just CallInitialMetadata{
+              callInitialResponseMetadata  = md
+            , callInitialExpectedTrailers  = trailers
+            , callInitialMetadataBacktrace = newBacktrace
+            }
         Just oldBacktrace ->
           STM.throwSTM $ ResponseAlreadyInitiated {
               responseInitiatedFirst = oldBacktrace
             , responseInitiatedAgain = newBacktrace
             }
-
+  where
+    Call{
+        callResponseMetadata
+      , callResponseKickoff
+      } = call
 {-------------------------------------------------------------------------------
   Low-level API
 -------------------------------------------------------------------------------}
@@ -540,7 +597,7 @@ setResponseInitialMetadata Call{ callResponseMetadata
 -- | Initiate the response
 --
 -- This will cause the initial response metadata to be sent
--- (see also 'setResponseMetadata').
+-- (see also 'setResponseInitialMetadata').
 --
 -- Does nothing if the response was already initated (that is, the response
 -- headers, or trailers in the case of 'sendTrailersOnly', have already been

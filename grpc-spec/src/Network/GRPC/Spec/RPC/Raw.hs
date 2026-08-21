@@ -52,9 +52,9 @@ instance ( IsRPC (RawRpc serv meth)
 instance ( IsRPC (RawRpc serv meth)
 
            -- Metadata constraints
-         , ParseMetadata (RequestMetadata (RawRpc serv meth))
-         , BuildMetadata (ResponseInitialMetadata (RawRpc serv meth))
-         , StaticMetadata (ResponseTrailingMetadata (RawRpc serv meth))
+         , ParseMetadata (RequestMetadata          (RawRpc serv meth))
+         , BuildMetadata (ResponseInitialMetadata  (RawRpc serv meth))
+         , BuildMetadata (ResponseTrailingMetadata (RawRpc serv meth))
          ) => SupportsServerRpc (RawRpc serv meth) where
   rpcDeserializeInput _ = return
   rpcSerializeOutput  _ = id

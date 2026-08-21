@@ -12,6 +12,7 @@ module Network.GRPC.Spec.CustomMetadata.Raw (
   , customMetadataValue
   , safeCustomMetadata
   , HeaderName(BinaryHeader, AsciiHeader)
+  , getHeaderName
   , safeHeaderName
   , isValidAsciiValue
   ) where
@@ -152,7 +153,8 @@ data HeaderName =
     -- suffix to detect binary headers and properly apply base64 encoding &
     -- decoding as headers are sent and received).
     --
-    -- Since this is binary data, padding considerations do not apply.
+    -- Since this kind of header contains binary data, padding considerations do
+    -- not apply.
     UnsafeBinaryHeader Strict.ByteString
 
     -- | ASCII header
@@ -167,6 +169,12 @@ data HeaderName =
   | UnsafeAsciiHeader Strict.ByteString
   deriving stock (Eq, Ord, Generic)
   deriving anyclass (NFData)
+
+-- | The flattened header name (including any @-bin@ suffix)
+getHeaderName :: HeaderName -> Strict.ByteString
+getHeaderName = \case
+    UnsafeBinaryHeader name -> name
+    UnsafeAsciiHeader  name -> name
 
 pattern BinaryHeader :: HasCallStack => Strict.ByteString -> HeaderName
 pattern BinaryHeader name <- UnsafeBinaryHeader name

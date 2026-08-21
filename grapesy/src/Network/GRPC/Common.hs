@@ -26,6 +26,7 @@ module Network.GRPC.Common (
   , customMetadataName
   , customMetadataValue
   , HeaderName(BinaryHeader, AsciiHeader)
+  , getHeaderName
   , NoMetadata(..)
     -- ** Typed
   , RequestMetadata

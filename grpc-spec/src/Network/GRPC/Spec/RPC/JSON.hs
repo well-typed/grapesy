@@ -99,9 +99,9 @@ instance ( IsRPC (JsonRpc serv meth)
          , ToJSON   (Output (JsonRpc serv meth))
 
            -- Metadata constraints
-         , ParseMetadata (RequestMetadata           (JsonRpc serv meth))
-         , BuildMetadata (ResponseInitialMetadata   (JsonRpc serv meth))
-         , StaticMetadata (ResponseTrailingMetadata (JsonRpc serv meth))
+         , ParseMetadata (RequestMetadata          (JsonRpc serv meth))
+         , BuildMetadata (ResponseInitialMetadata  (JsonRpc serv meth))
+         , BuildMetadata (ResponseTrailingMetadata (JsonRpc serv meth))
          ) => SupportsServerRpc (JsonRpc serv meth) where
   rpcDeserializeInput _ = Aeson.eitherDecode
   rpcSerializeOutput  _ = Aeson.encode

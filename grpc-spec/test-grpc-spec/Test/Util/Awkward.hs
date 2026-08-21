@@ -11,6 +11,7 @@ import Control.Monad
 import Data.ByteString qualified as BS.Strict
 import Data.ByteString qualified as Strict (ByteString)
 import Data.ByteString.Char8 qualified as Strict.BS.Char8
+import Data.CaseInsensitive qualified as CI
 import Data.Char (ord, chr, isSpace)
 import Data.List.NonEmpty (NonEmpty)
 import Data.Map.Strict (Map)
@@ -18,6 +19,7 @@ import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Word
+import Network.HTTP.Types qualified as HTTP
 import Test.QuickCheck
 import Test.QuickCheck.Instances ()
 
@@ -133,6 +135,49 @@ instance Arbitrary (Awkward Double) where
   arbitrary = Awkward <$> arbitrary
   shrink    = map Awkward . shrink . getAwkward
 
+-- | Header-names can't actually be all that awkward
+instance Arbitrary (Awkward HTTP.HeaderName) where
+  arbitrary =
+      fmap (Awkward . CI.mk . BS.Strict.pack) $ do
+        n <- choose (1, 20)
+        replicateM n validChar
+    where
+      validChar :: Gen Word8
+      validChar = oneof [
+            choose (0x30, 0x39)
+          , choose (0x61, 0x7A)
+          , elements [ord8 '_', ord8 '-', ord8 '.']
+          ]
+  shrink =
+        map (Awkward . CI.mk . BS.Strict.pack)
+      . aux
+      . (BS.Strict.unpack . CI.original . getAwkward)
+    where
+      aux :: [Word8] -> [[Word8]]
+      aux name = concat [
+            -- Try to replace any character with 'a'
+            [ prev ++ [ord8 'a'] ++ after
+            | (prev, x, after) <- isolate name
+            , x /= ord8 'a'
+            ]
+
+            -- Standard list shrinking
+          , filter isValid $ shrink name
+          ]
+
+      isValid :: [Word8] -> Bool
+      isValid name = and [
+            all isValidChar name
+          , length name > 0
+          ]
+
+      isValidChar :: Word8 -> Bool
+      isValidChar x = or [
+            0x30 <= x && x <= 0x39
+          , 0x61 <= x && x <= 0x7A
+          , x `elem` [ord8 '_', ord8 '-', ord8 '.']
+          ]
+
 {-------------------------------------------------------------------------------
   Trimming
 
@@ -152,3 +197,17 @@ trimByteString :: Strict.ByteString -> Strict.ByteString
 trimByteString =
       Strict.BS.Char8.dropWhile    isSpace
     . Strict.BS.Char8.dropWhileEnd isSpace
+
+{-------------------------------------------------------------------------------
+  Internal auxiliary
+-------------------------------------------------------------------------------}
+
+isolate :: [a] -> [([a], a, [a])]
+isolate = go []
+  where
+    go :: [a] -> [a] -> [([a], a, [a])]
+    go _    []     = []
+    go prev (x:xs) = (reverse prev, x, xs) : go (x:prev) xs
+
+ord8 :: Char -> Word8
+ord8 = fromIntegral . ord

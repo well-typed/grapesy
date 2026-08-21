@@ -33,6 +33,10 @@ module Network.GRPC.Spec.Serialization (
   , buildResponseHeaders
   , parseResponseHeaders
   , parseResponseHeaders'
+    -- * HTTP @Trailer@ header
+  , buildTrailer
+  , parseTrailer
+  , allPotentialTrailers
     -- *** Pushback
   , buildPushback
   , parsePushback
@@ -49,6 +53,9 @@ module Network.GRPC.Spec.Serialization (
     -- ** Custom metadata
   , parseCustomMetadata
   , buildCustomMetadata
+    -- *** Header names
+  , buildHeaderName
+  , parseHeaderName
     -- *** Binary values
   , buildBinaryValue
   , parseBinaryValue

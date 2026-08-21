@@ -25,6 +25,7 @@ module Network.GRPC.Server (
   , sendGrpcException
   , getRequestMetadata
   , setResponseInitialMetadata
+  , setResponseInitialMetadataAndTrailers
 
     -- ** Protocol specific wrappers
   , sendNextOutput

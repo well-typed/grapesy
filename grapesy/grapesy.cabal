@@ -263,6 +263,7 @@ test-suite test-grapesy
       Test.Sanity.Compression
       Test.Sanity.EndOfStream
       Test.Sanity.Interop
+      Test.Sanity.Metadata
       Test.Sanity.NoIsLabel
       Test.Sanity.Reclamation
       Test.Sanity.StreamingType.CustomFormat
@@ -290,10 +291,12 @@ test-suite test-grapesy
   build-depends:
       -- Inherited dependencies
     , async
+    , binary
     , bytestring
     , containers
     , deepseq
     , exceptions
+    , grpc-spec
     , http-types
     , http2
     , mtl
