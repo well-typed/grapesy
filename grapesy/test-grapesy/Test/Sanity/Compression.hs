@@ -46,6 +46,7 @@ test_multipleRPC = do
               Client.withRPC conn def (Proxy @SayHello) $ \call -> do
                 Client.sendFinalInput call req
                 mResp <- StreamElem.value <$> Client.recvOutputWithMeta call
+                void $ Client.waitForTrailers call
                 case mResp of
                   Nothing -> assertFailure "Expected response"
                   Just (meta, resp) -> do

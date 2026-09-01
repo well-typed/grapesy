@@ -1,8 +1,10 @@
 module Interop.Client.TestCase.EmptyUnary (runTest) where
 
+import Control.Monad
 import Data.Proxy
 
 import Network.GRPC.Client
+import Network.GRPC.Client qualified as Client
 import Network.GRPC.Common
 import Network.GRPC.Common.Protobuf
 import Network.GRPC.Common.StreamElem qualified as StreamElem
@@ -15,11 +17,12 @@ import Proto.API.Interop
 
 -- | <https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptions.md#empty_unary>
 runTest :: Cmdline -> IO ()
-runTest cmdline =
+runTest cmdline = do
     withConnection def (testServer cmdline) $ \conn ->
       withRPC conn def (Proxy @EmptyCall) $ \call -> do
         sendFinalInput call empty
         streamElem <- StreamElem.value <$> recvOutputWithMeta call
+        void $ Client.waitForTrailers call
 
         -- The test description asks us to also verify the size of the /outgoing/
         -- message if possible. This information is not readily available in

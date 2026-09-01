@@ -7,6 +7,7 @@ module Test.Sanity.BrokenDeployments (tests) where
 
 import Control.Concurrent
 import Control.Exception
+import Control.Monad
 import Data.ByteString.Char8 qualified as BS.Strict.Char8
 import Data.ByteString.UTF8 qualified as BS.Strict.UTF8
 import Data.IORef
@@ -277,7 +278,9 @@ test_invalidRequestMetadata = respondWith (\_reqBody -> response) $ \addr -> do
       Client.withConnection connParams' (Client.ServerInsecure addr) $ \conn ->
         Client.withRPC conn def (Proxy @Ping) $ \call -> do
           Client.sendEndOfInput call
-          Client.recvInitialResponse call
+          initialResponse <- Client.recvInitialResponse call
+          void $ Client.waitForTrailers call
+          return initialResponse
     case mResp of
       Right headers
         | Left invalid <- Client.responseUnrecognized headers

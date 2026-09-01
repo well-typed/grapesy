@@ -205,7 +205,7 @@ runHandler unmask call handler = do
 --    the exception in 'serverTopLevel').
 ignoreUncleanClose :: Call rpc -> ExitCase a -> IO ()
 ignoreUncleanClose Call{callChannel} reason =
-    void $ Session.close callChannel reason
+    Session.close callChannel reason
 
 -- | Wait for the handler to terminate
 --

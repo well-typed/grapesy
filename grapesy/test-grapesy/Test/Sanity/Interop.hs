@@ -111,6 +111,7 @@ test_emptyUnary =
           Client.withRPC conn def (Proxy @EmptyCall) $ \call -> do
             Client.sendFinalInput call defMessage
             streamElem <- Client.recvOutputWithMeta call
+            void $ Client.waitForTrailers call
             case StreamElem.value streamElem of
               Nothing         -> fail "Expected answer"
               Just (meta, _x) -> verifyMeta meta
@@ -153,6 +154,7 @@ test_serverCompressedStreaming =
               ]
             output1 <- Client.recvOutputWithMeta call
             output2 <- Client.recvOutputWithMeta call
+            void $ Client.waitForTrailers call
             verifyOutputs (StreamElem.value output1, StreamElem.value output2)
       , server = [
             Server.someRpcHandler $

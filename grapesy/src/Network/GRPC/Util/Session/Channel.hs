@@ -429,29 +429,24 @@ waitForOutbound Channel{channelOutbound} =
 --
 -- Before a channel can be closed, you should 'send' the final outbound message
 -- and then 'waitForOutbound' until all outbound messages have been processed.
--- Not doing so is considered a bug (it is not possible to do this implicitly,
--- because the final call to 'send' involves a choice of trailers, and calling
--- 'waitForOutbound' /without/ a final close to 'send' will result in deadlock).
--- Typically code will also process all /incoming/ messages, but doing so is of
--- course not mandatory.
+-- It is not possible to do this implicitly, because the final call to 'send'
+-- involves a choice of trailers, and calling 'waitForOutbound' /without/ a
+-- final close to 'send' will result in deadlock. Typically code will also
+-- process all /incoming/ messages, but doing so is of course not mandatory.
 --
--- Calling 'close' will kill the outbound thread ('sendMessageLoop'), /if/ it is
--- still running. If the thread was terminated with an exception, this could
--- mean one of two things:
+-- If the outbound thread is still running, 'waitForOutbound' was
+-- not called, and the outbound thread will be terminated with an exception:
 --
--- 1. The connection to the peer was lost
--- 2. Proper procedure for outbound messages was not followed (see above)
---
--- In the case of (2) this is bug in the caller, and so 'close' will return an
--- exception. In the case of (1), however, very likely an exception will
--- /already/ have been thrown when a communication attempt was made, and 'close'
--- will return 'Nothing'. This matches the design philosophy in @grapesy@ that
--- exceptions are thrown \"lazily\" rather than \"strictly\".
+-- * If the channel is closed /because of/ an exception, we use that exception
+--   (or 'ChannelAborted' in the case of 'ExitCaseAbort')
+-- * Otherwise, the caller terminated normally and yet did not call
+--   'waitForOutbound'. This is a bug in the caller, which we record as a
+--   'ChannelDiscarded' exception on the channel.
 close ::
      HasCallStack
   => Channel sess
   -> ExitCase a    -- ^ The reason why the channel is being closed
-  -> IO (Maybe ExactException)
+  -> IO ()
 close Channel{channelOutbound} reason = do
     backtrace <- collectBacktraces
     let channelClosed :: ExactException
@@ -464,16 +459,7 @@ close Channel{channelOutbound} reason = do
     -- We leave the inbound thread running. Although the channel is closed,
     -- there might still be unprocessed messages in the queue. The inbound
     -- thread will terminate once it reaches the end of the queue.
-    outbound <- cancelThread channelOutbound channelClosed
-    case outbound of
-      AlreadyTerminated _ ->
-        return $ Nothing
-      AlreadyAborted _err ->
-        -- Connection to the peer was lost prior to closing
-        return $ Nothing
-      Cancelled ->
-        -- Proper procedure for outbound messages was not followed
-        return $ Just channelClosed
+    cancelThread channelOutbound channelClosed
 
 -- | Channel was closed because it was discarded
 --
