@@ -8,9 +8,7 @@ module Network.GRPC.Util.Session.Client (
 
 import Network.GRPC.Util.Imports
 
-import Control.Concurrent.MVar (MVar, newEmptyMVar, readMVar, putMVar)
 import Control.Concurrent.STM qualified as STM
-import Control.Monad (join)
 import Data.ByteString qualified as BS.Strict
 import Data.ByteString qualified as Strict (ByteString)
 import Data.ByteString.Lazy qualified as BS.Lazy
@@ -108,17 +106,18 @@ setupRequestChannel :: forall sess.
   -- the entire conversation is over (i.e., the server cannot "half-close").
   -> FlowStart (Outbound sess)
   -> IO (Channel sess, CancelRequest)
-setupRequestChannel sess
-                    ConnectionToServer{sendRequest}
-                    terminateCall
-                    outboundStart
-                  = do
+setupRequestChannel sess conn terminateCall outboundStart = do
     channel <- initChannel "client"
+    monitorInbound terminateCall channel
     let requestInfo = buildRequestInfo sess outboundStart
 
-    cancelRequestVar <- newEmptyMVar
+    cancelRequestVar <- STM.newEmptyTMVarIO
     let cancelRequest :: CancelRequest
-        cancelRequest e = join . (fmap ($ e)) $ readMVar cancelRequestVar
+        cancelRequest e = do
+            -- If the outbound thread died, cancelRequestVar might never be set
+            cancel <- withThreadInterface (channelOutbound channel) $ \_ ->
+                         STM.readTMVar cancelRequestVar
+            cancel e
 
     case outboundStart of
       FlowStartRegular headers -> do
@@ -136,9 +135,9 @@ setupRequestChannel sess
                     (requestMethod  requestInfo)
                     (requestPath    requestInfo)
                     (requestHeaders requestInfo)
-        -- Can't cancel non-streaming request
-        putMVar cancelRequestVar $ \_ -> return ()
-        atomically $
+        atomically $ do
+          -- Can't cancel non-streaming request
+          STM.putTMVar cancelRequestVar $ \_ -> return ()
           STM.modifyTVar (channelOutbound channel) $ \oldState ->
             case oldState of
               ThreadNotStarted debugId ->
@@ -154,7 +153,7 @@ setupRequestChannel sess
     forkRequest :: Channel sess -> Client.Request -> IO ()
     forkRequest channel req =
         forkThread "grapesy:clientInbound" (channelInbound channel) $ \unmask ctxt -> unmask $
-          sendRequest req $ \resp -> do
+          sendRequest conn req $ \resp -> do
             responseStatus <-
               case Client.responseStatus resp of
                 Just x  -> return x
@@ -187,15 +186,14 @@ setupRequestChannel sess
 
     outboundThread ::
          Channel sess
-      -> MVar CancelRequest
+      -> STM.TMVar CancelRequest
       -> RegularFlowState (Outbound sess)
       -> HTTP.OutBodyIface
       -> IO ()
     outboundThread channel cancelRequestVar regular iface =
         threadBody "grapesy:clientOutbound" (channelOutbound channel) $ \ctxt -> do
           threadMainBody ctxt regular $ \markDone -> do
-            putMVar cancelRequestVar cancelRequest
-            _monitor <- threadMonitor ctxt (channelInbound channel) monitorPred
+            atomically $ STM.putTMVar cancelRequestVar cancelRequest
             stream   <- clientOutputStream iface
             -- Unlike the client inbound thread, or the inbound/outbound threads
             -- of the server, http2 knows about this particular thread and may
@@ -214,23 +212,43 @@ setupRequestChannel sess
         cancelRequest :: CancelRequest
         cancelRequest = HTTP.outBodyCancel iface . fmap unwrapExactException
 
-        -- In HTTP2, streams are bidirectional and can be half-closed in either
-        -- direction. However, in gRPC the stream can be half-closed from the
-        -- client to the server (indicating that the client will not send any
-        -- more messages), but not from the server to the client: when the
-        -- server half-closes their connection, it sends the gRPC trailers and
-        -- this terminates the call.
-        monitorPred ::
-              Either
-                ThreadException
-                ( Either
-                    (NoMessages (Inbound sess))
-                    (Trailers   (Inbound sess))
-                )
-           -> Maybe ExactException
-        monitorPred = \case
-            Left  e        -> Just $ threadException e
-            Right trailers -> Just $ terminateCall trailers
+-- | Make outbound thread monitor the input thread
+--
+-- The outbound thread is started by http2 when the request is successfully
+-- initiated from the inbound thread. This means that monitoring must be setup
+-- /outside of/ the outbound thread, because if not the monitor might never be
+-- setup, and an attempt to interact with the outbound thread might block
+-- indefinitely because it never makes it past its 'ThreadNotStarted' not
+-- started state, even though the inbound thread has died.
+--
+-- In HTTP2, streams are bidirectional and can be half-closed in either
+-- direction. However, in gRPC the stream can be half-closed from the client to
+-- the server (indicating that the client will not send any more messages), but
+-- not from the server to the client: when the server half-closes their
+-- connection, it sends the gRPC trailers and this terminates the call.
+monitorInbound :: forall sess.
+    (InboundResult sess -> ExactException)
+ -> Channel sess -> IO ()
+monitorInbound terminateCall channel = do
+    _monitorRef <-
+      threadMonitor
+        (channelOutbound channel)
+        (channelInbound channel)
+        monitorPred
+    return ()
+  where
+    monitorPred ::
+          Either
+            ThreadException
+            ( Either
+                (NoMessages (Inbound sess))
+                (Trailers   (Inbound sess))
+            )
+       -> Maybe ExactException
+    monitorPred = \case
+        Left  e        -> Just $ threadException e
+        Right trailers -> Just $ terminateCall trailers
+
 
 {-------------------------------------------------------------------------------
    Auxiliary http2

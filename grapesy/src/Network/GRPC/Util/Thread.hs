@@ -8,7 +8,6 @@ module Network.GRPC.Util.Thread (
   , ThreadException(..)
     -- * Creating threads
   , ThreadContext(..)
-  , threadMonitor
   , ThreadBody
   , newThreadState
   , forkThread
@@ -28,6 +27,7 @@ module Network.GRPC.Util.Thread (
     -- * Monitoring
   , MonitorRef -- opaque
   , MonitorAnnotation(..)
+  , threadMonitor
   , demonitor
   ) where
 
@@ -214,24 +214,9 @@ data ThreadContext a r r' = ThreadContext{
       -- this case to have a diferent result type.
     , threadTrivial :: r' -> IO ()
 
-      -- | Monitor another thread
-    , threadMonitor_ :: forall a2 r2 r'2.
-            HasCallStack
-         => TVar (ThreadState a2 r2 r'2)
-         -> (Either ThreadException (Either r'2 r2) -> Maybe ExactException)
-         -> IO MonitorRef
-
       -- | Unique identifier for this thread
     , threadId :: DebugThreadId
     }
-
-threadMonitor ::
-     HasCallStack
-  => ThreadContext a r r'
-  -> TVar (ThreadState a2 r2 r'2)
-  -> (Either ThreadException (Either r'2 r2) -> Maybe ExactException)
-  -> IO MonitorRef
-threadMonitor ThreadContext{threadMonitor_} = threadMonitor_
 
 type ThreadBody a r r' =
       (forall x. IO x -> IO x)
@@ -378,7 +363,6 @@ threadBody label state body = do
     res <- tryExact $ body ThreadContext{
           threadMainBody = \a k -> markRunning a >> k markDone
         , threadTrivial  = markTrivial
-        , threadMonitor_ = monitorJust state
         , threadId       = threadDebugId initState
         }
     markResult res
@@ -568,7 +552,7 @@ newtype MonitorRef = MonitorRef ThreadId
   deriving stock (Show, Eq)
   deriving ToExceptionDoc via LinesToExceptionDoc MonitorRef
 
--- | Annotation added to exceptions that were thrown by 'monitorJust'.
+-- | Annotation added to exceptions that were thrown by 'threadMonitor'.
 data MonitorAnnotation = MonitorAnnotation{
       -- | Backtrace to where the monitor was first established
       monitorAnnotationContext :: Backtraces
@@ -596,7 +580,7 @@ instance ExceptionAnnotation MonitorAnnotation where
 -- Just like in Erlang, if the target thread has already died when we start
 -- monitoring, the monitor exception (if any) is thrown immediately (we inherit
 -- this behaviour from 'waitForNormalOrAbnormalThreadTermination').
-monitorJust ::
+threadMonitor ::
      (HasCallStack, Exception e)
   => TVar (ThreadState a1 r1 r'1)
      -- ^ Thread doing the monitoring
@@ -611,7 +595,7 @@ monitorJust ::
      --
      -- If 'Just', the exception is given a 'MonitorAnnotation'.
   -> IO MonitorRef
-monitorJust us them p = do
+threadMonitor us them p = do
     -- Backtrace to where the monitor was established
     backtrace <- collectBacktraces
     MonitorRef <$> forkIO (aux backtrace)

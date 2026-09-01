@@ -40,9 +40,11 @@ import Control.Monad.IO.Class
 import Data.ProtoLens.Labels ()
 import Data.Text qualified as Text
 import GHC.Generics (Generic)
+import Network.HTTP2.Client qualified as HTTP2
 import Network.HTTP2.Server qualified as HTTP2.Server
 import Network.Socket (PortNumber)
 import Network.TLS
+import System.ThreadManager qualified as ThreadManager
 import Test.QuickCheck.Monadic qualified as QuickCheck
 import Test.Tasty.QuickCheck qualified as QuickCheck
 
@@ -197,11 +199,22 @@ isDeliberateException (WrapExactException e) =
       Just (_e' :: DeliberateException) -> True
       _otherwise -> False
 
+-- | Client disconnect
+--
+-- TODO <https://github.com/well-typed/grapesy/issues/339>
+-- When a client disconnects http2 informs us in a number of different ways;
+-- which exception we get depends on which one happens to get to us first.
 isClientDisconnected :: ExactException -> Bool
-isClientDisconnected (WrapExactException e) =
-    case fromException e of
-      Just Server.ClientDisconnected{} -> True
-      _otherwise -> False
+isClientDisconnected (WrapExactException e)
+  | Just Server.ClientDisconnected{} <- fromException e
+  = True
+
+  | Just (ThreadManager.KilledByThreadManager (Just e')) <- fromException e
+  , Just HTTP2.ConnectionIsClosed <- fromException e'
+  = True
+
+  | otherwise
+  = False
 
 isInvalidRequestHeaders :: ExactException -> Bool
 isInvalidRequestHeaders (WrapExactException e) =
