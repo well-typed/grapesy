@@ -1,5 +1,25 @@
 # Revision history for grapesy
 
+## 1.2.0 -- 2026-09-02
+
+* Use `http2-5.4.4` (which brings in `crypton-1.1.*`).
+* Improve handling of of `http2` exceptions
+* Reduce test-suite flakiness
+* `recvNextOutputElem` checks trailing metadata [#369]
+* Send `RST_STREAM` even if client has already sent their final message [#372].
+  The RST_STREAM tells the server that the client is no longer interested in
+  receiving any more messages from the server; it's therefore independent from
+  whether or not the client has sent _its_ final message _to_ the server.
+* The set of trailers included in a response no longer need to be static per
+  RPC, but can vary based on the request; see
+  `setResponseInitialMetadataAndTrailers` [#375]
+* HTTP `Trailer` header (which announces which trailers a server might send)
+  can now be inspected by clients
+* Improve documentation of `exponentialBackoff` [#332, Mako Bates]
+* Support for GHC 9.12 and 9.14
+* Various other bounds [#348, Erik de Castro Lopo; and others]
+* Test against v1.83 of the official gRPC interop tests [#371]
+
 ## 1.1.1 -- 2025-10-09
 
 * Support `openConnection/closeConnection`
