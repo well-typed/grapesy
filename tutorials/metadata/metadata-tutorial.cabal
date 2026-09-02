@@ -48,7 +48,7 @@ library
   build-depends:
     , bytestring         >= 0.10 && < 0.13
     , exceptions         >= 0.10 && < 0.11
-    , grapesy            >= 1.1  && < 1.2
+    , grapesy            >= 1.2  && < 1.3
     , proto-lens         >= 0.7  && < 0.8
     , proto-lens-runtime >= 0.7  && < 0.8
     , time               >= 1.9  && < 1.17
