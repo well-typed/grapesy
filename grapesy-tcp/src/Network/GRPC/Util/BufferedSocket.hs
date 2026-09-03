@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE UnboxedTuples #-}
@@ -27,7 +28,7 @@ import Data.Binary.Put qualified as Put
 
 -- for readWord8ArrayAsWord32#
 import Data.Primitive.ByteArray (MutableByteArray (..))
-import GHC.Exts (readWord8ArrayAsWord32#, Int (..), mutableByteArrayContents#)
+import GHC.Exts (readWord8ArrayAsWord32#, Int (..), Ptr (..))
 import GHC.Word (Word32 (..))
 import GHC.IO (IO (..))
 import Data.Word (byteSwap32)
@@ -208,5 +209,11 @@ byteSwapNetwork32 = byteSwap32 -- TODO: fix me on big endian machines
 
 -- | See implementation of 'GHC.Foreign.Ptr.mallocForeignPtrBytes'
 pinnedMutableByteArrayToBS :: MutableByteArray RealWorld -> Int -> ByteString
-pinnedMutableByteArrayToBS (MutableByteArray ba) len =
-    BS (ForeignPtr (mutableByteArrayContents# ba) (PlainPtr ba)) len
+pinnedMutableByteArrayToBS mba@(MutableByteArray ba) len =
+#if MIN_VERSION_bytestring(0,11,0)
+    BS (ForeignPtr addr (PlainPtr ba)) len
+#else
+    PS (ForeignPtr addr (PlainPtr ba)) 0 len
+#endif
+  where
+    !(Ptr addr) = mutableByteArrayContents mba
