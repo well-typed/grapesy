@@ -39,6 +39,15 @@ data HTTP2Settings = HTTP2Settings {
       -- information.
     , http2ConnectionWindowSize :: Word32
 
+      -- | Restrict IPv6 sockets to IPv6 only (@IPV6_V6ONLY@)
+      --
+      -- Only relevant when binding to an IPv6 address. When 'False' (the
+      -- default, per RFC 3493), a server bound to the IPv6 wildcard @::@ also
+      -- accepts IPv4 connections.
+      --
+      -- Ignored on OpenBSD.
+    , http2IPv6Only :: Bool
+
       -- | Enable @TCP_NODELAY@
       --
       -- Send out TCP segments as soon as possible, even if there is only a
@@ -186,6 +195,7 @@ defaultHTTP2Settings = HTTP2Settings {
     , http2StreamWindowSize            = defInitialStreamWindowSize
     , http2ConnectionWindowSize        = defInitialConnectionWindowSize
     , http2TcpAbortiveClose            = False
+    , http2IPv6Only                    = False
     , http2TcpNoDelay                  = True
     , http2OverridePingRateLimit       = Just 100
     , http2OverrideEmptyFrameRateLimit = Nothing

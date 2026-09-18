@@ -444,11 +444,20 @@ withServerSocket http2Settings socketTMVar host port k = do
       k sock
   where
     openServerSocket :: AddrInfo -> IO Socket
-    openServerSocket = Run.openTCPServerSocketWithOptions $ concat [
-          [ (Socket.NoDelay, 1)
-          | http2TcpNoDelay http2Settings
-          ]
-        ]
+    openServerSocket addr =
+        Run.openTCPServerSocketWithOptions
+          ( concat [
+                [ (Socket.NoDelay, 1)
+                | http2TcpNoDelay http2Settings
+                ]
+#if !defined(openbsd_HOST_OS)
+              , [ (Socket.IPv6Only, if http2IPv6Only http2Settings then 1 else 0)
+                | Socket.addrFamily addr == Socket.AF_INET6
+                ]
+#endif
+              ]
+          )
+          addr
 
 -- | Create a Unix domain socket
 --
