@@ -75,7 +75,7 @@ withInteropServer cmdline k = do
       = ServerConfig {
             serverInsecure = Nothing
           , serverSecure   = Just SecureConfig {
-                secureHost       = "0.0.0.0"
+                secureHost       = cmdHost cmdline
               , securePort       = cmdPort cmdline
               , securePubCert    = cmdPubCert cmdline
               , secureChainCerts = []
@@ -88,7 +88,7 @@ withInteropServer cmdline k = do
      = ServerConfig {
             serverSecure   = Nothing
           , serverInsecure = Just InsecureConfig {
-                insecureHost = Just "127.0.0.1"
+                insecureHost = Just $ cmdHost cmdline
               , insecurePort = cmdPort cmdline
               }
           }
