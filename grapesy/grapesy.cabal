@@ -205,7 +205,7 @@ library
     , http2          == 5.4.4
     , http-semantics >= 0.4 && < 0.5
     , http2-tls      >= 0.5 && < 0.6
-    , network-run    >= 0.5 && < 0.6
+    , network-run    >= 0.5 && < 0.7
 
   if(flag(patched-ghc-for-exception-debugging))
     cpp-options: -DPATCHED_GHC_FOR_EXCEPTION_DEBUGGING
