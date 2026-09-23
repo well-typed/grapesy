@@ -1,6 +1,6 @@
 cabal-version:      3.0
 name:               grapesy
-version:            1.2.0
+version:            1.2.1
 synopsis:           Native Haskell implementation of the gRPC framework
 description:        This is a fully compliant and feature complete native Haskell
                     implementation of gRPC, Google's RPC framework.
@@ -183,7 +183,7 @@ library
     , recv                 >= 0.1     && < 0.2
     , stm                  >= 2.5     && < 2.6
     , text                 >= 1.2     && < 2.2
-    , time-manager         >= 0.3.2   && < 0.4
+    , time-manager         >= 0.3.2   && < 0.5
     , tls                  >= 1.7     && < 2.5
     , unbounded-delays     >= 0.1.1   && < 0.2
     , unordered-containers >= 0.2     && < 0.3
@@ -202,7 +202,7 @@ library
   -- any new version should be tested against the full grapesy test suite
   -- (regular tests, stress tests and interop tests).
   build-depends:
-    , http2          == 5.4.4
+    , http2          == 5.4.6
     , http-semantics >= 0.4 && < 0.5
     , http2-tls      >= 0.5 && < 0.6
     , network-run    >= 0.5 && < 0.7
@@ -255,6 +255,7 @@ test-suite test-grapesy
       Test.Driver.Dialogue.Execution
       Test.Driver.Dialogue.Generation
       Test.Driver.Dialogue.TestClock
+      Test.Meta.FrameLevelServer
       Test.Prop.Dialogue
       Test.Regression.Issue102
       Test.Regression.Issue238
@@ -263,14 +264,17 @@ test-suite test-grapesy
       Test.Sanity.Cancellation
       Test.Sanity.Compression
       Test.Sanity.EndOfStream
+      Test.Sanity.FramesAfterReset
       Test.Sanity.Interop
       Test.Sanity.Metadata
       Test.Sanity.NoIsLabel
       Test.Sanity.Reclamation
       Test.Sanity.StreamingType.CustomFormat
       Test.Sanity.StreamingType.NonStreaming
+      Test.Sanity.Trailers
       Test.Util
       Test.Util.Exception
+      Test.Util.FrameLevelServer
       Test.Util.RawTestServer
 
       Paths_
@@ -314,7 +318,7 @@ test-suite test-grapesy
       -- Additional dependencies
     , filepath           >= 1.4.2.1 && < 1.6
     , proto-lens-runtime >= 0.7     && < 0.8
-    , QuickCheck         >= 2.14    && < 2.19
+    , QuickCheck         >= 2.14    && < 2.20
     , serialise          >= 0.2     && < 0.3
     , tasty              >= 1.4     && < 1.6
     , tasty-hunit        >= 0.10    && < 0.11
