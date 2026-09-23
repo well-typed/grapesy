@@ -8,11 +8,12 @@ packages:
   , ./tutorials/monadstack
   , ./tutorials/conduit
   , ./tutorials/trailers-only
+  , ../forks/http2
 
 packages: garp
 
 tests: True
-benchmarks: True
+--benchmarks: True
 
 package grpc-spec
   flags: +snappy
