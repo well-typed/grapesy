@@ -340,6 +340,7 @@ test-suite test-disconnect
       Test.Disconnect.Echo.Client
       Test.Disconnect.Echo.RPC
       Test.Disconnect.Echo.Server
+      Test.Disconnect.Keepalive
       Test.Disconnect.Util.Client
       Test.Disconnect.Util.Exception
       Test.Disconnect.Util.Process
