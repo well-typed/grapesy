@@ -1,5 +1,11 @@
 # Revision history for grapesy
 
+## Unreleased
+
+* Support configurable HTTP/2 client idle timeout and keepalive ping, via
+  `http2ClientIdleTimeout` and `http2ClientKeepAlivePingInterval` in
+  `HTTP2Settings` [#228]
+
 ## 1.2.0 -- 2026-09-02
 
 * Use `http2-5.4.4` (which brings in `crypton-1.1.*`).
