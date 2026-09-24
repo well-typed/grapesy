@@ -18,6 +18,7 @@ import Network.GRPC.Server.Run qualified as Grapesy
 import Test.Disconnect.Echo.Client
 import Test.Disconnect.Echo.RPC
 import Test.Disconnect.Echo.Server
+import Test.Disconnect.Keepalive
 import Test.Disconnect.Util.Client
 import Test.Disconnect.Util.Process
 import Test.Disconnect.Util.Server
@@ -55,6 +56,10 @@ main = do
 
     runTest "clientDisconnect" test_clientDisconnect
     runTest "serverDisconnect" test_serverDisconnect
+    runTest "keepAlivePreventsIdleClose"
+      test_keepAlivePreventsIdleClose
+    runTest "idleTimeoutWithoutKeepAliveDisconnects"
+      test_idleTimeoutWithoutKeepAliveDisconnects
   where
     runTest :: String -> Assertion -> IO ()
     runTest label testCase = do
