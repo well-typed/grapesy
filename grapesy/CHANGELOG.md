@@ -1,5 +1,11 @@
 # Revision history for grapesy
 
+## 1.2.1 -- 2026-09-29
+
+* Bump `http2` to 5.4.6
+* Extend test suite with some HPACK/trailers tests
+* Add `http2IPv6Only` [#378, with Noah Harvey]
+
 ## 1.2.0 -- 2026-09-02
 
 * Use `http2-5.4.4` (which brings in `crypton-1.1.*`).
