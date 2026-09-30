@@ -184,6 +184,8 @@ jobs:
           echo "packages: $GITHUB_WORKSPACE/source/./tutorials/conduit" >> cabal.project
           echo "packages: $GITHUB_WORKSPACE/source/./tutorials/trailers-only" >> cabal.project
           echo "packages: $GITHUB_WORKSPACE/source/garp" >> cabal.project
+          echo "packages: $GITHUB_WORKSPACE/source/grapesy-common" >> cabal.project
+          echo "packages: $GITHUB_WORKSPACE/source/grapesy-http2" >> cabal.project
           cat cabal.project
       - name: sdist
         run: |
@@ -215,6 +217,10 @@ jobs:
           echo "PKGDIR_trailers_only_tutorial=${PKGDIR_trailers_only_tutorial}" >> "$GITHUB_ENV"
           PKGDIR_garp="$(find "$GITHUB_WORKSPACE/unpacked" -maxdepth 1 -type d -regex '.*/garp-[0-9.]*')"
           echo "PKGDIR_garp=${PKGDIR_garp}" >> "$GITHUB_ENV"
+          PKGDIR_grapesy_common="$(find "$GITHUB_WORKSPACE/unpacked" -maxdepth 1 -type d -regex '.*/grapesy-common-[0-9.]*')"
+          echo "PKGDIR_grapesy_common=${PKGDIR_grapesy_common}" >> "$GITHUB_ENV"
+          PKGDIR_grapesy_http2="$(find "$GITHUB_WORKSPACE/unpacked" -maxdepth 1 -type d -regex '.*/grapesy-http2-[0-9.]*')"
+          echo "PKGDIR_grapesy_http2=${PKGDIR_grapesy_http2}" >> "$GITHUB_ENV"
           rm -f cabal.project cabal.project.local
           touch cabal.project
           touch cabal.project.local
@@ -228,6 +234,8 @@ jobs:
           echo "packages: ${PKGDIR_conduit_tutorial}" >> cabal.project
           echo "packages: ${PKGDIR_trailers_only_tutorial}" >> cabal.project
           echo "packages: ${PKGDIR_garp}" >> cabal.project
+          echo "packages: ${PKGDIR_grapesy_common}" >> cabal.project
+          echo "packages: ${PKGDIR_grapesy_http2}" >> cabal.project
           echo "package grpc-spec" >> cabal.project
           echo "    ghc-options: -Werror=missing-methods -Werror=missing-fields" >> cabal.project
           echo "package grapesy" >> cabal.project
@@ -247,6 +255,10 @@ jobs:
           echo "package trailers-only-tutorial" >> cabal.project
           echo "    ghc-options: -Werror=missing-methods -Werror=missing-fields" >> cabal.project
           echo "package garp" >> cabal.project
+          echo "    ghc-options: -Werror=missing-methods -Werror=missing-fields" >> cabal.project
+          echo "package grapesy-common" >> cabal.project
+          echo "    ghc-options: -Werror=missing-methods -Werror=missing-fields" >> cabal.project
+          echo "package grapesy-http2" >> cabal.project
           echo "    ghc-options: -Werror=missing-methods -Werror=missing-fields" >> cabal.project
           if [ $((HCNUMVER >= 90400)) -ne 0 ] ; then echo "package grpc-spec" >> cabal.project ; fi
           if [ $((HCNUMVER >= 90400)) -ne 0 ] ; then echo "    ghc-options: -Werror=unused-packages" >> cabal.project ; fi
@@ -268,6 +280,10 @@ jobs:
           if [ $((HCNUMVER >= 90400)) -ne 0 ] ; then echo "    ghc-options: -Werror=unused-packages" >> cabal.project ; fi
           if [ $((HCNUMVER >= 90400)) -ne 0 ] ; then echo "package garp" >> cabal.project ; fi
           if [ $((HCNUMVER >= 90400)) -ne 0 ] ; then echo "    ghc-options: -Werror=unused-packages" >> cabal.project ; fi
+          if [ $((HCNUMVER >= 90400)) -ne 0 ] ; then echo "package grapesy-common" >> cabal.project ; fi
+          if [ $((HCNUMVER >= 90400)) -ne 0 ] ; then echo "    ghc-options: -Werror=unused-packages" >> cabal.project ; fi
+          if [ $((HCNUMVER >= 90400)) -ne 0 ] ; then echo "package grapesy-http2" >> cabal.project ; fi
+          if [ $((HCNUMVER >= 90400)) -ne 0 ] ; then echo "    ghc-options: -Werror=unused-packages" >> cabal.project ; fi
           if [ $((HCNUMVER >= 90200)) -ne 0 ] ; then echo "package grpc-spec" >> cabal.project ; fi
           if [ $((HCNUMVER >= 90200)) -ne 0 ] ; then echo "    ghc-options: -Werror=incomplete-patterns -Werror=incomplete-uni-patterns" >> cabal.project ; fi
           if [ $((HCNUMVER >= 90200)) -ne 0 ] ; then echo "package grapesy" >> cabal.project ; fi
@@ -288,6 +304,10 @@ jobs:
           if [ $((HCNUMVER >= 90200)) -ne 0 ] ; then echo "    ghc-options: -Werror=incomplete-patterns -Werror=incomplete-uni-patterns" >> cabal.project ; fi
           if [ $((HCNUMVER >= 90200)) -ne 0 ] ; then echo "package garp" >> cabal.project ; fi
           if [ $((HCNUMVER >= 90200)) -ne 0 ] ; then echo "    ghc-options: -Werror=incomplete-patterns -Werror=incomplete-uni-patterns" >> cabal.project ; fi
+          if [ $((HCNUMVER >= 90200)) -ne 0 ] ; then echo "package grapesy-common" >> cabal.project ; fi
+          if [ $((HCNUMVER >= 90200)) -ne 0 ] ; then echo "    ghc-options: -Werror=incomplete-patterns -Werror=incomplete-uni-patterns" >> cabal.project ; fi
+          if [ $((HCNUMVER >= 90200)) -ne 0 ] ; then echo "package grapesy-http2" >> cabal.project ; fi
+          if [ $((HCNUMVER >= 90200)) -ne 0 ] ; then echo "    ghc-options: -Werror=incomplete-patterns -Werror=incomplete-uni-patterns" >> cabal.project ; fi
           cat >> cabal.project <<EOF
           source-repository-package
             type:     git
@@ -301,6 +321,9 @@ jobs:
             flags: +snappy
 
           package grapesy
+            flags: +build-demo +build-stress-test
+
+          package grapesy-http2
             flags: +build-demo +build-stress-test
 
           if impl ( ghc < 9.4 )
@@ -360,8 +383,14 @@ jobs:
 
           package garp
             ghc-options: -Werror
+
+          package grapesy-common
+            ghc-options: -Werror
+
+          package grapesy-http2
+            ghc-options: -Werror
           EOF
-          $HCPKG list --simple-output --names-only | perl -ne 'for (split /\s+/) { print "constraints: any.$_ installed\n" unless /^(basics-tutorial|conduit-tutorial|directory|exceptions|filepath|garp|grapesy|grpc-spec|lowlevel-tutorial|metadata-tutorial|monadstack-tutorial|os-string|process|quickstart-tutorial|time|trailers-only-tutorial|unix)$/; }' >> cabal.project.local
+          $HCPKG list --simple-output --names-only | perl -ne 'for (split /\s+/) { print "constraints: any.$_ installed\n" unless /^(basics-tutorial|conduit-tutorial|directory|exceptions|filepath|garp|grapesy|grapesy-common|grapesy-http2|grpc-spec|lowlevel-tutorial|metadata-tutorial|monadstack-tutorial|os-string|process|quickstart-tutorial|time|trailers-only-tutorial|unix)$/; }' >> cabal.project.local
           cat cabal.project
           cat cabal.project.local
       - name: dump install plan
@@ -408,6 +437,10 @@ jobs:
           cd ${PKGDIR_trailers_only_tutorial} || false
           ${CABAL} -vnormal check
           cd ${PKGDIR_garp} || false
+          ${CABAL} -vnormal check
+          cd ${PKGDIR_grapesy_common} || false
+          ${CABAL} -vnormal check
+          cd ${PKGDIR_grapesy_http2} || false
           ${CABAL} -vnormal check
       - name: haddock
         run: |
