@@ -183,7 +183,6 @@ jobs:
           echo "packages: $GITHUB_WORKSPACE/source/./tutorials/monadstack" >> cabal.project
           echo "packages: $GITHUB_WORKSPACE/source/./tutorials/conduit" >> cabal.project
           echo "packages: $GITHUB_WORKSPACE/source/./tutorials/trailers-only" >> cabal.project
-          echo "packages: $GITHUB_WORKSPACE/source/garp" >> cabal.project
           echo "packages: $GITHUB_WORKSPACE/source/grapesy-common" >> cabal.project
           echo "packages: $GITHUB_WORKSPACE/source/grapesy-http2" >> cabal.project
           echo "packages: $GITHUB_WORKSPACE/source/grapesy-tcp" >> cabal.project
@@ -218,8 +217,6 @@ jobs:
           echo "PKGDIR_conduit_tutorial=${PKGDIR_conduit_tutorial}" >> "$GITHUB_ENV"
           PKGDIR_trailers_only_tutorial="$(find "$GITHUB_WORKSPACE/unpacked" -maxdepth 1 -type d -regex '.*/trailers-only-tutorial-[0-9.]*')"
           echo "PKGDIR_trailers_only_tutorial=${PKGDIR_trailers_only_tutorial}" >> "$GITHUB_ENV"
-          PKGDIR_garp="$(find "$GITHUB_WORKSPACE/unpacked" -maxdepth 1 -type d -regex '.*/garp-[0-9.]*')"
-          echo "PKGDIR_garp=${PKGDIR_garp}" >> "$GITHUB_ENV"
           PKGDIR_grapesy_common="$(find "$GITHUB_WORKSPACE/unpacked" -maxdepth 1 -type d -regex '.*/grapesy-common-[0-9.]*')"
           echo "PKGDIR_grapesy_common=${PKGDIR_grapesy_common}" >> "$GITHUB_ENV"
           PKGDIR_grapesy_http2="$(find "$GITHUB_WORKSPACE/unpacked" -maxdepth 1 -type d -regex '.*/grapesy-http2-[0-9.]*')"
@@ -242,7 +239,6 @@ jobs:
           echo "packages: ${PKGDIR_monadstack_tutorial}" >> cabal.project
           echo "packages: ${PKGDIR_conduit_tutorial}" >> cabal.project
           echo "packages: ${PKGDIR_trailers_only_tutorial}" >> cabal.project
-          echo "packages: ${PKGDIR_garp}" >> cabal.project
           echo "packages: ${PKGDIR_grapesy_common}" >> cabal.project
           echo "packages: ${PKGDIR_grapesy_http2}" >> cabal.project
           echo "packages: ${PKGDIR_grapesy_tcp}" >> cabal.project
@@ -265,8 +261,6 @@ jobs:
           echo "package conduit-tutorial" >> cabal.project
           echo "    ghc-options: -Werror=missing-methods -Werror=missing-fields" >> cabal.project
           echo "package trailers-only-tutorial" >> cabal.project
-          echo "    ghc-options: -Werror=missing-methods -Werror=missing-fields" >> cabal.project
-          echo "package garp" >> cabal.project
           echo "    ghc-options: -Werror=missing-methods -Werror=missing-fields" >> cabal.project
           echo "package grapesy-common" >> cabal.project
           echo "    ghc-options: -Werror=missing-methods -Werror=missing-fields" >> cabal.project
@@ -296,8 +290,6 @@ jobs:
           if [ $((HCNUMVER >= 90400)) -ne 0 ] ; then echo "    ghc-options: -Werror=unused-packages" >> cabal.project ; fi
           if [ $((HCNUMVER >= 90400)) -ne 0 ] ; then echo "package trailers-only-tutorial" >> cabal.project ; fi
           if [ $((HCNUMVER >= 90400)) -ne 0 ] ; then echo "    ghc-options: -Werror=unused-packages" >> cabal.project ; fi
-          if [ $((HCNUMVER >= 90400)) -ne 0 ] ; then echo "package garp" >> cabal.project ; fi
-          if [ $((HCNUMVER >= 90400)) -ne 0 ] ; then echo "    ghc-options: -Werror=unused-packages" >> cabal.project ; fi
           if [ $((HCNUMVER >= 90400)) -ne 0 ] ; then echo "package grapesy-common" >> cabal.project ; fi
           if [ $((HCNUMVER >= 90400)) -ne 0 ] ; then echo "    ghc-options: -Werror=unused-packages" >> cabal.project ; fi
           if [ $((HCNUMVER >= 90400)) -ne 0 ] ; then echo "package grapesy-http2" >> cabal.project ; fi
@@ -325,8 +317,6 @@ jobs:
           if [ $((HCNUMVER >= 90200)) -ne 0 ] ; then echo "package conduit-tutorial" >> cabal.project ; fi
           if [ $((HCNUMVER >= 90200)) -ne 0 ] ; then echo "    ghc-options: -Werror=incomplete-patterns -Werror=incomplete-uni-patterns" >> cabal.project ; fi
           if [ $((HCNUMVER >= 90200)) -ne 0 ] ; then echo "package trailers-only-tutorial" >> cabal.project ; fi
-          if [ $((HCNUMVER >= 90200)) -ne 0 ] ; then echo "    ghc-options: -Werror=incomplete-patterns -Werror=incomplete-uni-patterns" >> cabal.project ; fi
-          if [ $((HCNUMVER >= 90200)) -ne 0 ] ; then echo "package garp" >> cabal.project ; fi
           if [ $((HCNUMVER >= 90200)) -ne 0 ] ; then echo "    ghc-options: -Werror=incomplete-patterns -Werror=incomplete-uni-patterns" >> cabal.project ; fi
           if [ $((HCNUMVER >= 90200)) -ne 0 ] ; then echo "package grapesy-common" >> cabal.project ; fi
           if [ $((HCNUMVER >= 90200)) -ne 0 ] ; then echo "    ghc-options: -Werror=incomplete-patterns -Werror=incomplete-uni-patterns" >> cabal.project ; fi
@@ -414,9 +404,6 @@ jobs:
           package trailers-only-tutorial
             ghc-options: -Werror
 
-          package garp
-            ghc-options: -Werror
-
           package grapesy-common
             ghc-options: -Werror
 
@@ -432,7 +419,7 @@ jobs:
           package basics-tutorial-tcp
             ghc-options: -Werror
           EOF
-          $HCPKG list --simple-output --names-only | perl -ne 'for (split /\s+/) { print "constraints: any.$_ installed\n" unless /^(basics-tutorial|basics-tutorial-tcp|conduit-tutorial|directory|exceptions|filepath|garp|grapesy|grapesy-common|grapesy-http2|grapesy-tcp|grpc-spec|lowlevel-tutorial|metadata-tutorial|monadstack-tutorial|os-string|process|quickstart-tcp|quickstart-tutorial|time|trailers-only-tutorial|unix)$/; }' >> cabal.project.local
+          $HCPKG list --simple-output --names-only | perl -ne 'for (split /\s+/) { print "constraints: any.$_ installed\n" unless /^(basics-tutorial|basics-tutorial-tcp|conduit-tutorial|directory|exceptions|filepath|grapesy|grapesy-common|grapesy-http2|grapesy-tcp|grpc-spec|lowlevel-tutorial|metadata-tutorial|monadstack-tutorial|os-string|process|quickstart-tcp|quickstart-tutorial|time|trailers-only-tutorial|unix)$/; }' >> cabal.project.local
           cat cabal.project
           cat cabal.project.local
       - name: dump install plan
@@ -477,8 +464,6 @@ jobs:
           cd ${PKGDIR_conduit_tutorial} || false
           ${CABAL} -vnormal check
           cd ${PKGDIR_trailers_only_tutorial} || false
-          ${CABAL} -vnormal check
-          cd ${PKGDIR_garp} || false
           ${CABAL} -vnormal check
           cd ${PKGDIR_grapesy_common} || false
           ${CABAL} -vnormal check

@@ -9,7 +9,6 @@ packages:
   , ./tutorials/conduit
   , ./tutorials/trailers-only
 
-packages: garp
 packages: grapesy-common
 packages: grapesy-http2
 packages: grapesy-tcp
