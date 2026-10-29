@@ -52,6 +52,7 @@ module Network.GRPC.Server (
 
 import Network.HTTP.Semantics.Server qualified as Server
 
+import Network.GRPC.Common.Exception
 import Network.GRPC.Server.Call
 import Network.GRPC.Server.Context
 import Network.GRPC.Server.Handler
@@ -60,7 +61,6 @@ import Network.GRPC.Server.HandlerMap qualified as HandlerMap
 import Network.GRPC.Server.RequestHandler
 import Network.GRPC.Server.Session (CallSetupFailure(..))
 import Network.GRPC.Spec
-import Network.GRPC.Util.Stream (ClientDisconnected(..))
 
 {-------------------------------------------------------------------------------
   Server proper

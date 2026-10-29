@@ -31,8 +31,7 @@ import Network.GRPC.Client.Connection
 
 import Network.GRPC.Util.Imports
 
-import Control.Concurrent (threadDelay, killThread)
-import Control.Concurrent.MVar (MVar, newMVar, newEmptyMVar, putMVar, takeMVar)
+import Control.Concurrent
 import Control.Concurrent.STM (TVar, TMVar)
 import Control.Concurrent.STM qualified as STM
 import Control.Monad (forever)
@@ -50,6 +49,7 @@ import Network.GRPC.Common.HTTP2Settings
 import Network.GRPC.Util.GHC
 import Network.GRPC.Util.Session.Client qualified as Session
 import Network.GRPC.Util.TLS qualified as Util.TLS
+import Control.Exception (uninterruptibleMask_)
 
 {-------------------------------------------------------------------------------
   Open a new connection
@@ -275,34 +275,26 @@ connectInsecure connParams attempt addr = do
 
 -- | Insecure connection over the given socket
 connectSocket :: ConnParams -> Attempt -> String -> Socket -> IO ()
-connectSocket connParams attempt connAuthority sock = do
-    bracket allocConfig
-            HTTP2.Client.freeSimpleConfig $ \conf ->
-      HTTP2.Client.run clientConfig conf $ \sendRequest aux ->
-        bracket (mapM (forkLabelled "grapesy:client:keepalive" . keepAlivePingLoop aux)
-                      (http2ClientKeepAlivePingInterval connHTTP2Settings))
-                (mapM_ killThread) $ \_ -> do
-          let conn = Session.ConnectionToServer sendRequest
-          atomically $
-            STM.writeTVar (attemptState attempt) $
-              ConnectionReady (attemptClosed attempt) conn
-          runOnConnection $ attemptOnConnection attempt
-          takeMVar $ attemptOutOfScope attempt
+connectSocket connParams attempt connAuthority sock =
+    bracket allocConfig HTTP2.Client.freeSimpleConfig $ \conf            ->
+    HTTP2.Client.run clientConfig conf                $ \sendRequest aux ->
+    withKeepAlive aux connHTTP2Settings               $ do
+      let conn = Session.ConnectionToServer sendRequest
+      atomically $
+        STM.writeTVar (attemptState attempt) $
+          ConnectionReady (attemptClosed attempt) conn
+      runOnConnection $ attemptOnConnection attempt
+      takeMVar $ attemptOutOfScope attempt
   where
     ConnParams{connHTTP2Settings} = connParams
 
     allocConfig :: IO HTTP2.Client.Config
     allocConfig =
         case http2ClientIdleTimeout connHTTP2Settings of
-          Nothing        -> HTTP2.Client.allocSimpleConfig  sock writeBufferSize
-          Just idleTimeoutMicros ->
-            HTTP2.Client.allocSimpleConfig' sock writeBufferSize idleTimeoutMicros
-
-    -- See 'http2ClientKeepAlivePingInterval'.
-    keepAlivePingLoop :: HTTP2.Client.Aux -> Int -> IO ()
-    keepAlivePingLoop aux intervalMicros = forever $ do
-      threadDelay intervalMicros
-      HTTP2.Client.auxSendPing aux
+          Nothing ->
+            HTTP2.Client.allocSimpleConfig  sock writeBufferSize
+          Just timeout ->
+            HTTP2.Client.allocSimpleConfig' sock writeBufferSize timeout
 
     settings :: HTTP2.Client.Settings
     settings = HTTP2.Client.defaultSettings {
@@ -317,8 +309,8 @@ connectSocket connParams attempt connAuthority sock = do
     clientConfig :: HTTP2.Client.ClientConfig
     clientConfig = overrideRateLimits connParams $
         HTTP2.Client.defaultClientConfig {
-            HTTP2.Client.authority = connAuthority
-          , HTTP2.Client.settings = settings
+            HTTP2.Client.authority            = connAuthority
+          , HTTP2.Client.settings             = settings
           , HTTP2.Client.connectionWindowSize =
                 fromIntegral $
                   http2ConnectionWindowSize connHTTP2Settings
@@ -415,6 +407,32 @@ overrideRateLimits connParams clientConfig = clientConfig {
   where
     settings :: HTTP2.Client.Settings
     settings = HTTP2.Client.settings clientConfig
+
+{-------------------------------------------------------------------------------
+  Keep-alive ping
+-------------------------------------------------------------------------------}
+
+-- | Spawn keep-alive thread, if needed
+--
+-- See 'http2ClientKeepAlivePingInterval'.
+withKeepAlive :: HTTP2.Client.Aux -> HTTP2Settings -> IO r -> IO r
+withKeepAlive aux settings k =
+    case http2ClientKeepAlivePingInterval settings of
+      Nothing -> k
+      Just i  -> bracket (spawn i) kill $ \_ -> k
+  where
+    -- bracket's resource allocation happens with exceptions masked
+    spawn :: Int -> IO ThreadId
+    spawn interval =
+        forkIOWithUnmask $ \unmask -> unmask $ do
+          labelThisThread "grapesy:client:keepalive"
+          forever $ do
+            threadDelay interval
+            HTTP2.Client.auxSendPing aux
+
+    -- killThread is itself interruptible
+    kill :: ThreadId -> IO ()
+    kill = uninterruptibleMask_ . killThread
 
 {-------------------------------------------------------------------------------
   Auxiliary http2

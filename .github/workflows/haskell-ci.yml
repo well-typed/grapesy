@@ -310,26 +310,20 @@ jobs:
             constraints: exceptions >= 0.10.12
 
           if impl ( ghc >= 9.14 )
-            allow-newer: blaze-svg:base
+            allow-newer: aeson:tagged
             allow-newer: cborg:base
             allow-newer: cborg:containers
             allow-newer: diagrams-lib:base
             allow-newer: diagrams-lib:containers
             allow-newer: diagrams-postscript:base
-            allow-newer: diagrams-svg:base
-            allow-newer: diagrams-svg:containers
-            allow-newer: lens-family-core:containers
+            allow-newer: indexed-traversable-instances:tagged
             allow-newer: lens-family:containers
+            allow-newer: lens-family-core:containers
+            allow-newer: proto-lens:tagged
+            allow-newer: semialign:tagged
             allow-newer: serialise:base
             allow-newer: serialise:containers
-            allow-newer: serialise:time
             allow-newer: statestack:base
-            allow-newer: svg-builder:base
-            allow-newer: SVGFonts:containers
-            allow-newer: tree-diff:base
-            allow-newer: tree-diff:containers
-            allow-newer: tree-diff:QuickCheck
-            allow-newer: tree-diff:time
 
           package grpc-spec
             ghc-options: -Werror
@@ -361,7 +355,7 @@ jobs:
           package garp
             ghc-options: -Werror
           EOF
-          $HCPKG list --simple-output --names-only | perl -ne 'for (split /\s+/) { print "constraints: any.$_ installed\n" unless /^(basics-tutorial|conduit-tutorial|directory|exceptions|filepath|garp|grapesy|grpc-spec|lowlevel-tutorial|metadata-tutorial|monadstack-tutorial|os-string|process|quickstart-tutorial|time|trailers-only-tutorial|unix)$/; }' >> cabal.project.local
+          $HCPKG list --simple-output --names-only | perl -ne 'for (split /\s+/) { print "constraints: any.$_ installed\n" unless /^(basics-tutorial|binary|bytestring|conduit-tutorial|directory|exceptions|filepath|garp|grapesy|grpc-spec|lowlevel-tutorial|metadata-tutorial|monadstack-tutorial|os-string|parsec|process|quickstart-tutorial|text|time|trailers-only-tutorial|unix)$/; }' >> cabal.project.local
           cat cabal.project
           cat cabal.project.local
       - name: dump install plan

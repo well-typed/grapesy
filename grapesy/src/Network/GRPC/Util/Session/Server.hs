@@ -16,6 +16,7 @@ import Network.GRPC.Util.Session.API
 import Network.GRPC.Util.Session.Channel
 import Network.GRPC.Util.Stream
 import Network.GRPC.Util.Thread
+import Network.GRPC.Util.GHC
 
 {-------------------------------------------------------------------------------
   Connection
@@ -64,13 +65,15 @@ respondStreamingWithResult conn trailers responseInfo body = do
          MVar (Either ExactException a)
       -> HTTP.OutBodyIface
       -> IO ()
-    auxThreadBody resultVar iface = do
-        result <- try $ do
+    auxThreadBody resultVar iface = mask $ \unmask -> do
+        labelThisThread "grapesy:respondStreamingWithResult:auxThreadBody"
+        result <- try $ unmask $ do
           -- It is important we create the output stream inside the body of the
           -- exception handler, since that too can fail.
           ostrm <- serverOutputStream iface
           body ostrm
         putMVar resultVar result
+        labelThisThread "grapesy:respondStreamingWithResult:auxThreadBody:done"
 
 respondNoBody :: ConnectionToClient -> ResponseInfo -> IO ()
 respondNoBody conn responseInfo =

@@ -87,7 +87,7 @@ withKeepAlive pingInterval = Client.withConnection connParams
     connParams = def {
         Client.connHTTP2Settings = def {
             http2ClientIdleTimeout           = Just idleTimeout
-          , http2ClientKeepAlivePingInterval  = pingInterval
+          , http2ClientKeepAlivePingInterval = pingInterval
           }
       }
 
