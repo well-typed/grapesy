@@ -27,6 +27,8 @@ module Network.GRPC.Spec (
   , EncodeFields -- opaque
     -- *** Raw
   , RawRpc
+    -- *** CBOR
+  , CborRpc
     -- * Streaming types
   , StreamingType(..)
   , SStreamingType(..)
@@ -187,6 +189,7 @@ import Network.GRPC.Spec.Headers.Response
 import Network.GRPC.Spec.MessageMeta
 import Network.GRPC.Spec.OrcaLoadReport
 import Network.GRPC.Spec.RPC
+import Network.GRPC.Spec.RPC.CBOR
 import Network.GRPC.Spec.RPC.JSON
 import Network.GRPC.Spec.RPC.Protobuf
 import Network.GRPC.Spec.RPC.Raw

@@ -13,6 +13,7 @@ import Test.Regression.Issue238               qualified as Issue238
 import Test.Sanity.Any                        qualified as Any
 import Test.Sanity.BrokenDeployments          qualified as BrokenDeployments
 import Test.Sanity.Cancellation               qualified as Cancellation
+import Test.Sanity.CBOR                       qualified as CBOR
 import Test.Sanity.Compression                qualified as Compression
 import Test.Sanity.EndOfStream                qualified as EndOfStream
 import Test.Sanity.FramesAfterReset           qualified as FramesAfterReset
@@ -38,6 +39,7 @@ main = do
                 StreamingType.NonStreaming.tests
               , StreamingType.CustomFormat.tests
               ]
+          , CBOR.tests
           , Compression.tests
           , Any.tests
           , Interop.tests

@@ -103,6 +103,7 @@ library
       Network.GRPC.Client.StreamType.IO.Binary
       Network.GRPC.Common
       Network.GRPC.Common.Binary
+      Network.GRPC.Common.CBOR
       Network.GRPC.Common.Compression
       Network.GRPC.Common.Exception
       Network.GRPC.Common.Headers
@@ -181,6 +182,7 @@ library
     , proto-lens           >= 0.7     && < 0.8
     , random               >= 1.2     && < 1.4
     , recv                 >= 0.1     && < 0.2
+    , serialise            >= 0.2     && < 0.3
     , stm                  >= 2.5     && < 2.6
     , text                 >= 1.2     && < 2.2
     , time-manager         >= 0.3.2   && < 0.5
@@ -262,6 +264,7 @@ test-suite test-grapesy
       Test.Sanity.Any
       Test.Sanity.BrokenDeployments
       Test.Sanity.Cancellation
+      Test.Sanity.CBOR
       Test.Sanity.Compression
       Test.Sanity.EndOfStream
       Test.Sanity.FramesAfterReset
@@ -308,6 +311,7 @@ test-suite test-grapesy
     , network
     , proto-lens
     , proto-lens-protobuf-types
+    , serialise
     , stm
     , text
     , time-manager
@@ -319,7 +323,6 @@ test-suite test-grapesy
     , filepath           >= 1.4.2.1 && < 1.6
     , proto-lens-runtime >= 0.7     && < 0.8
     , QuickCheck         >= 2.14    && < 2.20
-    , serialise          >= 0.2     && < 0.3
     , tasty              >= 1.4     && < 1.6
     , tasty-hunit        >= 0.10    && < 0.11
     , tasty-quickcheck   >= 0.10    && < 0.12
