@@ -1,5 +1,15 @@
 # Revision history for grapesy
 
+## 1.2.2 -- 2026-10-30
+
+* Support configurable HTTP/2 client idle timeout and keepalive ping, via
+  `http2ClientIdleTimeout` and `http2ClientKeepAlivePingInterval` in
+  `HTTP2Settings` [#228/#380, Adrian Huetter]
+* Support for (non-standard) CBOR RPC [#383, Finley McIlwaine]
+  Requires `grpc-spec >= 1.1.1`.
+* Use `http2-5.4.12`, relax bounds
+* Silence harmless (and hard to prevent) uncaught exceptions in test suite
+
 ## 1.2.1 -- 2026-09-29
 
 * Bump `http2` to 5.4.6

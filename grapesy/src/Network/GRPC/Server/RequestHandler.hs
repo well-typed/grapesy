@@ -33,7 +33,6 @@ import Network.GRPC.Server.HandlerMap (HandlerMap)
 import Network.GRPC.Server.HandlerMap qualified as HandlerMap
 import Network.GRPC.Server.RequestHandler.API
 import Network.GRPC.Server.Session (CallSetupFailure(..))
-import Network.GRPC.Util.GHC
 import Network.GRPC.Util.Session.Server
 
 {-------------------------------------------------------------------------------
@@ -43,8 +42,6 @@ import Network.GRPC.Util.Session.Server
 -- | Construct request handler
 requestHandler :: HandlerMap IO -> ServerContext -> RequestHandler ()
 requestHandler handlers ctxt unmask request respond = do
-    labelThisThread "grapesy:requestHandler"
-
     SomeRpcHandler (_ :: Proxy rpc) handler <-
       findHandler handlers request      `catch` setupFailure params respond
     (call :: Call rpc, mTimeout :: Maybe Timeout) <-

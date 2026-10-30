@@ -1,5 +1,9 @@
 # Revision history for grpc-spec
 
+## 1.1.1 -- 2026-10-30
+
+* Support for (non-standard) CBOR RPC [#383, Finley McIlwaine]
+
 ## 1.1.0 -- 2026-09-02
 
 * Trivial `BuildMetadata` and `ParseMetadata` instances for `[CustomMetadata]`

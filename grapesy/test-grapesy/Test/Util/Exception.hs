@@ -8,7 +8,9 @@ module Test.Util.Exception (
 
 import Control.Concurrent
 import Control.Exception
+import Control.Monad
 import Data.Function ((&))
+import Data.List qualified as List
 import Data.Maybe (fromMaybe)
 import Data.Proxy
 import System.IO
@@ -54,11 +56,20 @@ uncaughtExceptionHandler e = do
 #else
       return $ Just "unknown label"
 #endif
-    hPutStrLn stderr $ concat [
-         "Uncaught exception in "
-      , show tid
-      , " ("
-      , fromMaybe "unlabelled" mLabel
-      , "): "
-      , renderAnyException testFormatCtx e
-      ]
+    -- See 'requestHandlerToServer' for details
+    let shouldIgnore =
+          case mLabel of
+            Nothing  -> False
+            Just lbl -> or [
+                "H2 response sender for stream" `List.isPrefixOf` lbl
+              , lbl == "grapesy:requestHandler:done"
+              ]
+    unless shouldIgnore $
+      hPutStrLn stderr $ concat [
+           "Uncaught exception in "
+        , show tid
+        , " ("
+        , fromMaybe "unlabelled" mLabel
+        , "): "
+        , renderAnyException testFormatCtx e
+        ]

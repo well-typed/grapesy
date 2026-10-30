@@ -1,6 +1,6 @@
 cabal-version:      3.0
 name:               grapesy
-version:            1.2.1
+version:            1.2.2
 synopsis:           Native Haskell implementation of the gRPC framework
 description:        This is a fully compliant and feature complete native Haskell
                     implementation of gRPC, Google's RPC framework.
@@ -169,12 +169,12 @@ library
     , bytestring           >= 0.10.12 && < 0.13
     , conduit              >= 1.3     && < 1.4
     , containers           >= 0.6     && < 0.9
-    , crypton-x509         >= 1.7     && < 1.10
-    , crypton-x509-store   >= 1.6     && < 1.10
-    , crypton-x509-system  >= 1.6     && < 1.10
+    , crypton-x509         >= 1.7     && < 1.11
+    , crypton-x509-store   >= 1.6     && < 1.11
+    , crypton-x509-system  >= 1.6     && < 1.11
     , data-default         >= 0.7     && < 0.9
     , deepseq              >= 1.4     && < 1.6
-    , grpc-spec            >= 1.1     && < 1.2
+    , grpc-spec            >= 1.1.1   && < 1.2
     , http-types           >= 0.12    && < 0.13
     , lens                 >= 5.0     && < 5.4
     , mtl                  >= 2.2     && < 2.4
@@ -185,7 +185,7 @@ library
     , serialise            >= 0.2     && < 0.3
     , stm                  >= 2.5     && < 2.6
     , text                 >= 1.2     && < 2.2
-    , time-manager         >= 0.3.2   && < 0.5
+    , time-manager         >= 0.3.2   && < 0.6
     , tls                  >= 1.7     && < 2.5
     , unbounded-delays     >= 0.1.1   && < 0.2
     , unordered-containers >= 0.2     && < 0.3
@@ -204,10 +204,10 @@ library
   -- any new version should be tested against the full grapesy test suite
   -- (regular tests, stress tests and interop tests).
   build-depends:
-    , http2          == 5.4.6
+    , http2          == 5.4.12
     , http-semantics >= 0.4 && < 0.5
     , http2-tls      >= 0.5 && < 0.6
-    , network-run    >= 0.5 && < 0.7
+    , network-run    >= 0.5 && < 0.8
 
   if(flag(patched-ghc-for-exception-debugging))
     cpp-options: -DPATCHED_GHC_FOR_EXCEPTION_DEBUGGING
@@ -347,6 +347,7 @@ test-suite test-disconnect
       Test.Disconnect.Echo.Client
       Test.Disconnect.Echo.RPC
       Test.Disconnect.Echo.Server
+      Test.Disconnect.Keepalive
       Test.Disconnect.Util.Client
       Test.Disconnect.Util.Exception
       Test.Disconnect.Util.Process

@@ -169,6 +169,22 @@ data HTTP2Settings = HTTP2Settings {
       -- 'maxBound' (effectively turning off protection against RST frame
       -- flooding).
     , http2OverrideRstRateLimit :: Maybe Int
+
+      -- | Idle timeout (microseconds) for the client connection
+      --
+      -- @http2@ closes a connection once it goes this long without reading a
+      -- frame (default 30s). Prefer 'http2ClientKeepAlivePingInterval' for a
+      -- healthy-but-quiet connection; this is only a backstop for when no
+      -- ping is configured. 'Nothing' keeps @http2@'s default. Client only.
+    , http2ClientIdleTimeout :: Maybe Int
+
+      -- | Interval (microseconds) for sending an HTTP\/2 keepalive @PING@
+      --
+      -- Mirrors @grpc-go@'s @keepalive.ClientParameters.Time@: keeps a quiet
+      -- connection from looking dead to a peer that vanished silently (e.g.
+      -- behind a NAT), and resets 'http2ClientIdleTimeout'. Uses @http2@'s
+      -- 'Network.HTTP2.Client.auxSendPing'. 'Nothing' disables it.
+    , http2ClientKeepAlivePingInterval :: Maybe Int
     }
   deriving (Show)
 
@@ -201,6 +217,8 @@ defaultHTTP2Settings = HTTP2Settings {
     , http2OverrideEmptyFrameRateLimit = Nothing
     , http2OverrideSettingsRateLimit   = Nothing
     , http2OverrideRstRateLimit        = Nothing
+    , http2ClientIdleTimeout           = Nothing
+    , http2ClientKeepAlivePingInterval = Nothing
     }
   where
     defMaxConcurrentStreams        = 128
