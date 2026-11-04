@@ -309,7 +309,9 @@ getConnectionToServer Connection{connStateVar} = atomically $ do
       ConnectionNotReady              -> STM.retry
       ConnectionReady connClosed conn -> return (connClosed, conn)
       ConnectionAbandoned err         -> STM.throwSTM err
-      ConnectionOutOfScope            -> error "impossible"
+
+      -- This can only happen if the 'Connection' object is not scoped properly.
+      ConnectionOutOfScope -> error "connection used after closeConnection"
 
 -- | Get outbound compression algorithm
 --

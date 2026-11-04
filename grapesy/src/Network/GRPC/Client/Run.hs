@@ -122,6 +122,14 @@ openConnection connParams server = do
     pure Connection {connParams, connMetaVar, connStateVar, connOutOfScope}
 
 -- | Close a connection to the server.
+--
+-- Like most things in @grapesy@, 'closeConnection' is asynchronous: the
+-- socket /will/ be closed after calling 'closeConnection', but may still be
+-- open when 'closeConnection' returns.
+--
+-- If a 'Connection' has /failed/, 'closeConnection' may race with the reconnect
+-- policy: after 'closeConnection', the reconnect policy may be run at most once
+-- more (and so at most one more connection attempt may be made).
 closeConnection :: Connection -> IO ()
 closeConnection conn = putMVar (connOutOfScope conn) ()
 
@@ -224,12 +232,20 @@ stayConnected connParams initialServer connStateVar connOutOfScope = do
             ServerUnix path ->
               connectUnix connParams attempt path
 
+        -- The connection failing does not imply that it wasn't /also/ closed;
+        -- if that is the case, we should not try to reconnect.
+        connWasClosed <- not <$> isEmptyMVar connOutOfScope
+
         -- Notify any running RPC on this now-dead connection.
         atomically $ STM.putTMVar (attemptClosed attempt) mRes
 
         case mRes of
           Right () ->
             -- Connection was closed deliberately.
+            atomically $ STM.writeTVar connStateVar $ ConnectionOutOfScope
+          Left _err | connWasClosed ->
+            -- The HTTP connection failed or was lost, but the 'Connection' was
+            -- closed so no need to reconnect, and we can ignore the error.
             atomically $ STM.writeTVar connStateVar $ ConnectionOutOfScope
           Left err | isFatalException err ->
             -- Don't try to reconnect after a fatal exception
