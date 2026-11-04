@@ -9,8 +9,6 @@ packages:
   , ./tutorials/conduit
   , ./tutorials/trailers-only
 
-packages: garp
-
 tests: True
 benchmarks: True
 
