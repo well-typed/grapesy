@@ -302,7 +302,7 @@ data Server =
 getConnectionToServer :: forall.
      HasCallStack
   => Connection
-  -> IO (TMVar (Maybe ExactException), Session.ConnectionToServer)
+  -> IO (TMVar (Either ExactException ()), Session.ConnectionToServer)
 getConnectionToServer Connection{connStateVar} = atomically $ do
     connState <- STM.readTVar connStateVar
     case connState of
@@ -341,8 +341,14 @@ data ConnectionState =
 
     -- | The connection is ready
     --
-    -- The nested @TMVar@ is written to when the connection is closed.
-  | ConnectionReady (TMVar (Maybe ExactException)) Session.ConnectionToServer
+    -- The 'TMVar' belongs to /one/ connection attempt. It is written exactly
+    -- once, when that HTTP/2 connection ends: @Right ()@ if it was shut down
+    -- ('closeConnection'), @Left err@ if it was lost.
+    --
+    -- RPCs started on this connection monitor it, so that they are
+    -- closed when the connection they are using goes away, even if the
+    -- 'Connection' as a whole reconnects.
+  | ConnectionReady (TMVar (Either ExactException ())) Session.ConnectionToServer
 
     -- | We gave up trying to (re)establish the connection
   | ConnectionAbandoned ExactException

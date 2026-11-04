@@ -145,27 +145,38 @@ isFatalException (WrapExactException err)
 --
 -- This is an internal data structure used only in 'stayConnected' and helpers.
 data Attempt = ConnectionAttempt {
-      attemptParams       :: ConnParams
-    , attemptOnConnection :: OnConnection
-    , attemptState        :: TVar ConnectionState
-    , attemptOutOfScope   :: MVar ()
-    , attemptClosed       :: TMVar (Maybe ExactException)
+      -- | Action to run upon successful (re)connection to a server
+      --
+      -- On the first attempt this is 'connOnConnection'.
+      -- After reconnecting, this may be replaced by 'onReconnect'.
+      attemptOnConnection :: OnConnection
+
+      -- | Connection state
+      --
+      -- This is shared across all attempts (@connStateVar@)
+    , attemptState :: TVar ConnectionState
+
+      -- | Connection scope
+      --
+      -- This too is shared across all attempts (@connOutOfScope@).
+      -- Only filled in 'closeConnection'.
+    , attemptOutOfScope :: MVar ()
+
+      -- | State of the /current/ attempt
+      --
+      -- See 'ConnectionReady' for discussion.
+    , attemptClosed :: TMVar (Either ExactException ())
     }
 
 newConnectionAttempt ::
-     ConnParams
-  -> OnConnection
+     OnConnection
   -> TVar ConnectionState
   -> MVar ()
   -> IO Attempt
-newConnectionAttempt attemptParams
-                     attemptOnConnection
-                     attemptState
-                     attemptOutOfScope = do
+newConnectionAttempt attemptOnConnection attemptState attemptOutOfScope = do
     attemptClosed <- STM.newEmptyTMVarIO
     return ConnectionAttempt{
-        attemptParams
-      , attemptOnConnection
+        attemptOnConnection
       , attemptState
       , attemptOutOfScope
       , attemptClosed
@@ -187,7 +198,7 @@ stayConnected connParams initialServer connStateVar connOutOfScope = do
     loop :: Server -> OnConnection -> ReconnectPolicy -> IO ()
     loop server onConnection remainingReconnectPolicy = do
         -- Start new attempt (this just allocates some internal state)
-        attempt <- newConnectionAttempt connParams onConnection connStateVar connOutOfScope
+        attempt <- newConnectionAttempt onConnection connStateVar connOutOfScope
 
         -- Just like in 'runHandler' on the server side, it is important that
         -- 'stayConnected' runs in a separate thread. If it does not, then the
@@ -200,6 +211,10 @@ stayConnected connParams initialServer connStateVar connOutOfScope = do
         -- is the low-level exception reported by @http2@ (something about
         -- stream errors), rather than the informative gRPC exception we want.
 
+        -- Connect to the server.
+        --
+        -- This only returns after 'closeConnection', or when the connection
+        -- fails or is lost.
         mRes <- tryExact $
           case server of
             ServerInsecure addr ->
@@ -209,46 +224,53 @@ stayConnected connParams initialServer connStateVar connOutOfScope = do
             ServerUnix path ->
               connectUnix connParams attempt path
 
-        thisReconnectPolicy <- atomically $ do
-          STM.putTMVar (attemptClosed attempt) $ either Just (\() -> Nothing) mRes
-          connState <- STM.readTVar connStateVar
-          return $ case connState of
-            ConnectionReady{}->
-              -- Suppose we have a maximum of 5x to try and connect to a server.
-              -- Then if we manage to connect, and /then/ lose the connection,
-              -- we should have those same 5x tries again.
-              connReconnectPolicy connParams
-            _otherwise ->
-              remainingReconnectPolicy
+        -- Notify any running RPC on this now-dead connection.
+        atomically $ STM.putTMVar (attemptClosed attempt) mRes
 
         case mRes of
-          Right () -> do
+          Right () ->
+            -- Connection was closed deliberately.
             atomically $ STM.writeTVar connStateVar $ ConnectionOutOfScope
-          Left err
-            | isFatalException err ->
-                atomically $ STM.writeTVar connStateVar $ ConnectionAbandoned err
-            | otherwise -> do
-                -- Mark the connection as not ready /before/ running the reconnt
-                -- policy. This prevents any attempts to use the connection
-                -- while the policy is running.
-                atomically $ STM.writeTVar connStateVar $ ConnectionNotReady
-                runReconnectPolicy thisReconnectPolicy >>= \case
-                  DontReconnect -> do
-                    atomically $ STM.writeTVar connStateVar $ ConnectionAbandoned err
-                  DoReconnect reconnect -> do
-                    let
-                      nextServer =
-                        case reconnectTo reconnect of
-                          ReconnectToPrevious -> server
-                          ReconnectToOriginal -> initialServer
-                          ReconnectToNew new  -> new
+          Left err | isFatalException err ->
+            -- Don't try to reconnect after a fatal exception
+            atomically $ STM.writeTVar connStateVar $ ConnectionAbandoned err
+          Left err -> do
+            -- Connection failed or was lost: check the reconnect policy.
+            thisReconnectPolicy <- atomically $ do
+              connState <- STM.readTVar connStateVar
+              return $ case connState of
+                ConnectionReady{}->
+                  -- After a successful connection, reset the reconnect policy.
+                  --
+                  -- Suppose we have a maximum of 5x to try and connect to a
+                  -- server. Then if we manage to connect, and /then/ lose the
+                  -- connection, we should have those same 5x tries again.
+                  connReconnectPolicy connParams
+                _otherwise ->
+                  remainingReconnectPolicy
 
-                      onReconnect' =
-                        case onReconnect reconnect of
-                          Just act -> act
-                          Nothing  -> connOnConnection connParams
+            -- Mark the connection as not ready /before/ running the reconnect
+            -- policy. This prevents any attempts to use the connection while
+            -- the policy is running.
+            atomically $ STM.writeTVar connStateVar $ ConnectionNotReady
+            runReconnectPolicy thisReconnectPolicy >>= \case
+              DontReconnect -> atomically $ do
+                STM.writeTVar connStateVar $ ConnectionAbandoned err
+              DoReconnect reconnect -> do
+                let nextServer :: Server
+                    nextServer =
+                      case reconnectTo reconnect of
+                        ReconnectToPrevious -> server
+                        ReconnectToOriginal -> initialServer
+                        ReconnectToNew new  -> new
 
-                    loop nextServer onReconnect' $ nextPolicy reconnect
+                    onReconnect' :: OnConnection
+                    onReconnect' =
+                      case onReconnect reconnect of
+                        Just act -> act
+                        Nothing  -> connOnConnection connParams
+
+                loop nextServer onReconnect' (nextPolicy reconnect)
 
 -- | Unix domain socket connection
 connectUnix :: ConnParams -> Attempt -> FilePath -> IO ()

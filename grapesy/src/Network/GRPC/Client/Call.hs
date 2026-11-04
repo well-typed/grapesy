@@ -237,9 +237,9 @@ startRPC conn _ callParams = do
           let exitReason :: ExitCase ()
               exitReason =
                 case mErr of
-                  Nothing ->
+                  Right () ->
                     ExitCaseSuccess ()
-                  Just exitWithException ->
+                  Left exitWithException ->
                     ExitCaseException . toException $
                       serverDisconnected backtrace exitWithException
           Session.close channel exitReason
