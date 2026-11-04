@@ -290,10 +290,11 @@ stayConnected connParams initialServer connStateVar connOutOfScope = do
 
 -- | Unix domain socket connection
 connectUnix :: ConnParams -> Attempt -> FilePath -> IO ()
-connectUnix connParams attempt path = do
-  client <- Socket.socket Socket.AF_UNIX Socket.Stream Socket.defaultProtocol
-  Socket.connect client $ Socket.SockAddrUnix path
-  connectSocket connParams attempt "localhost" client
+connectUnix connParams attempt path =
+    bracket (Socket.socket Socket.AF_UNIX Socket.Stream Socket.defaultProtocol)
+             Socket.close $ \sock -> do
+      Socket.connect sock $ Socket.SockAddrUnix path
+      connectSocket connParams attempt "localhost" sock
 
 -- | Insecure connection (no TLS)
 connectInsecure :: ConnParams -> Attempt -> Address -> IO ()
