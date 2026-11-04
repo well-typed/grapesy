@@ -8,6 +8,10 @@ module Network.GRPC.Client.Call (
     Call -- opaque
   , withRPC
 
+    -- ** Cancellation
+  , setOnCancellation
+  , expectCancellation
+
     -- * Open (ongoing) call
   , sendInput
   , recvOutput
@@ -39,7 +43,9 @@ import Control.Concurrent.Thread.Delay qualified as UnboundedDelays
 import Control.Monad.Catch (MonadMask)
 import Control.Monad.Catch qualified as Exceptions
 import Data.ByteString.Char8 qualified as BS.Strict.C8
+import Data.IORef
 import Data.Text qualified as Text
+import GHC.IO (unsafeUnmask)
 
 import Network.GRPC.Client.Connection (Connection, ConnParams(..))
 import Network.GRPC.Client.Connection qualified as Connection
@@ -65,7 +71,8 @@ import Network.GRPC.Util.Version qualified as Grapesy
 --
 -- This type is kept abstract (opaque) in the public facing API.
 data Call rpc = SupportsClientRpc rpc => Call {
-      callChannel :: Session.Channel (ClientSession rpc)
+      callChannel        :: Session.Channel (ClientSession rpc)
+    , callOnCancellation :: IORef (GrpcException -> IO ())
     }
 
 -- | Scoped RPC call
@@ -79,29 +86,23 @@ data Call rpc = SupportsClientRpc rpc => Call {
 -- > withRPC conn def (Proxy @ListFeatures) $ \call -> do
 -- >   .. use 'call' to send and receive messages
 --
--- for some previously established connection 'conn'
--- (see 'Network.GRPC.Client.withConnection') and where @ListFeatures@ is some
--- kind of RPC.
+-- for some previously established connection @conn@ (see
+-- 'Network.GRPC.Client.withConnection') and where @ListFeatures@ is some kind
+-- of RPC.
 --
--- The call is setup in the background, and might not yet have been established
--- when the body is run. If you want to be sure that the call has been setup,
+-- The call is set up in the background, and might not yet have been established
+-- when the body is run. If you want to be sure that the call has been set up,
 -- you can call 'recvResponseMetadata'.
 --
--- Leaving the scope of 'withRPC' before the client informs the server that they
--- have sent their last message (using 'sendInput' or 'sendEndOfInput') is
--- considered a cancellation, and accordingly throws a 'GrpcException' with
--- 'GrpcCancelled' (see also <https://grpc.io/docs/guides/cancellation/>).
---
--- There is one exception to this rule: if the server unilaterally closes the
--- RPC (that is, the server already sent the trailers), then the call is
--- considered closed and the cancellation exception is not raised. Under normal
--- circumstances (with well-behaved server handlers) this should not arise.
--- (The gRPC specification itself is not very specific about this case; see
--- discussion at <https://stackoverflow.com/questions/55511528/should-grpc-server-side-half-closing-implicitly-terminate-the-client>.)
---
--- If there are still /inbound/ messages upon leaving the scope of 'withRPC' no
--- exception is raised (but the call is nonetheless still closed, and the server
--- handler will be informed that the client has disappeared).
+-- Leaving the scope of 'withRPC' before the call has finished (in particular,
+-- before the client has read all outputs from the server) is considered a
+-- cancellation: the server is sent a @RST_STREAM@ with error code @CANCEL@ and,
+-- by default, a 'GrpcException' with 'GrpcCancelled' is raised in the client.
+-- If the cancellation is deliberate, use 'expectCancellation' (or
+-- 'setOnCancellation') to avoid the exception. If the client throws an
+-- exception or otherwise aborts, the server is instead sent a @RST_STREAM@ with
+-- error code @INTERNAL_ERROR@, and the exception (or abort) is propagated
+-- as-is.
 --
 -- Note on timeouts: if a timeout is specified for the call (either through
 -- 'callTimeout' or through 'connDefaultTimeout'), when the timeout is reached
@@ -114,11 +115,37 @@ withRPC :: forall rpc m a.
   => Connection -> CallParams rpc -> Proxy rpc -> (Call rpc -> m a) -> m a
 withRPC conn callParams proxy k = fmap fst $
     Exceptions.generalBracket
-      (liftIO $
-         startRPC conn proxy callParams)
-      (\(Call{callChannel}, cancelRequest) exitCase -> liftIO $
-         closeRPC callChannel cancelRequest exitCase)
-      (k . fst)
+      ( liftIO $
+          startRPC conn proxy callParams
+      )
+      (\(call, cancelRequest) exitCase -> liftIO $
+          closeRPC call cancelRequest exitCase
+      )
+      ( k . fst )
+
+-- | Action to run when an RPC is cancelled
+--
+-- When we leave the scope of 'withRPC' before the call is finished, this
+-- amounts to a /cancellation/ (see 'withRPC' for detailed discussion). By
+-- default, @grapesy@ will throw a 'GrpcException' in the client when this
+-- happens (as well as informing the server), as suggested by the gRPC spec.
+-- When cancellation is deliberate, 'setOnCancellation' or 'expectCancellation'
+-- can be used to override this behaviour.
+--
+-- The handler is only called if the client terminates normally (not when it
+-- throws an exception or otherwise aborts).
+--
+-- See also <https://grpc.io/docs/guides/cancellation/>.
+setOnCancellation :: MonadIO m => Call rpc -> (GrpcException -> IO ()) -> m ()
+setOnCancellation Call{callOnCancellation} =
+    liftIO . writeIORef callOnCancellation
+
+-- | Expect cancellation
+--
+-- Prevents a 'GrpcException' being raised in the client when it cancels an RPC.
+-- See also 'setOnCancellation'.
+expectCancellation :: MonadIO m => Call rpc -> m ()
+expectCancellation call = setOnCancellation call $ \_ -> return ()
 
 -- | Open new channel to the server
 --
@@ -244,7 +271,8 @@ startRPC conn _ callParams = do
                       serverDisconnected backtrace exitWithException
           Session.close channel exitReason
 
-    return (Call channel, cancelRequest)
+    onCancellation <- newIORef throwM
+    return (Call channel onCancellation, cancelRequest)
   where
     connParams :: ConnParams
     connParams = Connection.connParams conn
@@ -296,10 +324,9 @@ startRPC conn _ callParams = do
 --
 -- This is more subtle than one might think. The spec mandates that when a
 -- client cancels a request (which in grapesy means exiting the scope of
--- withRPC), the client receives a CANCELLED exception. We need to deal with the
--- edge case mentioned in 'withRPC', however: the server might have already
--- closed the connection. The client must have evidence that this is the case,
--- which could mean one of two things:
+-- withRPC), the client receives a CANCELLED exception.
+--
+-- We consider closing to be cancellation, /unless/
 --
 -- o The client received the final message from the server
 -- o The server threw an exception, and the client saw this
@@ -323,7 +350,7 @@ startRPC conn _ callParams = do
 -- o <https://github.com/grpc/grpc/blob/master/doc/interop-test-descriptions.md#cancel_after_first_response>
 closeRPC ::
      HasCallStack
-  => Session.Channel rpc
+  => Call rpc
   -> Session.CancelRequest
   -> ExitCase a
      -- ^ Reason for closing the connection
@@ -333,21 +360,22 @@ closeRPC ::
      -- o Further interaction with the connection will throw an exception
      --   reflecting the reason that the connection was closed.
      --
-     -- o If 'closeRPC' is called /before/ the client sent their final message
-     --   to the server, the server is sent a @RST_FRAME@. The error code in
-     --   the @RST_FRAME@ depends on the 'ExitCase':
+     -- o If 'closeRPC' is called /before/ the call is finished, the server is
+     --   sent a @RST_STREAM@. The error code in the @RST_STREAM@ depends on the
+     --   'ExitCase':
      --
      --   a. If the 'ExitCase' is 'ExitCaseSuccess', indicating that the client
      --      terminated normally, this is interpreted as the client cancelling
-     --      the request. The error code in the @RST_FRAME@ will therefore be
-     --      @CANCEL@, and a 'GrpcCancelled' exception is raised in the thread
-     --      calling 'closeRPC' (as mandated by the gRPC spec).
-     --   b. If not, the client terminated with an exception; since gRPC does
-     --      not support client-side trailers, we have no way of communicating
-     --      the nature of the client error to the client; instead, the
-     --      @RST_FRAME@ will have error code @INTERNAL_ERROR@.
+     --      the request. The error code in the @RST_STREAM@ will therefore be
+     --      @CANCEL@, and by default a 'GrpcCancelled' exception is raised in
+     --      the thread calling 'closeRPC' (as mandated by the gRPC spec); see
+     --      also 'setOnCancellation'.
+     --   b. If not, the client terminated with an exception or aborted; since
+     --      gRPC does not support client-side trailers, we have no way of
+     --      communicating the nature of the client error to the server;
+     --      instead, the @RST_STREAM@ will have error code @INTERNAL_ERROR@.
   -> IO ()
-closeRPC callChannel cancelRequest exitCase = do
+closeRPC Call{callChannel, callOnCancellation} cancelRequest exitCase = do
     backtrace  <- collectBacktraces
     canDiscard <- checkCanDiscard
 
@@ -362,12 +390,13 @@ closeRPC callChannel cancelRequest exitCase = do
     unless canDiscard $ sendResetFrame backtrace
     Session.close callChannel exitCase
 
-    -- Throw the gRPC mandated local 'GrpcCancelled' exception, unless the
-    -- client itself already terminated with an exception
+    -- Unless the client itself terminated with an exception or an abort (which
+    -- would be propagated by generalBracket), throw the gRPC mandated local
+    -- 'GrpcCancelled' exception (though see 'setOnCancellation').
     unless canDiscard $
       case exitCase of
-        ExitCaseException e -> throwIO e
-        _otherwise          -> throwCancelled backtrace
+        ExitCaseSuccess{} -> throwCancelled backtrace
+        _otherwise        -> return ()
   where
     sendResetFrame :: Backtraces -> IO ()
     sendResetFrame backtrace = do
@@ -391,7 +420,12 @@ closeRPC callChannel cancelRequest exitCase = do
 
     throwCancelled :: Backtraces -> IO ()
     throwCancelled backtrace = do
-        throwM $ GrpcException {
+        onCancellation <- readIORef callOnCancellation
+        -- We are in the @release@ handler of @generalBracket@ here, but all
+        -- cleanup has been done so it's safe to unmask exceptions; running
+        -- arbitrary user code ('setOnCancellation') with exceptions masked
+        -- may be problematic.
+        unsafeUnmask $ onCancellation $ GrpcException {
             grpcError         = GrpcCancelled
           , grpcErrorMessage  = Just $ mconcat [
                                     "Channel discarded by client at "

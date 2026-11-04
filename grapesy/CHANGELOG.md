@@ -1,5 +1,12 @@
 # Revision history for grapesy
 
+## 1.2.3 -- Not yet released
+
+* Update haddocks for `withRPC` for the changes made in 1.2.0 [#391]
+* Add `setOnCancellation` and `expectCancellation` [#391]
+* If a call is cancelled by the client aborting, that abort is propagated
+  (previously a `GrpcException` would be thrown instead).
+
 ## 1.2.2 -- 2026-10-30
 
 * Support configurable HTTP/2 client idle timeout and keepalive ping, via
@@ -19,13 +26,18 @@
 ## 1.2.0 -- 2026-09-02
 
 * Use `http2-5.4.4` (which brings in `crypton-1.1.*`).
-* Improve handling of of `http2` exceptions
+* Improve handling of `http2` exceptions
 * Reduce test-suite flakiness
 * `recvNextOutputElem` checks trailing metadata [#369]
-* Send `RST_STREAM` even if client has already sent their final message [#372].
-  The RST_STREAM tells the server that the client is no longer interested in
-  receiving any more messages from the server; it's therefore independent from
-  whether or not the client has sent _its_ final message _to_ the server.
+* Consider leaving the scope of `withRPC` to be a cancellation until the call is
+  finished (sending `RST_STREAM` to the server and raising a `GrpcException`
+  with `GrpcCancelled` in the client), even if the client has already sent their
+  final message [#372]. The `RST_STREAM` tells the server that the client is no
+  longer interested in receiving any more messages from the server; it's
+  therefore independent from whether or not the client has sent _its_ final
+  message _to_ the server.
+  **NOTE**: While this change was made in version 1.2.0, the Haddocks were not
+  updated until version 1.2.3.
 * The set of trailers included in a response no longer need to be static per
   RPC, but can vary based on the request; see
   `setResponseInitialMetadataAndTrailers` [#375]
