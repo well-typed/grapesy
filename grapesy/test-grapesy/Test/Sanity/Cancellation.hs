@@ -45,21 +45,37 @@ tests = testGroup "Test.Sanity.Cancellation" [
           testCase "beforeHalfClosed" $
             testReset
               Client.sendNextInput
-              (return ())
+              (\_ -> return ())
+              checkClientThrowsCancelled
         , testCase "afterHalfClosed" $
             testReset
               Client.sendFinalInput
-              (return ())
+              (\_ -> return ())
+              checkClientThrowsCancelled
+        ]
+    , testGroup "expectCancellation" [
+          testCase "beforeHalfClosed" $
+            testReset
+              Client.sendNextInput
+              Client.expectCancellation
+              checkClientTerminatesNormally
+        , testCase "afterHalfClosed" $
+            testReset
+              Client.sendFinalInput
+              Client.expectCancellation
+              checkClientTerminatesNormally
         ]
     , testGroup "withException" [
           testCase "beforeHalfClosed" $
             testReset
               Client.sendNextInput
-              (throwIO $ DeliberateClientException 1)
+              (\_ -> throwIO $ DeliberateClientException 1)
+              checkClientThrowsDeliberate
         , testCase "afterHalfClosed" $
             testReset
               Client.sendFinalInput
-              (throwIO $ DeliberateClientException 1)
+              (\_ -> throwIO $ DeliberateClientException 1)
+              checkClientThrowsDeliberate
         ]
     ]
 
@@ -71,11 +87,12 @@ testReset ::
      (Client.Call EchoUntilCancelled -> Lazy.ByteString -> IO ())
      -- ^ How should we send the input?
      -- ('sendNextInput', 'sendFinalInput')
-  -> IO ()
+  -> (Client.Call EchoUntilCancelled -> IO ())
      -- ^ How should the client exit the scope of 'withRPC'?
-     -- (@return ()@, @throwIO@)
+  -> (IO () -> IO ())
+     -- ^ How should we verify the client's result?
   -> Assertion
-testReset sendInput leaveScope = do
+testReset sendInput leaveScope checkClientException = do
     resultVar <- newEmptyMVar
     testClientServer ClientServerTest{
         config = def
@@ -86,7 +103,7 @@ testReset sendInput leaveScope = do
               sendInput call "ABCDE"
               resp <- Client.recvOutput call
               assertEqual "" (StreamElem "ABCDE") $ resp
-              leaveScope
+              leaveScope call
 
           handlerResult <- readMVar resultVar
           case handlerResult of
@@ -139,11 +156,9 @@ handleEchoUntilCancelled resultVar = Server.mkRpcHandler $ \call -> do
   Expected exceptions
 -------------------------------------------------------------------------------}
 
--- | Check client-side exception
---
--- We expected 'GrpcCancelled' unless the client threw an exception itself.
-checkClientException :: IO () -> IO ()
-checkClientException client = do
+-- | Check client throws gRPC exception
+checkClientThrowsCancelled :: IO () -> IO ()
+checkClientThrowsCancelled client = do
     clientResult :: Either ExactException () <- E.try client
     case clientResult of
       Right () ->
@@ -152,11 +167,31 @@ checkClientException client = do
                  <- E.fromException (unwrapExactException e)
              , grpcError e' == GrpcCancelled ->
         return ()
+      Left e ->
+        assertFailure $ "Unexpected " ++ show e
+
+-- | Check client throws deliberate exception (and /not/ 'GrpcException')
+checkClientThrowsDeliberate :: IO () -> IO ()
+checkClientThrowsDeliberate client = do
+    clientResult :: Either ExactException () <- E.try client
+    case clientResult of
+      Right () ->
+        assertFailure "Expected client exception"
       Left e | Just DeliberateClientException{}
                  <- E.fromException (unwrapExactException e) ->
         return ()
-      _otherwise ->
-        assertFailure $ "Unexpected " ++ show clientResult
+      Left e ->
+        assertFailure $ "Unexpected " ++ show e
+
+-- | Check client terminates normally
+checkClientTerminatesNormally :: IO () -> IO ()
+checkClientTerminatesNormally client = do
+    clientResult :: Either ExactException () <- E.try client
+    case clientResult of
+      Right () ->
+        return ()
+      Left e ->
+        assertFailure $ "Unexpected " ++ show e
 
 -- | Check server-side exception
 --

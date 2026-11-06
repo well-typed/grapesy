@@ -30,6 +30,10 @@ module Network.GRPC.Client (
   , Call -- opaque
   , withRPC
 
+    -- ** Cancellation
+  , setOnCancellation
+  , expectCancellation
+
     -- ** Parameters
   , CallParams -- opaque
   , callTimeout
