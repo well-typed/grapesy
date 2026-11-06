@@ -1,11 +1,12 @@
 # Revision history for grapesy
 
-## 1.2.3 -- Not yet released
+## 1.2.3 -- 2026-11-06
 
 * Update haddocks for `withRPC` for the changes made in 1.2.0 [#391]
 * Add `setOnCancellation` and `expectCancellation` [#391]
 * If a call is cancelled by the client aborting, that abort is propagated
   (previously a `GrpcException` would be thrown instead).
+* Use `http2-5.4.13`.
 
 ## 1.2.2 -- 2026-10-30
 
